@@ -775,7 +775,7 @@ static void UIDrawTooltip(int id)
 static void UIDrawStats(player_t *player)
 {
     char buf[48];
-    int x = UI_BP_X, y = 108;
+    int x = UI_BP_X, y = 118;
 
     UIDrawText(x, y, "STATS");
     y += 12;
