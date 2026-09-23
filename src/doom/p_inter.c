@@ -324,6 +324,155 @@ P_GivePower
 
 
 
+// --------------------------------------------------------------------
+// Diablo loot system (mod).
+//
+// Every slain monster has a chance to drop loot.  Loot comes in five
+// rarity tiers, each with its own pool of Diablo-universe item names.
+// Drop odds are deliberately generous so uniques actually show up.
+// --------------------------------------------------------------------
+
+static const char *loot_normal_names[] =
+{
+    "Short Sword", "Leather Armor", "Buckler", "Cap",
+    "Sash", "Healing Potion", "Mana Potion", "Rancid Gas Potion"
+};
+
+static const char *loot_magic_names[] =
+{
+    "Cruel War Axe", "King's Long Sword", "Vampiric Bone Shield",
+    "Prismatic Amulet", "Lizard's Ring", "Soldier's Chain Mail"
+};
+
+static const char *loot_rare_names[] =
+{
+    "Doombringer", "Stormlash", "Soulrender", "Demonhorn Edge",
+    "Nightmare Coil", "Grimward", "Bloodletter", "Fleshrender"
+};
+
+static const char *loot_set_names[] =
+{
+    "Tal Rasha's Horadric Crest", "Immortal King's Soul Cage",
+    "Trang-Oul's Guise", "M'avina's True Sight",
+    "Natalya's Shadow", "Griswold's Valor",
+    "Berserker's Hatchet", "Sazabi's Cobalt Redeemer"
+};
+
+static const char *loot_unique_names[] =
+{
+    "Stone of Jordan", "Harlequin Crest", "The Grandfather",
+    "Windforce", "Arkaine's Valor", "Mara's Kaleidoscope",
+    "Bul-Kathos' Wedding Band", "Titan's Revenge",
+    "Lidless Wall", "Skin of the Vipermagi",
+    "Thundergod's Vigor", "Raven Frost"
+};
+
+static const char **loot_tables[] =
+{
+    loot_normal_names,
+    loot_magic_names,
+    loot_rare_names,
+    loot_set_names,
+    loot_unique_names
+};
+
+static const int loot_counts[] = { 8, 6, 8, 8, 12 };
+
+// Message buffer for the pickup announcement.
+static char lootmsg[160];
+
+// Roll loot for a dead monster and spawn the pickup.
+static void P_DropDiabloLoot(mobj_t *target)
+{
+    int r, roll;
+    mobjtype_t type;
+    mobj_t *mo;
+
+    // 70% chance that a kill drops something at all.
+    r = P_Random();
+    if (r >= 179)
+        return;
+
+    // Rarity roll (generous odds):
+    //   unique ~6%, set ~9%, rare ~20%, magic ~40%, normal ~25%
+    roll = P_Random();
+    if (roll < 15)
+        type = MT_LOOT_UNIQUE;
+    else if (roll < 38)
+        type = MT_LOOT_SET;
+    else if (roll < 89)
+        type = MT_LOOT_RARE;
+    else if (roll < 191)
+        type = MT_LOOT_MAGIC;
+    else
+        type = MT_LOOT_NORMAL;
+
+    mo = P_SpawnMobj(target->x, target->y, ONFLOORZ, type);
+    mo->flags |= MF_DROPPED;
+}
+
+// Give the player a random item of the given rarity tier (0-4).
+static void P_GiveDiabloLoot(player_t *player, int tier)
+{
+    const char *name;
+    int i;
+
+    name = loot_tables[tier][P_Random() % loot_counts[tier]];
+
+    switch (tier)
+    {
+      case 0: // normal
+        player->health += 15;
+        if (player->health > 200)
+            player->health = 200;
+        player->mo->health = player->health;
+        snprintf(lootmsg, sizeof(lootmsg), "Picked up %s.", name);
+        break;
+
+      case 1: // magic
+        player->health += 30;
+        if (player->health > 200)
+            player->health = 200;
+        player->mo->health = player->health;
+        player->armorpoints += 25;
+        if (!player->armortype)
+            player->armortype = 1;
+        snprintf(lootmsg, sizeof(lootmsg), "Magic item: %s!", name);
+        break;
+
+      case 2: // rare
+        player->health += 60;
+        if (player->health > 200)
+            player->health = 200;
+        player->mo->health = player->health;
+        P_GiveArmor(player, 1);
+        snprintf(lootmsg, sizeof(lootmsg), "Rare item: %s!!", name);
+        break;
+
+      case 3: // set
+        if (player->health < 150)
+            player->health = 150;
+        player->mo->health = player->health;
+        P_GiveArmor(player, 2);
+        P_GiveAmmo(player, am_shell, 20);
+        P_GiveAmmo(player, am_clip, 50);
+        snprintf(lootmsg, sizeof(lootmsg), "Set item: %s!!", name);
+        break;
+
+      default: // unique
+        player->health = 200;
+        player->mo->health = player->health;
+        P_GiveArmor(player, 2);
+        for (i = am_clip; i < NUMAMMO; ++i)
+            player->ammo[i] = player->maxammo[i];
+        snprintf(lootmsg, sizeof(lootmsg), "*** UNIQUE: %s ***", name);
+        break;
+    }
+
+    player->message = lootmsg;
+}
+
+
 //
 // P_TouchSpecialThing
 //
@@ -354,6 +503,21 @@ P_TouchSpecialThing
     // Can happen with a sliding player corpse.
     if (toucher->health <= 0)
 	return;
+
+    // Diablo loot system: loot reuses stock sprites, so identify
+    // it by mobj type before the sprite-based switch below.
+    if (special->type >= MT_LOOT_NORMAL && special->type <= MT_LOOT_UNIQUE)
+    {
+        int loot_type = special->type; // save before P_RemoveMobj
+        P_GiveDiabloLoot(player, loot_type - MT_LOOT_NORMAL);
+        P_RemoveMobj(special);
+        player->bonuscount += BONUSADD;
+        if (player == &players[consoleplayer])
+            S_StartSound(NULL,
+                         loot_type >= MT_LOOT_SET ? sfx_getpow
+                                                : sfx_itemup);
+        return;
+    }
 
     // Identify by sprite.
     switch (special->sprite)
@@ -742,6 +906,12 @@ P_KillMobj
     if (gameversion == exe_chex)
     {
         return;
+    }
+
+    // Diablo loot system: slain monsters drop loot.
+    if ((target->flags & MF_COUNTKILL) && target->player == NULL)
+    {
+        P_DropDiabloLoot(target);
     }
 
     // Drop stuff.

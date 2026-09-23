@@ -1294,6 +1294,14 @@ typedef enum {
     MT_MISC84,
     MT_MISC85,
     MT_MISC86,
+
+    // Diablo loot system (mod): monster drop pickups, by rarity
+    MT_LOOT_NORMAL,
+    MT_LOOT_MAGIC,
+    MT_LOOT_RARE,
+    MT_LOOT_SET,
+    MT_LOOT_UNIQUE,
+
     NUMMOBJTYPES
 
 } mobjtype_t;

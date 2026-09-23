@@ -4657,6 +4657,137 @@ mobjinfo_t mobjinfo[NUMMOBJTYPES] = {
 	sfx_None,		// activesound
 	MF_NOBLOCKMAP,		// flags
 	S_NULL		// raisestate
-    }
+    },
+
+    {
+		// MT_LOOT_NORMAL
+	-1,		// doomednum (never placed on map; spawned at runtime)
+	S_BON1,		// spawnstate (reuses stock sprite)
+	1000,		// spawnhealth
+	S_NULL,		// seestate
+	sfx_None,		// seesound
+	8,		// reactiontime
+	sfx_None,		// attacksound
+	S_NULL,		// painstate
+	0,		// painchance
+	sfx_None,		// painsound
+	S_NULL,		// meleestate
+	S_NULL,		// missilestate
+	S_NULL,		// deathstate
+	S_NULL,		// xdeathstate
+	sfx_None,		// deathsound
+	0,		// speed
+	20*FRACUNIT,		// radius
+	16*FRACUNIT,		// height
+	100,		// mass
+	0,		// damage
+	sfx_None,		// activesound
+	MF_SPECIAL|MF_COUNTITEM,		// flags
+	S_NULL		// raisestate
+    },
+    {
+		// MT_LOOT_MAGIC
+	-1,		// doomednum (never placed on map; spawned at runtime)
+	S_BON2,		// spawnstate (reuses stock sprite)
+	1000,		// spawnhealth
+	S_NULL,		// seestate
+	sfx_None,		// seesound
+	8,		// reactiontime
+	sfx_None,		// attacksound
+	S_NULL,		// painstate
+	0,		// painchance
+	sfx_None,		// painsound
+	S_NULL,		// meleestate
+	S_NULL,		// missilestate
+	S_NULL,		// deathstate
+	S_NULL,		// xdeathstate
+	sfx_None,		// deathsound
+	0,		// speed
+	20*FRACUNIT,		// radius
+	16*FRACUNIT,		// height
+	100,		// mass
+	0,		// damage
+	sfx_None,		// activesound
+	MF_SPECIAL|MF_COUNTITEM,		// flags
+	S_NULL		// raisestate
+    },
+    {
+		// MT_LOOT_RARE
+	-1,		// doomednum (never placed on map; spawned at runtime)
+	S_ARM1,		// spawnstate (reuses stock sprite)
+	1000,		// spawnhealth
+	S_NULL,		// seestate
+	sfx_None,		// seesound
+	8,		// reactiontime
+	sfx_None,		// attacksound
+	S_NULL,		// painstate
+	0,		// painchance
+	sfx_None,		// painsound
+	S_NULL,		// meleestate
+	S_NULL,		// missilestate
+	S_NULL,		// deathstate
+	S_NULL,		// xdeathstate
+	sfx_None,		// deathsound
+	0,		// speed
+	20*FRACUNIT,		// radius
+	16*FRACUNIT,		// height
+	100,		// mass
+	0,		// damage
+	sfx_None,		// activesound
+	MF_SPECIAL|MF_COUNTITEM,		// flags
+	S_NULL		// raisestate
+    },
+    {
+		// MT_LOOT_SET
+	-1,		// doomednum (never placed on map; spawned at runtime)
+	S_ARM2,		// spawnstate (reuses stock sprite)
+	1000,		// spawnhealth
+	S_NULL,		// seestate
+	sfx_None,		// seesound
+	8,		// reactiontime
+	sfx_None,		// attacksound
+	S_NULL,		// painstate
+	0,		// painchance
+	sfx_None,		// painsound
+	S_NULL,		// meleestate
+	S_NULL,		// missilestate
+	S_NULL,		// deathstate
+	S_NULL,		// xdeathstate
+	sfx_None,		// deathsound
+	0,		// speed
+	20*FRACUNIT,		// radius
+	16*FRACUNIT,		// height
+	100,		// mass
+	0,		// damage
+	sfx_None,		// activesound
+	MF_SPECIAL|MF_COUNTITEM,		// flags
+	S_NULL		// raisestate
+    },
+    {
+		// MT_LOOT_UNIQUE
+	-1,		// doomednum (never placed on map; spawned at runtime)
+	S_SOUL,		// spawnstate (reuses stock sprite)
+	1000,		// spawnhealth
+	S_NULL,		// seestate
+	sfx_None,		// seesound
+	8,		// reactiontime
+	sfx_None,		// attacksound
+	S_NULL,		// painstate
+	0,		// painchance
+	sfx_None,		// painsound
+	S_NULL,		// meleestate
+	S_NULL,		// missilestate
+	S_NULL,		// deathstate
+	S_NULL,		// xdeathstate
+	sfx_None,		// deathsound
+	0,		// speed
+	20*FRACUNIT,		// radius
+	16*FRACUNIT,		// height
+	100,		// mass
+	0,		// damage
+	sfx_None,		// activesound
+	MF_SPECIAL|MF_COUNTITEM,		// flags
+	S_NULL		// raisestate
+    },
 };
 
