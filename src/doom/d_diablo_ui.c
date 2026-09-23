@@ -28,24 +28,24 @@
 // Layout (320x200).
 // ---------------------------------------------------------------------------
 
-#define UI_CELL      16                      // backpack cell size (px)
-#define UI_BP_X      145                     // backpack grid origin
-#define UI_BP_Y      36
-#define UI_BP_W      (D_BP_GRID_W * UI_CELL) // 160
-#define UI_BP_H      (D_BP_GRID_H * UI_CELL) // 64
+#define UI_CELL      20                      // backpack cell size (px)
+#define UI_BP_X      112                     // backpack grid origin
+#define UI_BP_Y      32
+#define UI_BP_W      (D_BP_GRID_W * UI_CELL) // 200
+#define UI_BP_H      (D_BP_GRID_H * UI_CELL) // 80
 
-#define UI_SLOT_W    34
+#define UI_SLOT_W    30
 #define UI_SLOT_H    24
 
 // Equipment slot boxes: {slot, x, y}.
 static const struct { int slot, x, y; } ui_slots[NUM_ESLOTS] =
 {
-    { ESLOT_HELM,   48,  36 },
-    { ESLOT_AMULET, 10,  66 }, { ESLOT_ARMOR, 48,  66 },
-    { ESLOT_WEAPON, 10,  96 }, { ESLOT_SHIELD, 48,  96 },
-    { ESLOT_GLOVES, 10, 126 }, { ESLOT_BELT,  48, 126 },
-    { ESLOT_BOOTS,  86, 126 },
-    { ESLOT_RING1,  10, 156 }, { ESLOT_RING2, 48, 156 },
+    { ESLOT_HELM,   40,  32 },
+    { ESLOT_AMULET,  6,  62 }, { ESLOT_ARMOR, 40,  62 },
+    { ESLOT_WEAPON,  6,  92 }, { ESLOT_SHIELD, 40,  92 },
+    { ESLOT_GLOVES,  6, 122 }, { ESLOT_BELT,  40, 122 },
+    { ESLOT_BOOTS,  74, 122 },
+    { ESLOT_RING1,   6, 152 }, { ESLOT_RING2, 40, 152 },
 };
 
 static const char *ui_slotnames[NUM_ESLOTS] =
