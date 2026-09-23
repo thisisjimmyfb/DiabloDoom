@@ -199,6 +199,38 @@ boolean D_ValidItem(int tier, int idx)
         && idx >= 0 && idx < diablo_tiercounts[tier];
 }
 
+// Map (tier, idx) to a d_diablo_icons.h icon index.
+// Icons are per-type; rarity is shown via the UI border color.
+int D_GetItemIconIdx(int tier, int idx)
+{
+    // Icon indices from d_diablo_icons.h:
+    //  0 sword_short, 1 sword_long, 2 sword_rune,
+    //  3 axe_war, 4 axe_doom, 5 axe_godly,
+    //  6 armor_leather, 7 armor_chain, 8 armor_plate,
+    //  9 shield_buckler, 10 shield_bone,
+    //  11 helm_cap, 12 helm_crest,
+    //  13 ring, 14 amulet, 15 belt,
+    //  16 potion_red, 17 potion_blue, 18 potion_green
+    static const int normal_icons[] = { 0, 6, 9, 11, 15, 16, 17, 18 };
+    static const int magic_icons[]  = { 3, 1, 10, 14, 13, 7 };
+    static const int rare_icons[]   = { 4, 1, 4, 1, 13, 10, 1, 4 };
+    static const int set_icons[]    = { 12, 7, 12, 12, 7, 12, 5, 2 };
+    static const int unique_icons[] = { 13, 12, 5, 5, 8, 14, 13, 2, 10, 8, 15, 13 };
+
+    if (!D_ValidItem(tier, idx))
+        return 0;
+
+    switch (tier)
+    {
+        case TIER_NORMAL: return normal_icons[idx];
+        case TIER_MAGIC:  return magic_icons[idx];
+        case TIER_RARE:   return rare_icons[idx];
+        case TIER_SET:    return set_icons[idx];
+        case TIER_UNIQUE: return unique_icons[idx];
+        default: return 0;
+    }
+}
+
 void D_ResetPlayer(struct player_s *pl)
 {
     player_t *player = (player_t *)pl;

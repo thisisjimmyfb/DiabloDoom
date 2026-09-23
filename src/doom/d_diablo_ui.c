@@ -2,9 +2,8 @@
 // d_diablo_ui.c — DiabloDoom Phase 2: character screen.
 //
 // Diablo-style backpack grid + paperdoll with two-click pick-up/place,
-// equipment slots, stat panel, and item tooltips.  Custom 2D item
-// artwork is Phase 3; items are drawn as rarity-colored boxes with
-// their initial until then.
+// equipment slots, stat panel, and item tooltips.  Items are drawn with
+// their Phase 3 2D icons (d_diablo_icons.c) plus a rarity-colored border.
 //
 // Part of the DiabloDoom mod (GPL-2.0-or-later, like Chocolate Doom).
 
@@ -12,6 +11,7 @@
 #include <string.h>
 
 #include "d_diablo.h"
+#include "d_diablo_icons.h"
 #include "d_diablo_ui.h"
 #include "d_player.h"
 #include "doomdef.h"
@@ -598,21 +598,51 @@ boolean D_UIResponder(event_t *ev)
 static void UIDrawItemIcon(int x, int y, int w, int h, int id)
 {
     const diablo_itemdef_t *def;
-    char initial[2];
+    const unsigned char *icon;
+    int icon_idx;
+    int sx, sy, dx, dy;
+    pixel_t *dest;
 
     def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
     if (!def)
         return;
 
-    V_DrawFilledBox(x, y, w, h, c_rarity_dark[def->tier]);
+    // Draw the item's icon, scaled to fit the w x h cell.
+    icon_idx = D_GetItemIconIdx(D_ITEMTIER(id), D_ITEMIDX(id));
+    if (icon_idx >= 0 && icon_idx < d_num_item_icons
+        && d_item_icons[icon_idx] != NULL)
+    {
+        icon = d_item_icons[icon_idx];
+        for (dy = 0; dy < h; ++dy)
+        {
+            // Clamp to screen to avoid writing out of bounds.
+            if (y + dy < 0 || y + dy >= SCREENHEIGHT)
+                continue;
+            sy = dy * d_icon_size / h;
+            dest = I_VideoBuffer + SCREENWIDTH * (y + dy) + x;
+            for (dx = 0; dx < w; ++dx)
+            {
+                if (x + dx < 0 || x + dx >= SCREENWIDTH)
+                {
+                    dest++;
+                    continue;
+                }
+                sx = dx * d_icon_size / w;
+                *dest++ = (pixel_t)icon[sy * d_icon_size + sx];
+            }
+        }
+    }
+    else
+    {
+        // Fallback: dark rarity background if no icon.
+        V_DrawFilledBox(x, y, w, h, c_rarity_dark[def->tier]);
+    }
+
+    // Rarity border (kept so rarity stays visible).
     V_DrawHorizLine(x, y, w, c_rarity[def->tier]);
     V_DrawHorizLine(x, y + h - 1, w, c_rarity[def->tier]);
     V_DrawVertLine(x, y, h, c_rarity[def->tier]);
     V_DrawVertLine(x + w - 1, y, h, c_rarity[def->tier]);
-
-    initial[0] = def->name[0];
-    initial[1] = '\0';
-    UIDrawTextCentered(x + w / 2, y + h / 2 - 4, initial);
 }
 
 // Draw one equipment slot box (with item icon when filled, name when empty).
