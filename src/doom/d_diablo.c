@@ -61,6 +61,10 @@ static const diablo_itemdef_t diablo_normal[] =
        0,0,0,0,   0,0,0,0,   0,0,0),
     IT("Rancid Gas Potion", TIER_NORMAL, ESLOT_NONE,   1,1, 1,USE_BLAST,50, 0,0,0,
        0,0,0,0,   0,0,0,0,   0,0,0),
+    IT("Leather Boots",     TIER_NORMAL, ESLOT_BOOTS,  2,2, 0,0,0,   0, 0, 3,
+       0,0,0,0,   0,0,0,0,   0,0,0),
+    IT("Leather Gloves",    TIER_NORMAL, ESLOT_GLOVES, 2,2, 0,0,0,   0, 0, 2,
+       0,0,0,0,   0,0,0,0,   0,0,0),
 };
 
 static const diablo_itemdef_t diablo_magic[] =
@@ -76,6 +80,10 @@ static const diablo_itemdef_t diablo_magic[] =
     IT("Lizard's Ring",       TIER_MAGIC, ESLOT_RING1,  1,1, 0,0,0,  0, 0, 0,
        0,0,0,8,   0,0,0,0,   0,5,0),
     IT("Soldier's Chain Mail",TIER_MAGIC, ESLOT_ARMOR,  2,3, 0,0,0,  0, 0,12,
+       3,0,0,0,   0,0,0,0,   0,0,0),
+    IT("Traveler's Treads", TIER_MAGIC, ESLOT_BOOTS,  2,2, 0,0,0,  0, 0, 8,
+       0,2,0,0,   0,0,0,0,   0,0,10),
+    IT("Assault Gloves",    TIER_MAGIC, ESLOT_GLOVES, 2,2, 0,0,0,  0, 0, 6,
        3,0,0,0,   0,0,0,0,   0,0,0),
 };
 
@@ -97,6 +105,10 @@ static const diablo_itemdef_t diablo_rare[] =
        0,0,0,0,   0,0,0,0,   4,0,0),
     IT("Fleshrender",       TIER_RARE, ESLOT_WEAPON, 2,3, 0,0,0,  13,23, 0,
        0,0,4,0,   0,0,0,0,   0,0,0),
+    IT("Stormwalkers",      TIER_RARE, ESLOT_BOOTS,  2,2, 0,0,0,   0, 0,14,
+       0,4,0,0,   0,0,15,0,  0,0,15),
+    IT("Doom Grasp",        TIER_RARE, ESLOT_GLOVES, 2,2, 0,0,0,   0, 0,12,
+       5,0,0,0,   0,0,0,0,   3,0,0),
 };
 
 static const diablo_itemdef_t diablo_set[] =
@@ -117,6 +129,10 @@ static const diablo_itemdef_t diablo_set[] =
        6,0,0,0,   0,0,0,0,   0,0,0),
     IT("Sazabi's Cobalt Redeemer",   TIER_SET, ESLOT_WEAPON,1,3,0,0,0,14,26,0,
        0,0,0,0,   0,20,0,0,  0,0,0),
+    IT("Immortal King's Pillar",    TIER_SET, ESLOT_BOOTS, 2,2,0,0,0, 0,0,18,
+       5,0,0,0,   20,0,0,0,  0,0,20),
+    IT("M'avina's Icy Clutch",      TIER_SET, ESLOT_GLOVES,2,2,0,0,0, 0,0,14,
+       0,6,0,0,   0,20,0,0,  0,0,0),
 };
 
 static const diablo_itemdef_t diablo_unique[] =
@@ -145,6 +161,10 @@ static const diablo_itemdef_t diablo_unique[] =
        5,0,8,0,    0,0,25,0,  0,0,0),
     IT("Raven Frost",           TIER_UNIQUE, ESLOT_RING1, 1,1, 0,0,0,  0, 0, 0,
        0,8,0,0,    0,25,0,0,  0,0,0),
+    IT("War Traveler",          TIER_UNIQUE, ESLOT_BOOTS, 2,2, 0,0,0,  0, 0,22,
+       5,0,8,0,    0,0,0,0,   0,15,25),
+    IT("Frostburn",             TIER_UNIQUE, ESLOT_GLOVES,2,2, 0,0,0,  0, 0,16,
+       5,5,0,0,    0,25,0,0,  4,0,0),
 };
 
 #undef IT
@@ -200,22 +220,32 @@ boolean D_ValidItem(int tier, int idx)
 }
 
 // Map (tier, idx) to a d_diablo_icons.h icon index.
-// Icons are per-type; rarity is shown via the UI border color.
+// Every item has its own unique icon; rarity is shown via the UI border.
 int D_GetItemIconIdx(int tier, int idx)
 {
-    // Icon indices from d_diablo_icons.h:
-    //  0 sword_short, 1 sword_long, 2 sword_rune,
-    //  3 axe_war, 4 axe_doom, 5 axe_godly,
-    //  6 armor_leather, 7 armor_chain, 8 armor_plate,
-    //  9 shield_buckler, 10 shield_bone,
-    //  11 helm_cap, 12 helm_crest,
-    //  13 ring, 14 amulet, 15 belt,
-    //  16 potion_red, 17 potion_blue, 18 potion_green
-    static const int normal_icons[] = { 0, 6, 9, 11, 15, 16, 17, 18 };
-    static const int magic_icons[]  = { 3, 1, 10, 14, 13, 7 };
-    static const int rare_icons[]   = { 4, 1, 4, 1, 13, 10, 1, 4 };
-    static const int set_icons[]    = { 12, 7, 12, 12, 7, 12, 5, 2 };
-    static const int unique_icons[] = { 13, 12, 5, 5, 8, 14, 13, 2, 10, 8, 15, 13 };
+    // Icon indices from d_diablo_icons.h (52 unique, one per item).
+    // Normal (10): Short Sword, Leather Armor, Buckler, Cap, Sash,
+    //   Healing/Mana/Gas Potions, Leather Boots, Leather Gloves
+    static const int normal_icons[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
+    // Magic (8): Cruel War Axe, King's Long Sword, Vampiric Bone Shield,
+    //   Prismatic Amulet, Lizard's Ring, Soldier's Chain Mail,
+    //   Traveler's Treads, Assault Gloves
+    static const int magic_icons[]  = { 10, 11, 12, 13, 14, 15, 16, 17 };
+    // Rare (10): Doombringer, Stormlash, Soulrender, Demonhorn Edge,
+    //   Nightmare Coil, Grimward, Bloodletter, Fleshrender,
+    //   Stormwalkers, Doom Grasp
+    static const int rare_icons[]   = { 18, 19, 20, 21, 22, 23, 24, 25, 26, 27 };
+    // Set (10): Tal Rasha's Crest, IK Soul Cage, Trang-Oul's Guise,
+    //   M'avina's Sight, Natalya's Shadow, Griswold's Valor,
+    //   Berserker's Hatchet, Sazabi's Redeemer,
+    //   IK Pillar, M'avina's Clutch
+    static const int set_icons[]    = { 28, 29, 30, 31, 32, 33, 34, 35, 36, 37 };
+    // Unique (14): Stone of Jordan, Harlequin Crest, The Grandfather,
+    //   Windforce, Arkaine's Valor, Mara's Kaleidoscope, Bul-Kathos' Band,
+    //   Titan's Revenge, Lidless Wall, Vipermagi, Thundergod's Vigor,
+    //   Raven Frost, War Traveler, Frostburn
+    static const int unique_icons[] = { 38, 39, 40, 41, 42, 43, 44, 45,
+                                        46, 47, 48, 49, 50, 51 };
 
     if (!D_ValidItem(tier, idx))
         return 0;

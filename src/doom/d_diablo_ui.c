@@ -607,27 +607,33 @@ static void UIDrawItemIcon(int x, int y, int w, int h, int id)
     if (!def)
         return;
 
-    // Draw the item's icon, scaled to fit the w x h cell.
+    // Draw the item's icon, aspect-ratio preserved (letterboxed).
+    // The source icon is square; fit it into the largest centered
+    // square that fits in w x h so tall/wide items don't stretch.
     icon_idx = D_GetItemIconIdx(D_ITEMTIER(id), D_ITEMIDX(id));
     if (icon_idx >= 0 && icon_idx < d_num_item_icons
         && d_item_icons[icon_idx] != NULL)
     {
+        int box, ox, oy;  // centered square side, top-left offset
         icon = d_item_icons[icon_idx];
-        for (dy = 0; dy < h; ++dy)
+        box = (w < h) ? w : h;
+        ox = (w - box) / 2;
+        oy = (h - box) / 2;
+        for (dy = 0; dy < box; ++dy)
         {
             // Clamp to screen to avoid writing out of bounds.
-            if (y + dy < 0 || y + dy >= SCREENHEIGHT)
+            if (y + oy + dy < 0 || y + oy + dy >= SCREENHEIGHT)
                 continue;
-            sy = dy * d_icon_size / h;
-            dest = I_VideoBuffer + SCREENWIDTH * (y + dy) + x;
-            for (dx = 0; dx < w; ++dx)
+            sy = dy * d_icon_size / box;
+            dest = I_VideoBuffer + SCREENWIDTH * (y + oy + dy) + (x + ox);
+            for (dx = 0; dx < box; ++dx)
             {
-                if (x + dx < 0 || x + dx >= SCREENWIDTH)
+                if (x + ox + dx < 0 || x + ox + dx >= SCREENWIDTH)
                 {
                     dest++;
                     continue;
                 }
-                sx = dx * d_icon_size / w;
+                sx = dx * d_icon_size / box;
                 *dest++ = (pixel_t)icon[sy * d_icon_size + sx];
             }
         }

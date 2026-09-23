@@ -377,6 +377,42 @@ static void P_DropDiabloLoot(mobj_t *target, mobj_t *source)
     mo = P_SpawnMobj(target->x, target->y, ONFLOORZ, type);
     mo->flags |= MF_DROPPED;
     mo->diablo_loot_id = D_MAKEITEM(tier, index);
+
+    // Show an item-appropriate sprite instead of the tier's stock sprite.
+    // (Pickup still keys off the mobj type, so this is purely visual.)
+    {
+        const diablo_itemdef_t *def = D_GetItemDef(tier, index);
+        statenum_t st = S_BON1; // fallback
+        if (def)
+        {
+            if (def->consumable)
+            {
+                // Potions: healing -> stimpack, mana -> armor bonus,
+                // blast -> rocket (explosive).
+                if (def->usekind == USE_HEAL)
+                    st = S_STIM;
+                else if (def->usekind == USE_MANA)
+                    st = S_BON2;
+                else
+                    st = S_ROCK;
+            }
+            else switch (def->slot)
+            {
+                case ESLOT_WEAPON: st = S_SHOT; break; // weapon pickup
+                case ESLOT_ARMOR:  st = S_ARM1; break; // green armor
+                case ESLOT_SHIELD: st = S_ARM2; break; // blue armor
+                case ESLOT_HELM:   st = S_BON2; break;
+                case ESLOT_RING1:
+                case ESLOT_RING2:
+                case ESLOT_AMULET: st = S_BON1; break; // small shiny
+                case ESLOT_BELT:   st = S_BON2; break;
+                case ESLOT_BOOTS:
+                case ESLOT_GLOVES: st = S_BON1; break;
+                default: break;
+            }
+        }
+        P_SetMobjState(mo, st);
+    }
 }
 
 // Give the player a random item of the given rarity tier (0-4).

@@ -13,27 +13,66 @@ OUTPUT_H = "/tmp/diablofork/src/doom/d_diablo_icons.h"
 PALETTE_RAW = "/tmp/doom_palette.raw"
 ICON_SIZE = 32
 
-# Icon name -> filename (without extension)
+# Icon name -> filename (without extension).
+# One unique icon per item (52 total). Order defines D_ICON_* indices.
 ICONS = [
-    "sword_short",
-    "sword_long",
-    "sword_rune",
-    "axe_war",
-    "axe_doom",
-    "axe_godly",
-    "armor_leather",
-    "armor_chain",
-    "armor_plate",
-    "shield_buckler",
-    "shield_bone",
-    "helm_cap",
-    "helm_crest",
-    "ring",
-    "amulet",
-    "belt",
-    "potion_red",
-    "potion_blue",
-    "potion_green",
+    # Normal (10) - original 8 kept, 2 new boots/gloves
+    "sword_short",       # Short Sword
+    "armor_leather",     # Leather Armor
+    "shield_buckler",    # Buckler
+    "helm_cap",          # Cap
+    "belt",              # Sash
+    "potion_red",        # Healing Potion
+    "potion_blue",       # Mana Potion
+    "potion_green",      # Rancid Gas Potion
+    "boot_leather",      # Leather Boots
+    "glove_leather",     # Leather Gloves
+    # Magic (8)
+    "m_cruel_war_axe",       # Cruel War Axe
+    "m_kings_long_sword",    # King's Long Sword
+    "m_vampiric_bone_shield",# Vampiric Bone Shield
+    "m_prismatic_amulet",    # Prismatic Amulet
+    "m_lizards_ring",        # Lizard's Ring
+    "m_soldiers_chain_mail", # Soldier's Chain Mail
+    "boot_traveler",         # Traveler's Treads
+    "glove_assault",         # Assault Gloves
+    # Rare (10)
+    "r_doombringer",     # Doombringer
+    "r_stormlash",       # Stormlash
+    "r_soulrender",      # Soulrender
+    "r_demonhorn_edge",  # Demonhorn Edge
+    "r_nightmare_coil",  # Nightmare Coil
+    "r_grimward",        # Grimward
+    "r_bloodletter",     # Bloodletter
+    "r_fleshrender",     # Fleshrender
+    "boot_stormwalker",  # Stormwalkers
+    "glove_doom_grasp",  # Doom Grasp
+    # Set (10)
+    "s_tal_rasha_crest", # Tal Rasha's Horadric Crest
+    "s_ik_soul_cage",    # Immortal King's Soul Cage
+    "s_trang_oul_guise", # Trang-Oul's Guise
+    "s_mavina_sight",    # M'avina's True Sight
+    "s_natalya_shadow",  # Natalya's Shadow
+    "s_griswold_valor",  # Griswold's Valor
+    "s_berserker_hatchet",# Berserker's Hatchet
+    "s_sazabi_redeemer", # Sazabi's Cobalt Redeemer
+    "boot_ik_pillar",    # Immortal King's Pillar
+    "glove_mavina_clutch",# M'avina's Icy Clutch
+    # Unique (14)
+    "u_stone_of_jordan", # Stone of Jordan
+    "u_harlequin_crest", # Harlequin Crest
+    "u_grandfather",     # The Grandfather
+    "u_windforce",       # Windforce (bow)
+    "u_arkaine_valor",   # Arkaine's Valor
+    "u_maras_kaleidoscope",# Mara's Kaleidoscope
+    "u_bulkathos_band",  # Bul-Kathos' Wedding Band
+    "u_titans_revenge",  # Titan's Revenge (javelin)
+    "u_lidless_wall",    # Lidless Wall
+    "u_vipermagi",       # Skin of the Vipermagi
+    "u_thundergod_vigor",# Thundergod's Vigor
+    "u_raven_frost",     # Raven Frost
+    "boot_war_traveler", # War Traveler
+    "glove_frostburn",   # Frostburn
 ]
 
 def load_palette():
