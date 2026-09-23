@@ -73,6 +73,10 @@ typedef enum
 #define D_BACKPACK_SIZE  40
 #define D_NOITEM         (-1)
 
+// Phase 2 backpack grid dimensions (cells).  10x4 = 40 cells.
+#define D_BP_GRID_W  10
+#define D_BP_GRID_H  4
+
 // Packed item id: (tier << 8) | index.  D_NOITEM means "empty".
 #define D_MAKEITEM(tier, idx)  (((tier) << 8) | (idx))
 #define D_ITEMTIER(id)         (((id) >> 8) & 0xff)
@@ -124,6 +128,22 @@ boolean D_BackpackAdd(struct player_s *player, int tier, int idx);
 void D_EquipRecent(struct player_s *player);   // E key (Phase 1)
 void D_UnequipAll(struct player_s *player);    // Q key (Phase 1)
 void D_BackpackFullMsg(struct player_s *player);
+
+// Phase 2 backpack grid.  bpi is an index into diablo_backpack[].
+boolean D_GridCanPlace(struct player_s *player, int bpi, int gx, int gy);
+boolean D_GridFindSpace(struct player_s *player, int w, int h,
+                        int *gx, int *gy);
+void D_GridPlace(struct player_s *player, int bpi, int gx, int gy);
+void D_GridRemove(struct player_s *player, int bpi);  // mark unplaced
+// Remove backpack entry bpi (also clears its grid cell).  Public for UI.
+void D_BackpackRemoveAt(struct player_s *player, int bpi);
+// Use the consumable at backpack index bpi.  Public for UI.
+void D_UseBackpackItem(struct player_s *player, int bpi);
+// Equip the item id into an equipment slot; returns displaced id or
+// D_NOITEM.  Handles ring1/ring2 fallback.  Public for UI.
+int D_EquipToSlot(struct player_s *player, int id, int slot);
+// True if the item def can go in the given equipment slot.
+boolean D_SlotFits(int slot, const diablo_itemdef_t *def);
 
 // Combat stat hooks.
 int D_WeaponBonus(struct player_s *player);           // bonus damage

@@ -164,9 +164,13 @@ typedef struct player_s
     // Diablo equipment system (mod).  Equipped/backpack entries are
     // packed item ids ((tier << 8) | index); D_NOITEM (-1) means empty.
     // diablo_stats caches the summed stats of equipped items.
+    // Backpack items also live on a 2D grid (Phase 2 UI); gx/gy is the
+    // top-left cell of the item's footprint, or -1 when not placed.
     // NOTE: not yet saved to savegames (Phase 2); gear resets on load.
     int			diablo_equipped[NUM_ESLOTS];
     int			diablo_backpack[D_BACKPACK_SIZE];
+    int			diablo_bp_gx[D_BACKPACK_SIZE];
+    int			diablo_bp_gy[D_BACKPACK_SIZE];
     int			diablo_bp_count;
     int			diablo_recent;	// backpack idx of latest pickup
     int			diablo_stats[NUM_DSTATS];

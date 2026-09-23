@@ -63,6 +63,7 @@
 
 // Diablo equipment backend (mod).
 #include "d_diablo.h"
+#include "d_diablo_ui.h"
 
 #include "s_sound.h"
 
@@ -806,9 +807,15 @@ boolean G_Responder (event_t* ev)
     
     // Diablo equipment (mod): temporary controls.
     // E equips/uses the most recently picked-up item, Q unequips everything.
+    // C opens the character screen (backpack + paperdoll UI).
     if (gamestate == GS_LEVEL && ev->type == ev_keydown
      && !demoplayback && !singledemo)
     {
+	if (ev->data1 == 'c' || ev->data1 == 'C')
+	{
+	    D_UIOpen();
+	    return true;
+	}
 	if (ev->data1 == 'e' || ev->data1 == 'E')
 	{
 	    D_EquipRecent(&players[consoleplayer]);

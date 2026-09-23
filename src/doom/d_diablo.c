@@ -207,7 +207,11 @@ void D_ResetPlayer(struct player_s *pl)
     for (i = 0; i < NUM_ESLOTS; i++)
         player->diablo_equipped[i] = D_NOITEM;
     for (i = 0; i < D_BACKPACK_SIZE; i++)
+    {
         player->diablo_backpack[i] = D_NOITEM;
+        player->diablo_bp_gx[i] = -1;
+        player->diablo_bp_gy[i] = -1;
+    }
     player->diablo_bp_count = 0;
     player->diablo_recent = -1;
     for (i = 0; i < NUM_DSTATS; i++)
@@ -262,20 +266,159 @@ int D_MaxHealth(struct player_s *pl)
     return deh_max_health + D_Stat(pl, DSTAT_VIT) * 5;
 }
 
+// Phase 2 backpack grid helpers.  Each backpack entry tracks the
+// top-left cell of its footprint (diablo_bp_gx/gy), or -1/-1.
+
+// True if the footprint of backpack entry bpi fits at (gx,gy) with no
+// overlap.  ignore_bpi (>=0) is skipped in the overlap test (used when
+// moving an item within the grid).
+static boolean D_GridCanPlaceAt(player_t *player, int bpi,
+                                int gx, int gy, int ignore_bpi)
+{
+    const diablo_itemdef_t *def;
+    int id, w, h, i, x, y, ox, oy, ow, oh, oid;
+    const diablo_itemdef_t *odef;
+
+    if (bpi < 0 || bpi >= player->diablo_bp_count)
+        return false;
+    id = player->diablo_backpack[bpi];
+    def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
+    if (!def)
+        return false;
+    w = def->grid_w;
+    h = def->grid_h;
+    if (w < 1) w = 1;
+    if (h < 1) h = 1;
+
+    if (gx < 0 || gy < 0 || gx + w > D_BP_GRID_W || gy + h > D_BP_GRID_H)
+        return false;
+
+    for (i = 0; i < player->diablo_bp_count; i++)
+    {
+        if (i == bpi || i == ignore_bpi)
+            continue;
+        ox = player->diablo_bp_gx[i];
+        oy = player->diablo_bp_gy[i];
+        if (ox < 0 || oy < 0)
+            continue;
+        oid = player->diablo_backpack[i];
+        odef = D_GetItemDef(D_ITEMTIER(oid), D_ITEMIDX(oid));
+        if (!odef)
+            continue;
+        ow = odef->grid_w;
+        oh = odef->grid_h;
+        if (ow < 1) ow = 1;
+        if (oh < 1) oh = 1;
+        // AABB overlap test.
+        if (gx < ox + ow && gx + w > ox && gy < oy + oh && gy + h > oy)
+            return false;
+    }
+    return true;
+}
+
+boolean D_GridCanPlace(struct player_s *pl, int bpi, int gx, int gy)
+{
+    return D_GridCanPlaceAt((player_t *)pl, bpi, gx, gy, -1);
+}
+
+boolean D_GridFindSpace(struct player_s *pl, int w, int h, int *gx, int *gy)
+{
+    player_t *player = (player_t *)pl;
+    int x, y, i, ox, oy, ow, oh, oid;
+    const diablo_itemdef_t *odef;
+    boolean blocked;
+
+    if (w < 1) w = 1;
+    if (h < 1) h = 1;
+
+    for (y = 0; y + h <= D_BP_GRID_H; y++)
+    {
+        for (x = 0; x + w <= D_BP_GRID_W; x++)
+        {
+            blocked = false;
+            for (i = 0; i < player->diablo_bp_count; i++)
+            {
+                ox = player->diablo_bp_gx[i];
+                oy = player->diablo_bp_gy[i];
+                if (ox < 0 || oy < 0)
+                    continue;
+                oid = player->diablo_backpack[i];
+                odef = D_GetItemDef(D_ITEMTIER(oid), D_ITEMIDX(oid));
+                if (!odef)
+                    continue;
+                ow = odef->grid_w;
+                oh = odef->grid_h;
+                if (ow < 1) ow = 1;
+                if (oh < 1) oh = 1;
+                if (x < ox + ow && x + w > ox && y < oy + oh && y + h > oy)
+                {
+                    blocked = true;
+                    break;
+                }
+            }
+            if (!blocked)
+            {
+                *gx = x;
+                *gy = y;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+void D_GridPlace(struct player_s *pl, int bpi, int gx, int gy)
+{
+    player_t *player = (player_t *)pl;
+    if (bpi < 0 || bpi >= player->diablo_bp_count)
+        return;
+    player->diablo_bp_gx[bpi] = gx;
+    player->diablo_bp_gy[bpi] = gy;
+}
+
+void D_GridRemove(struct player_s *pl, int bpi)
+{
+    player_t *player = (player_t *)pl;
+    if (bpi < 0 || bpi >= D_BACKPACK_SIZE)
+        return;
+    player->diablo_bp_gx[bpi] = -1;
+    player->diablo_bp_gy[bpi] = -1;
+}
+
 // Remove the backpack entry at index bpi, shifting the rest down.
 static void D_BackpackRemove(player_t *player, int bpi)
 {
     int i;
     for (i = bpi; i + 1 < player->diablo_bp_count; i++)
+    {
         player->diablo_backpack[i] = player->diablo_backpack[i + 1];
+        player->diablo_bp_gx[i] = player->diablo_bp_gx[i + 1];
+        player->diablo_bp_gy[i] = player->diablo_bp_gy[i + 1];
+    }
     player->diablo_bp_count--;
     player->diablo_backpack[player->diablo_bp_count] = D_NOITEM;
+    player->diablo_bp_gx[player->diablo_bp_count] = -1;
+    player->diablo_bp_gy[player->diablo_bp_count] = -1;
+}
+
+// Public wrapper for the UI.
+void D_BackpackRemoveAt(struct player_s *pl, int bpi)
+{
+    player_t *player = (player_t *)pl;
+    if (bpi < 0 || bpi >= player->diablo_bp_count)
+        return;
+    if (player->diablo_recent == bpi)
+        player->diablo_recent = -1;
+    else if (player->diablo_recent > bpi)
+        player->diablo_recent--;
+    D_BackpackRemove(player, bpi);
 }
 
 boolean D_BackpackAdd(struct player_s *pl, int tier, int idx)
 {
     player_t *player = (player_t *)pl;
     const diablo_itemdef_t *def = D_GetItemDef(tier, idx);
+    int gx, gy;
     static const char *tier_msgs[NUM_TIERS] =
     {
         "Picked up %s.",
@@ -290,7 +433,13 @@ boolean D_BackpackAdd(struct player_s *pl, int tier, int idx)
     if (player->diablo_bp_count >= D_BACKPACK_SIZE)
         return false;
 
+    // Phase 2: the item needs a free footprint on the backpack grid.
+    if (!D_GridFindSpace(pl, def->grid_w, def->grid_h, &gx, &gy))
+        return false;
+
     player->diablo_backpack[player->diablo_bp_count] = D_MAKEITEM(tier, idx);
+    player->diablo_bp_gx[player->diablo_bp_count] = gx;
+    player->diablo_bp_gy[player->diablo_bp_count] = gy;
     player->diablo_recent = player->diablo_bp_count;
     player->diablo_bp_count++;
 
@@ -345,6 +494,79 @@ static void D_UseConsumable(player_t *player, const diablo_itemdef_t *def)
     }
 }
 
+// True if the item can be equipped in the given slot.  Rings fit either
+// ring slot; consumables fit no slot.
+boolean D_SlotFits(int slot, const diablo_itemdef_t *def)
+{
+    if (!def || def->consumable || def->slot == ESLOT_NONE)
+        return false;
+    if (def->slot == ESLOT_RING1)
+        return slot == ESLOT_RING1 || slot == ESLOT_RING2;
+    return def->slot == slot;
+}
+
+// Equip an item id directly into a slot.  Ring items prefer the requested
+// slot, falling back to the other ring slot when taken.  Returns the
+// displaced item id, or D_NOITEM when the slot was empty.  The displaced
+// item is stashed in the backpack (with grid placement); returns D_NOITEM
+// and does nothing when there is no room for it.
+int D_EquipToSlot(struct player_s *pl, int id, int slot)
+{
+    player_t *player = (player_t *)pl;
+    const diablo_itemdef_t *def, *odef;
+    int old;
+
+    def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
+    if (!D_SlotFits(slot, def))
+        return D_NOITEM;
+
+    // Rings: use the requested slot unless taken, then the other one.
+    if (def->slot == ESLOT_RING1 && player->diablo_equipped[slot] != D_NOITEM)
+        slot = (slot == ESLOT_RING1) ? ESLOT_RING2 : ESLOT_RING1;
+
+    old = player->diablo_equipped[slot];
+    if (old != D_NOITEM)
+    {
+        int gx, gy;
+        odef = D_GetItemDef(D_ITEMTIER(old), D_ITEMIDX(old));
+        if (!odef)
+            return D_NOITEM;
+        // Stash the displaced item; needs backpack + grid room.
+        if (player->diablo_bp_count >= D_BACKPACK_SIZE
+         || !D_GridFindSpace(pl, odef->grid_w, odef->grid_h, &gx, &gy))
+        {
+            D_BackpackFullMsg(pl);
+            return D_NOITEM;
+        }
+        player->diablo_backpack[player->diablo_bp_count] = old;
+        player->diablo_bp_gx[player->diablo_bp_count] = gx;
+        player->diablo_bp_gy[player->diablo_bp_count] = gy;
+        player->diablo_bp_count++;
+    }
+
+    player->diablo_equipped[slot] = id;
+    D_RecalcStats(pl);
+    return old;
+}
+
+// Use the consumable at backpack index bpi (no-op when not consumable).
+void D_UseBackpackItem(struct player_s *pl, int bpi)
+{
+    player_t *player = (player_t *)pl;
+    int id;
+    const diablo_itemdef_t *def;
+
+    if (bpi < 0 || bpi >= player->diablo_bp_count)
+        return;
+    id = player->diablo_backpack[bpi];
+    def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
+    if (!def || !def->consumable)
+        return;
+    D_UseConsumable(player, def);
+    D_BackpackRemove(player, bpi);
+    player->diablo_recent = -1;
+}
+
 // E key (Phase 1 placeholder): equip the most recently picked-up item,
 // or use it if it is a consumable.  Swaps with the equipped item when
 // the slot is taken.
@@ -370,9 +592,7 @@ void D_EquipRecent(struct player_s *pl)
 
     if (def->consumable)
     {
-        D_UseConsumable(player, def);
-        D_BackpackRemove(player, bpi);
-        player->diablo_recent = -1;
+        D_UseBackpackItem(pl, bpi);
         return;
     }
 
@@ -389,16 +609,34 @@ void D_EquipRecent(struct player_s *pl)
     }
 
     old = player->diablo_equipped[slot];
-    if (old != D_NOITEM && player->diablo_bp_count >= D_BACKPACK_SIZE)
+    if (old != D_NOITEM)
     {
-        // No room to stash the swapped-out item.
-        D_BackpackFullMsg(pl);
-        return;
+        const diablo_itemdef_t *odef;
+        int gx, gy;
+        odef = D_GetItemDef(D_ITEMTIER(old), D_ITEMIDX(old));
+        if (!odef
+         || player->diablo_bp_count >= D_BACKPACK_SIZE
+         || !D_GridFindSpace(pl, odef->grid_w, odef->grid_h, &gx, &gy))
+        {
+            // No room to stash the swapped-out item.
+            D_BackpackFullMsg(pl);
+            return;
+        }
     }
 
     D_BackpackRemove(player, bpi);
     if (old != D_NOITEM)
-        player->diablo_backpack[player->diablo_bp_count++] = old;
+    {
+        // D_EquipToSlot stashes via D_BackpackAdd; replicate placement.
+        const diablo_itemdef_t *odef;
+        int gx, gy;
+        odef = D_GetItemDef(D_ITEMTIER(old), D_ITEMIDX(old));
+        D_GridFindSpace(pl, odef->grid_w, odef->grid_h, &gx, &gy);
+        player->diablo_backpack[player->diablo_bp_count] = old;
+        player->diablo_bp_gx[player->diablo_bp_count] = gx;
+        player->diablo_bp_gy[player->diablo_bp_count] = gy;
+        player->diablo_bp_count++;
+    }
     player->diablo_equipped[slot] = id;
     player->diablo_recent = -1;
     D_RecalcStats(pl);
@@ -417,16 +655,25 @@ void D_UnequipAll(struct player_s *pl)
 
     for (s = 0; s < NUM_ESLOTS; s++)
     {
-        if (player->diablo_equipped[s] == D_NOITEM)
+        int id = player->diablo_equipped[s];
+        const diablo_itemdef_t *def;
+        int gx, gy;
+        if (id == D_NOITEM)
             continue;
-        if (player->diablo_bp_count >= D_BACKPACK_SIZE)
+        def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
+        if (!def)
+            continue;
+        // Find a grid spot for the item's footprint.
+        if (!D_GridFindSpace(pl, def->grid_w, def->grid_h, &gx, &gy))
         {
             D_BackpackFullMsg(pl);
             break;
         }
-        player->diablo_backpack[player->diablo_bp_count++]
-            = player->diablo_equipped[s];
         player->diablo_equipped[s] = D_NOITEM;
+        player->diablo_backpack[player->diablo_bp_count] = id;
+        player->diablo_bp_gx[player->diablo_bp_count] = gx;
+        player->diablo_bp_gy[player->diablo_bp_count] = gy;
+        player->diablo_bp_count++;
         moved++;
     }
 

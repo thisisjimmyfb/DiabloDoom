@@ -29,6 +29,7 @@
 #include "deh_main.h"
 #include "doomdef.h"
 #include "doomstat.h"
+#include "d_diablo_ui.h"
 
 #include "dstrings.h"
 #include "sounds.h"
@@ -142,6 +143,10 @@ void D_ProcessEvents (void)
 	
     while ((ev = D_PopEvent()) != NULL)
     {
+	// Diablo character screen (mod): when open it owns all input,
+	// ahead of the menu responder.
+	if (D_UIIsOpen() && D_UIResponder(ev))
+	    continue;               // character screen ate the event
 	if (M_Responder (ev))
 	    continue;               // menu ate the event
 	G_Responder (ev);
@@ -231,6 +236,10 @@ boolean D_Display (void)
 
     if (gamestate == GS_LEVEL && gametic)
 	HU_Drawer ();
+
+    // Diablo character screen (mod): drawn over the frozen game view.
+    if (D_UIIsOpen())
+	D_UIDrawer ();
     
     // clean up border stuff
     if (gamestate != oldgamestate && gamestate != GS_LEVEL)

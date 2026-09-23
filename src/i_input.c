@@ -417,6 +417,12 @@ void I_HandleMouseEvent(SDL_Event *sdlevent)
 
 static int AccelerateMouse(int val)
 {
+    // Diablo UI (mod): when the character screen is open, disable
+    // acceleration for precise 1:1 cursor movement.
+    extern boolean d_ui_accel_disabled;
+    if (d_ui_accel_disabled)
+        return val;
+
     if (val < 0)
         return -AccelerateMouse(-val);
 
