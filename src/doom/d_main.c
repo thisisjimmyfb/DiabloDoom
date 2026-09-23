@@ -278,7 +278,9 @@ boolean D_Display (void)
     oldgamestate = wipegamestate = gamestate;
     
     // draw pause pic
-    if (paused)
+    // Diablo character screen (mod): the UI has its own layout; don't
+    // draw the PAUSE graphic over it.
+    if (paused && !D_UIIsOpen())
     {
 	if (automapactive)
 	    y = 4;

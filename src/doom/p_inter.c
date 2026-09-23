@@ -941,10 +941,12 @@ P_DamageMobj
 	damage >>= 1; 	// take half damage in trainer mode
 
     // Diablo equipment (mod): when a player hurts a monster, add the
-    // equipped weapon's damage bonus and strength bonus.
+    // equipped weapon's damage bonus and strength bonus, then roll for
+    // a dexterity crit (double damage).
     if (source && source->player && target->player == NULL)
     {
 	damage += D_WeaponBonus(source->player);
+	damage = D_CritRoll(source->player, damage);
     }
 		
 
@@ -999,6 +1001,23 @@ P_DamageMobj
 	    return;
 	}
 	
+	// Diablo equipment (mod): dexterity dodge roll.  A successful
+	// dodge avoids the hit entirely.
+	if (player && D_DodgeRoll(player))
+	{
+	    // Small feedback: the damage indicator still flashes, but
+	    // no health is lost.  (No message spam; dodges are common.)
+	    player->damagecount += 10;
+	    if (player->damagecount > 100)
+		player->damagecount = 100;
+	    return;
+	}
+
+	// Diablo equipment (mod): elemental resistance by damage source,
+	// then armor reduces what remains.
+	if (player)
+	    damage = D_ResistReduce(player, inflictor, damage);
+
 	// Diablo equipment (mod): armor reduces incoming damage before
 	// the vanilla armor absorption below.
 	if (player)

@@ -524,33 +524,38 @@ void D_BackpackFullMsg(struct player_s *pl)
 
 static void D_UseConsumable(player_t *player, const diablo_itemdef_t *def)
 {
-    int max;
+    int max, amount;
+
+    // Phase 4: energy boosts potion effectiveness (+2% per point).
+    amount = def->heal + def->heal * D_PotionBonus((struct player_s *)player)
+                          / 100;
 
     switch (def->usekind)
     {
       case USE_HEAL:
         max = D_MaxHealth((struct player_s *)player);
-        player->health += def->heal;
+        player->health += amount;
         if (player->health > max)
             player->health = max;
         player->mo->health = player->health;
-        D_Msg(player, "You quaff the %s. (+%d HP)", def->name, def->heal);
+        D_Msg(player, "You quaff the %s. (+%d HP)", def->name, amount);
         break;
 
       case USE_MANA:
         // No mana pool in Doom: the potion becomes a mana ward.
-        player->armorpoints += def->heal;
+        player->armorpoints += amount;
         if (player->armorpoints > deh_max_armor)
             player->armorpoints = deh_max_armor;
         if (!player->armortype)
             player->armortype = 1;
         D_Msg(player, "Mana ward from the %s. (+%d armor)",
-              def->name, def->heal);
+              def->name, amount);
         break;
 
       default: // USE_BLAST
         // A gas bomb at your feet: hurts everything nearby, you included.
-        P_RadiusAttack(player->mo, player->mo, def->heal);
+        // (Poison resist does not protect you from your own bomb.)
+        P_RadiusAttack(player->mo, player->mo, amount);
         D_Msg(player, "The %s bursts into toxic gas!", def->name);
         break;
     }
@@ -813,4 +818,113 @@ int D_MoveSpeed(struct player_s *pl)
 int D_MagicFind(struct player_s *pl)
 {
     return D_Stat(pl, DSTAT_MAGICFIND);
+}
+
+// Phase 4: dexterity -> dodge and crit; energy -> potion power;
+// elemental resistances mapped from the damage source.
+
+// Dodge chance with diminishing returns: 100 dex = 50%, capped at 40%.
+int D_DodgeChance(struct player_s *pl)
+{
+    int dex = D_Stat(pl, DSTAT_DEX);
+    int chance;
+
+    if (dex <= 0)
+        return 0;
+    chance = dex * 100 / (dex + 100);
+    if (chance > 40)
+        chance = 40;
+    return chance;
+}
+
+boolean D_DodgeRoll(struct player_s *pl)
+{
+    int chance = D_DodgeChance(pl);
+    if (chance <= 0)
+        return false;
+    return (P_Random() % 100) < chance;
+}
+
+// Crit chance: 4 dex = 1%, capped at 25%.  Crits deal double damage.
+int D_CritChance(struct player_s *pl)
+{
+    int chance = D_Stat(pl, DSTAT_DEX) / 4;
+    if (chance > 25)
+        chance = 25;
+    return chance;
+}
+
+int D_CritRoll(struct player_s *pl, int damage)
+{
+    int chance;
+
+    if (damage <= 0)
+        return damage;
+    chance = D_CritChance(pl);
+    if (chance <= 0)
+        return damage;
+    if ((P_Random() % 100) < chance)
+        return damage * 2;
+    return damage;
+}
+
+// Energy: +2% potion effectiveness per point.
+int D_PotionBonus(struct player_s *pl)
+{
+    return D_Stat(pl, DSTAT_ENE) * 2;
+}
+
+// Map a damage inflictor to an elemental resistance stat.
+// Fire: explosions and flame projectiles.  Cold: the "frost" demons'
+//   projectiles (revenant, mancubus, cacodemon, baron).  Lightning:
+//   plasma and BFG.  Poison: environmental/slime damage (NULL inflictor).
+// Returns a DSTAT_* resistance, or -1 for physical (bullets, melee).
+static int D_DamageElement(mobj_t *inflictor)
+{
+    mobjtype_t type;
+
+    if (!inflictor)
+        return DSTAT_PRES;  // slime, radiation, other environmental
+
+    type = inflictor->type;
+    switch (type)
+    {
+      case MT_BARREL:
+      case MT_ROCKET:
+      case MT_TROOPSHOT:   // imp fireball
+      case MT_FIRE:        // archvile flames
+      case MT_SPAWNFIRE:
+        return DSTAT_FRES;
+
+      case MT_HEADSHOT:    // cacodemon
+      case MT_BRUISERSHOT: // baron/hellknight
+      case MT_TRACER:      // revenant
+      case MT_FATSHOT:     // mancubus
+        return DSTAT_CRES;
+
+      case MT_PLASMA:
+      case MT_BFG:
+      case MT_ARACHPLAZ:   // spiderdemon
+        return DSTAT_LRES;
+
+      default:
+        return -1;  // physical: bullets, melee, crushers
+    }
+}
+
+int D_ResistReduce(struct player_s *pl, struct mobj_s *inflictor, int damage)
+{
+    int elem, resist;
+
+    if (damage <= 0)
+        return damage;
+    elem = D_DamageElement((mobj_t *)inflictor);
+    if (elem < 0)
+        return damage;
+    resist = D_Stat(pl, elem);
+    if (resist <= 0)
+        return damage;
+    if (resist > 75)
+        resist = 75;
+    return damage - damage * resist / 100;
 }

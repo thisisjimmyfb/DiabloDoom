@@ -71,6 +71,11 @@ static int ui_held_from = -1;          // ESLOT_* when picked from paperdoll
 static int ui_prevbtn = 0;
 static char ui_msg[80];
 static boolean ui_skip_mouse = false;  // ignore stale motion on open
+// Phase 4 drag-and-drop: track press position to distinguish drag from
+// click (click = pick up and hold for two-click; drag = move and release
+// to place).
+static boolean ui_dragging = false;
+static int ui_press_x = 0, ui_press_y = 0;
 
 // Linked from i_input.c: disables mouse acceleration while the UI is open.
 boolean d_ui_accel_disabled = false;
@@ -355,6 +360,9 @@ void D_UIOpen(void)
     ui_held = D_NOITEM;
     ui_held_from = -1;
     ui_prevbtn = 0;
+    ui_dragging = false;
+    ui_press_x = 160;
+    ui_press_y = 100;
     ui_msg[0] = '\0';
     ui_skip_mouse = true;  // discard stale motion event from ungrab
     d_ui_accel_disabled = true;  // 1:1 cursor movement
@@ -567,8 +575,40 @@ boolean D_UIResponder(event_t *ev)
         if (ui_cy > SCREENHEIGHT - 1) ui_cy = SCREENHEIGHT - 1;
 
         buttons = ev->data1;
+
+        // Phase 4 drag-and-drop.  Left press picks up (or places, when
+        // already holding).  Releasing after a drag places at the cursor;
+        // releasing without movement keeps the item held (two-click).
         if ((buttons & 1) && !(ui_prevbtn & 1))
-            UILeftClick();
+        {
+            // Left button pressed.
+            ui_press_x = ui_cx;
+            ui_press_y = ui_cy;
+            if (ui_held == D_NOITEM)
+            {
+                UILeftClick();  // pick up if over an item
+                ui_dragging = (ui_held != D_NOITEM);
+            }
+            else
+            {
+                UILeftClick();  // place (two-click)
+                ui_dragging = false;
+            }
+        }
+        if (!(buttons & 1) && (ui_prevbtn & 1))
+        {
+            // Left button released.
+            if (ui_dragging && ui_held != D_NOITEM)
+            {
+                int dx = ui_cx - ui_press_x;
+                int dy = ui_cy - ui_press_y;
+                // Drag threshold: 5px.  Beyond that, drop at the cursor.
+                if (dx * dx + dy * dy > 25)
+                    UILeftClick();  // place (drag-and-drop)
+                // Else: keep holding for two-click placement.
+            }
+            ui_dragging = false;
+        }
         if ((buttons & 2) && !(ui_prevbtn & 2))
             UIRightClick();
         ui_prevbtn = buttons;
@@ -781,7 +821,7 @@ static void UIDrawTooltip(int id)
 static void UIDrawStats(player_t *player)
 {
     char buf[48];
-    int x = UI_BP_X, y = 118;
+    int x = UI_BP_X, y = 115;
 
     UIDrawText(x, y, "STATS");
     y += 12;
@@ -790,29 +830,35 @@ static void UIDrawStats(player_t *player)
              D_Stat((struct player_s *)player, DSTAT_DMG_MAX),
              D_Stat((struct player_s *)player, DSTAT_ARMOR));
     UIDrawText(x, y, buf);
-    y += 10;
+    y += 9;
     snprintf(buf, sizeof(buf), "STR %d  DEX %d",
              D_Stat((struct player_s *)player, DSTAT_STR),
              D_Stat((struct player_s *)player, DSTAT_DEX));
     UIDrawText(x, y, buf);
-    y += 10;
-    snprintf(buf, sizeof(buf), "VIT %d  ENE %d",
-             D_Stat((struct player_s *)player, DSTAT_VIT),
-             D_Stat((struct player_s *)player, DSTAT_ENE));
+    y += 9;
+    snprintf(buf, sizeof(buf), "DODGE %d%%  CRIT %d%%",
+             D_DodgeChance((struct player_s *)player),
+             D_CritChance((struct player_s *)player));
     UIDrawText(x, y, buf);
-    y += 10;
+    y += 9;
+    snprintf(buf, sizeof(buf), "VIT %d  ENE %d (+%d%% pot)",
+             D_Stat((struct player_s *)player, DSTAT_VIT),
+             D_Stat((struct player_s *)player, DSTAT_ENE),
+             D_PotionBonus((struct player_s *)player));
+    UIDrawText(x, y, buf);
+    y += 9;
     snprintf(buf, sizeof(buf), "RES F%d C%d L%d P%d",
              D_Stat((struct player_s *)player, DSTAT_FRES),
              D_Stat((struct player_s *)player, DSTAT_CRES),
              D_Stat((struct player_s *)player, DSTAT_LRES),
              D_Stat((struct player_s *)player, DSTAT_PRES));
     UIDrawText(x, y, buf);
-    y += 10;
+    y += 9;
     snprintf(buf, sizeof(buf), "LEECH %d%%  FIND %d%%",
              D_Stat((struct player_s *)player, DSTAT_LIFESTEAL),
              D_Stat((struct player_s *)player, DSTAT_MAGICFIND));
     UIDrawText(x, y, buf);
-    y += 10;
+    y += 9;
     snprintf(buf, sizeof(buf), "SPEED +%d%%  HP %d/%d",
              D_Stat((struct player_s *)player, DSTAT_MOVESPEED),
              player->health,
@@ -873,7 +919,7 @@ void D_UIDrawer(void)
     UIDrawStats(player);
 
     // Hint line.
-    UIDrawText(10, 190, "CLICK: PICK UP / PLACE   RIGHT-CLICK: USE / CANCEL");
+    UIDrawText(10, 190, "DRAG OR CLICK: MOVE   RIGHT-CLICK: USE / CANCEL");
 
     // Transient message.
     if (ui_msg[0] && gametic < ui_msgtic)

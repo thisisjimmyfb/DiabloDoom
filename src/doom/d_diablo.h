@@ -13,6 +13,10 @@
 
 #include "doomtype.h"
 
+// Forward declarations to avoid circular includes.
+struct player_s;
+struct mobj_s;
+
 // Item tiers.  Order must match MT_LOOT_NORMAL..MT_LOOT_UNIQUE.
 typedef enum
 {
@@ -108,10 +112,6 @@ typedef struct
     int movespeed;   // percent movement speed bonus
 } diablo_itemdef_t;
 
-// player_t is defined in d_player.h, which includes this header;
-// use the incomplete struct type in prototypes.
-struct player_s;
-
 // Item table access.
 const diablo_itemdef_t *D_GetItemDef(int tier, int idx);
 int D_TierCount(int tier);
@@ -153,5 +153,17 @@ int D_ArmorReduce(struct player_s *player, int damage);
 void D_LifeSteal(struct player_s *player, int damage);
 int D_MoveSpeed(struct player_s *player);             // percent
 int D_MagicFind(struct player_s *player);             // percent
+
+// Phase 4: dexterity/energy/resistance hooks.
+boolean D_DodgeRoll(struct player_s *player);   // true = avoided the hit
+int D_DodgeChance(struct player_s *player);     // percent, for UI
+int D_CritRoll(struct player_s *player, int damage);  // may double damage
+int D_CritChance(struct player_s *player);      // percent, for UI
+// Reduce damage by the resistance matching the inflictor's element.
+// inflictor may be NULL (environmental/slime -> poison).
+int D_ResistReduce(struct player_s *player, struct mobj_s *inflictor,
+                   int damage);
+// Energy bonus to potion effectiveness, in percent.
+int D_PotionBonus(struct player_s *player);
 
 #endif

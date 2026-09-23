@@ -1702,8 +1702,13 @@ void G_DoLoadGame (void)
     P_UnArchiveThinkers (); 
     P_UnArchiveSpecials (); 
  
-    if (!P_ReadSaveGameEOF())
-	I_Error ("Bad savegame");
+    // Diablo equipment (mod): old saves have no Diablo section; the EOF
+    // marker is consumed by P_UnArchiveDiablo in that case.
+    if (P_UnArchiveDiablo())
+    {
+        if (!P_ReadSaveGameEOF())
+            I_Error ("Bad savegame");
+    }
 
     fclose(save_stream);
     
@@ -1767,6 +1772,9 @@ void G_DoSaveGame (void)
     P_ArchiveWorld ();
     P_ArchiveThinkers ();
     P_ArchiveSpecials ();
+
+    // Diablo equipment (mod).
+    P_ArchiveDiablo();
 
     P_WriteSaveGameEOF();
 

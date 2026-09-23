@@ -1892,3 +1892,104 @@ void P_UnArchiveSpecials (void)
 
 }
 
+//
+// Diablo equipment persistence (mod).
+//
+// The Diablo inventory (equipment, backpack, grid positions) is saved as a
+// separate section after the vanilla data, guarded by a magic number.  Old
+// saves without the section are detected by the EOF marker (0x1d) appearing
+// where the magic would be; they load with empty equipment via the
+// D_ResetPlayer call in P_UnArchivePlayers.
+//
+
+#define DIABLO_SAVE_MAGIC 0x44494142  // 'DIAB' (first byte 0x44 != 0x1d)
+
+void P_ArchiveDiablo(void)
+{
+    int i, j;
+
+    saveg_write32(DIABLO_SAVE_MAGIC);
+
+    for (i = 0; i < MAXPLAYERS; i++)
+    {
+        if (!playeringame[i])
+            continue;
+
+        for (j = 0; j < NUM_ESLOTS; j++)
+            saveg_write32(players[i].diablo_equipped[j]);
+
+        saveg_write32(players[i].diablo_bp_count);
+        for (j = 0; j < D_BACKPACK_SIZE; j++)
+        {
+            saveg_write32(players[i].diablo_backpack[j]);
+            saveg_write32(players[i].diablo_bp_gx[j]);
+            saveg_write32(players[i].diablo_bp_gy[j]);
+        }
+        saveg_write32(players[i].diablo_recent);
+        // diablo_stats[] is derived; recalculated on load.
+    }
+}
+
+// Returns true when Diablo data was present and loaded, false for old
+// saves (which keep the empty equipment from D_ResetPlayer).  In the
+// false case the savegame EOF marker has already been consumed.
+boolean P_UnArchiveDiablo(void)
+{
+    int c, magic, i, j, id;
+
+    c = saveg_read8();
+    if (c == SAVEGAME_EOF)
+        return false;
+
+    magic = c | (saveg_read8() << 8) | (saveg_read8() << 16)
+              | (saveg_read8() << 24);
+    if (magic != DIABLO_SAVE_MAGIC)
+        I_Error("P_UnArchiveDiablo: bad magic 0x%x", magic);
+
+    for (i = 0; i < MAXPLAYERS; i++)
+    {
+        if (!playeringame[i])
+            continue;
+
+        // P_UnArchivePlayers already called D_ResetPlayer.
+        for (j = 0; j < NUM_ESLOTS; j++)
+        {
+            id = saveg_read32();
+            if (id != D_NOITEM && !D_ValidItem(D_ITEMTIER(id), D_ITEMIDX(id)))
+                id = D_NOITEM;
+            players[i].diablo_equipped[j] = id;
+        }
+
+        players[i].diablo_bp_count = saveg_read32();
+        if (players[i].diablo_bp_count < 0)
+            players[i].diablo_bp_count = 0;
+        if (players[i].diablo_bp_count > D_BACKPACK_SIZE)
+            players[i].diablo_bp_count = D_BACKPACK_SIZE;
+
+        for (j = 0; j < D_BACKPACK_SIZE; j++)
+        {
+            id = saveg_read32();
+            players[i].diablo_backpack[j] = id;
+            players[i].diablo_bp_gx[j] = saveg_read32();
+            players[i].diablo_bp_gy[j] = saveg_read32();
+            // Invalidate out-of-range entries.
+            if (j >= players[i].diablo_bp_count
+             || (id != D_NOITEM && !D_ValidItem(D_ITEMTIER(id), D_ITEMIDX(id))))
+            {
+                players[i].diablo_backpack[j] = D_NOITEM;
+                players[i].diablo_bp_gx[j] = -1;
+                players[i].diablo_bp_gy[j] = -1;
+            }
+        }
+
+        players[i].diablo_recent = saveg_read32();
+        if (players[i].diablo_recent < 0
+         || players[i].diablo_recent >= players[i].diablo_bp_count)
+            players[i].diablo_recent = -1;
+
+        D_RecalcStats((struct player_s *)&players[i]);
+    }
+
+    return true;
+}
+
