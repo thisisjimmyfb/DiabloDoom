@@ -100,3 +100,46 @@ chocolate-doom -merge aoddoom1.wad -deh aoddoom1.deh  (Army of Darkness Doom)
 
  * Chocolate Doom is distributed under the GNU GPL. See the COPYING
    file for more information.
+
+## DiabloDoom: Diablo-style loot and equipment
+
+This fork adds a Diablo-inspired loot and equipment system to Chocolate Doom.
+
+### Loot drops (Phase 0)
+
+Every monster kill has a 70% chance to drop loot in 5 rarity tiers:
+normal, magic (~40%), rare (~20%), set (~9%), unique (~6%).
+Pick up drops by walking over them.
+
+### Equipment backend (Phase 1)
+
+All 42 loot items have data-driven definitions (src/doom/d_diablo.c) with
+names, tiers, equipment slots, Diablo-style grid sizes, and stats.
+
+Equipment slots: helm, armor, weapon, shield, two rings, amulet, boots,
+gloves, belt.
+
+The player has a 40-slot backpack. Picking up loot stashes the specific
+item in the backpack (no more instant health/armor/ammo rewards). If the
+backpack is full, the item stays on the ground and "Backpack full!" is
+shown.
+
+Temporary controls (Phase 1):
+- **E**: Equip (or use, for potions) the most recently picked-up item.
+- **Q**: Unequip everything.
+
+Stat effects:
+- **Weapon damage**: +random(dmg_min..dmg_max) of the equipped weapon,
+  plus +1 per 4 strength, on every point of player damage.
+- **Armor**: incoming damage reduced by `damage * armor / (armor + 50)`
+  (50 armor halves hits), capped at 75% reduction.
+- **Life steal**: heal a percentage of damage dealt to monsters.
+- **Vitality**: +5 maximum health per point (soulsphere respects it).
+- **Magic find**: rarity roll shifted down by `magic_find / 2`.
+- **Move speed**: player thrust scaled by `(100 + move_speed) / 100`.
+- Dexterity, energy, and elemental resists are aggregated for future use.
+
+Limitations (Phase 1):
+- No inventory grid UI, drag/drop, or item artwork yet.
+- Equipment is not saved to savegames; it resets on load (kept on death).
+- Potions are used from the backpack (E) rather than equipped.

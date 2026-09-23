@@ -276,6 +276,10 @@ typedef struct mobj_s
 
     // Thing being chased/attacked for tracers.
     struct mobj_s*	tracer;	
+
+    // Diablo loot system (mod): packed item id ((tier << 8) | index)
+    // for MT_LOOT_* drops; D_NOITEM (-1) if not a specific item.
+    int			diablo_loot_id;
     
 } mobj_t;
 

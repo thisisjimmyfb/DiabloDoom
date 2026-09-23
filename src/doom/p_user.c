@@ -26,6 +26,9 @@
 
 #include "p_local.h"
 
+// Diablo equipment backend (mod).
+#include "d_diablo.h"
+
 #include "doomstat.h"
 
 
@@ -54,6 +57,11 @@ P_Thrust
   angle_t	angle,
   fixed_t	move ) 
 {
+    // Diablo equipment (mod): move-speed% scales thrust.
+    int ms = player->diablo_stats[DSTAT_MOVESPEED];
+    if (ms)
+	move = move * (100 + ms) / 100;
+
     angle >>= ANGLETOFINESHIFT;
     
     player->mo->momx += FixedMul(move,finecosine[angle]); 

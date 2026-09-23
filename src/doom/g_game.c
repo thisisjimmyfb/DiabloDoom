@@ -61,6 +61,9 @@
 
 #include "p_local.h" 
 
+// Diablo equipment backend (mod).
+#include "d_diablo.h"
+
 #include "s_sound.h"
 
 // Data.
@@ -801,6 +804,24 @@ boolean G_Responder (event_t* ev)
 	return true; 
     }
     
+    // Diablo equipment (mod): temporary controls.
+    // E equips/uses the most recently picked-up item, Q unequips everything.
+    if (gamestate == GS_LEVEL && ev->type == ev_keydown
+     && !demoplayback && !singledemo)
+    {
+	if (ev->data1 == 'e' || ev->data1 == 'E')
+	{
+	    D_EquipRecent(&players[consoleplayer]);
+	    return true;
+	}
+	if (ev->data1 == 'q' || ev->data1 == 'Q')
+	{
+	    D_UnequipAll(&players[consoleplayer]);
+	    players[consoleplayer].message = "Unequipped everything.";
+	    return true;
+	}
+    }
+
     // any other key pops up menu if in demos
     if (gameaction == ga_nothing && !singledemo && 
 	(demoplayback || gamestate == GS_DEMOSCREEN) 
@@ -1139,7 +1160,20 @@ void G_PlayerReborn (int player)
     secretcount = players[player].secretcount; 
 	 
     p = &players[player]; 
-    memset (p, 0, sizeof(*p)); 
+    // Diablo equipment (mod): keep gear across death.
+    {
+	int eq[NUM_ESLOTS], bp[D_BACKPACK_SIZE], bpc, rec, st[NUM_DSTATS];
+	int i2;
+	for (i2 = 0; i2 < NUM_ESLOTS; i2++) eq[i2] = p->diablo_equipped[i2];
+	for (i2 = 0; i2 < D_BACKPACK_SIZE; i2++) bp[i2] = p->diablo_backpack[i2];
+	bpc = p->diablo_bp_count; rec = p->diablo_recent;
+	for (i2 = 0; i2 < NUM_DSTATS; i2++) st[i2] = p->diablo_stats[i2];
+	memset (p, 0, sizeof(*p)); 
+	for (i2 = 0; i2 < NUM_ESLOTS; i2++) p->diablo_equipped[i2] = eq[i2];
+	for (i2 = 0; i2 < D_BACKPACK_SIZE; i2++) p->diablo_backpack[i2] = bp[i2];
+	p->diablo_bp_count = bpc; p->diablo_recent = rec;
+	for (i2 = 0; i2 < NUM_DSTATS; i2++) p->diablo_stats[i2] = st[i2];
+    }
  
     memcpy (players[player].frags, frags, sizeof(players[player].frags)); 
     players[player].killcount = killcount; 
@@ -1910,7 +1944,11 @@ G_InitNew
 
     // force players to be initialized upon first level load
     for (i=0 ; i<MAXPLAYERS ; i++)
+    {
 	players[i].playerstate = PST_REBORN;
+	// Diablo equipment (mod): new game wipes gear.
+	D_ResetPlayer(&players[i]);
+    }
 
     usergame = true;                // will be set false if a demo
     paused = false;

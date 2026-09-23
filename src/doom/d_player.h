@@ -39,6 +39,9 @@
 
 #include "net_defs.h"
 
+// Diablo equipment system (mod): slots, stats, item definitions.
+#include "d_diablo.h"
+
 
 
 
@@ -157,6 +160,16 @@ typedef struct player_s
 
     // True if secret level has been done.
     boolean		didsecret;	
+
+    // Diablo equipment system (mod).  Equipped/backpack entries are
+    // packed item ids ((tier << 8) | index); D_NOITEM (-1) means empty.
+    // diablo_stats caches the summed stats of equipped items.
+    // NOTE: not yet saved to savegames (Phase 2); gear resets on load.
+    int			diablo_equipped[NUM_ESLOTS];
+    int			diablo_backpack[D_BACKPACK_SIZE];
+    int			diablo_bp_count;
+    int			diablo_recent;	// backpack idx of latest pickup
+    int			diablo_stats[NUM_DSTATS];
 
 } player_t;
 

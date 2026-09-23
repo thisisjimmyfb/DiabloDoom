@@ -25,6 +25,9 @@
 #include "i_system.h"
 #include "z_zone.h"
 #include "p_local.h"
+
+// Diablo equipment backend (mod).
+#include "d_diablo.h"
 #include "p_saveg.h"
 
 // State.
@@ -1466,6 +1469,9 @@ void P_UnArchivePlayers (void)
 	saveg_read_pad();
 
         saveg_read_player_t(&players[i]);
+	
+	// Diablo equipment (mod): not yet saved; reset on load (Phase 2).
+	D_ResetPlayer(&players[i]);
 	
 	// will be set when unarc thinker
 	players[i].mo = NULL;	
