@@ -7,6 +7,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "t_turn.h"
 #include "doomstat.h"
@@ -14,6 +15,7 @@
 #include "g_game.h"
 #include "i_system.h"
 #include "p_local.h"
+#include "p_saveg.h"
 #include "r_main.h"
 #include "m_misc.h"
 #include "tables.h"
@@ -24,6 +26,89 @@
 // (sub-steps avoid tunneling through thin lines).
 #define STEP_SUB 4
 #define STEP_LEN (8 * FRACUNIT)
+
+// ------------------------------------------------------------------
+// Phase 2: Tempo economy.
+//
+// Baseline action costs (SPEC). Selection and cancellation are always
+// free; TP is spent only after an action commits. An action that cannot
+// be afforded is refused with a message and changes nothing.
+// ------------------------------------------------------------------
+
+// Derived attack cost. Phase 2: fixed middle value. Phase 4/5 refine to
+// clamp(2, 8, ceil(base_cost / attack_speed)).
+int T_AttackCost(void)
+{
+    return 4;
+}
+
+int T_CostFor(turnaction_t action)
+{
+    switch (action)
+    {
+      case TA_MOVE_N: case TA_MOVE_S: case TA_MOVE_E: case TA_MOVE_W:
+        return 1;
+      case TA_USE:
+      case TA_SWAP_WEAPON:
+      case TA_HUNKER:
+        return 2;
+      case TA_WAIT:
+        return 1;
+      case TA_ATTACK:
+        return T_AttackCost() + (turnctrl.headshot_mod ? 2 : 0);
+      case TA_HEADSHOT: // arming the modifier is free; the +2 lands on ATTACK
+        return 0;
+      case TA_ABILITY: // per-kit costs land in phase 5
+        return 3;
+      case TA_OVERWATCH: // all remaining TP (minimum 3, checked in CanAfford)
+        return turnctrl.tp;
+      case TA_POTION: // consumable use cost lands with the Diablo bridge
+        return 2;
+      case TA_SELECT_NEXT: case TA_SELECT_PREV: case TA_SELECT_NUM:
+      case TA_CANCEL:
+      case TA_END_TURN:
+      case TA_NONE:
+      default:
+        return 0;
+    }
+}
+
+boolean T_CanAfford(turnaction_t action)
+{
+    if (action == TA_OVERWATCH)
+        return turnctrl.tp >= 3;
+    return turnctrl.tp >= T_CostFor(action);
+}
+
+void T_SpendTP(int cost)
+{
+    turnctrl.tp -= cost;
+    if (turnctrl.tp < 0)
+        turnctrl.tp = 0; // belt and braces; CanAfford gates this
+}
+
+// Refuse an unaffordable action: message, no state change, no pulse.
+static void T_RefuseTP(turnaction_t action)
+{
+    static char msg[64];
+    int need = (action == TA_OVERWATCH) ? 3 : T_CostFor(action);
+    M_snprintf(msg, sizeof(msg), "Need %d TP (have %d).", need, turnctrl.tp);
+    players[consoleplayer].message = msg;
+    printf("[TURN] refused action %d: need %d tp, have %d\n",
+           action, need, turnctrl.tp);
+}
+
+// Dead heroes take no actions. (Death/rebirth flow lands in a later phase.)
+static boolean T_ActorAlive(void)
+{
+    player_t *player = &players[consoleplayer];
+    if (player->mo == NULL || player->health <= 0)
+    {
+        player->message = "You are dead.";
+        return false;
+    }
+    return true;
+}
 
 // ------------------------------------------------------------------
 // MOVE: screen-relative discrete step with auto-facing.
@@ -41,6 +126,13 @@ void T_DoMove(int dir)
 
     if (!T_Active() || mo == NULL)
         return;
+    if (!T_ActorAlive())
+        return;
+    if (!T_CanAfford(TA_MOVE_N))
+    {
+        T_RefuseTP(TA_MOVE_N);
+        return;
+    }
     if (dir < 0 || dir > 3)
         return;
 
@@ -60,6 +152,8 @@ void T_DoMove(int dir)
     mo->momx = mo->momy = 0;
     mo->momz = 0;
 
+    T_SpendTP(T_CostFor(TA_MOVE_N));
+
     // Settle pulse: sector effects, in-flight odds and ends. Monsters
     // stay frozen — they act on their own phase.
     T_BeginPulse(6, true, true);
@@ -75,8 +169,16 @@ void T_DoUse(void)
 
     if (!T_Active() || player->mo == NULL)
         return;
+    if (!T_ActorAlive())
+        return;
+    if (!T_CanAfford(TA_USE))
+    {
+        T_RefuseTP(TA_USE);
+        return;
+    }
 
     P_UseLines(player);
+    T_SpendTP(T_CostFor(TA_USE));
     T_BeginPulse(6, true, true);
     T_DumpState("use");
 }
@@ -88,8 +190,16 @@ void T_DoWait(void)
 {
     if (!T_Active())
         return;
+    if (!T_ActorAlive())
+        return;
+    if (!T_CanAfford(TA_WAIT))
+    {
+        T_RefuseTP(TA_WAIT);
+        return;
+    }
 
     players[consoleplayer].message = "Wait.";
+    T_SpendTP(T_CostFor(TA_WAIT));
     T_BeginPulse(8, true, true);
     T_DumpState("wait");
 }
@@ -104,6 +214,8 @@ void T_DoEndTurn(void)
         return;
     if (T_InPulse())
         return;
+    if (!T_ActorAlive())
+        return;
 
     players[consoleplayer].message = "Enemy phase...";
     // Flag before the pulse: in sync (script) mode T_BeginPulse runs
@@ -113,6 +225,101 @@ void T_DoEndTurn(void)
     if (!turnctrl.sync)
         turnctrl.state = TS_REACTION;
     T_DumpState("end-turn");
+}
+
+// ------------------------------------------------------------------
+// SWAP WEAPON: 2 TP. Cycle readyweapon to the next owned Doom weapon
+// among the six turn-mode kits (pistol..BFG). The Diablo equipment weapon
+// item is orthogonal (it grants stats); the six kits live on the Doom
+// weapons. Fists are not a kit, so swap never selects them. Runs a short
+// frozen pulse so the lower/raise animation completes via P_PlayerThink.
+// ------------------------------------------------------------------
+void T_DoSwapWeapon(void)
+{
+    player_t *player = &players[consoleplayer];
+    int w, cand;
+
+    if (!T_Active() || player->mo == NULL)
+        return;
+    if (!T_ActorAlive())
+        return;
+    if (!T_CanAfford(TA_SWAP_WEAPON))
+    {
+        T_RefuseTP(TA_SWAP_WEAPON);
+        return;
+    }
+
+    for (w = 1; w <= (wp_bfg - wp_pistol); w++)
+    {
+        cand = wp_pistol + (player->readyweapon - wp_pistol + w)
+                         % (wp_bfg - wp_pistol + 1);
+        if (player->weaponowned[cand] && cand != player->readyweapon)
+            break;
+    }
+    if (w > (wp_bfg - wp_pistol) || cand == player->readyweapon)
+    {
+        player->message = "No other weapon.";
+        printf("[TURN] swap refused: no other weapon owned\n");
+        return;
+    }
+
+    player->pendingweapon = cand;
+    T_SpendTP(T_CostFor(TA_SWAP_WEAPON));
+    // Frozen pulse lets the weapon lower/raise; ammo is topped up so the
+    // state machine can never reject the switch for lack of ammo.
+    T_BeginPulse(30, true, true);
+    printf("[TURN] swapped to weapon %d\n", cand);
+    T_DumpState("swap");
+}
+
+// ------------------------------------------------------------------
+// HUNKER: 2 TP. Defense until next round (phase 6 defines the bonus).
+// ------------------------------------------------------------------
+void T_DoHunker(void)
+{
+    if (!T_Active())
+        return;
+    if (!T_ActorAlive())
+        return;
+    if (!T_CanAfford(TA_HUNKER))
+    {
+        T_RefuseTP(TA_HUNKER);
+        return;
+    }
+
+    turnctrl.hunkered = 1;
+    players[consoleplayer].message = "Hunkered down.";
+    T_SpendTP(T_CostFor(TA_HUNKER));
+    T_BeginPulse(4, true, true);
+    T_DumpState("hunker");
+}
+
+// ------------------------------------------------------------------
+// OVERWATCH: all remaining TP (minimum 3 to activate). Reserves one
+// reaction for the enemy phase; the reaction itself lands in phase 6.
+// ------------------------------------------------------------------
+void T_DoOverwatch(void)
+{
+    if (!T_Active())
+        return;
+    if (!T_ActorAlive())
+        return;
+    if (!T_CanAfford(TA_OVERWATCH))
+    {
+        T_RefuseTP(TA_OVERWATCH);
+        return;
+    }
+
+    turnctrl.overwatch_tp = turnctrl.tp;
+    turnctrl.tp = 0;
+    {
+        static char msg[64];
+        M_snprintf(msg, sizeof(msg), "Overwatch set (%d TP).",
+                   turnctrl.overwatch_tp);
+        players[consoleplayer].message = msg;
+    }
+    T_BeginPulse(4, true, true);
+    T_DumpState("overwatch");
 }
 
 // ------------------------------------------------------------------
@@ -165,9 +372,30 @@ void T_SpawnArena(void)
 // no mouse events. One token per line:
 //
 //   MOVE_N | MOVE_E | MOVE_S | MOVE_W | USE | WAIT | END | DUMP | QUIT
+//   SWAP | HUNKER | OVERWATCH
+//   ASSERT_TP n | ASSERT_ROUND n     (gate checks; print PASS/FAIL)
+//   SAVE n | LOAD n                  (slots 0-7; synchronous)
+//   GIVEWEAPON n                    (test: grant kit weapon n)
 //
 // Pulses run synchronously so scripts are fast and deterministic.
 // ------------------------------------------------------------------
+static void T_ScriptAssertTP(int want)
+{
+    if (turnctrl.tp == want)
+        printf("[TURN] ASSERT_TP %d: PASS\n", want);
+    else
+        printf("[TURN] ASSERT_TP %d: FAIL (have %d)\n", want, turnctrl.tp);
+}
+
+static void T_ScriptAssertRound(int want)
+{
+    if (turnctrl.round == want)
+        printf("[TURN] ASSERT_ROUND %d: PASS\n", want);
+    else
+        printf("[TURN] ASSERT_ROUND %d: FAIL (have %d)\n", want,
+               turnctrl.round);
+}
+
 void T_RunScript(const char *path)
 {
     FILE *f;
@@ -188,6 +416,7 @@ void T_RunScript(const char *path)
 
     while (fgets(line, sizeof(line), f))
     {
+        int n;
         // strip trailing newline
         line[strcspn(line, "\r\n")] = 0;
 
@@ -198,8 +427,36 @@ void T_RunScript(const char *path)
         else if (!strcmp(line, "USE"))    T_DoUse();
         else if (!strcmp(line, "WAIT"))   T_DoWait();
         else if (!strcmp(line, "END"))    T_DoEndTurn();
+        else if (!strcmp(line, "SWAP"))   T_DoSwapWeapon();
+        else if (!strcmp(line, "HUNKER")) T_DoHunker();
+        else if (!strcmp(line, "OVERWATCH")) T_DoOverwatch();
         else if (!strcmp(line, "DUMP"))   T_DumpState("script");
-        else if (!strcmp(line, "QUIT"))   { fclose(f); turnctrl.sync = false; printf("[TURN] script done.\n"); I_Quit(); return; }
+        else if (sscanf(line, "ASSERT_TP %d", &n) == 1) T_ScriptAssertTP(n);
+        else if (sscanf(line, "ASSERT_ROUND %d", &n) == 1)
+            T_ScriptAssertRound(n);
+        else if (sscanf(line, "SAVE %d", &n) == 1 && n >= 0 && n < 8)
+        {
+            char desc[32];
+            M_snprintf(desc, sizeof(desc), "tb gate r%d", turnctrl.round);
+            G_DoSaveGameSlot(n, desc);
+            printf("[TURN] saved slot %d\n", n);
+        }
+        else if (sscanf(line, "GIVEWEAPON %d", &n) == 1
+                 && n >= wp_pistol && n <= wp_bfg)
+        {
+            players[consoleplayer].weaponowned[n] = true;
+            printf("[TURN] gave weapon %d (test)\n", n);
+        }
+        else if (sscanf(line, "LOAD %d", &n) == 1 && n >= 0 && n < 8)
+        {
+            extern char savename[256];
+            char *sn = P_SaveGameFile(n);
+            M_StringCopy(savename, sn, sizeof(savename));
+            free(sn);
+            G_DoLoadGame();
+            printf("[TURN] loaded slot %d\n", n);
+        }
+        else if (!strcmp(line, "QUIT"))   { fclose(f); turnctrl.sync = false; printf("[TURN] script done.\n"); fflush(stdout); exit(0); }
         else if (line[0] == 0 || line[0] == '#') continue;
         else printf("[TURN] unknown script token: %s\n", line);
     }

@@ -1716,8 +1716,14 @@ void G_DoLoadGame (void)
     // marker is consumed by P_UnArchiveDiablo in that case.
     if (P_UnArchiveDiablo())
     {
-        if (!P_ReadSaveGameEOF())
-            I_Error ("Bad savegame");
+        // Turn-based decision state (mod): old saves end after the
+        // Diablo section; P_UnArchiveTurn consumes the EOF marker and
+        // returns false in that case.
+        if (P_UnArchiveTurn())
+        {
+            if (!P_ReadSaveGameEOF())
+                I_Error ("Bad savegame");
+        }
     }
 
     fclose(save_stream);
@@ -1788,6 +1794,12 @@ void G_DoSaveGame (void)
     // Diablo equipment (mod).
     P_ArchiveDiablo();
 
+    // Turn-based decision state (mod): only in turn mode, so real-time
+    // save output is byte-identical to stock. Loading tolerates the
+    // missing block via the EOF-marker fallback in P_UnArchiveTurn.
+    if (turnbased_mode)
+        P_ArchiveTurn();
+
     P_WriteSaveGameEOF();
 
     // Enforce the same savegame size limit as in Vanilla Doom,
@@ -1825,6 +1837,15 @@ void G_DoSaveGame (void)
 
     // draw the pattern into the back screen
     R_FillBackScreen ();
+}
+
+// Turn-mode test harness: synchronous save to a slot (the menu path is
+// deferred through gameaction; scripts need it immediate).
+void G_DoSaveGameSlot(int slot, const char *desc)
+{
+    savegameslot = slot;
+    M_StringCopy(savedescription, desc ? desc : "", sizeof(savedescription));
+    G_DoSaveGame();
 }
  
 

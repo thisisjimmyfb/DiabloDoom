@@ -29,6 +29,7 @@
 // Diablo equipment backend (mod).
 #include "d_diablo.h"
 #include "p_saveg.h"
+#include "t_turn.h"
 
 // State.
 #include "doomstat.h"
@@ -1989,6 +1990,73 @@ boolean P_UnArchiveDiablo(void)
 
         D_RecalcStats((struct player_s *)&players[i]);
     }
+
+    return true;
+}
+
+// ------------------------------------------------------------------
+// Turn-based decision state (mod). Trailing block after the Diablo
+// section; old saves without it load fine (P_UnArchiveTurn consumes the
+// EOF marker and returns false). Round/TP are the phase-2 decision
+// state; heat/charge/cooldowns/hunker/overwatch ride along for phase 5+.
+// ------------------------------------------------------------------
+#define TURN_SAVE_MAGIC 0x5455524E  // 'TURN' (first byte 0x54 != 0x1d)
+
+void P_ArchiveTurn(void)
+{
+    int i;
+
+    saveg_write32(TURN_SAVE_MAGIC);
+    saveg_write32(turnctrl.round);
+    saveg_write32(turnctrl.tp);
+    saveg_write32(turnctrl.tp_max);
+    saveg_write32(turnctrl.heat);
+    saveg_write32(turnctrl.charge_tp);
+    saveg_write32(turnctrl.hunkered);
+    saveg_write32(turnctrl.overwatch_tp);
+    for (i = 0; i < 8; i++)
+        saveg_write32(turnctrl.cooldowns[i]);
+    saveg_write32(turnctrl.headshot_mod ? 1 : 0);
+}
+
+boolean P_UnArchiveTurn(void)
+{
+    int c, magic, i;
+
+    c = saveg_read8();
+    if (c == SAVEGAME_EOF)
+        return false;
+
+    magic = c | (saveg_read8() << 8) | (saveg_read8() << 16)
+              | (saveg_read8() << 24);
+    if (magic != TURN_SAVE_MAGIC)
+        I_Error("P_UnArchiveTurn: bad magic 0x%x", magic);
+
+    turnctrl.round = saveg_read32();
+    turnctrl.tp = saveg_read32();
+    turnctrl.tp_max = saveg_read32();
+    // Clamp garbage rather than trusting the file.
+    if (turnctrl.round < 1)
+        turnctrl.round = 1;
+    if (turnctrl.tp_max < 1)
+        turnctrl.tp_max = 10;
+    if (turnctrl.tp < 0)
+        turnctrl.tp = 0;
+    if (turnctrl.tp > turnctrl.tp_max)
+        turnctrl.tp = turnctrl.tp_max;
+
+    turnctrl.heat = saveg_read32();
+    turnctrl.charge_tp = saveg_read32();
+    turnctrl.hunkered = saveg_read32();
+    turnctrl.overwatch_tp = saveg_read32();
+    for (i = 0; i < 8; i++)
+        turnctrl.cooldowns[i] = saveg_read32();
+    turnctrl.headshot_mod = saveg_read32() ? true : false;
+
+    // Land in a plannable state; G_DoLoadGame calls T_OnLoad next.
+    turnctrl.state = TS_PLANNING;
+    turnctrl.pulse_left = 0;
+    turnctrl.queued = TA_NONE;
 
     return true;
 }

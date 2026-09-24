@@ -812,8 +812,11 @@ void R_FillBackScreen (void)
     // If we are running full screen, there is no need to do any of this,
     // and the background buffer can be freed if it was previously in use.
 
-    if (scaledviewwidth == SCREENWIDTH)
+    if (scaledviewwidth == SCREENWIDTH || scaledviewwidth <= 0)
     {
+        // scaledviewwidth <= 0: the view was never sized (e.g. a save on
+        // the very first tic, before D_Display runs R_ExecuteSetViewSize).
+        // There is no border to draw; do not touch garbage view vars.
         if (background_buffer != NULL)
         {
             Z_Free(background_buffer);

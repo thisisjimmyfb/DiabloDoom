@@ -178,6 +178,22 @@ static void T_MaintainView(void)
 
 static void T_EndPulse(void);
 
+// Phase 2: infinite-ammo invariant. Turn mode never tracks ammunition;
+// availability is governed by TP cost, cooldowns, charge, and heat.
+// Keep every ammo pool maxed while planning so the weapon state machine
+// can never fail or auto-switch for lack of ammo. Real-time mode never
+// reaches this code.
+void T_TopUpAmmo(void)
+{
+    player_t *p;
+    int i;
+    if (!T_Active())
+        return;
+    p = &players[consoleplayer];
+    for (i = 0; i < NUMAMMO; i++)
+        p->ammo[i] = p->maxammo[i];
+}
+
 // One world tic with optional monster freeze. Mirrors P_Ticker's
 // structure; live monsters (MF_COUNTKILL, alive, not the player) are
 // skipped when freeze_monsters is set — XCOM-style, they act on their
@@ -243,7 +259,8 @@ void T_BeginPulse(int tics, boolean freeze_monsters, boolean fast)
     turnctrl.pulse_left = tics;
     turnctrl.pulse_freeze = freeze_monsters;
     turnctrl.pulse_fast = fast;
-    turnctrl.pulse_enemy = false;
+    // Do NOT clear pulse_enemy here: T_DoEndTurn sets it before starting
+    // the enemy-phase pulse, and T_EndPulse clears it after consuming it.
     if (!turnctrl.sync)
         turnctrl.state = TS_PULSE;
     else
@@ -331,7 +348,10 @@ void T_Ticker(void)
     // renderer shows a broken frame.
     if (turnctrl.state == TS_PLANNING || turnctrl.state == TS_TARGETING
         || turnctrl.state == TS_CONFIRM || turnctrl.state == TS_ROUND_END)
+    {
         T_MaintainView();
+        T_TopUpAmmo();
+    }
 
     if (turnctrl.state == TS_PULSE || turnctrl.state == TS_REACTION)
     {
@@ -408,7 +428,8 @@ void T_DrawHUD(void)
     if (!T_Active())
         return;
 
-    M_snprintf(line, sizeof(line), "TURN MODE - ROUND %d", turnctrl.round);
+    M_snprintf(line, sizeof(line), "TURN MODE - ROUND %d - TP %d/%d",
+               turnctrl.round, turnctrl.tp, turnctrl.tp_max);
     T_DrawTextCentered(2, line);
 
     if (turnctrl.state == TS_REACTION)
@@ -416,7 +437,10 @@ void T_DrawHUD(void)
     else if (turnctrl.state == TS_PULSE)
         T_DrawTextCentered(12, "RESOLVING");
     else
-        T_DrawTextCentered(12, "WASD MOVE - SPACE USE - . WAIT - T END");
+    {
+        T_DrawTextCentered(12, "WASD MOVE  X SWAP  SPC USE  . WAIT");
+        T_DrawTextCentered(22, "H HUNKER  O OVERWATCH  T END TURN");
+    }
 }
 
 // ------------------------------------------------------------------

@@ -45,6 +45,8 @@ void G_DeferedPlayDemo (const char* demo);
 void G_LoadGame (char* name);
 
 void G_DoLoadGame (void);
+void G_DoSaveGame (void);
+void G_DoSaveGameSlot(int slot, const char *desc); // turn test harness
 
 // Called by M_Responder.
 void G_SaveGame (int slot, char* description);

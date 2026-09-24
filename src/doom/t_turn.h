@@ -105,10 +105,22 @@ boolean T_InPulse(void);
 void T_RunPulseSync(int tics, boolean freeze_monsters);
 
 // Turn-mode actions (t_action.c). Phase 1: move/use/wait/end.
+// Phase 2: TP costs, legal-action checks, swap/hunker/overwatch.
 void T_DoMove(int dir);   // 0=N(fwd) 1=E(right) 2=S(back) 3=W(left)
 void T_DoUse(void);
 void T_DoWait(void);
 void T_DoEndTurn(void);
+void T_DoSwapWeapon(void); // 2 TP: cycle to next owned weapon
+void T_DoHunker(void);     // 2 TP: defense until next round
+void T_DoOverwatch(void);  // all remaining TP (min 3): reserve reaction
+
+// Phase 2: Tempo economy.
+int T_CostFor(turnaction_t action);   // TP cost; selection/cancel = 0
+boolean T_CanAfford(turnaction_t action);
+int T_AttackCost(void);              // derived from attack speed (ph4/5)
+void T_SpendTP(int cost);
+// Infinite-ammo invariant: turn mode never tracks ammo.
+void T_TopUpAmmo(void);
 
 // HUD: mode indicator + contextual help (called from HU_Drawer).
 void T_DrawHUD(void);
@@ -117,6 +129,12 @@ void T_DrawHUD(void);
 void T_DumpState(const char *why);
 void T_SpawnArena(void);
 void T_RunScript(const char *path);
+
+// Save/load: turn decision state (round, TP, phase-5 fields). Written as
+// a trailing block by G_DoSaveGame; restored by G_DoLoadGame. Old saves
+// without the block load fine (defaults kept). Implemented in p_saveg.c.
+void P_ArchiveTurn(void);
+boolean P_UnArchiveTurn(void);
 
 // Deterministic turn-mode RNG (independent of M_Random stream).
 int T_Random(void);

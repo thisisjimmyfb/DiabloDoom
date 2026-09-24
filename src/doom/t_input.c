@@ -5,10 +5,13 @@
 // and (later) actor IDs ever leave this layer — never mouse position,
 // analog magnitude, or crosshair state.
 //
-// Phase 1 keymap (character screen closed):
-//   W/A/S/D or arrows .. screen-relative step (1 TP in phase 2)
-//   SPACE .............. use / interact (2 TP in phase 2)
-//   . or Z ............. wait (1 TP in phase 2)
+// Phase 2 keymap (character screen closed):
+//   W/A/S/D or arrows .. screen-relative step (1 TP)
+//   X .................. swap weapon (2 TP)
+//   SPACE .............. use / interact (2 TP)
+//   . or Z ............. wait (1 TP)
+//   H .................. hunker (2 TP; defense bonus lands in phase 6)
+//   O .................. overwatch (all remaining TP, min 3; reaction in phase 6)
 //   T .................. end turn -> enemy phase
 //   TAB ................ reserved (target cycling lands in phase 3)
 // C/E/Q/R keep their Diablo inventory meanings and are NOT intercepted.
@@ -30,6 +33,9 @@ static turnaction_t T_KeyAction(int key)
       case 'd': case 'D': case KEY_RIGHTARROW: return TA_MOVE_E;
       case ' ':                                return TA_USE;
       case '.': case 'z': case 'Z':             return TA_WAIT;
+      case 'x': case 'X':                      return TA_SWAP_WEAPON;
+      case 'h': case 'H':                      return TA_HUNKER;
+      case 'o': case 'O':                      return TA_OVERWATCH;
       case 't': case 'T':                      return TA_END_TURN;
       case KEY_TAB:                            return TA_NONE; // swallowed
       default:                                 return TA_NONE;
@@ -51,6 +57,9 @@ static void T_ExecuteAction(turnaction_t action)
       case TA_MOVE_W: T_DoMove(3); break;
       case TA_USE:    T_DoUse();   break;
       case TA_WAIT:   T_DoWait();  break;
+      case TA_SWAP_WEAPON: T_DoSwapWeapon(); break;
+      case TA_HUNKER: T_DoHunker(); break;
+      case TA_OVERWATCH: T_DoOverwatch(); break;
       case TA_END_TURN: T_DoEndTurn(); break;
       default: break;
     }
