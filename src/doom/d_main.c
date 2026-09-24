@@ -186,6 +186,16 @@ boolean D_Display (void)
 	borderdrawcount = 3;
     }
 
+    // Diablo character screen (mod): the UI draws over the whole screen.
+    // On close, the 3D view repaints itself, but the view border and the
+    // status bar backgrounds do not, so force a full repaint here.
+    if (d_ui_needs_redraw)
+    {
+	borderdrawcount = 3;
+	redrawsbar = true;
+	d_ui_needs_redraw = false;
+    }
+
     // save the current screen if about to wipe
     if (gamestate != wipegamestate)
     {

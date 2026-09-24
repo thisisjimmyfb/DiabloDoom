@@ -66,6 +66,8 @@ static const char *ui_tiernames[NUM_TIERS] =
 
 static boolean ui_open = false;
 static boolean ui_was_paused = false;
+// Set on UI close so D_Display repaints the border and status bar.
+boolean d_ui_needs_redraw = false;
 static int ui_cx = 160, ui_cy = 100;   // cursor
 static int ui_held = D_NOITEM;         // held item id, or D_NOITEM
 static int ui_held_from = -1;          // ESLOT_* when picked from paperdoll
@@ -413,7 +415,9 @@ void D_UIClose(void)
     d_ui_accel_disabled = false;
     // The 3D renderer does not repaint every pixel (view window/border),
     // so clear the UI's text artifacts; the next D_Display draws the
-    // game view over this in the same frame.
+    // game view over this in the same frame.  The border and status bar
+    // backgrounds are repainted via d_ui_needs_redraw (see D_Display).
+    d_ui_needs_redraw = true;
     V_DrawFilledBox(0, 0, SCREENWIDTH, SCREENHEIGHT, 0);
 }
 
