@@ -43,8 +43,6 @@ typedef enum
     TA_ABILITY,        // weapon kit ability (phase 5)
     TA_SWAP_WEAPON,
     TA_USE,
-    TA_HUNKER,
-    TA_OVERWATCH,
     TA_POTION,
     TA_WAIT,
     TA_END_TURN,
@@ -62,8 +60,6 @@ typedef struct
     int selected_num;       // display number chosen via number keys
     turnaction_t queued;    // action awaiting pulse
     boolean headshot_mod;   // headshot modifier armed for next attack
-    int hunkered;           // rounds of hunker defense remaining
-    int overwatch_tp;       // TP reserved for overwatch (0 = none)
     int heat;               // chaingun heat 0-100 (phase 5)
     int cooldowns[8];       // per-weapon-kit cooldowns in rounds (phase 5)
     int charge_tp;          // plasma charge banked in TP (phase 5)
@@ -136,19 +132,14 @@ void T_RunPulseSync(int tics, boolean freeze_monsters);
 boolean T_InSelection(void);
 
 // Turn-mode actions (t_action.c). Phase 1: move/use/wait/end.
-// Phase 2: TP costs, legal-action checks, swap/hunker/overwatch.
+// Phase 2: TP costs, legal-action checks, swap.
 void T_DoMove(int dir);   // 0=N(fwd) 1=E(right) 2=S(back) 3=W(left)
 void T_DoUse(void);
 void T_DoWait(void);
 void T_DoEndTurn(void);
 void T_DoSwapWeapon(void); // 2 TP: cycle to next owned weapon
-void T_DoHunker(void);     // 2 TP: defense until next round
 void T_DoHeadshot(void);    // free: arm headshot modifier for next attack
-void T_SnapshotOverwatch(void); // Phase 6: snapshot targets at enemy phase start
 void T_TelegraphEnemies(void);  // Phase 6: warn of newly alerted enemies
-void T_ResolveOverwatch(void);  // Phase 6: reaction attack at enemy phase end
-boolean T_InOverwatchReaction(void); // Phase 7: true during overwatch reaction
-void T_DoOverwatch(void);  // all remaining TP (min 3): reserve reaction
 
 // Phase 2: Tempo economy.
 int T_CostFor(turnaction_t action);   // TP cost; selection/cancel = 0
@@ -179,7 +170,7 @@ boolean P_UnArchiveTurn(void);
 // Stored atomically (write temp + rename) on level exit and quit.
 // Loaded at startup.
 // ------------------------------------------------------------------
-#define T_PROFILE_VERSION 1
+#define T_PROFILE_VERSION 2
 #define T_PROFILE_NAME_LEN 32
 
 typedef struct
@@ -193,7 +184,6 @@ typedef struct
     int lifetime_damage;                    // damage dealt (turn mode)
     int lifetime_rounds;                    // rounds played (turn mode)
     int lifetime_headshots;                 // headshot kills
-    int lifetime_overwatch_kills;           // kills via overwatch reaction
 } t_profile_t;
 
 extern t_profile_t t_profile;
@@ -210,7 +200,7 @@ int T_XPForLevel(int level);                // XP threshold for level
 void T_AddStatPoint(const char *stat);      // spend 1 point on str/dex/vit/ene
 
 // Lifetime counters (call from combat code).
-void T_CountKill(mobj_t *target, boolean headshot, boolean overwatch);
+void T_CountKill(mobj_t *target, boolean headshot);
 void T_CountDamage(int dmg);
 void T_CountRound(void);
 

@@ -70,7 +70,6 @@ typedef enum
     DSTAT_AD_PCT,     // percent; multiplies attack damage
     DSTAT_AP_PCT,     // percent; multiplies ability power
     DSTAT_HASTE,      // percent; reduces cooldowns (turn-based)
-    DSTAT_OW_ACC,     // flat; overwatch reaction hit chance bonus
     NUM_DSTATS
 } diablo_stat_t;
 
@@ -123,7 +122,6 @@ typedef struct
     int ad_pct;      // percent; multiplies attack damage
     int ap_pct;      // percent; multiplies ability power
     int haste;       // percent; reduces cooldowns
-    int ow_acc;      // flat; overwatch hit chance bonus
 } diablo_itemdef_t;
 
 // Item table access.

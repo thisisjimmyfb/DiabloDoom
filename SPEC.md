@@ -93,10 +93,8 @@ pulse.
 | Screen-relative step | 1                          |
 | Use / interact     | 2                           |
 | Weapon swap         | 2                           |
-| Hunker              | 2                           |
 | Attack selected enemy | Derived from attack speed |
 | Headshot modifier   | +2                          |
-| Overwatch           | All remaining, minimum 3    |
 
 `attack_cost = clamp(2, 8, ceil(base_cost / attack_speed))`
 
@@ -105,7 +103,7 @@ pulse.
 1. **Acquire** — every line-of-sight enemy gets a stable number + list entry.
 2. **Select** — cycle or press a number; inspect hit chance, damage, cost,
    HP, cover.
-3. **Confirm** — attack, ability, move, use, hunker, overwatch, potion, or
+3. **Confirm** — attack, ability, move, use, potion, or
    end turn.
 4. **Resolve** — auto-face + simulation pulse. Facing is never an action.
 
@@ -214,17 +212,14 @@ Charged rockets and the BFG ultimate use the same contract as ATTACK:
 choose an enemy, preview the radius around that actor, confirm. There is
 no world cursor or ground coordinate.
 
-### Cover, Hunker, Overwatch
+### Cover and telegraphs
 
 - **Cover:** multi-point traces apply an accuracy penalty; full blockage
   removes the enemy from legal attack targets.
-- **Hunker (2 TP):** defense until next round; no directional input.
-- **Overwatch (all remaining TP, min 3):** reserve for one reaction; the
-  trigger chooses a legal enemy automatically.
 
 **Fairness:** melee, hitscan, and projectile enemies keep recognizable
 behavior and visible telegraphs. Newly alerted enemies show a state change
-before attacking; unseen enemies get no free reactions.
+before attacking; unseen enemies get no free shots.
 
 ---
 
@@ -235,7 +230,7 @@ One rules layer owns time, input, and resolution. Do **not** scatter
 
 | Layer             | Owns                                              | Guard                    |
 |-------------------|---------------------------------------------------|--------------------------|
-| Input adapter     | Keyboard tokens → typed actions: MOVE(dir), SELECT(id), ATTACK(id, mode), ABILITY(id), USE, HUNKER, OVERWATCH, POTION, END | Discrete values only |
+| Input adapter     | Keyboard tokens → typed actions: MOVE(dir), SELECT(id), ATTACK(id, mode), ABILITY(id), USE, POTION, END | Discrete values only |
 | Target service    | LOS set, stable numbers, markers, sorted list, actor-ID validation at commit | No crosshair query |
 | Turn controller   | Phase, TP, round, selected actor, queued action, charge, cooldowns, "stable enough for next input" | Single-player only |
 | Action resolver   | Cost/preview, derived facing, revalidation, bounded pulse | Deterministic seed path |
@@ -352,8 +347,8 @@ point, the input contract has failed.
 | Phase | Work | Gate |
 |-------|------|------|
 | 5 | Weapon kits + enemy-targeted abilities. All six kits; rockets/BFG select an enemy and preview splash around it. | All six kits distinct; no attack or ability accepts a ground point or crosshair target. |
-| 6 | Headshot, cover, reactions. HEADSHOT math, multi-point cover traces, Hunker, Overwatch, telegraphs, interrupt ordering. | Full cover blocks attacks; headshot math matches preview; no reaction chains or unseen alpha strikes. |
-| 7 | Tactical loot pass. Affixes for AD/AP ratios, AS, Haste, charge, heat, overwatch accuracy, move thresholds; selected unique traits. | Tooltips explain every change; equip/unequip reverses state exactly. |
+| 6 | Headshot, cover, telegraphs. HEADSHOT math, multi-point cover traces, telegraphs. | Full cover blocks attacks; headshot math matches preview; newly alerted enemies telegraph before acting. |
+| 7 | Tactical loot pass. Affixes for AD/AP ratios, AS, Haste, charge, heat, move thresholds; selected unique traits. | Tooltips explain every change; equip/unequip reverses state exactly. |
 
 **Combat checkpoint:** finish the complete one-map tactical loop before
 persistence begins. The same fixed-seed encounter must support distinct
@@ -392,8 +387,8 @@ The smallest complete tactical loop: single-player turn-based
 mode with Tab/`[`/`]`/number selection, preview, confirm, auto-facing; six
 enemy-targeted weapon kits; 10-TP rounds with discrete controls only;
 numbered markers + target list (name, hit, distance, HP); AD/AP/AS/Haste/
-crit/Armor/MR + four allocatable attributes; cover, HEADSHOT, Hunker,
-Overwatch, tactical affixes, selected uniques; tier-scaled XP, thresholds,
+crit/Armor/MR + four allocatable attributes; cover, HEADSHOT,
+tactical affixes, selected uniques; tier-scaled XP, thresholds,
 stat points, one rebalanced map; standalone profile; first-session name
 vote, character-sheet posts, manual-paste bio text.
 
@@ -403,8 +398,7 @@ never needing to aim, rotate, or place a cursor. After the session,
 quit + relaunch restores the same named hero and loadout; the exported
 character sheet matches the profile; the bio fits 150 characters.
 
-**Three proof encounters:** hallway breach (cover, telegraphed hitscan,
-Hunker, Overwatch) · projectile arena (movement pulses, rockets in
+**Three proof encounters:** hallway breach (cover, telegraphed hitscan) · projectile arena (movement pulses, rockets in
 flight, charge timing, heat) · boss room (cooldown planning, BFG
 commitment, build identity).
 

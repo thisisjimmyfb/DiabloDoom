@@ -325,7 +325,6 @@ void D_RecalcStats(struct player_s *pl)
         player->diablo_stats[DSTAT_AD_PCT] += def->ad_pct;
         player->diablo_stats[DSTAT_AP_PCT] += def->ap_pct;
         player->diablo_stats[DSTAT_HASTE] += def->haste;
-        player->diablo_stats[DSTAT_OW_ACC] += def->ow_acc;
     }
 }
 

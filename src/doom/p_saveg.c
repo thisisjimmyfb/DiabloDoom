@@ -1998,7 +1998,8 @@ boolean P_UnArchiveDiablo(void)
 // Turn-based decision state (mod). Trailing block after the Diablo
 // section; old saves without it load fine (P_UnArchiveTurn consumes the
 // EOF marker and returns false). Round/TP are the phase-2 decision
-// state; heat/charge/cooldowns/hunker/overwatch ride along for phase 5+.
+// state; heat/charge/cooldowns ride along for phase 5+. Two reserved
+// slots keep the layout stable (hunker/overwatch were removed).
 // ------------------------------------------------------------------
 #define TURN_SAVE_MAGIC 0x5455524E  // 'TURN' (first byte 0x54 != 0x1d)
 
@@ -2012,8 +2013,8 @@ void P_ArchiveTurn(void)
     saveg_write32(turnctrl.tp_max);
     saveg_write32(turnctrl.heat);
     saveg_write32(turnctrl.charge_tp);
-    saveg_write32(turnctrl.hunkered);
-    saveg_write32(turnctrl.overwatch_tp);
+    saveg_write32(0); // reserved (was hunkered)
+    saveg_write32(0); // reserved (was overwatch_tp)
     for (i = 0; i < 8; i++)
         saveg_write32(turnctrl.cooldowns[i]);
     saveg_write32(turnctrl.headshot_mod ? 1 : 0);
@@ -2047,8 +2048,8 @@ boolean P_UnArchiveTurn(void)
 
     turnctrl.heat = saveg_read32();
     turnctrl.charge_tp = saveg_read32();
-    turnctrl.hunkered = saveg_read32();
-    turnctrl.overwatch_tp = saveg_read32();
+    saveg_read32(); // reserved (was hunkered)
+    saveg_read32(); // reserved (was overwatch_tp)
     for (i = 0; i < 8; i++)
         turnctrl.cooldowns[i] = saveg_read32();
     turnctrl.headshot_mod = saveg_read32() ? true : false;

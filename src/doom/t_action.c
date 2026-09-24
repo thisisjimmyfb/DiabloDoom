@@ -62,7 +62,6 @@ int T_CostFor(turnaction_t action)
         return 1;
       case TA_USE:
       case TA_SWAP_WEAPON:
-      case TA_HUNKER:
         return 2;
       case TA_WAIT:
         // WAIT is the always-legal pass action: 0 TP, so the player can
@@ -74,8 +73,6 @@ int T_CostFor(turnaction_t action)
         return 0;
       case TA_ABILITY: // per-kit costs land in phase 5
         return 3;
-      case TA_OVERWATCH: // all remaining TP (minimum 3, checked in CanAfford)
-        return turnctrl.tp;
       case TA_POTION: // consumable use cost lands with the Diablo bridge
         return 2;
       case TA_SELECT_NEXT: case TA_SELECT_PREV: case TA_SELECT_NUM:
@@ -89,8 +86,6 @@ int T_CostFor(turnaction_t action)
 
 boolean T_CanAfford(turnaction_t action)
 {
-    if (action == TA_OVERWATCH)
-        return turnctrl.tp >= 3;
     return turnctrl.tp >= T_CostFor(action);
 }
 
@@ -105,7 +100,7 @@ void T_SpendTP(int cost)
 static void T_RefuseTP(turnaction_t action)
 {
     static char msg[64];
-    int need = (action == TA_OVERWATCH) ? 3 : T_CostFor(action);
+    int need = T_CostFor(action);
     M_snprintf(msg, sizeof(msg), "Need %d TP (have %d).", need, turnctrl.tp);
     players[consoleplayer].message = msg;
     printf("[TURN] refused action %d: need %d tp, have %d\n",
@@ -243,11 +238,7 @@ void T_DoEndTurn(void)
     turnctrl.selected_target = -1;
     if (turnctrl.state == TS_TARGETING || turnctrl.state == TS_CONFIRM)
         turnctrl.state = TS_PLANNING;
-    // Phase 6: snapshot overwatch targets and telegraph newly alerted
-    // enemies. Reactions can only trigger against enemies visible now
-    // (no unseen alpha strikes). Newly alerted enemies show a state
-    // change before they get to act.
-    T_SnapshotOverwatch();
+    // Telegraph newly alerted enemies before they get to act.
     T_TelegraphEnemies();
     // Flag before the pulse: in sync (script) mode T_BeginPulse runs
     // T_EndPulse immediately, which needs to see the enemy phase.
@@ -303,28 +294,6 @@ void T_DoSwapWeapon(void)
     T_DumpState("swap");
 }
 
-// ------------------------------------------------------------------
-// HUNKER: 2 TP. Defense until next round (phase 6 defines the bonus).
-// ------------------------------------------------------------------
-void T_DoHunker(void)
-{
-    if (!T_Active())
-        return;
-    if (!T_ActorAlive())
-        return;
-    if (!T_CanAfford(TA_HUNKER))
-    {
-        T_RefuseTP(TA_HUNKER);
-        return;
-    }
-
-    turnctrl.hunkered = 1;
-    players[consoleplayer].message = "Hunkered down.";
-    T_SpendTP(T_CostFor(TA_HUNKER));
-    T_BeginPulse(4, true, true);
-    T_DumpState("hunker");
-}
-
 // HEADSHOT: free action. Arms the headshot modifier for the next ATTACK.
 // The modifier adds +2 TP (in T_CostFor), -15% hit (in T_HitChance), and
 // 2x crit effect (in T_ResolveAttack). It is consumed by the next attack
@@ -347,34 +316,6 @@ void T_DoHeadshot(void)
         players[consoleplayer].message = "Headshot armed (+2TP -15% 2xCRIT).";
     }
     T_DumpState("headshot");
-}
-
-// ------------------------------------------------------------------
-// OVERWATCH: all remaining TP (minimum 3 to activate). Reserves one
-// reaction for the enemy phase; the reaction itself lands in phase 6.
-// ------------------------------------------------------------------
-void T_DoOverwatch(void)
-{
-    if (!T_Active())
-        return;
-    if (!T_ActorAlive())
-        return;
-    if (!T_CanAfford(TA_OVERWATCH))
-    {
-        T_RefuseTP(TA_OVERWATCH);
-        return;
-    }
-
-    turnctrl.overwatch_tp = turnctrl.tp;
-    turnctrl.tp = 0;
-    {
-        static char msg[64];
-        M_snprintf(msg, sizeof(msg), "Overwatch set (%d TP).",
-                   turnctrl.overwatch_tp);
-        players[consoleplayer].message = msg;
-    }
-    T_BeginPulse(4, true, true);
-    T_DumpState("overwatch");
 }
 
 // ------------------------------------------------------------------
@@ -619,7 +560,7 @@ void T_SpawnArena(void)
 // no mouse events. One token per line:
 //
 //   MOVE_N | MOVE_E | MOVE_S | MOVE_W | USE | WAIT | END | DUMP | QUIT
-//   SWAP | HUNKER | OVERWATCH
+//   SWAP | HEADSHOT
 //   ASSERT_TP n | ASSERT_ROUND n     (gate checks; print PASS/FAIL)
 //   ASSERT_SEL n | ASSERT_TGT n      (selection / target count checks)
 //   SAVE n | LOAD n                  (slots 0-7; synchronous)
@@ -681,7 +622,6 @@ void T_RunScript(const char *path)
         else if (!strcmp(line, "WAIT"))   T_DoWait();
         else if (!strcmp(line, "END"))    T_DoEndTurn();
         else if (!strcmp(line, "SWAP"))   T_DoSwapWeapon();
-        else if (!strcmp(line, "HUNKER")) T_DoHunker();
         else if (!strcmp(line, "HEADSHOT"))  T_DoHeadshot();
         else if (sscanf(line, "NAME %31s", t_profile.name) == 1)
         {
@@ -696,14 +636,12 @@ void T_RunScript(const char *path)
         }
         else if (!strcmp(line, "PROFILE"))
         {
-            printf("[TURN] PROFILE: name='%s' L%d XP=%d SP=%d kills=%d dmg=%d rounds=%d hs=%d owk=%d\n",
+            printf("[TURN] PROFILE: name='%s' L%d XP=%d SP=%d kills=%d dmg=%d rounds=%d hs=%d\n",
                    t_profile.name, t_profile.level, t_profile.xp,
                    t_profile.stat_points, t_profile.lifetime_kills,
                    t_profile.lifetime_damage, t_profile.lifetime_rounds,
-                   t_profile.lifetime_headshots,
-                   t_profile.lifetime_overwatch_kills);
+                   t_profile.lifetime_headshots);
         }
-        else if (!strcmp(line, "OVERWATCH")) T_DoOverwatch();
         else if (!strcmp(line, "DUMP"))   T_DumpState("script");
         else if (sscanf(line, "ASSERT_TP %d", &n) == 1) T_ScriptAssertTP(n);
         else if (sscanf(line, "ASSERT_ROUND %d", &n) == 1)

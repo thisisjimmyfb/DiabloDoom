@@ -21,6 +21,7 @@
 #include "i_swap.h"
 #include "g_game.h"
 #include "p_local.h"
+#include "r_main.h"
 #include "m_misc.h"
 #include "s_sound.h"
 #include "v_video.h"
@@ -306,17 +307,11 @@ static void T_EndPulse(void)
 {
     if (turnctrl.pulse_enemy)
     {
-        // Enemy phase done: resolve overwatch reaction (Phase 6) before
-        // clearing. Interrupt order: enemy actions complete, then a
-        // single overwatch reaction may trigger, then the new round.
-        T_ResolveOverwatch();
         // Enemy phase done: tick cooldowns (phase 5), new round.
         turnctrl.pulse_enemy = false;
         turnctrl.round++;
         T_CountRound(); // Phase 8: lifetime rounds
         turnctrl.tp = turnctrl.tp_max; // TP economy lands in phase 2
-        turnctrl.hunkered = 0;
-        turnctrl.overwatch_tp = 0;
         T_KitTickCooldowns();
         turnctrl.state = TS_PLANNING;
         {
@@ -421,24 +416,31 @@ static int T_TextWidth(const char *s)
 
 static patch_t *t_font_gold[HU_FONTSIZE];
 static patch_t *t_font_golddim[HU_FONTSIZE];
+static patch_t *t_font_goldhi[HU_FONTSIZE];
 static boolean t_fonts_ready = false;
 
-static void T_BuildTintTables(byte *gold, byte *dim)
+static void T_BuildTintTables(byte *gold, byte *dim, byte *hi)
 {
     int i;
     for (i = 0; i < 256; i++)
-        gold[i] = dim[i] = (byte)i;
+        gold[i] = dim[i] = hi[i] = (byte)i;
     // STCFN red ramp (176-191) -> Doom gold ramp (160-167).
     for (i = 0; i < 16; i++)
         gold[176 + i] = (byte)(160 + i / 2);
     // Disabled: dim/desaturated -> dark end of the gold ramp (163-167).
     for (i = 0; i < 16; i++)
         dim[176 + i] = (byte)(163 + (i * 5) / 16);
+    // Highlight: brightest end of the gold ramp (160-161). Used for the
+    // selected target and the END TURN exit row — still turn gold, just
+    // the hottest tier, so it pops against both gold and dim gold.
+    for (i = 0; i < 16; i++)
+        hi[176 + i] = (byte)(160 + i / 8);
     // Pink/white highlight ramp (168-175) -> bright gold / mid gold.
     for (i = 168; i <= 175; i++)
     {
         gold[i] = (byte)(160 + (i - 168) / 4);
         dim[i] = (byte)(164 + (i - 168) / 4);
+        hi[i] = (byte)160;
     }
 }
 
@@ -466,29 +468,33 @@ static void T_RemapPatch(patch_t *patch, const byte *table)
 
 static void T_TintFonts(void)
 {
-    byte gold[256], dim[256];
+    byte gold[256], dim[256], hi[256];
     char name[16];
     int i;
 
     if (t_fonts_ready)
         return;
-    T_BuildTintTables(gold, dim);
+    T_BuildTintTables(gold, dim, hi);
     for (i = 0; i < HU_FONTSIZE; i++)
     {
         int lump, len;
-        patch_t *src, *g, *d;
+        patch_t *src, *g, *d, *h;
         M_snprintf(name, sizeof(name), "STCFN%.3d", HU_FONTSTART + i);
         lump = W_GetNumForName(name);
         len = W_LumpLength(lump);
         src = (patch_t *)W_CacheLumpNum(lump, PU_STATIC);
         g = (patch_t *)Z_Malloc(len, PU_STATIC, NULL);
         d = (patch_t *)Z_Malloc(len, PU_STATIC, NULL);
+        h = (patch_t *)Z_Malloc(len, PU_STATIC, NULL);
         memcpy(g, src, len);
         memcpy(d, src, len);
+        memcpy(h, src, len);
         T_RemapPatch(g, gold);
         T_RemapPatch(d, dim);
+        T_RemapPatch(h, hi);
         t_font_gold[i] = g;
         t_font_golddim[i] = d;
+        t_font_goldhi[i] = h;
     }
     t_fonts_ready = true;
 }
@@ -529,12 +535,26 @@ static void T_DrawTextDim(int x, int y, const char *s)
     T_DrawTextF(x, y, s, t_font_golddim);
 }
 
+static void T_DrawTextHi(int x, int y, const char *s)
+{
+    T_DrawTextF(x, y, s, t_font_goldhi);
+}
+
+static void T_DrawTextCenteredHi(int y, const char *s)
+{
+    T_DrawTextHi((320 - T_TextWidth(s)) / 2, y, s);
+}
+
 static void T_DrawTextCentered(int y, const char *s)
 {
     T_DrawText((320 - T_TextWidth(s)) / 2, y, s);
 }
 
 // Project a target's head to 320x200 screen space. False if behind.
+// Matches the engine's own R_ProjectSprite math (r_things.c): tx is
+// tr_x*sin - tr_y*cos (NOT its negation — the mirror bug), and the
+// vertical center is the real centery (viewheight/2 = 84 with the
+// status bar), not the hardcoded 100.
 static boolean T_ProjectTarget(mobj_t *mo, int *sx, int *sy)
 {
     double dx, dy, dz, tz, tx;
@@ -548,11 +568,11 @@ static boolean T_ProjectTarget(mobj_t *mo, int *sx, int *sy)
     va = (double)viewangle * 360.0 / 4294967296.0;
     rad = va * 3.141592653589793 / 180.0;
     tz = dx * cos(rad) + dy * sin(rad);
-    tx = -dx * sin(rad) + dy * cos(rad);
+    tx = dx * sin(rad) - dy * cos(rad);
     if (tz < 16.0)
         return false;
     *sx = (int)(160.0 + (tx / tz) * 160.0);
-    *sy = (int)(100.0 - (dz / tz) * 160.0) - 8;
+    *sy = (int)((double)centery - (dz / tz) * 160.0) - 8;
     return true;
 }
 
@@ -562,19 +582,6 @@ static boolean T_ProjectTarget(mobj_t *mo, int *sx, int *sy)
 // ------------------------------------------------------------------
 
 static mobj_t *t_targets[T_MAXTARGETS];
-// Phase 6: overwatch snapshot. Targets visible at the start of the enemy
-// phase; reactions can only trigger against these (no unseen alpha strikes).
-static mobj_t *t_ow_targets[T_MAXTARGETS];
-static int t_ow_numtargets = 0;
-// Phase 6: re-entrancy guard. True while resolving an overwatch reaction;
-// reactions never trigger further reactions (no chains).
-static boolean t_in_reaction = false;
-
-// Phase 7: query for T_HitChance (overwatch accuracy bonus).
-boolean T_InOverwatchReaction(void)
-{
-    return t_in_reaction;
-}
 static int t_numtargets = 0;
 
 void T_RefreshTargets(void)
@@ -611,17 +618,6 @@ void T_RefreshTargets(void)
     }
 }
 
-// Phase 6: snapshot the current visible targets for overwatch.
-// Reactions during the enemy phase can only trigger against these.
-void T_SnapshotOverwatch(void)
-{
-    int i;
-    T_RefreshTargets();
-    t_ow_numtargets = 0;
-    for (i = 0; i < t_numtargets && i < T_MAXTARGETS; i++)
-        t_ow_targets[t_ow_numtargets++] = t_targets[i];
-}
-
 // Phase 6: telegraph newly alerted enemies. An enemy that can see the
 // player but has not yet acquired them as a target shows a state change
 // (message) before it gets to act. This gives the player fair warning
@@ -656,46 +652,6 @@ void T_TelegraphEnemies(void)
             M_snprintf(msg, sizeof(msg), "%s spots you!", name);
             printf("[TURN] telegraph: %s\n", msg);
         }
-    }
-}
-
-// Phase 6: resolve an overwatch reaction. Called at the end of the enemy
-// phase if overwatch was active. Picks the first snapshot target that is
-// still alive and visible, and makes a single reaction attack (no TP cost,
-// no headshot, current kit). Sets the re-entrancy guard so reactions never
-// trigger further reactions.
-void T_ResolveOverwatch(void)
-{
-    player_t *player = &players[consoleplayer];
-    int i;
-    if (t_in_reaction)
-        return; // no reaction chains
-    if (turnctrl.overwatch_tp <= 0)
-        return;
-    if (!player->mo)
-        return;
-
-    for (i = 0; i < t_ow_numtargets; i++)
-    {
-        mobj_t *mo = t_ow_targets[i];
-        if (!mo || mo->health <= 0)
-            continue;
-        if (!P_CheckSight(player->mo, mo))
-            continue;
-        // Found a legal reaction target.
-        // Phase 7: OW_ACC from tactical affixes boosts overwatch hit.
-        // We apply it by temporarily boosting accuracy via a flag?
-        // Simpler: the bonus is informational for now; the reaction
-        // uses standard hit chance. (Full integration: add to T_HitChance
-        // when in overwatch reaction.)
-        t_in_reaction = true;
-        printf("[TURN] overwatch: reacting against target %d (ow_acc=%d)\n",
-               i, player->diablo_stats[DSTAT_OW_ACC]);
-        // Reaction attack: no headshot, no TP cost (already spent).
-        // Use T_ResolveAttack directly; it does not spend TP.
-        T_ResolveAttack(player, mo);
-        t_in_reaction = false;
-        break; // one reaction only
     }
 }
 
@@ -762,6 +718,9 @@ static void T_DrawActionRow(int x, int *y, const char *key, const char *name,
 // Planning-time action list with per-action TP costs. Disabled
 // (unaffordable) actions render dim gold and their keypresses are
 // refused with a "Need N TP" message — they are never selectable.
+// END TURN is always the final row, separated as the exit: a dim
+// divider above it and a bright-gold bracketed row so it reads as
+// the way out, not just another action.
 static void T_DrawActionList(void)
 {
     char cost[16];
@@ -772,10 +731,7 @@ static void T_DrawActionList(void)
     T_DrawActionRow(x, &y, "X", "SWAP", TA_SWAP_WEAPON, "2TP");
     T_DrawActionRow(x, &y, "SPC", "USE", TA_USE, "2TP");
     T_DrawActionRow(x, &y, ".", "WAIT", TA_WAIT, "0TP");
-    T_DrawActionRow(x, &y, "H", "HUNKER", TA_HUNKER, "2TP");
     T_DrawActionRow(x, &y, "Y", "HEADSHOT", TA_HEADSHOT, "0TP");
-    T_DrawActionRow(x, &y, "O", "OVERWATCH", TA_OVERWATCH, "3+TP");
-    T_DrawActionRow(x, &y, "T", "END TURN", TA_END_TURN, "0TP");
     T_DrawActionRow(x, &y, "TAB", "TARGET", TA_SELECT_NEXT, "FREE");
     if (!T_KitReady(pl->readyweapon))
         T_DrawActionRow(x, &y, "F", "ATTACK", TA_ATTACK, "CD");
@@ -783,6 +739,15 @@ static void T_DrawActionList(void)
     {
         M_snprintf(cost, sizeof(cost), "%dTP", T_CostFor(TA_ATTACK));
         T_DrawActionRow(x, &y, "F", "ATTACK", TA_ATTACK, cost);
+    }
+    // The exit: divider, then END TURN bracketed in highlight gold.
+    T_DrawTextDim(x, y, "----------------");
+    y += 9;
+    {
+        char line[64];
+        M_snprintf(line, sizeof(line), "%s %-8s %s", ">>T", "END TURN", "0TP<<");
+        T_DrawTextHi(x, y, line);
+        y += 9;
     }
 }
 
@@ -816,7 +781,9 @@ void T_DrawHUD(void)
     }
 
     // Target markers: stable numbers projected above each visible enemy.
-    // The selected target gets brackets.
+    // The selected target is unmistakable: bright highlight gold with
+    // chevron brackets, centered over the enemy. Non-selected targets
+    // are subdued dim gold numbers.
     for (i = 0; i < t_numtargets; i++)
     {
         mobj_t *mo = t_targets[i];
@@ -828,10 +795,15 @@ void T_DrawHUD(void)
         if (sx < 0 || sx > 312 || sy < 0 || sy > 192)
             continue;
         if (i == turnctrl.selected_target)
-            M_snprintf(line, sizeof(line), "[%d]", i + 1);
+        {
+            M_snprintf(line, sizeof(line), ">[%d]<", i + 1);
+            T_DrawTextHi(sx - T_TextWidth(line) / 2, sy, line);
+        }
         else
-            M_snprintf(line, sizeof(line), " %d ", i + 1);
-        T_DrawText(sx, sy, line);
+        {
+            M_snprintf(line, sizeof(line), "%d", i + 1);
+            T_DrawTextDim(sx - T_TextWidth(line) / 2, sy, line);
+        }
     }
 
     // Target list (right side) and preview (bottom) while targeting.
@@ -845,17 +817,20 @@ void T_DrawHUD(void)
             mobj_t *mo = t_targets[i];
             if (mo == NULL)
                 continue;
-            M_snprintf(line, sizeof(line), "%d:%s %d",
-                       i + 1, T_TargetName(mo), mo->health);
             if (i == turnctrl.selected_target)
             {
-                // Selected entry: brackets.
-                M_snprintf(line, sizeof(line), "[%d:%s %d]",
+                // Selected entry: bright highlight, chevron brackets,
+                // cursor-shifted left so the shape change is visible.
+                M_snprintf(line, sizeof(line), ">[%d:%s %d]<",
                            i + 1, T_TargetName(mo), mo->health);
-                T_DrawText(220, y, line);
+                T_DrawTextHi(216, y, line);
             }
             else
-                T_DrawText(224, y, line);
+            {
+                M_snprintf(line, sizeof(line), "%d:%s %d",
+                           i + 1, T_TargetName(mo), mo->health);
+                T_DrawTextDim(224, y, line);
+            }
             y += 9;
         }
         // Preview panel for the selected target (above status bar).
@@ -876,26 +851,26 @@ void T_DrawHUD(void)
                     int cd = T_KitCooldown(pl->readyweapon);
                     if (kit->splash_radius > 0)
                         M_snprintf(line, sizeof(line),
-                                   "[%d]%s HP%d H%d%% D%d-%d SPLASH %dTP%s",
+                                   "[%d]%s HP%d R%d H%d%% D%d-%d SPLASH %dTP%s",
                                    turnctrl.selected_target + 1,
-                                   T_TargetName(mo), mo->health,
+                                   T_TargetName(mo), mo->health, dist,
                                    T_HitChance(pl, mo, &st),
                                    dmin, dmax,
                                    T_CostFor(TA_ATTACK),
                                    cd > 0 ? " CD!" : "");
                     else
                         M_snprintf(line, sizeof(line),
-                                   "[%d]%s HP%d H%d%% D%d-%d %dTP%s",
+                                   "[%d]%s HP%d R%d H%d%% D%d-%d %dTP%s",
                                    turnctrl.selected_target + 1,
-                                   T_TargetName(mo), mo->health,
+                                   T_TargetName(mo), mo->health, dist,
                                    T_HitChance(pl, mo, &st),
                                    dmin, dmax,
                                    T_CostFor(TA_ATTACK),
                                    cd > 0 ? " CD!" : "");
                 }
-                T_DrawTextCentered(148, line);
+                T_DrawTextCenteredHi(148, line);
                 if (turnctrl.state == TS_CONFIRM)
-                    T_DrawTextCentered(158,
+                    T_DrawTextCenteredHi(158,
                         "CONFIRM: F FIRE  ESC CANCEL");
             }
         }
@@ -1125,14 +1100,12 @@ void T_AddStatPoint(const char *stat)
     printf("[TURN] +1 %s (%d points left)\n", stat, t_profile.stat_points);
 }
 
-void T_CountKill(mobj_t *target, boolean headshot, boolean overwatch)
+void T_CountKill(mobj_t *target, boolean headshot)
 {
     int xp = 10;
     t_profile.lifetime_kills++;
     if (headshot)
         t_profile.lifetime_headshots++;
-    if (overwatch)
-        t_profile.lifetime_overwatch_kills++;
     // XP by target max health (tougher = more XP).
     if (target && target->info)
         xp = 10 + target->info->spawnhealth / 10;

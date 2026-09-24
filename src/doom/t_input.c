@@ -10,8 +10,7 @@
 //   X .................. swap weapon (2 TP)
 //   SPACE .............. use / interact (2 TP)
 //   . or Z ............. wait (0 TP; always legal, never soft-locks)
-//   H .................. hunker (2 TP; defense bonus lands in phase 6)
-//   O .................. overwatch (all remaining TP, min 3; reaction in phase 6)
+//   Y .................. headshot modifier (free; +2 TP on next attack)
 //   T .................. end turn -> enemy phase
 //   TAB / ] ............ next target (free)
 //   [ .................. previous target (free)
@@ -38,9 +37,7 @@ static turnaction_t T_KeyAction(int key)
       case ' ':                                return TA_USE;
       case '.': case 'z': case 'Z':             return TA_WAIT;
       case 'x': case 'X':                      return TA_SWAP_WEAPON;
-      case 'h': case 'H':                      return TA_HUNKER;
       case 'y': case 'Y':                      return TA_HEADSHOT;
-      case 'o': case 'O':                      return TA_OVERWATCH;
       case 't': case 'T':                      return TA_END_TURN;
       case KEY_TAB: case ']':                   return TA_SELECT_NEXT;
       case '[':                                return TA_SELECT_PREV;
@@ -69,9 +66,7 @@ static void T_ExecuteAction(turnaction_t action)
       case TA_USE:    T_DoUse();   break;
       case TA_WAIT:   T_DoWait();  break;
       case TA_SWAP_WEAPON: T_DoSwapWeapon(); break;
-      case TA_HUNKER: T_DoHunker(); break;
       case TA_HEADSHOT: T_DoHeadshot(); break;
-      case TA_OVERWATCH: T_DoOverwatch(); break;
       case TA_END_TURN: T_DoEndTurn(); break;
       case TA_SELECT_NEXT: T_DoSelectNext(); break;
       case TA_SELECT_PREV: T_DoSelectPrev(); break;

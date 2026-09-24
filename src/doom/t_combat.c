@@ -200,11 +200,6 @@ int T_HitChance(player_t *player, mobj_t *target, const t_combatstats_t *st)
     if (turnctrl.headshot_mod)
         chance -= 15;
 
-    // Phase 7: Overwatch accuracy bonus from tactical affixes.
-    // Applies only during overwatch reactions.
-    if (T_InOverwatchReaction())
-        chance += player->diablo_stats[DSTAT_OW_ACC];
-
     if (chance < 5)
         chance = 5;
     if (chance > 95)
@@ -430,8 +425,8 @@ boolean T_ResolveAttack(player_t *player, mobj_t *target)
         // Was this a headshot? turnctrl.headshot_mod was just cleared,
         // so we need to track it. For now, use t_last_crit as proxy?
         // Actually, headshot is a modifier, not necessarily a crit.
-        // We'll pass false for headshot (refine later) and check overwatch.
-        T_CountKill(target, false, T_InOverwatchReaction());
+        // We'll pass false for headshot (refine later).
+        T_CountKill(target, false);
     }
 
     // Splash: enemy-targeted, centered on the confirmed target.

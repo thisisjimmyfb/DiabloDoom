@@ -984,8 +984,6 @@ static int UITooltipLines(int id, char lines[12][48])
         snprintf(lines[n++], 48, "Ability power +%d%%", def->ap_pct);
     if (def->haste)
         snprintf(lines[n++], 48, "Haste %d%% (cooldowns)", def->haste);
-    if (def->ow_acc)
-        snprintf(lines[n++], 48, "Overwatch +%d acc", def->ow_acc);
     return n;
 }
 
