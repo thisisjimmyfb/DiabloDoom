@@ -49,6 +49,12 @@
 
 #include "s_sound.h"
 
+// DiabloDoom: equipped-weapon status panel.
+#include "hu_stuff.h"
+#include "i_swap.h"
+#include "d_diablo.h"
+#include "d_diablo_icons.h"
+
 // Needs access to LFB.
 #include "v_video.h"
 
@@ -944,6 +950,113 @@ void ST_doPaletteStuff(void)
 
 }
 
+// ---------------------------------------------------------------------------
+// DiabloDoom weapon panel: replaces the classic 2-7 arms display with the
+// weapon equipped in the Diablo inventory (icon + aggregated damage range).
+// ---------------------------------------------------------------------------
+
+static int STWepTextWidth(const char *s)
+{
+    int w = 0;
+    for (; *s; s++)
+    {
+        int c = *s;
+        if (c >= 'a' && c <= 'z')
+            c = c - 'a' + 'A';
+        c -= HU_FONTSTART;
+        if (c < 0 || c >= HU_FONTSIZE || hu_font[c] == NULL)
+            w += 4;
+        else
+            w += SHORT(hu_font[c]->width) + 1;
+    }
+    return w;
+}
+
+static void STWepDrawText(int x, int y, const char *s)
+{
+    int cx = x;
+    for (; *s; s++)
+    {
+        int c = *s;
+        int w, h;
+        if (c >= 'a' && c <= 'z')
+            c = c - 'a' + 'A';
+        c -= HU_FONTSTART;
+        if (c < 0 || c >= HU_FONTSIZE || hu_font[c] == NULL)
+        {
+            cx += 4;
+            continue;
+        }
+        w = SHORT(hu_font[c]->width);
+        h = SHORT(hu_font[c]->height);
+        if (cx < 0 || y < 0 || cx + w > SCREENWIDTH || y + h > SCREENHEIGHT)
+        {
+            if (cx + w > SCREENWIDTH)
+                break;
+            cx += w + 1;
+            continue;
+        }
+        V_DrawPatch(cx, y, hu_font[c]);
+        cx += w + 1;
+    }
+}
+
+// Blit a raw 32x32 item icon scaled into a box at (x,y).
+static void STWepDrawIcon(int x, int y, int box, const unsigned char *icon)
+{
+    int dx, dy, sx, sy;
+    pixel_t *dest;
+    for (dy = 0; dy < box; ++dy)
+    {
+        if (y + dy < 0 || y + dy >= SCREENHEIGHT)
+            continue;
+        sy = dy * d_icon_size / box;
+        dest = I_VideoBuffer + SCREENWIDTH * (y + dy) + x;
+        for (dx = 0; dx < box; ++dx)
+        {
+            if (x + dx < 0 || x + dx >= SCREENWIDTH)
+            {
+                dest++;
+                continue;
+            }
+            sx = dx * d_icon_size / box;
+            *dest++ = (pixel_t)icon[sy * d_icon_size + sx];
+        }
+    }
+}
+
+#define ST_WEPX0 104
+#define ST_WEPX1 143
+#define ST_WEPCX ((ST_WEPX0 + ST_WEPX1) / 2)
+
+static void ST_drawDiabloWeapon(void)
+{
+    int id = plyr->diablo_equipped[ESLOT_WEAPON];
+    const diablo_itemdef_t *def;
+    int icon_idx, dmg_min, dmg_max;
+    char dmgbuf[16];
+
+    // Erase: redraw the classic arms background, then paint on top.
+    V_DrawPatch(ST_ARMSBGX, ST_ARMSBGY, armsbg);
+
+    def = (id != D_NOITEM) ? D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id)) : NULL;
+    if (def == NULL)
+    {
+        STWepDrawText(ST_WEPCX - STWepTextWidth("FISTS") / 2, 178, "FISTS");
+        return;
+    }
+
+    icon_idx = D_GetItemIconIdx(D_ITEMTIER(id), D_ITEMIDX(id));
+    if (icon_idx >= 0 && icon_idx < d_num_item_icons
+        && d_item_icons[icon_idx] != NULL)
+        STWepDrawIcon(ST_WEPCX - 10, 170, 20, d_item_icons[icon_idx]);
+
+    dmg_min = D_Stat((struct player_s *)plyr, DSTAT_DMG_MIN);
+    dmg_max = D_Stat((struct player_s *)plyr, DSTAT_DMG_MAX);
+    snprintf(dmgbuf, sizeof(dmgbuf), "%d-%d", dmg_min, dmg_max);
+    STWepDrawText(ST_WEPCX - STWepTextWidth(dmgbuf) / 2, 191, dmgbuf);
+}
+
 void ST_drawWidgets(boolean refresh)
 {
     int		i;
@@ -965,10 +1078,11 @@ void ST_drawWidgets(boolean refresh)
     STlib_updatePercent(&w_health, refresh);
     STlib_updatePercent(&w_armor, refresh);
 
-    STlib_updateBinIcon(&w_armsbg, refresh);
-
-    for (i=0;i<6;i++)
-	STlib_updateMultIcon(&w_arms[i], refresh);
+    // DiabloDoom: the classic 2-7 arms are replaced by the equipped
+    // Diablo weapon (icon + damage).  st_armson keeps the old condition
+    // (status bar on, not deathmatch).
+    if (st_armson)
+        ST_drawDiabloWeapon();
 
     STlib_updateMultIcon(&w_faces, refresh);
 
@@ -1177,8 +1291,6 @@ void ST_initData(void)
 void ST_createWidgets(void)
 {
 
-    int i;
-
     // ready weapon ammo
     STlib_initNum(&w_ready,
 		  ST_AMMOX,
@@ -1200,24 +1312,9 @@ void ST_createWidgets(void)
 		      &st_statusbaron,
 		      tallpercent);
 
-    // arms background
-    STlib_initBinIcon(&w_armsbg,
-		      ST_ARMSBGX,
-		      ST_ARMSBGY,
-		      armsbg,
-		      &st_notdeathmatch,
-		      &st_statusbaron);
-
-    // weapons owned
-    for(i=0;i<6;i++)
-    {
-        STlib_initMultIcon(&w_arms[i],
-                           ST_ARMSX+(i%3)*ST_ARMSXSPACE,
-                           ST_ARMSY+(i/3)*ST_ARMSYSPACE,
-                           arms[i],
-                           &plyr->weaponowned[i+1],
-                           &st_armson);
-    }
+    // DiabloDoom: the classic arms-background and weapon-ownership
+    // widgets are retired; ST_drawDiabloWeapon paints the equipped
+    // Diablo weapon over the arms background instead.
 
     // frags sum
     STlib_initNum(&w_frags,
