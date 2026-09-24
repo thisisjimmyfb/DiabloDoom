@@ -11,6 +11,7 @@
 
 #include "hu_stuff.h"
 #include "t_turn.h"
+#include "t_combat.h"
 #include "doomstat.h"
 #include "doomdef.h"
 #include "d_player.h"
@@ -487,20 +488,12 @@ void T_RefreshTargets(void)
 // real AD/AP/AS/Haste/crit model). Distance-based, deterministic.
 static int T_PreviewHit(mobj_t *mo)
 {
+    t_combatstats_t st;
     player_t *player = &players[consoleplayer];
-    int dist;
-    int hc;
-
     if (player->mo == NULL || mo == NULL)
         return 0;
-    dist = P_AproxDistance(mo->x - player->mo->x,
-                           mo->y - player->mo->y) / FRACUNIT;
-    hc = 95 - dist / 16;
-    if (hc < 5)
-        hc = 5;
-    if (hc > 95)
-        hc = 95;
-    return hc;
+    T_DeriveStats(player, &st);
+    return T_HitChance(player, mo, &st);
 }
 
 static const char *T_TargetName(mobj_t *mo)
@@ -598,14 +591,20 @@ void T_DrawHUD(void)
             mobj_t *mo = T_TargetMobj(turnctrl.selected_target);
             if (mo != NULL)
             {
-                int dist = P_AproxDistance(
-                    mo->x - players[consoleplayer].mo->x,
-                    mo->y - players[consoleplayer].mo->y) / FRACUNIT;
+                t_combatstats_t st;
+                int dist, dmin, dmax;
+                player_t *pl = &players[consoleplayer];
+                T_DeriveStats(pl, &st);
+                dist = P_AproxDistance(
+                    mo->x - pl->mo->x,
+                    mo->y - pl->mo->y) / FRACUNIT;
+                T_DamageRange(pl, mo, &st, &dmin, &dmax);
                 M_snprintf(line, sizeof(line),
-                           "[%d] %s HP:%d RNG:%d HIT:%d%% COST:%dTP",
+                           "[%d]%s HP%d R%d H%d%% D%d-%d %dTP",
                            turnctrl.selected_target + 1,
                            T_TargetName(mo), mo->health, dist,
-                           T_PreviewHit(mo),
+                           T_HitChance(pl, mo, &st),
+                           dmin, dmax,
                            T_CostFor(TA_ATTACK));
                 T_DrawTextCentered(148, line);
                 if (turnctrl.state == TS_CONFIRM)

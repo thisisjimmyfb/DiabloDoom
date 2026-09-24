@@ -10,6 +10,7 @@
 #include <stdlib.h>
 
 #include "t_turn.h"
+#include "t_combat.h"
 #include "doomstat.h"
 #include "d_player.h"
 #include "g_game.h"
@@ -35,11 +36,16 @@
 // be afforded is refused with a message and changes nothing.
 // ------------------------------------------------------------------
 
-// Derived attack cost. Phase 2: fixed middle value. Phase 4/5 refine to
-// clamp(2, 8, ceil(base_cost / attack_speed)).
+// Derived attack cost from attack speed (Phase 4): dexterous attackers
+// pay less TP per swing, floor 2.
 int T_AttackCost(void)
 {
-    return 4;
+    t_combatstats_t st;
+    player_t *player = &players[consoleplayer];
+    if (!T_Active() || player->mo == NULL)
+        return 4;
+    T_DeriveStats(player, &st);
+    return st.attack_tp;
 }
 
 int T_CostFor(turnaction_t action)
@@ -474,12 +480,13 @@ void T_DoAttack(void)
         return;
     }
 
-    // Commit: auto-face, spend TP, fire the real weapon in a pulse.
+    // Commit: auto-face, spend TP, resolve with turn-based combat math.
+    // Hit chance, damage range, and mitigation all come from the derived
+    // combat stats; the fixed-seed RNG keeps previews and resolutions
+    // in agreement.
     T_FaceTarget(target);
     T_SpendTP(T_CostFor(TA_ATTACK));
-    turnctrl.firing = true;
-    T_BeginPulse(35, true, true);
-    turnctrl.firing = false;
+    T_ResolveAttack(player, target);
     // The world changed; rebuild targets and drop a dead selection.
     T_RefreshTargets();
     T_ValidateSelection();
@@ -585,6 +592,10 @@ void T_RunScript(const char *path)
     while (fgets(line, sizeof(line), f))
     {
         int n, m;
+        unsigned int u;
+        // Skip comment lines.
+        if (line[0] == '#')
+            continue;
         // strip trailing newline
         line[strcspn(line, "\r\n")] = 0;
 
@@ -656,6 +667,63 @@ void T_RunScript(const char *path)
             else
                 printf("[TURN] ASSERT_THP_LT %d %d: FAIL (hp=%d)\n",
                        n, m, hp);
+        }
+        else if (sscanf(line, "SETSEED %u", &u) == 1)
+        {
+            T_SetCombatSeed(u);
+            printf("[TURN] SETSEED %u: seed=%u\n", u, T_GetCombatSeed());
+        }
+        else if (sscanf(line, "PREVIEW %d", &n) == 1)
+        {
+            // Print the previewed hit% and damage range for target n.
+            // The resolver uses the same functions, so these are the
+            // resolved values.
+            mobj_t *mo = (n >= 1) ? T_TargetMobj(n - 1) : NULL;
+            if (mo)
+            {
+                t_combatstats_t st;
+                int dmin, dmax;
+                player_t *pl = &players[consoleplayer];
+                T_DeriveStats(pl, &st);
+                T_DamageRange(pl, mo, &st, &dmin, &dmax);
+                printf("[TURN] PREVIEW %d: HIT=%d DMG=%d-%d TP=%d\n",
+                       n, T_HitChance(pl, mo, &st), dmin, dmax,
+                       T_CostFor(TA_ATTACK));
+            }
+            else
+                printf("[TURN] PREVIEW %d: FAIL (no target)\n", n);
+        }
+        else if (sscanf(line, "ASSERT_LASTHIT %d", &n) == 1)
+        {
+            // Verify the last T_ResolveAttack outcome: 1 hit, 0 miss.
+            if (t_last_hit == n)
+                printf("[TURN] ASSERT_LASTHIT %d: PASS (dmg=%d crit=%d)\n",
+                       n, t_last_damage, t_last_crit);
+            else
+                printf("[TURN] ASSERT_LASTHIT %d: FAIL (have %d)\n",
+                       n, t_last_hit);
+        }
+        else if (strncmp(line, "STATS", 5) == 0)
+        {
+            // Print derived combat stats for verification.
+            t_combatstats_t st;
+            player_t *pl = &players[consoleplayer];
+            T_DeriveStats(pl, &st);
+            printf("[TURN] STATS: AD=%d-%d AP=%d ATKTP=%d CRIT=%d%%x%d "
+                   "ARMOR=%d MR=%d ACC=%d HASTE=%d%%\n",
+                   st.ad_min, st.ad_max, st.ap, st.attack_tp,
+                   st.crit_chance, st.crit_mult,
+                   st.armor, st.mr, st.accuracy, st.haste);
+        }
+        else if (sscanf(line, "ASSERT_LASTDMG %d %d", &n, &m) == 2)
+        {
+            // Verify the last damage was within [n, m].
+            if (t_last_damage >= n && t_last_damage <= m)
+                printf("[TURN] ASSERT_LASTDMG %d %d: PASS (dmg=%d)\n",
+                       n, m, t_last_damage);
+            else
+                printf("[TURN] ASSERT_LASTDMG %d %d: FAIL (dmg=%d)\n",
+                       n, m, t_last_damage);
         }
         else if (sscanf(line, "ASSERT_THP_EQ %d %d", &n, &m) == 2)
         {
