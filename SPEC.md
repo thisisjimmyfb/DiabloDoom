@@ -93,8 +93,10 @@ pulse.
 | Screen-relative step | 1                          |
 | Use / interact     | 2                           |
 | Weapon swap         | 2                           |
+| Wait                | 0 (always legal)            |
 | Attack selected enemy | Derived from attack speed |
 | Headshot modifier   | +2                          |
+| End turn            | 0 (always legal; listed last as the exit row) |
 
 `attack_cost = clamp(2, 8, ceil(base_cost / attack_speed))`
 
@@ -190,7 +192,18 @@ Every living enemy in line of sight gets a **stable number** for the
 current planning state, a screen-space marker, and a list entry (name, hit
 chance, distance, HP). If markers overlap or leave the viewport, the list
 is authoritative. Sorting is deterministic: threat, then distance, then
-actor ID.
+actor ID. The selected target's marker is bracketed (`>[N]<`) and its list
+row highlighted; markers are projected with the engine's own sprite math
+so each number sits above its enemy's head.
+
+### Visual language
+
+Turn-system chrome renders in **gold**: the TURN MODE header, TP readout,
+action list, and help line. **Red stays Diablo's color** — inventory
+screens, item rarity accents, and Diablo stat readouts. Actions the player
+cannot afford render **dimmed gold** with their TP cost shown and cannot be
+selected. END TURN is always the final action-list row, visually separated
+as the exit (`>>T END TURN 0TP<<`).
 
 ### Select → preview → confirm
 

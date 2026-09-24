@@ -23,8 +23,9 @@ scripts/build.sh                      # cmake build into ./build
 ```
 
 Test rig: Xvfb on `:96` (currently 1280x800). Capture the game window by
-title with `~/workspace/doom/wshot.py` — it grabs the actual 800x600 game
-window. Do **not** use the old `xshot.py` root capture: it grabs a fixed
+title with `~/workspace/doom/wshot.py` — with `window_width 1280` /
+`window_height 800` in chocolate-doom.cfg the game window is 1066x800
+(aspect-corrected). Do **not** use the old `xshot.py` root capture: it grabs a fixed
 640x400 region and will crop the status bar out of frame.
 
 ## Repo map
