@@ -47,6 +47,8 @@ extern  boolean	nomonsters;	// checkparm of -nomonsters
 extern  boolean	respawnparm;	// checkparm of -respawn
 extern  boolean	fastparm;	// checkparm of -fast
 
+extern  boolean	turnbased_mode;	// checkparm of -turnbased
+
 extern  boolean	devparm;	// DEBUG: launched with -devparm
 
 

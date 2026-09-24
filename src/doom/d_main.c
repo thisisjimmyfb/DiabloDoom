@@ -29,6 +29,7 @@
 #include "deh_main.h"
 #include "doomdef.h"
 #include "doomstat.h"
+#include "t_turn.h"
 #include "d_diablo_ui.h"
 
 #include "dstrings.h"
@@ -104,6 +105,7 @@ boolean		devparm;	// started game with -devparm
 boolean         nomonsters;	// checkparm of -nomonsters
 boolean         respawnparm;	// checkparm of -respawn
 boolean         fastparm;	// checkparm of -fast
+boolean         turnbased_mode;	// checkparm of -turnbased (turn-based XCOM mode)
 
 
 
@@ -1407,6 +1409,15 @@ void D_DoomMain (void)
     fastparm = M_CheckParm ("-fast");
 
     //!
+    // @category game
+    //
+    // Turn-based XCOM mode: discrete Tempo turns, numbered targets,
+    // no aiming. Single-player only.
+    //
+
+    turnbased_mode = M_CheckParm ("-turnbased");
+
+    //!
     // @vanilla
     //
     // Developer mode. F1 saves a screenshot in the current working
@@ -2017,6 +2028,8 @@ void D_DoomMain (void)
 	else
 	    D_StartTitle ();                // start up intro loop
     }
+
+    T_Init ();  // turn-based controller; no-op without -turnbased
 
     D_DoomLoop ();  // never returns
 }
