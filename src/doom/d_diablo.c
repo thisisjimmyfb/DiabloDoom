@@ -39,132 +39,142 @@
 //         fres, cres, lres, pres,
 //         lifesteal, magicfind, movespeed
 #define IT(n_, t_, s_, w_, h_, c_, u_, he_, dm_, dx_, ar_, \
-           st_, de_, vi_, en_, fr_, cr_, lr_, pr_, ls_, mf_, ms_) \
+           st_, de_, vi_, en_, fr_, cr_, lr_, pr_, ls_, mf_, ms_, \
+           ad_, ap_, ha_, ow_) \
     { n_, t_, s_, w_, h_, c_, u_, he_, dm_, dx_, ar_, \
-      st_, de_, vi_, en_, fr_, cr_, lr_, pr_, ls_, mf_, ms_ }
+      st_, de_, vi_, en_, fr_, cr_, lr_, pr_, ls_, mf_, ms_, \
+      ad_, ap_, ha_, ow_ }
 
 static const diablo_itemdef_t diablo_normal[] =
 {
     IT("Short Sword",       TIER_NORMAL, ESLOT_WEAPON, 1,3, 0,0,0,   2, 5, 0,
-       0,0,0,0,   0,0,0,0,   0,0,0),
+       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0),
     IT("Leather Armor",     TIER_NORMAL, ESLOT_ARMOR,  2,3, 0,0,0,   0, 0, 5,
-       0,0,0,0,   0,0,0,0,   0,0,0),
+       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0),
     IT("Buckler",           TIER_NORMAL, ESLOT_SHIELD, 2,2, 0,0,0,   0, 0, 3,
-       0,0,0,0,   0,0,0,0,   0,0,0),
+       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0),
     IT("Cap",               TIER_NORMAL, ESLOT_HELM,   2,2, 0,0,0,   0, 0, 2,
-       0,0,0,0,   0,0,0,0,   0,0,0),
+       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0),
     IT("Sash",              TIER_NORMAL, ESLOT_BELT,   2,1, 0,0,0,   0, 0, 2,
-       0,0,0,0,   0,0,0,0,   0,0,0),
+       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0),
     IT("Healing Potion",    TIER_NORMAL, ESLOT_NONE,   1,1, 1,USE_HEAL,40, 0,0,0,
-       0,0,0,0,   0,0,0,0,   0,0,0),
+       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0),
     IT("Mana Potion",       TIER_NORMAL, ESLOT_NONE,   1,1, 1,USE_MANA,40, 0,0,0,
-       0,0,0,0,   0,0,0,0,   0,0,0),
+       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0),
     IT("Rancid Gas Potion", TIER_NORMAL, ESLOT_NONE,   1,1, 1,USE_BLAST,50, 0,0,0,
-       0,0,0,0,   0,0,0,0,   0,0,0),
+       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0),
     IT("Leather Boots",     TIER_NORMAL, ESLOT_BOOTS,  2,2, 0,0,0,   0, 0, 3,
-       0,0,0,0,   0,0,0,0,   0,0,0),
+       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0),
     IT("Leather Gloves",    TIER_NORMAL, ESLOT_GLOVES, 2,2, 0,0,0,   0, 0, 2,
-       0,0,0,0,   0,0,0,0,   0,0,0),
+       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0),
 };
 
 static const diablo_itemdef_t diablo_magic[] =
 {
     IT("Cruel War Axe",       TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0,  6,14, 0,
-       3,0,0,0,   0,0,0,0,   0,0,0),
+       3,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0),
     IT("King's Long Sword",   TIER_MAGIC, ESLOT_WEAPON, 1,3, 0,0,0,  5,10, 0,
-       2,0,2,0,   0,0,0,0,   0,0,0),
+       2,0,2,0,   0,0,0,0,   0,0,0,0,0,0,0),
     IT("Vampiric Bone Shield", TIER_MAGIC, ESLOT_SHIELD, 2,2, 0,0,0,  0, 0, 8,
-       0,0,0,0,   0,0,0,0,   5,0,0),
+       0,0,0,0,   0,0,0,0,   5,0,0,0,0,0,0),
     IT("Prismatic Amulet",    TIER_MAGIC, ESLOT_AMULET, 1,1, 0,0,0,  0, 0, 0,
-       0,0,0,0,  10,10,10,10, 0,0,0),
+       0,0,0,0,  10,10,10,10, 0,0,0,0,0,0,0),
     IT("Lizard's Ring",       TIER_MAGIC, ESLOT_RING1,  1,1, 0,0,0,  0, 0, 0,
-       0,0,0,8,   0,0,0,0,   0,5,0),
+       0,0,0,8,   0,0,0,0,   0,5,0,0,0,0,0),
     IT("Soldier's Chain Mail",TIER_MAGIC, ESLOT_ARMOR,  2,3, 0,0,0,  0, 0,12,
-       3,0,0,0,   0,0,0,0,   0,0,0),
+       3,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0),
     IT("Traveler's Treads", TIER_MAGIC, ESLOT_BOOTS,  2,2, 0,0,0,  0, 0, 8,
-       0,2,0,0,   0,0,0,0,   0,0,10),
+       0,2,0,0,   0,0,0,0,   0,0,10,0,0,0,0),
     IT("Assault Gloves",    TIER_MAGIC, ESLOT_GLOVES, 2,2, 0,0,0,  0, 0, 6,
-       3,0,0,0,   0,0,0,0,   0,0,0),
+       3,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0),
+    IT("Piercing Rounds",   TIER_MAGIC, ESLOT_AMMO,   1,1, 0,0,0,   0, 0, 0,
+       0,0,0,0,   0,0,0,0,   0,0,0,  15,0,0,0),
+    IT("Incendiary Shells", TIER_MAGIC, ESLOT_AMMO,   1,1, 0,0,0,   0, 0, 0,
+       0,0,0,0,   0,0,0,0,   0,0,0,  0,10,0,0),
+    IT("Swift Cartridges",  TIER_MAGIC, ESLOT_AMMO,   1,1, 0,0,0,   0, 0, 0,
+       0,0,0,0,   0,0,0,0,   0,0,0,  0,0,20,0),
+    IT("Spotter Rounds",    TIER_MAGIC, ESLOT_AMMO,   1,1, 0,0,0,   0, 0, 0,
+       0,0,0,0,   0,0,0,0,   0,0,0,  0,0,0,10),
 };
 
 static const diablo_itemdef_t diablo_rare[] =
 {
     IT("Doombringer",       TIER_RARE, ESLOT_WEAPON, 2,3, 0,0,0,  12,24, 0,
-       5,0,0,0,   0,0,0,0,   0,0,0),
+       5,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0),
     IT("Stormlash",         TIER_RARE, ESLOT_WEAPON, 1,3, 0,0,0,  10,20, 0,
-       0,0,0,0,   0,0,15,0,  0,0,0),
+       0,0,0,0,   0,0,15,0,  0,0,0,0,0,0,0),
     IT("Soulrender",        TIER_RARE, ESLOT_WEAPON, 2,3, 0,0,0,  11,22, 0,
-       0,0,0,0,   0,0,0,0,   3,0,0),
+       0,0,0,0,   0,0,0,0,   3,0,0,0,0,0,0),
     IT("Demonhorn Edge",    TIER_RARE, ESLOT_WEAPON, 1,3, 0,0,0,   9,18, 0,
-       0,5,0,0,   0,0,0,0,   0,0,0),
+       0,5,0,0,   0,0,0,0,   0,0,0,0,0,0,0),
     IT("Nightmare Coil",    TIER_RARE, ESLOT_RING1,  1,1, 0,0,0,   0, 0, 0,
-       5,0,0,0,  15,0,0,0,   0,0,0),
+       5,0,0,0,  15,0,0,0,   0,0,0,0,0,0,0),
     IT("Grimward",          TIER_RARE, ESLOT_SHIELD, 2,2, 0,0,0,   0, 0,15,
-       0,0,0,0,   0,0,0,15,  0,0,0),
+       0,0,0,0,   0,0,0,15,  0,0,0,0,0,0,0),
     IT("Bloodletter",       TIER_RARE, ESLOT_WEAPON, 1,3, 0,0,0,  10,19, 0,
-       0,0,0,0,   0,0,0,0,   4,0,0),
+       0,0,0,0,   0,0,0,0,   4,0,0,0,0,0,0),
     IT("Fleshrender",       TIER_RARE, ESLOT_WEAPON, 2,3, 0,0,0,  13,23, 0,
-       0,0,4,0,   0,0,0,0,   0,0,0),
+       0,0,4,0,   0,0,0,0,   0,0,0,0,0,0,0),
     IT("Stormwalkers",      TIER_RARE, ESLOT_BOOTS,  2,2, 0,0,0,   0, 0,14,
-       0,4,0,0,   0,0,15,0,  0,0,15),
+       0,4,0,0,   0,0,15,0,  0,0,15,0,0,0,0),
     IT("Doom Grasp",        TIER_RARE, ESLOT_GLOVES, 2,2, 0,0,0,   0, 0,12,
-       5,0,0,0,   0,0,0,0,   3,0,0),
+       5,0,0,0,   0,0,0,0,   3,0,0,0,0,0,0),
 };
 
 static const diablo_itemdef_t diablo_set[] =
 {
     IT("Tal Rasha's Horadric Crest", TIER_SET, ESLOT_HELM, 2,2, 0,0,0, 0,0,15,
-       0,0,0,8,   0,0,0,0,   0,10,0),
+       0,0,0,8,   0,0,0,0,   0,10,0,0,0,0,0),
     IT("Immortal King's Soul Cage", TIER_SET, ESLOT_ARMOR, 2,3, 0,0,0, 0,0,25,
-       8,0,0,0,   0,0,0,0,   0,0,0),
+       8,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0),
     IT("Trang-Oul's Guise",          TIER_SET, ESLOT_HELM, 2,2, 0,0,0, 0,0,14,
-       0,0,0,0,   0,0,0,20,  0,0,0),
+       0,0,0,0,   0,0,0,20,  0,0,0,0,0,0,0),
     IT("M'avina's True Sight",       TIER_SET, ESLOT_HELM, 2,2, 0,0,0, 0,0,14,
-       0,8,0,0,   0,0,0,0,   0,0,0),
+       0,8,0,0,   0,0,0,0,   0,0,0,0,0,0,0),
     IT("Natalya's Shadow",           TIER_SET, ESLOT_ARMOR,2,3, 0,0,0, 0,0,22,
-       0,6,0,0,   0,0,0,0,   0,0,0),
+       0,6,0,0,   0,0,0,0,   0,0,0,0,0,0,0),
     IT("Griswold's Valor",           TIER_SET, ESLOT_HELM, 2,2, 0,0,0, 0,0,16,
-       6,0,0,0,   0,0,0,0,   0,0,0),
+       6,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0),
     IT("Berserker's Hatchet",        TIER_SET, ESLOT_WEAPON,1,3,0,0,0,15,28,0,
-       6,0,0,0,   0,0,0,0,   0,0,0),
+       6,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0),
     IT("Sazabi's Cobalt Redeemer",   TIER_SET, ESLOT_WEAPON,1,3,0,0,0,14,26,0,
-       0,0,0,0,   0,20,0,0,  0,0,0),
+       0,0,0,0,   0,20,0,0,  0,0,0,0,0,0,0),
     IT("Immortal King's Pillar",    TIER_SET, ESLOT_BOOTS, 2,2,0,0,0, 0,0,18,
-       5,0,0,0,   20,0,0,0,  0,0,20),
+       5,0,0,0,   20,0,0,0,  0,0,20,0,0,0,0),
     IT("M'avina's Icy Clutch",      TIER_SET, ESLOT_GLOVES,2,2,0,0,0, 0,0,14,
-       0,6,0,0,   0,20,0,0,  0,0,0),
+       0,6,0,0,   0,20,0,0,  0,0,0,0,0,0,0),
 };
 
 static const diablo_itemdef_t diablo_unique[] =
 {
     IT("Stone of Jordan",       TIER_UNIQUE, ESLOT_RING1, 1,1, 0,0,0,  0, 0, 0,
-       0,0,0,15,   0,0,0,0,   5,15,0),
+       0,0,0,15,   0,0,0,0,   5,15,0,0,0,0,0),
     IT("Harlequin Crest",       TIER_UNIQUE, ESLOT_HELM,  2,2, 0,0,0,  0, 0,18,
-       0,0,10,0,   0,0,0,0,   0,25,0),
+       0,0,10,0,   0,0,0,0,   0,25,0,0,0,0,0),
     IT("The Grandfather",       TIER_UNIQUE, ESLOT_WEAPON,2,3, 0,0,0, 25,50, 0,
-       10,0,0,0,   0,0,0,0,   0,0,0),
+       10,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0),
     IT("Windforce",             TIER_UNIQUE, ESLOT_WEAPON,2,3, 0,0,0, 22,45, 0,
-       0,10,0,0,   0,0,0,0,   0,0,0),
+       0,10,0,0,   0,0,0,0,   0,0,0,0,0,0,0),
     IT("Arkaine's Valor",       TIER_UNIQUE, ESLOT_ARMOR, 2,3, 0,0,0,  0, 0,30,
-       0,0,12,0,   0,0,0,0,   0,0,0),
+       0,0,12,0,   0,0,0,0,   0,0,0,0,0,0,0),
     IT("Mara's Kaleidoscope",   TIER_UNIQUE, ESLOT_AMULET,1,1, 0,0,0,  0, 0, 0,
-       8,0,0,0,  20,20,20,20, 0,0,0),
+       8,0,0,0,  20,20,20,20, 0,0,0,0,0,0,0),
     IT("Bul-Kathos' Wedding Band",TIER_UNIQUE,ESLOT_RING1,1,1, 0,0,0,  0, 0, 0,
-       0,0,8,0,    0,0,0,0,   8,0,0),
+       0,0,8,0,    0,0,0,0,   8,0,0,0,0,0,0),
     IT("Titan's Revenge",       TIER_UNIQUE, ESLOT_WEAPON,1,3, 0,0,0, 20,40, 0,
-       8,5,0,0,    0,0,0,0,   0,0,0),
+       8,5,0,0,    0,0,0,0,   0,0,0,0,0,0,0),
     IT("Lidless Wall",          TIER_UNIQUE, ESLOT_SHIELD,2,2, 0,0,0,  0, 0,20,
-       0,0,0,10,   0,0,0,0,   0,0,0),
+       0,0,0,10,   0,0,0,0,   0,0,0,0,0,0,0),
     IT("Skin of the Vipermagi", TIER_UNIQUE, ESLOT_ARMOR, 2,3, 0,0,0,  0, 0,24,
-       0,0,0,0,  25,0,25,0,   0,0,0),
+       0,0,0,0,  25,0,25,0,   0,0,0,0,0,0,0),
     IT("Thundergod's Vigor",    TIER_UNIQUE, ESLOT_BELT,  2,1, 0,0,0,  0, 0,10,
-       5,0,8,0,    0,0,25,0,  0,0,0),
+       5,0,8,0,    0,0,25,0,  0,0,0,0,0,0,0),
     IT("Raven Frost",           TIER_UNIQUE, ESLOT_RING1, 1,1, 0,0,0,  0, 0, 0,
-       0,8,0,0,    0,25,0,0,  0,0,0),
+       0,8,0,0,    0,25,0,0,  0,0,0,0,0,0,0),
     IT("War Traveler",          TIER_UNIQUE, ESLOT_BOOTS, 2,2, 0,0,0,  0, 0,22,
-       5,0,8,0,    0,0,0,0,   0,15,25),
+       5,0,8,0,    0,0,0,0,   0,15,25,0,0,0,0),
     IT("Frostburn",             TIER_UNIQUE, ESLOT_GLOVES,2,2, 0,0,0,  0, 0,16,
-       5,5,0,0,    0,25,0,0,  4,0,0),
+       5,5,0,0,    0,25,0,0,  4,0,0,0,0,0,0),
 };
 
 #undef IT
@@ -311,6 +321,11 @@ void D_RecalcStats(struct player_s *pl)
         player->diablo_stats[DSTAT_LIFESTEAL] += def->lifesteal;
         player->diablo_stats[DSTAT_MAGICFIND] += def->magicfind;
         player->diablo_stats[DSTAT_MOVESPEED] += def->movespeed;
+        // Phase 7 tactical affixes.
+        player->diablo_stats[DSTAT_AD_PCT] += def->ad_pct;
+        player->diablo_stats[DSTAT_AP_PCT] += def->ap_pct;
+        player->diablo_stats[DSTAT_HASTE] += def->haste;
+        player->diablo_stats[DSTAT_OW_ACC] += def->ow_acc;
     }
 }
 

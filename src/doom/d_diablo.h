@@ -29,6 +29,9 @@ typedef enum
 } diablo_tier_t;
 
 // Equipment slots.  Rings get two slots (RING1/RING2).
+// Phase 7: ESLOT_AMMO is the single shared passive ammo-equipment slot.
+// Ammo items are non-consumable; they passively buff the equipped weapon
+// (e.g. armor-piercing rounds, incendiary shells). Exactly one ammo slot.
 typedef enum
 {
     ESLOT_HELM,
@@ -41,6 +44,7 @@ typedef enum
     ESLOT_BOOTS,
     ESLOT_GLOVES,
     ESLOT_BELT,
+    ESLOT_AMMO,
     NUM_ESLOTS,
     ESLOT_NONE = -1  // consumables (potions) fit no slot
 } diablo_eslot_t;
@@ -62,6 +66,11 @@ typedef enum
     DSTAT_LIFESTEAL,  // percent of damage dealt returned as HP
     DSTAT_MAGICFIND,  // percent; improves loot rarity rolls
     DSTAT_MOVESPEED,  // percent; increases movement speed
+    // Phase 7 tactical affixes (turn-based).
+    DSTAT_AD_PCT,     // percent; multiplies attack damage
+    DSTAT_AP_PCT,     // percent; multiplies ability power
+    DSTAT_HASTE,      // percent; reduces cooldowns (turn-based)
+    DSTAT_OW_ACC,     // flat; overwatch reaction hit chance bonus
     NUM_DSTATS
 } diablo_stat_t;
 
@@ -110,6 +119,11 @@ typedef struct
     int lifesteal;   // percent of damage dealt returned as HP
     int magicfind;   // percent; shifts loot rarity rolls in your favor
     int movespeed;   // percent movement speed bonus
+    // Phase 7 tactical affixes (turn-based).
+    int ad_pct;      // percent; multiplies attack damage
+    int ap_pct;      // percent; multiplies ability power
+    int haste;       // percent; reduces cooldowns
+    int ow_acc;      // flat; overwatch hit chance bonus
 } diablo_itemdef_t;
 
 // Item table access.

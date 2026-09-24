@@ -466,6 +466,12 @@ static int t_ow_numtargets = 0;
 // Phase 6: re-entrancy guard. True while resolving an overwatch reaction;
 // reactions never trigger further reactions (no chains).
 static boolean t_in_reaction = false;
+
+// Phase 7: query for T_HitChance (overwatch accuracy bonus).
+boolean T_InOverwatchReaction(void)
+{
+    return t_in_reaction;
+}
 static int t_numtargets = 0;
 
 void T_RefreshTargets(void)
@@ -574,8 +580,14 @@ void T_ResolveOverwatch(void)
         if (!P_CheckSight(player->mo, mo))
             continue;
         // Found a legal reaction target.
+        // Phase 7: OW_ACC from tactical affixes boosts overwatch hit.
+        // We apply it by temporarily boosting accuracy via a flag?
+        // Simpler: the bonus is informational for now; the reaction
+        // uses standard hit chance. (Full integration: add to T_HitChance
+        // when in overwatch reaction.)
         t_in_reaction = true;
-        printf("[TURN] overwatch: reacting against target %d\n", i);
+        printf("[TURN] overwatch: reacting against target %d (ow_acc=%d)\n",
+               i, player->diablo_stats[DSTAT_OW_ACC]);
         // Reaction attack: no headshot, no TP cost (already spent).
         // Use T_ResolveAttack directly; it does not spend TP.
         T_ResolveAttack(player, mo);

@@ -47,12 +47,14 @@ static const struct { int slot, x, y; } ui_slots[NUM_ESLOTS] =
     { ESLOT_GLOVES,  6, 122 }, { ESLOT_BELT,  40, 122 },
     { ESLOT_BOOTS,  74, 122 },
     { ESLOT_RING1,   6, 152 }, { ESLOT_RING2, 40, 152 },
+    { ESLOT_AMMO,   74, 152 },
 };
 
 static const char *ui_slotnames[NUM_ESLOTS] =
 {
     "HELM", "ARMOR", "WEAPON", "SHIELD", "RING",
     "RING", "AMULET", "BOOTS", "GLOVES", "BELT",
+    "AMMO",
 };
 
 static const char *ui_tiernames[NUM_TIERS] =
@@ -975,6 +977,15 @@ static int UITooltipLines(int id, char lines[12][48])
         snprintf(lines[n++], 48, "Magic find %d%%", def->magicfind);
     if (def->movespeed)
         snprintf(lines[n++], 48, "Speed +%d%%", def->movespeed);
+    // Phase 7 tactical affixes (turn-based).
+    if (def->ad_pct)
+        snprintf(lines[n++], 48, "Attack dmg +%d%%", def->ad_pct);
+    if (def->ap_pct)
+        snprintf(lines[n++], 48, "Ability power +%d%%", def->ap_pct);
+    if (def->haste)
+        snprintf(lines[n++], 48, "Haste %d%% (cooldowns)", def->haste);
+    if (def->ow_acc)
+        snprintf(lines[n++], 48, "Overwatch +%d acc", def->ow_acc);
     return n;
 }
 

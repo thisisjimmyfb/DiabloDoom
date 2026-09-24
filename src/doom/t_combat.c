@@ -64,9 +64,24 @@ void T_DeriveStats(player_t *player, t_combatstats_t *out)
     out->ad_max = dmg_max + str;
     if (out->ad_max < out->ad_min)
         out->ad_max = out->ad_min;
+    // Phase 7: AD_PCT multiplies attack damage (tactical ammo affix).
+    {
+        int adpct = player->diablo_stats[DSTAT_AD_PCT];
+        if (adpct != 0)
+        {
+            out->ad_min = out->ad_min * (100 + adpct) / 100;
+            out->ad_max = out->ad_max * (100 + adpct) / 100;
+        }
+    }
 
     // Energy feeds ability power.
     out->ap = ene * 2;
+    // Phase 7: AP_PCT multiplies ability power.
+    {
+        int appct = player->diablo_stats[DSTAT_AP_PCT];
+        if (appct != 0)
+            out->ap = out->ap * (100 + appct) / 100;
+    }
 
     // Dexterity feeds attack speed: faster attackers pay less TP.
     // 4 TP base; -1 per 20 dex above 10, floor 2.
@@ -96,9 +111,10 @@ void T_DeriveStats(player_t *player, t_combatstats_t *out)
         out->accuracy = 50;
 
     // Haste trims cooldowns (consumed by Phase 5 abilities).
-    out->haste = ene / 5;
-    if (out->haste > 40)
-        out->haste = 40;
+    // Phase 7: tactical affix HASTE adds to the ENE-derived base.
+    out->haste = ene / 5 + player->diablo_stats[DSTAT_HASTE];
+    if (out->haste > 50)
+        out->haste = 50; // cap at 50% reduction
 }
 
 // Multi-point cover (Phase 6): trace from three attacker positions
@@ -183,6 +199,11 @@ int T_HitChance(player_t *player, mobj_t *target, const t_combatstats_t *st)
     // Headshot modifier: -15% hit (the +2 TP is in T_CostFor).
     if (turnctrl.headshot_mod)
         chance -= 15;
+
+    // Phase 7: Overwatch accuracy bonus from tactical affixes.
+    // Applies only during overwatch reactions.
+    if (T_InOverwatchReaction())
+        chance += player->diablo_stats[DSTAT_OW_ACC];
 
     if (chance < 5)
         chance = 5;
