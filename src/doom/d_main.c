@@ -105,7 +105,6 @@ boolean		devparm;	// started game with -devparm
 boolean         nomonsters;	// checkparm of -nomonsters
 boolean         respawnparm;	// checkparm of -respawn
 boolean         fastparm;	// checkparm of -fast
-boolean         turnbased_mode;	// checkparm of -turnbased (turn-based XCOM mode)
 
 
 
@@ -1408,14 +1407,8 @@ void D_DoomMain (void)
 
     fastparm = M_CheckParm ("-fast");
 
-    //!
-    // @category game
-    //
-    // Turn-based XCOM mode: discrete Tempo turns, numbered targets,
-    // no aiming. Single-player only.
-    //
-
-    turnbased_mode = M_CheckParm ("-turnbased");
+    // This fork is turn-based by default: discrete Tempo turns,
+    // numbered targets, no aiming. Single-player only.
 
     //!
     // @vanilla
@@ -2029,7 +2022,7 @@ void D_DoomMain (void)
 	    D_StartTitle ();                // start up intro loop
     }
 
-    T_Init ();  // turn-based controller; no-op without -turnbased
+    T_Init ();  // turn-based controller; always active in this fork
 
     D_DoomLoop ();  // never returns
 }

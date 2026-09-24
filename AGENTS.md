@@ -10,7 +10,9 @@
 DiabloDoom is a fork of **Chocolate Doom 3.1.1** (GPL) with a Diablo-style
 loot and equipment system layered on top: tiered drops on every kill,
 a grid backpack + paperdoll character screen, item icons, a stat screen,
-and save/load persistence. Real-time Doom gameplay is untouched.
+and save/load persistence. The fork is turn-based by default: discrete
+Tempo turns, numbered targets, preview-confirm, no aiming — there is no
+real-time mode and no `-turnbased` flag.
 
 ## Build & run
 
@@ -43,9 +45,10 @@ window. Do **not** use the old `xshot.py` root capture: it grabs a fixed
 
 ## Standing rules
 
-1. **Real-time mode is sacred.** Nothing in the turn-based work may change
-   stock tic-path behavior. If a change risks real-time regression, it
-   doesn't land.
+1. **The fork is turn-based by default.** There is no `-turnbased` flag
+   and no real-time mode; the turn controller is unconditional. Legacy
+   real-time tic paths are unreachable and slated for cleanup — don't
+   resurrect them.
 2. **No scalar input, ever** (Jimmy's words: *"We shouldn't have actions
    that require scalar input because that will be too difficult to aim."*).
    Turn-mode actions are discrete: directions and actor IDs only. No

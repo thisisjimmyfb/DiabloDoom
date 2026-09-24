@@ -2,9 +2,8 @@
 // t_turn.c — Turn-based (XCOM) mode: central turn controller.
 //
 // Owns the state machine, the bounded simulation pulse, round/enemy
-// phases, and the test harnesses. Real-time mode never reaches this
-// code: G_Ticker calls T_Ticker instead of P_Ticker only when the
-// -turnbased flag passed the startup guards.
+// phases, and the test harnesses. This fork is turn-based by default:
+// G_Ticker calls T_Ticker instead of P_Ticker unconditionally.
 
 #include <string.h>
 #include <stdio.h>
@@ -45,7 +44,7 @@ boolean T_Ready(void)
 
 boolean T_Active(void)
 {
-    return turnbased_mode && t_ready && gamestate == GS_LEVEL && !netgame;
+    return t_ready && gamestate == GS_LEVEL && !netgame;
 }
 
 // ------------------------------------------------------------------
@@ -62,38 +61,35 @@ void T_Init(void)
     turnctrl.rng_seed = 0xC0FFEEu;
     turnctrl.state = TS_OFF;
 
-    if (turnbased_mode)
+    // Single-player only; no demos. This fork has no real-time mode to
+    // fall back to, so netplay/demos are simply unsupported: warn and
+    // keep turn mode armed (T_Active stays false while netgame, so the
+    // legacy ticker runs instead).
+    if (netgame
+     || M_CheckParm("-playdemo") > 0
+     || M_CheckParm("-timedemo") > 0
+     || M_CheckParm("-record") > 0)
     {
-        // Single-player only; no demos. Clear message, fall back to
-        // real-time rather than erroring out.
-        if (netgame
-         || M_CheckParm("-playdemo") > 0
-         || M_CheckParm("-timedemo") > 0
-         || M_CheckParm("-record") > 0)
+        printf("Turn-based mode is single-player only: "
+               "netplay and demos are not supported in this fork.\n");
+    }
+    else
+    {
+        turnctrl.state = TS_PLANNING;
+        t_script_path = NULL;
         {
-            printf("Turn-based mode is single-player only: "
-                   "netplay and demos are disabled with -turnbased.\n"
-                   "Falling back to real-time mode.\n");
-            turnbased_mode = false;
+            int p = M_CheckParmWithArgs("-tbscript", 1);
+            if (p > 0)
+                t_script_path = myargv[p + 1];
         }
+        if (M_CheckParm("-tbarena") > 0)
+            t_arena_done = false; // spawn on first level tick
         else
-        {
-            turnctrl.state = TS_PLANNING;
-            t_script_path = NULL;
-            {
-                int p = M_CheckParmWithArgs("-tbscript", 1);
-                if (p > 0)
-                    t_script_path = myargv[p + 1];
-            }
-            if (M_CheckParm("-tbarena") > 0)
-                t_arena_done = false; // spawn on first level tick
-            else
-                t_arena_done = true;
-            printf("Turn-based mode enabled: discrete Tempo turns, "
-                   "no aiming. WASD move, SPACE use, . wait, T end turn.\n");
-            // Phase 8: load the standalone profile.
-            T_ProfileLoad();
-        }
+            t_arena_done = true;
+        printf("Turn-based mode: discrete Tempo turns, "
+               "no aiming. WASD move, SPACE use, . wait, T end turn.\n");
+        // Phase 8: load the standalone profile.
+        T_ProfileLoad();
     }
 
     t_ready = true;
@@ -101,7 +97,7 @@ void T_Init(void)
 
 void T_NewGame(void)
 {
-    if (!turnbased_mode || !t_ready)
+    if (!t_ready)
         return;
     memset(&turnctrl, 0, sizeof(turnctrl));
     turnctrl.tp_max = 10;

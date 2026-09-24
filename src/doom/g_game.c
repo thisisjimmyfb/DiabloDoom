@@ -726,7 +726,7 @@ void G_DoLoadLevel (void)
     memset(mousearray, 0, sizeof(mousearray));
     memset(joyarray, 0, sizeof(joyarray));
 
-    T_NewGame ();  // turn-based controller reset (no-op in real-time)
+    T_NewGame ();  // turn-based controller reset
 
     if (testcontrols)
     {
@@ -795,7 +795,7 @@ static void SetMouseButtons(unsigned int buttons_mask)
 boolean G_Responder (event_t* ev) 
 { 
     // Turn-based mode owns gameplay keys while planning/targeting.
-    if (turnbased_mode && T_Responder(ev))
+    if (T_Responder(ev))
 	return true;
 
     // allow spy mode changes even during the demo
@@ -1095,7 +1095,7 @@ void G_Ticker (void)
     switch (gamestate) 
     { 
       case GS_LEVEL: 
-	if (turnbased_mode && T_Ready())
+	if (T_Ready())
 	    T_Ticker ();   // turn controller: frozen planning + pulses
 	else
 	    P_Ticker (); 
@@ -1458,9 +1458,8 @@ void G_DoCompleted (void)
 { 
     int             i; 
 
-    // Phase 8: atomic profile save on level exit (turn-based only).
-    if (turnbased_mode)
-        T_ProfileSave();
+    // Phase 8: atomic profile save on level exit.
+    T_ProfileSave();
 	 
     gameaction = ga_nothing; 
  
@@ -1738,7 +1737,7 @@ void G_DoLoadGame (void)
     // draw the pattern into the back screen
     R_FillBackScreen ();
 
-    T_OnLoad ();  // turn mode: land in PLANNING (no-op in real-time)
+    T_OnLoad ();  // turn mode: land in PLANNING
 } 
  
 
@@ -1798,11 +1797,9 @@ void G_DoSaveGame (void)
     // Diablo equipment (mod).
     P_ArchiveDiablo();
 
-    // Turn-based decision state (mod): only in turn mode, so real-time
-    // save output is byte-identical to stock. Loading tolerates the
+    // Turn-based decision state (mod). Loading tolerates the
     // missing block via the EOF-marker fallback in P_UnArchiveTurn.
-    if (turnbased_mode)
-        P_ArchiveTurn();
+    P_ArchiveTurn();
 
     P_WriteSaveGameEOF();
 

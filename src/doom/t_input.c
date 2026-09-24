@@ -92,7 +92,7 @@ boolean T_Responder(event_t *ev)
 {
     turnaction_t action;
 
-    if (!turnbased_mode || !T_Ready())
+    if (!T_Ready())
         return false;
     if (gamestate != GS_LEVEL)
         return false;

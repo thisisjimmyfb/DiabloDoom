@@ -15,7 +15,7 @@ is discrete; every drop develops one named hero across levels and sessions.
 
 ## What stays / what changes
 
-**Keep:** real-time mode, Doom maps, first-person presentation, the Diablo
+**Keep:** Doom maps, first-person presentation, the Diablo
 inventory/equipment system.
 
 **Add:** numbered targets, Tempo turns, XP levels, persistent loadouts,
@@ -27,7 +27,7 @@ character history.
 ## Status bar Diablo-fication
 
 The classic status bar is being converted to Diablo character readouts,
-one panel at a time. Real-time mode keeps the bar; only the panels change.
+one panel at a time. The bar stays; only the panels change.
 
 - **ARMS → equipped weapon panel** (done, `ee1ee623`). The classic 2–7
   weapon ownership boxes are retired. The ARMS section now shows only the
@@ -53,8 +53,8 @@ one panel at a time. Real-time mode keeps the bar; only the panels change.
    cooldown timing — not just damage.
 4. **One persistent hero.** Name, XP, attributes, equipment, inventory, and
    lifetime feats survive every session.
-5. **Doom remains Doom.** First-person camera, maps, monsters, sounds, and
-   real-time mode stay intact.
+5. **Doom remains Doom.** First-person camera, maps, monsters, and
+   sounds stay intact.
 
 ## Explicit non-goals (v1)
 
@@ -337,7 +337,7 @@ previous one "mostly works."
 
 | Phase | Work | Gate |
 |-------|------|------|
-| 0 | Baseline + branch. Capture Doom save behavior and the existing rebirth gear-preservation path. Add a runtime toggle that changes nothing yet. | Real-time play, inventory, save/load, death, level transitions unchanged. |
+| 0 | Baseline. Turn controller wired as the unconditional default — no flag, no real-time mode. Capture Doom save behavior and the existing rebirth gear-preservation path. | Inventory, save/load, death, level transitions unchanged. |
 | 1 | Turn kernel + derived movement. PLANNING/PULSE states, bounded simulation, round counter, discrete screen-relative MOVE with auto-facing. | Navigate and interact via MOVE, USE, WAIT, END — no manual turning or analog input. |
 | 2 | Tempo economy. 10 TP, action costs, free target browsing, weapon swap cost, legal-action checks, round refresh. | No action overspends TP; cycling/canceling spend zero; save/load restores decision state. |
 | 3 | Target service + ATTACK contract. Visible-enemy enumeration, numbered markers, target list, Tab/`[`/`]`/number keys, auto-face, preview, confirm. | Every legal enemy has one stable number; ATTACK always resolves against the confirmed actor ID. |
@@ -378,7 +378,6 @@ AD, AP, and defensive builds.
 ### Quality gates (every phase)
 
 - No action requires scalar, analog, cursor, or crosshair input.
-- Real-time mode shows no behavior regression.
 - Doom saves and the standalone profile round-trip their own state
   without overwriting each other.
 - Displayed values match resolved values; no action leaves the controller
@@ -389,7 +388,7 @@ AD, AP, and defensive builds.
 
 ## Release target (v1.0)
 
-The smallest complete tactical loop: optional single-player turn-based
+The smallest complete tactical loop: single-player turn-based
 mode with Tab/`[`/`]`/number selection, preview, confirm, auto-facing; six
 enemy-targeted weapon kits; 10-TP rounds with discrete controls only;
 numbered markers + target list (name, hit, distance, HP); AD/AP/AS/Haste/

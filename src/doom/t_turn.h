@@ -2,7 +2,7 @@
 // t_turn.h — Turn-based (XCOM) mode: central turn controller.
 //
 // One rules layer owns time, input, and resolution. Do NOT scatter
-// `if (turnbased_mode)` checks through every weapon and monster; route
+// turn-mode conditionals through every weapon and monster; route
 // turn-mode behavior through this controller and the gameplay bridge.
 //
 // State machine: PLANNING -> TARGETING -> CONFIRM -> PULSE -> (REACTION)
@@ -174,7 +174,7 @@ boolean P_UnArchiveTurn(void);
 // Separate from level savegames; persists XP, levels, stat points,
 // lifetime counters, and the hero name across sessions.
 // Stored atomically (write temp + rename) on level exit and quit.
-// Loaded at startup when -turnbased is given.
+// Loaded at startup.
 // ------------------------------------------------------------------
 #define T_PROFILE_VERSION 1
 #define T_PROFILE_NAME_LEN 32
