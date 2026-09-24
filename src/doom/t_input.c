@@ -9,7 +9,7 @@
 //   W/A/S/D or arrows .. screen-relative step (1 TP)
 //   X .................. swap weapon (2 TP)
 //   SPACE .............. use / interact (2 TP)
-//   . or Z ............. wait (1 TP)
+//   . or Z ............. wait (0 TP; always legal, never soft-locks)
 //   H .................. hunker (2 TP; defense bonus lands in phase 6)
 //   O .................. overwatch (all remaining TP, min 3; reaction in phase 6)
 //   T .................. end turn -> enemy phase

@@ -131,6 +131,9 @@ void T_BeginPulse(int tics, boolean freeze_monsters, boolean fast);
 boolean T_InPulse(void);
 // Synchronous pulse (test harness): run to completion immediately.
 void T_RunPulseSync(int tics, boolean freeze_monsters);
+// True while a target selection is open (TARGETING/CONFIRM): the menu
+// lets ESC fall through to the turn responder (cancel) in that case.
+boolean T_InSelection(void);
 
 // Turn-mode actions (t_action.c). Phase 1: move/use/wait/end.
 // Phase 2: TP costs, legal-action checks, swap/hunker/overwatch.

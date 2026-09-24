@@ -25,6 +25,7 @@
 #include "doomdef.h"
 #include "doomkeys.h"
 #include "dstrings.h"
+#include "t_turn.h"
 
 #include "d_main.h"
 #include "deh_main.h"
@@ -1751,6 +1752,11 @@ boolean M_Responder (event_t* ev)
     // Pop-up menu?
     if (!menuactive)
     {
+	// Turn-based mode: while a target selection is open, ESC backs out
+	// of the selection (the turn responder below cancels) instead of
+	// opening the menu — otherwise the player is trapped in targeting.
+	if (key == key_menu_activate && T_InSelection())
+	    return false;
 	if (key == key_menu_activate)
 	{
 	    M_StartControlPanel ();

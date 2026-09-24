@@ -284,6 +284,15 @@ boolean T_InPulse(void)
     return turnctrl.state == TS_PULSE || turnctrl.state == TS_REACTION;
 }
 
+// True while a target selection is open (TARGETING/CONFIRM). The menu
+// uses this to let ESC fall through to the turn responder (cancel)
+// instead of opening the menu and trapping the player in targeting.
+boolean T_InSelection(void)
+{
+    return T_Active() &&
+        (turnctrl.state == TS_TARGETING || turnctrl.state == TS_CONFIRM);
+}
+
 void T_RunPulseSync(int tics, boolean freeze_monsters)
 {
     boolean was_sync = turnctrl.sync;
@@ -399,7 +408,92 @@ static int T_TextWidth(const char *s)
     return w;
 }
 
-static void T_DrawText(int x, int y, const char *s)
+// ------------------------------------------------------------------
+// Turn-chrome tint: the turn-based HUD draws in warm gold (STCFN red
+// ramp remapped to the Doom gold ramp) to signal deviation from classic
+// Doom. Unaffordable actions draw dim/desaturated gold — still the turn
+// tint, never classic grey. Diablo UI (inventory, status bar) stays red
+// and is untouched.
+//
+// The video API has no translated-patch draw, so at first HUD draw we
+// clone each HU font glyph and remap its pixel runs in place.
+// ------------------------------------------------------------------
+
+static patch_t *t_font_gold[HU_FONTSIZE];
+static patch_t *t_font_golddim[HU_FONTSIZE];
+static boolean t_fonts_ready = false;
+
+static void T_BuildTintTables(byte *gold, byte *dim)
+{
+    int i;
+    for (i = 0; i < 256; i++)
+        gold[i] = dim[i] = (byte)i;
+    // STCFN red ramp (176-191) -> Doom gold ramp (160-167).
+    for (i = 0; i < 16; i++)
+        gold[176 + i] = (byte)(160 + i / 2);
+    // Disabled: dim/desaturated -> dark end of the gold ramp (163-167).
+    for (i = 0; i < 16; i++)
+        dim[176 + i] = (byte)(163 + (i * 5) / 16);
+    // Pink/white highlight ramp (168-175) -> bright gold / mid gold.
+    for (i = 168; i <= 175; i++)
+    {
+        gold[i] = (byte)(160 + (i - 168) / 4);
+        dim[i] = (byte)(164 + (i - 168) / 4);
+    }
+}
+
+// Remap every pixel run of a patch through a 256-entry table.
+static void T_RemapPatch(patch_t *patch, const byte *table)
+{
+    int x, w = SHORT(patch->width);
+    for (x = 0; x < w; x++)
+    {
+        byte *p = (byte *)patch + LONG(patch->columnofs[x]);
+        for (;;)
+        {
+            int len, k;
+            byte *px;
+            if (p[0] == 0xFF)
+                break;
+            len = p[1];
+            px = p + 3;
+            for (k = 0; k < len; k++)
+                px[k] = table[px[k]];
+            p = px + len + 1;
+        }
+    }
+}
+
+static void T_TintFonts(void)
+{
+    byte gold[256], dim[256];
+    char name[16];
+    int i;
+
+    if (t_fonts_ready)
+        return;
+    T_BuildTintTables(gold, dim);
+    for (i = 0; i < HU_FONTSIZE; i++)
+    {
+        int lump, len;
+        patch_t *src, *g, *d;
+        M_snprintf(name, sizeof(name), "STCFN%.3d", HU_FONTSTART + i);
+        lump = W_GetNumForName(name);
+        len = W_LumpLength(lump);
+        src = (patch_t *)W_CacheLumpNum(lump, PU_STATIC);
+        g = (patch_t *)Z_Malloc(len, PU_STATIC, NULL);
+        d = (patch_t *)Z_Malloc(len, PU_STATIC, NULL);
+        memcpy(g, src, len);
+        memcpy(d, src, len);
+        T_RemapPatch(g, gold);
+        T_RemapPatch(d, dim);
+        t_font_gold[i] = g;
+        t_font_golddim[i] = d;
+    }
+    t_fonts_ready = true;
+}
+
+static void T_DrawTextF(int x, int y, const char *s, patch_t **font)
 {
     while (*s)
     {
@@ -412,7 +506,7 @@ static void T_DrawText(int x, int y, const char *s)
         if (c < '!' || c > '_') // hu_font covers '!'..'_' only (no lowercase)
             continue;
         {
-            patch_t *p = hu_font[c - '!'];
+            patch_t *p = font[c - '!'];
             int w = SHORT(p->width);
             int h = SHORT(p->height);
             // Clamp into the framebuffer; never trip V_DrawPatch rangecheck.
@@ -423,6 +517,16 @@ static void T_DrawText(int x, int y, const char *s)
             x += w + 1;
         }
     }
+}
+
+static void T_DrawText(int x, int y, const char *s)
+{
+    T_DrawTextF(x, y, s, t_font_gold);
+}
+
+static void T_DrawTextDim(int x, int y, const char *s)
+{
+    T_DrawTextF(x, y, s, t_font_golddim);
 }
 
 static void T_DrawTextCentered(int y, const char *s)
@@ -630,6 +734,58 @@ static const char *T_TargetName(mobj_t *mo)
     }
 }
 
+// Action availability for the HUD: an action is enabled when it can be
+// afforded right now. ATTACK additionally needs a ready (off-cooldown)
+// kit. WAIT and END TURN cost 0 TP, so they are always enabled — the
+// player always has a legal move.
+static boolean T_ActionEnabled(turnaction_t action)
+{
+    if (action == TA_ATTACK)
+        return T_CanAfford(TA_ATTACK)
+            && T_KitReady(players[consoleplayer].readyweapon);
+    return T_CanAfford(action);
+}
+
+// One action row: key, name, TP cost. Unaffordable rows draw dim gold.
+static void T_DrawActionRow(int x, int *y, const char *key, const char *name,
+                            turnaction_t action, const char *coststr)
+{
+    char line[64];
+    M_snprintf(line, sizeof(line), "%s %-8s %s", key, name, coststr);
+    if (T_ActionEnabled(action))
+        T_DrawText(x, *y, line);
+    else
+        T_DrawTextDim(x, *y, line);
+    *y += 9;
+}
+
+// Planning-time action list with per-action TP costs. Disabled
+// (unaffordable) actions render dim gold and their keypresses are
+// refused with a "Need N TP" message — they are never selectable.
+static void T_DrawActionList(void)
+{
+    char cost[16];
+    int x = 8, y = 26;
+    player_t *pl = &players[consoleplayer];
+
+    T_DrawActionRow(x, &y, "WASD", "MOVE", TA_MOVE_N, "1TP");
+    T_DrawActionRow(x, &y, "X", "SWAP", TA_SWAP_WEAPON, "2TP");
+    T_DrawActionRow(x, &y, "SPC", "USE", TA_USE, "2TP");
+    T_DrawActionRow(x, &y, ".", "WAIT", TA_WAIT, "0TP");
+    T_DrawActionRow(x, &y, "H", "HUNKER", TA_HUNKER, "2TP");
+    T_DrawActionRow(x, &y, "Y", "HEADSHOT", TA_HEADSHOT, "0TP");
+    T_DrawActionRow(x, &y, "O", "OVERWATCH", TA_OVERWATCH, "3+TP");
+    T_DrawActionRow(x, &y, "T", "END TURN", TA_END_TURN, "0TP");
+    T_DrawActionRow(x, &y, "TAB", "TARGET", TA_SELECT_NEXT, "FREE");
+    if (!T_KitReady(pl->readyweapon))
+        T_DrawActionRow(x, &y, "F", "ATTACK", TA_ATTACK, "CD");
+    else
+    {
+        M_snprintf(cost, sizeof(cost), "%dTP", T_CostFor(TA_ATTACK));
+        T_DrawActionRow(x, &y, "F", "ATTACK", TA_ATTACK, cost);
+    }
+}
+
 void T_DrawHUD(void)
 {
     char line[96];
@@ -637,6 +793,7 @@ void T_DrawHUD(void)
 
     if (!T_Active())
         return;
+    T_TintFonts();
 
     M_snprintf(line, sizeof(line), "TURN MODE - ROUND %d - TP %d/%d",
                turnctrl.round, turnctrl.tp, turnctrl.tp_max);
@@ -646,11 +803,16 @@ void T_DrawHUD(void)
         T_DrawTextCentered(12, "ENEMY PHASE...");
     else if (turnctrl.state == TS_PULSE)
         T_DrawTextCentered(12, "RESOLVING");
+    else if (turnctrl.state == TS_PLANNING)
+        T_DrawActionList();
     else
     {
-        T_DrawTextCentered(12, "WASD MOVE  X SWAP  SPC USE  . WAIT");
-        T_DrawTextCentered(22, "H HUNKER  Y HEADSHOT  O OVERWATCH  T END TURN");
-        T_DrawTextCentered(32, "TAB TARGET  F ATTACK  ESC CANCEL");
+        // TARGETING / CONFIRM: the always-legal outs stay visible.
+        // The action list keeps drawing (left column): it repaints the
+        // border-zone pixels every frame and keeps costs/disabled states
+        // visible while targeting.
+        T_DrawTextCentered(12, "T END TURN   . WAIT   ESC BACK");
+        T_DrawActionList();
     }
 
     // Target markers: stable numbers projected above each visible enemy.

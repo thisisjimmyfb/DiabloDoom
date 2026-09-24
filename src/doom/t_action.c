@@ -65,7 +65,9 @@ int T_CostFor(turnaction_t action)
       case TA_HUNKER:
         return 2;
       case TA_WAIT:
-        return 1;
+        // WAIT is the always-legal pass action: 0 TP, so the player can
+        // never be soft-locked with no affordable move.
+        return 0;
       case TA_ATTACK:
         return T_AttackCost() + (turnctrl.headshot_mod ? 2 : 0);
       case TA_HEADSHOT: // arming the modifier is free; the +2 lands on ATTACK
@@ -196,7 +198,9 @@ void T_DoUse(void)
 }
 
 // ------------------------------------------------------------------
-// WAIT: pass a little time without acting.
+// WAIT: pass a little time without acting. Costs 0 TP: this and END
+// TURN are the always-legal moves, reachable from every selection
+// state, so the player can never be soft-locked at 0 TP.
 // ------------------------------------------------------------------
 void T_DoWait(void)
 {
@@ -211,6 +215,10 @@ void T_DoWait(void)
     }
 
     players[consoleplayer].message = "Wait.";
+    // Leaving a selection state: drop the target, back to planning.
+    turnctrl.selected_target = -1;
+    if (turnctrl.state == TS_TARGETING || turnctrl.state == TS_CONFIRM)
+        turnctrl.state = TS_PLANNING;
     T_SpendTP(T_CostFor(TA_WAIT));
     T_BeginPulse(8, true, true);
     T_DumpState("wait");
@@ -230,6 +238,11 @@ void T_DoEndTurn(void)
         return;
 
     players[consoleplayer].message = "Enemy phase...";
+    // Leaving a selection state: drop the target, back to planning.
+    // END TURN is always legal (0 TP) from every state.
+    turnctrl.selected_target = -1;
+    if (turnctrl.state == TS_TARGETING || turnctrl.state == TS_CONFIRM)
+        turnctrl.state = TS_PLANNING;
     // Phase 6: snapshot overwatch targets and telegraph newly alerted
     // enemies. Reactions can only trigger against enemies visible now
     // (no unseen alpha strikes). Newly alerted enemies show a state
@@ -489,10 +502,27 @@ void T_DoAttack(void)
 
     if (turnctrl.state == TS_TARGETING)
     {
-        // Preview -> confirm. No TP spent yet.
+        // Preview -> confirm. No TP spent yet — but never enter CONFIRM
+        // for an attack that cannot fire: reject here with a clear
+        // message so the player is not trapped confirming the
+        // unaffordable.
         T_ValidateSelection();
         if (turnctrl.selected_target < 0)
             return;
+        target = T_TargetMobj(turnctrl.selected_target);
+        if (target != NULL && !T_KitReady(player->readyweapon))
+        {
+            player->message = "Weapon cooling down.";
+            printf("[TURN] attack refused: %s cooldown %d\n",
+                   T_KitForWeapon(player->readyweapon)->name,
+                   T_KitCooldown(player->readyweapon));
+            return;
+        }
+        if (!T_CanAfford(TA_ATTACK))
+        {
+            T_RefuseTP(TA_ATTACK);
+            return;
+        }
         turnctrl.state = TS_CONFIRM;
         player->message = "Confirm attack: F fire, ESC cancel.";
         T_DumpState("confirm");
