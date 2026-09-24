@@ -137,6 +137,10 @@ void T_DoWait(void);
 void T_DoEndTurn(void);
 void T_DoSwapWeapon(void); // 2 TP: cycle to next owned weapon
 void T_DoHunker(void);     // 2 TP: defense until next round
+void T_DoHeadshot(void);    // free: arm headshot modifier for next attack
+void T_SnapshotOverwatch(void); // Phase 6: snapshot targets at enemy phase start
+void T_TelegraphEnemies(void);  // Phase 6: warn of newly alerted enemies
+void T_ResolveOverwatch(void);  // Phase 6: reaction attack at enemy phase end
 void T_DoOverwatch(void);  // all remaining TP (min 3): reserve reaction
 
 // Phase 2: Tempo economy.

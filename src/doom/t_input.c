@@ -39,6 +39,7 @@ static turnaction_t T_KeyAction(int key)
       case '.': case 'z': case 'Z':             return TA_WAIT;
       case 'x': case 'X':                      return TA_SWAP_WEAPON;
       case 'h': case 'H':                      return TA_HUNKER;
+      case 'y': case 'Y':                      return TA_HEADSHOT;
       case 'o': case 'O':                      return TA_OVERWATCH;
       case 't': case 'T':                      return TA_END_TURN;
       case KEY_TAB: case ']':                   return TA_SELECT_NEXT;
@@ -69,6 +70,7 @@ static void T_ExecuteAction(turnaction_t action)
       case TA_WAIT:   T_DoWait();  break;
       case TA_SWAP_WEAPON: T_DoSwapWeapon(); break;
       case TA_HUNKER: T_DoHunker(); break;
+      case TA_HEADSHOT: T_DoHeadshot(); break;
       case TA_OVERWATCH: T_DoOverwatch(); break;
       case TA_END_TURN: T_DoEndTurn(); break;
       case TA_SELECT_NEXT: T_DoSelectNext(); break;

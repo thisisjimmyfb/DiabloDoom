@@ -38,6 +38,9 @@ void T_DeriveStats(player_t *player, t_combatstats_t *out);
 // Hit percent for an attack, 5..95. Same value preview shows.
 int T_HitChance(player_t *player, mobj_t *target, const t_combatstats_t *st);
 
+// Multi-point cover: number of blocked traces (0-3). 3 = full blockage.
+int T_CoverBlocked(player_t *player, mobj_t *target);
+
 // Damage range preview (before crit, before target mitigation).
 void T_DamageRange(player_t *player, mobj_t *target,
                    const t_combatstats_t *st, int *minhp, int *maxhp);

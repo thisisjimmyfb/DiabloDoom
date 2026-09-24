@@ -1,6 +1,7 @@
 // t_combat.c — turn-based combat stats and resolution (Phase 4).
 
 #include "t_combat.h"
+#include "t_turn.h"
 #include "d_diablo.h"
 #include "p_local.h"
 #include "s_sound.h"
@@ -100,33 +101,52 @@ void T_DeriveStats(player_t *player, t_combatstats_t *out)
         out->haste = 40;
 }
 
-// Simple cover check: is there a wall close behind the target relative
-// to the attacker? Traces from the attacker toward the target and past
-// it; if the trace hits a wall shortly beyond the target, the target
-// is backed against cover.
-static boolean T_TargetInCover(player_t *player, mobj_t *target)
+// Multi-point cover (Phase 6): trace from three attacker positions
+// (center, left, right, offset perpendicular to the firing line) using
+// the tested P_CheckSight. Returns the number of blocked traces (0-3).
+// 0 = clear, 1 = -10 accuracy, 2 = -25 accuracy, 3 = full blockage
+// (target is not a legal attack target).
+int T_CoverBlocked(player_t *player, mobj_t *target)
 {
-    // Offset probes around the target: if any cardinal neighbor cell is
-    // solid while the target's own cell is open, count as cover.
-    // Cheap and deterministic; uses P_CheckPosition.
-    fixed_t x = target->x, y = target->y;
-    fixed_t r = target->radius + 8 * FRACUNIT;
-    mobj_t *mo = player->mo;
+    mobj_t *mo;
+    fixed_t dx, dy, len, px, py;
+    fixed_t off = 16 * FRACUNIT; // lateral offset for side traces
+    int blocked = 0;
+    fixed_t savex, savey;
+    fixed_t positions[3][2];
+    int i;
 
-    if (!mo)
-        return false;
+    mo = player->mo;
+    if (!mo || !target)
+        return 0;
 
-    // Only the side facing the attacker matters, but a cheap 4-way
-    // probe is fine for a binary cover flag.
-    if (!P_CheckPosition(mo, x + r, y))
-        return true;
-    if (!P_CheckPosition(mo, x - r, y))
-        return true;
-    if (!P_CheckPosition(mo, x, y + r))
-        return true;
-    if (!P_CheckPosition(mo, x, y - r))
-        return true;
-    return false;
+    // Direction from player to target.
+    dx = target->x - mo->x;
+    dy = target->y - mo->y;
+    len = P_AproxDistance(dx, dy);
+    if (len == 0)
+        return 0;
+
+    // Perpendicular unit vector (scaled by off).
+    px = -dy * off / len;
+    py = dx * off / len;
+
+    positions[0][0] = mo->x;        positions[0][1] = mo->y;
+    positions[1][0] = mo->x + px;   positions[1][1] = mo->y + py;
+    positions[2][0] = mo->x - px;   positions[2][1] = mo->y - py;
+
+    savex = mo->x;
+    savey = mo->y;
+    for (i = 0; i < 3; i++)
+    {
+        mo->x = positions[i][0];
+        mo->y = positions[i][1];
+        if (!P_CheckSight(mo, target))
+            blocked++;
+    }
+    mo->x = savex;
+    mo->y = savey;
+    return blocked;
 }
 
 int T_HitChance(player_t *player, mobj_t *target, const t_combatstats_t *st)
@@ -149,8 +169,19 @@ int T_HitChance(player_t *player, mobj_t *target, const t_combatstats_t *st)
     else if (dist > 192)
         chance -= 10;
 
-    // Cover.
-    if (T_TargetInCover(player, target))
+    // Cover (multi-point): 1 blocked = -10, 2 blocked = -25.
+    // 3 blocked = full blockage (handled in T_RefreshTargets; target
+    // is not legal, so we should never see it here).
+    {
+        int blocked = T_CoverBlocked(player, target);
+        if (blocked == 1)
+            chance -= 10;
+        else if (blocked == 2)
+            chance -= 25;
+    }
+
+    // Headshot modifier: -15% hit (the +2 TP is in T_CostFor).
+    if (turnctrl.headshot_mod)
         chance -= 15;
 
     if (chance < 5)
@@ -311,6 +342,11 @@ boolean T_ResolveAttack(player_t *player, mobj_t *target)
 
     chance = T_HitChance(player, target, &st);
 
+    // Headshot: 2x crit effect (the -15% hit is in T_HitChance,
+    // the +2 TP is in T_CostFor). Doubles the crit multiplier.
+    if (turnctrl.headshot_mod)
+        st.crit_mult *= 2;
+
     // Pellets: each rolls hit and damage separately (shotgun/chaingun).
     for (p = 0; p < kit->pellets; p++)
     {
@@ -345,11 +381,16 @@ boolean T_ResolveAttack(player_t *player, mobj_t *target)
     {
         player->message = "MISS!";
         S_StartSound(player->mo, sfx_pistol);
+        // Headshot modifier is consumed even on a miss.
+        turnctrl.headshot_mod = false;
         return false;
     }
 
     t_last_hit = 1;
     t_last_damage = total_dmg;
+
+    // Headshot modifier is consumed by the attack (hit or miss).
+    turnctrl.headshot_mod = false;
 
     if (t_last_crit)
         player->message = "CRITICAL HIT!";

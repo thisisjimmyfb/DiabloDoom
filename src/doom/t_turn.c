@@ -12,6 +12,7 @@
 #include "hu_stuff.h"
 #include "t_turn.h"
 #include "t_combat.h"
+#include "t_combat.h"
 #include "doomstat.h"
 #include "doomdef.h"
 #include "d_player.h"
@@ -298,6 +299,10 @@ static void T_EndPulse(void)
 {
     if (turnctrl.pulse_enemy)
     {
+        // Enemy phase done: resolve overwatch reaction (Phase 6) before
+        // clearing. Interrupt order: enemy actions complete, then a
+        // single overwatch reaction may trigger, then the new round.
+        T_ResolveOverwatch();
         // Enemy phase done: tick cooldowns (phase 5), new round.
         turnctrl.pulse_enemy = false;
         turnctrl.round++;
@@ -454,6 +459,13 @@ static boolean T_ProjectTarget(mobj_t *mo, int *sx, int *sy)
 // ------------------------------------------------------------------
 
 static mobj_t *t_targets[T_MAXTARGETS];
+// Phase 6: overwatch snapshot. Targets visible at the start of the enemy
+// phase; reactions can only trigger against these (no unseen alpha strikes).
+static mobj_t *t_ow_targets[T_MAXTARGETS];
+static int t_ow_numtargets = 0;
+// Phase 6: re-entrancy guard. True while resolving an overwatch reaction;
+// reactions never trigger further reactions (no chains).
+static boolean t_in_reaction = false;
 static int t_numtargets = 0;
 
 void T_RefreshTargets(void)
@@ -481,8 +493,94 @@ void T_RefreshTargets(void)
             continue; // never target players
         if (!P_CheckSight(player->mo, mo))
             continue;
+        // Full cover blockage (Phase 6): all three traces blocked means
+        // the enemy is not a legal attack target.
+        if (T_CoverBlocked(player, mo) >= 3)
+            continue;
         if (t_numtargets < T_MAXTARGETS)
             t_targets[t_numtargets++] = mo;
+    }
+}
+
+// Phase 6: snapshot the current visible targets for overwatch.
+// Reactions during the enemy phase can only trigger against these.
+void T_SnapshotOverwatch(void)
+{
+    int i;
+    T_RefreshTargets();
+    t_ow_numtargets = 0;
+    for (i = 0; i < t_numtargets && i < T_MAXTARGETS; i++)
+        t_ow_targets[t_ow_numtargets++] = t_targets[i];
+}
+
+// Phase 6: telegraph newly alerted enemies. An enemy that can see the
+// player but has not yet acquired them as a target shows a state change
+// (message) before it gets to act. This gives the player fair warning
+// and prevents unseen alpha strikes.
+void T_TelegraphEnemies(void)
+{
+    player_t *player = &players[consoleplayer];
+    int i;
+    if (!player->mo)
+        return;
+    for (i = 0; i < t_numtargets; i++)
+    {
+        mobj_t *mo = t_targets[i];
+        if (!mo || mo->health <= 0)
+            continue;
+        // Not yet alerted to the player: telegraph the state change.
+        if (mo->target == NULL || mo->target != player->mo)
+        {
+            static char msg[64];
+            const char *name = "Enemy";
+            // Use the mobj type name if available.
+            if (mo->type == MT_POSSESSED)
+                name = "Zombieman";
+            else if (mo->type == MT_SHOTGUY)
+                name = "Shotgunner";
+            else if (mo->type == MT_CHAINGUY)
+                name = "Chaingunner";
+            else if (mo->type == MT_TROOP)
+                name = "Imp";
+            else if (mo->type == MT_SERGEANT)
+                name = "Demon";
+            M_snprintf(msg, sizeof(msg), "%s spots you!", name);
+            printf("[TURN] telegraph: %s\n", msg);
+        }
+    }
+}
+
+// Phase 6: resolve an overwatch reaction. Called at the end of the enemy
+// phase if overwatch was active. Picks the first snapshot target that is
+// still alive and visible, and makes a single reaction attack (no TP cost,
+// no headshot, current kit). Sets the re-entrancy guard so reactions never
+// trigger further reactions.
+void T_ResolveOverwatch(void)
+{
+    player_t *player = &players[consoleplayer];
+    int i;
+    if (t_in_reaction)
+        return; // no reaction chains
+    if (turnctrl.overwatch_tp <= 0)
+        return;
+    if (!player->mo)
+        return;
+
+    for (i = 0; i < t_ow_numtargets; i++)
+    {
+        mobj_t *mo = t_ow_targets[i];
+        if (!mo || mo->health <= 0)
+            continue;
+        if (!P_CheckSight(player->mo, mo))
+            continue;
+        // Found a legal reaction target.
+        t_in_reaction = true;
+        printf("[TURN] overwatch: reacting against target %d\n", i);
+        // Reaction attack: no headshot, no TP cost (already spent).
+        // Use T_ResolveAttack directly; it does not spend TP.
+        T_ResolveAttack(player, mo);
+        t_in_reaction = false;
+        break; // one reaction only
     }
 }
 
@@ -540,7 +638,7 @@ void T_DrawHUD(void)
     else
     {
         T_DrawTextCentered(12, "WASD MOVE  X SWAP  SPC USE  . WAIT");
-        T_DrawTextCentered(22, "H HUNKER  O OVERWATCH  T END TURN");
+        T_DrawTextCentered(22, "H HUNKER  Y HEADSHOT  O OVERWATCH  T END TURN");
         T_DrawTextCentered(32, "TAB TARGET  F ATTACK  ESC CANCEL");
     }
 

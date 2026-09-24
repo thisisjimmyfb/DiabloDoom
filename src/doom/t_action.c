@@ -230,6 +230,12 @@ void T_DoEndTurn(void)
         return;
 
     players[consoleplayer].message = "Enemy phase...";
+    // Phase 6: snapshot overwatch targets and telegraph newly alerted
+    // enemies. Reactions can only trigger against enemies visible now
+    // (no unseen alpha strikes). Newly alerted enemies show a state
+    // change before they get to act.
+    T_SnapshotOverwatch();
+    T_TelegraphEnemies();
     // Flag before the pulse: in sync (script) mode T_BeginPulse runs
     // T_EndPulse immediately, which needs to see the enemy phase.
     turnctrl.pulse_enemy = true;
@@ -304,6 +310,30 @@ void T_DoHunker(void)
     T_SpendTP(T_CostFor(TA_HUNKER));
     T_BeginPulse(4, true, true);
     T_DumpState("hunker");
+}
+
+// HEADSHOT: free action. Arms the headshot modifier for the next ATTACK.
+// The modifier adds +2 TP (in T_CostFor), -15% hit (in T_HitChance), and
+// 2x crit effect (in T_ResolveAttack). It is consumed by the next attack
+// (hit or miss). Arming is free and does not advance time.
+void T_DoHeadshot(void)
+{
+    if (!T_Active())
+        return;
+    if (!T_ActorAlive())
+        return;
+    if (turnctrl.headshot_mod)
+    {
+        // Already armed; disarm (toggle).
+        turnctrl.headshot_mod = false;
+        players[consoleplayer].message = "Headshot off.";
+    }
+    else
+    {
+        turnctrl.headshot_mod = true;
+        players[consoleplayer].message = "Headshot armed (+2TP -15% 2xCRIT).";
+    }
+    T_DumpState("headshot");
 }
 
 // ------------------------------------------------------------------
@@ -622,6 +652,7 @@ void T_RunScript(const char *path)
         else if (!strcmp(line, "END"))    T_DoEndTurn();
         else if (!strcmp(line, "SWAP"))   T_DoSwapWeapon();
         else if (!strcmp(line, "HUNKER")) T_DoHunker();
+        else if (!strcmp(line, "HEADSHOT"))  T_DoHeadshot();
         else if (!strcmp(line, "OVERWATCH")) T_DoOverwatch();
         else if (!strcmp(line, "DUMP"))   T_DumpState("script");
         else if (sscanf(line, "ASSERT_TP %d", &n) == 1) T_ScriptAssertTP(n);

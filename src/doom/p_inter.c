@@ -34,6 +34,7 @@
 #include "am_map.h"
 
 #include "p_local.h"
+#include "t_turn.h"
 
 // Diablo equipment backend (mod).
 #include "d_diablo.h"
@@ -930,6 +931,16 @@ P_DamageMobj
 		
     if (target->health <= 0)
 	return;
+
+    // Phase 6: Hunker defense. In turn mode, a hunkered player takes
+    // 30% less damage until the next round. Does not affect real-time.
+    if (T_Active() && target->player != NULL &&
+        target == players[consoleplayer].mo && turnctrl.hunkered)
+    {
+        damage = damage * 70 / 100;
+        if (damage < 1)
+            damage = 1;
+    }
 
     if ( target->flags & MF_SKULLFLY )
     {
