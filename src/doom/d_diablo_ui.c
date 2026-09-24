@@ -80,6 +80,14 @@ static boolean ui_skip_mouse = false;  // ignore stale motion on open
 static boolean ui_dragging = false;
 static int ui_press_x = 0, ui_press_y = 0;
 static int ui_msgtic = 0;
+// Keyboard cursor: selection independent of the mouse cursor, for
+// mouse-free inventory management.  ui_kb_pane 0 = backpack cell
+// (ui_kb_gx, ui_kb_gy), 1 = paperdoll slot (ui_kb_slot, an index into
+// ui_slots).  Any real mouse motion hands control back to the mouse.
+static boolean ui_kb_active = false;
+static int ui_kb_pane = 0;
+static int ui_kb_gx = 0, ui_kb_gy = 0;
+static int ui_kb_slot = 0;
 
 // Resolved palette indices.
 static int c_bg, c_panel, c_edge, c_dim, c_white;
@@ -340,6 +348,7 @@ void D_UIResetCursor(void)
 void D_UIOpen(void)
 {
     player_t *player;
+    int i;
 
     if (ui_open)
         return;
@@ -366,6 +375,31 @@ void D_UIOpen(void)
     ui_msg[0] = '\0';
     ui_skip_mouse = true;  // discard stale motion event from ungrab
     d_ui_accel_disabled = true;  // 1:1 cursor movement
+    // Keyboard cursor: start on the first occupied backpack cell (else
+    // 0,0) and remember the first occupied paperdoll slot.  The mouse
+    // owns the cursor until an arrow key is pressed.
+    ui_kb_active = false;
+    ui_kb_pane = 0;
+    ui_kb_gx = 0;
+    ui_kb_gy = 0;
+    for (i = 0; i < player->diablo_bp_count; i++)
+    {
+        if (player->diablo_bp_gx[i] >= 0 && player->diablo_bp_gy[i] >= 0)
+        {
+            ui_kb_gx = player->diablo_bp_gx[i];
+            ui_kb_gy = player->diablo_bp_gy[i];
+            break;
+        }
+    }
+    ui_kb_slot = 0;
+    for (i = 0; i < NUM_ESLOTS; i++)
+    {
+        if (player->diablo_equipped[ui_slots[i].slot] != D_NOITEM)
+        {
+            ui_kb_slot = i;
+            break;
+        }
+    }
 }
 
 void D_UIClose(void)
@@ -546,6 +580,167 @@ static void UIRightClick(void)
 }
 
 // ---------------------------------------------------------------------------
+// Keyboard cursor (mouse-free inventory management).
+// ---------------------------------------------------------------------------
+
+// Move the pixel cursor to the center of the kb selection so the
+// existing click handlers, held-item drawing, and tooltips work
+// unchanged.
+static void UIKbSyncCursor(void)
+{
+    if (ui_kb_pane == 0)
+    {
+        ui_cx = UI_BP_X + ui_kb_gx * UI_CELL + UI_CELL / 2;
+        ui_cy = UI_BP_Y + ui_kb_gy * UI_CELL + UI_CELL / 2;
+    }
+    else
+    {
+        ui_cx = ui_slots[ui_kb_slot].x + UI_SLOT_W / 2;
+        ui_cy = ui_slots[ui_kb_slot].y + UI_SLOT_H / 2;
+    }
+}
+
+static void UIKbMove(int dx, int dy)
+{
+    ui_kb_active = true;
+    if (ui_kb_pane == 0)
+    {
+        ui_kb_gx += dx;
+        ui_kb_gy += dy;
+        if (ui_kb_gx < 0) ui_kb_gx = 0;
+        if (ui_kb_gy < 0) ui_kb_gy = 0;
+        if (ui_kb_gx > D_BP_GRID_W - 1) ui_kb_gx = D_BP_GRID_W - 1;
+        if (ui_kb_gy > D_BP_GRID_H - 1) ui_kb_gy = D_BP_GRID_H - 1;
+    }
+    else
+    {
+        // Paperdoll: up/left = previous slot, down/right = next,
+        // wrapping around.
+        if (dx != 0 || dy != 0)
+        {
+            int d = (dx > 0 || dy > 0) ? 1 : -1;
+            ui_kb_slot = (ui_kb_slot + d + NUM_ESLOTS) % NUM_ESLOTS;
+        }
+    }
+    UIKbSyncCursor();
+}
+
+static void UIKbTogglePane(void)
+{
+    ui_kb_active = true;
+    ui_kb_pane = 1 - ui_kb_pane;
+    UIKbSyncCursor();
+}
+
+// Enter/Space: pick up / place at the kb selection.
+static void UIKbClick(void)
+{
+    ui_kb_active = true;
+    UIKbSyncCursor();
+    UILeftClick();
+}
+
+// Paperdoll slot index (into ui_slots) whose box center is nearest the
+// middle of the slot the item belongs to, preferring a free ring slot.
+static int UIKbTargetSlot(player_t *player, const diablo_itemdef_t *def)
+{
+    int i, slot;
+    if (!def || def->slot == ESLOT_NONE)
+        return -1;
+    slot = def->slot;
+    if (def->slot == ESLOT_RING1)
+    {
+        if (player->diablo_equipped[ESLOT_RING1] == D_NOITEM)
+            slot = ESLOT_RING1;
+        else if (player->diablo_equipped[ESLOT_RING2] == D_NOITEM)
+            slot = ESLOT_RING2;
+        else
+            slot = ESLOT_RING1;
+    }
+    for (i = 0; i < NUM_ESLOTS; i++)
+        if (ui_slots[i].slot == slot)
+            return i;
+    return -1;
+}
+
+// E with an item held: equip it (swap-safe via UILeftClick).
+static void UIKbEquipHeld(player_t *player)
+{
+    const diablo_itemdef_t *def = UIHeldDef();
+    int si;
+    if (!def)
+        return;
+    if (def->consumable)
+    {
+        UIUseHeldConsumable(player);
+        return;
+    }
+    si = UIKbTargetSlot(player, def);
+    if (si < 0)
+    {
+        UIMsg("Can't equip that.");
+        return;
+    }
+    ui_cx = ui_slots[si].x + UI_SLOT_W / 2;
+    ui_cy = ui_slots[si].y + UI_SLOT_H / 2;
+    ui_kb_active = true;
+    ui_kb_pane = 1;
+    ui_kb_slot = si;
+    UILeftClick();  // equip, or swap the old item onto the cursor
+}
+
+// E: equip the held item, else equip/use the kb-selected backpack item.
+static void UIKbEquip(player_t *player)
+{
+    int bpi, si;
+    int id;
+    const diablo_itemdef_t *def;
+
+    ui_kb_active = true;
+    if (ui_held != D_NOITEM)
+    {
+        UIKbEquipHeld(player);
+        return;
+    }
+    if (ui_kb_pane != 0)
+        return;  // paperdoll selection: nothing to equip from
+    bpi = UIBackpackAt(player, ui_kb_gx, ui_kb_gy);
+    if (bpi < 0)
+    {
+        UIMsg("Nothing there.");
+        return;
+    }
+    id = player->diablo_backpack[bpi];
+    def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
+    if (!def)
+        return;
+    if (def->consumable)
+    {
+        D_UseBackpackItem((struct player_s *)player, bpi);
+        UIMsg("Used.");
+        return;
+    }
+    si = UIKbTargetSlot(player, def);
+    if (si < 0)
+    {
+        UIMsg("Can't equip that.");
+        return;
+    }
+    // Pick up at the selected cell, then click the slot.  The second
+    // click equips (or swaps onto the cursor), so the item is never
+    // lost even when the slot is taken.
+    UIKbSyncCursor();
+    UILeftClick();  // pick up
+    if (ui_held == D_NOITEM)
+        return;
+    ui_cx = ui_slots[si].x + UI_SLOT_W / 2;
+    ui_cy = ui_slots[si].y + UI_SLOT_H / 2;
+    ui_kb_pane = 1;
+    ui_kb_slot = si;
+    UILeftClick();  // equip / swap
+}
+
+// ---------------------------------------------------------------------------
 // Input responder.
 // ---------------------------------------------------------------------------
 
@@ -569,6 +764,9 @@ boolean D_UIResponder(event_t *ev)
         // ev_mouse deltas are in window pixels; the game renders at
         // 320x200 scaled 2x to 640x400, so halve them for UI coords.
         // Note: data3 (Y) is negated by I_ReadMouse, so subtract it.
+        // Real mouse motion hands the cursor back to the mouse.
+        if (ev->data2 != 0 || ev->data3 != 0)
+            ui_kb_active = false;
         ui_cx += ev->data2 / 2;
         ui_cy -= ev->data3 / 2;
         if (ui_cx < 0) ui_cx = 0;
@@ -619,8 +817,32 @@ boolean D_UIResponder(event_t *ev)
 
     if (ev->type == ev_keydown)
     {
-        if (ev->data1 == KEY_ESCAPE || ev->data1 == 'c' || ev->data1 == 'C')
+        player_t *player = &players[consoleplayer];
+        int k = ev->data1;
+
+        if (k == KEY_ESCAPE || k == 'c' || k == 'C')
             D_UIClose();
+        else if (k == KEY_TAB)
+            UIKbTogglePane();
+        else if (k == KEY_UPARROW)
+            UIKbMove(0, -1);
+        else if (k == KEY_DOWNARROW)
+            UIKbMove(0, 1);
+        else if (k == KEY_LEFTARROW)
+            UIKbMove(-1, 0);
+        else if (k == KEY_RIGHTARROW)
+            UIKbMove(1, 0);
+        else if (k == KEY_ENTER || k == ' ')
+            UIKbClick();
+        else if (k == 'e' || k == 'E')
+            UIKbEquip(player);
+        else if (k == 'r' || k == 'R' || k == KEY_BACKSPACE)
+            UIRightClick();  // use held consumable, else cancel hold
+        else if (k == 'q' || k == 'Q')
+        {
+            D_UnequipAll((struct player_s *)player);
+            UIMsg("Unequipped.");
+        }
         // Eat all other keys too: no game input while the screen is up.
         return true;
     }
@@ -920,12 +1142,37 @@ void D_UIDrawer(void)
     // Stats panel under the backpack.
     UIDrawStats(player);
 
-    // Hint line.
-    UIDrawText(10, 190, "DRAG OR CLICK: MOVE   RIGHT-CLICK: USE / CANCEL");
+    // Keyboard cursor highlight (mouse mode keeps the crosshair).
+    if (ui_kb_active)
+    {
+        int hx, hy, hw, hh;
+        if (ui_kb_pane == 0)
+        {
+            hx = UI_BP_X + ui_kb_gx * UI_CELL;
+            hy = UI_BP_Y + ui_kb_gy * UI_CELL;
+            hw = UI_CELL;
+            hh = UI_CELL;
+        }
+        else
+        {
+            hx = ui_slots[ui_kb_slot].x;
+            hy = ui_slots[ui_kb_slot].y;
+            hw = UI_SLOT_W;
+            hh = UI_SLOT_H;
+        }
+        V_DrawHorizLine(hx - 1, hy - 1, hw + 2, c_white);
+        V_DrawHorizLine(hx - 1, hy + hh, hw + 2, c_white);
+        V_DrawVertLine(hx - 1, hy - 1, hh + 2, c_white);
+        V_DrawVertLine(hx + hw, hy - 1, hh + 2, c_white);
+    }
+
+    // Hint lines.
+    UIDrawText(10, 180, "ARROWS:MOVE TAB:PANE ENTER:PICK/PLACE E:EQUIP");
+    UIDrawText(10, 190, "R:CANCEL Q:UNEQUIP ALL   MOUSE:DRAG/CLICK");
 
     // Transient message.
     if (ui_msg[0] && gametic < ui_msgtic)
-        UIDrawTextCentered(SCREENWIDTH / 2, 178, ui_msg);
+        UIDrawTextCentered(SCREENWIDTH / 2, 168, ui_msg);
 
     // Held item follows the cursor.
     if (ui_held != D_NOITEM)
@@ -938,12 +1185,16 @@ void D_UIDrawer(void)
                            ui_held);
     }
 
-    // Tooltip for the hovered item.
+    // Tooltip for the hovered item (mouse cursor or kb selection;
+    // the kb cursor syncs ui_cx/ui_cy, so this works for both).
     hover = UIHoverItem(player);
     if (hover != D_NOITEM)
         UIDrawTooltip(hover);
 
-    // Cursor crosshair.
-    V_DrawHorizLine(ui_cx - 4, ui_cy, 9, c_white);
-    V_DrawVertLine(ui_cx, ui_cy - 4, 9, c_white);
+    // Cursor crosshair (mouse mode only; kb mode has the highlight box).
+    if (!ui_kb_active)
+    {
+        V_DrawHorizLine(ui_cx - 4, ui_cy, 9, c_white);
+        V_DrawVertLine(ui_cx, ui_cy - 4, 9, c_white);
+    }
 }

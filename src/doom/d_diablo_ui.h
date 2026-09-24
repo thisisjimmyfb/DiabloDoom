@@ -6,8 +6,17 @@
 //   ESC ....... close (stashes any held item)
 //   Left click  pick up / place / equip / swap
 //   Right click use held consumable, else cancel held item, else close
-// Hovering an item shows a tooltip with its stats.  Rarity colors:
-//   normal=white, magic=blue, rare=yellow, set=green, unique=gold.
+// Keyboard control (no mouse needed):
+//   Arrows .... move the selection (cells in backpack, slots on paperdoll)
+//   Tab ....... switch between backpack and paperdoll panes
+//   Enter/Space pick up / place the selected item
+//   E ......... equip held item, or equip/use the selected backpack item
+//   R/Bksp .... use held consumable, else cancel held item
+//   Q ......... unequip everything
+// Any mouse motion hands the cursor back to the mouse.
+// Hovering an item (or kb-selecting it) shows a tooltip with its stats.
+// Rarity colors: normal=white, magic=blue, rare=yellow, set=green,
+// unique=gold.
 //
 // Part of the DiabloDoom mod (GPL-2.0-or-later, like Chocolate Doom).
 
