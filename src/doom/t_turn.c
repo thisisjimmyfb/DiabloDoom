@@ -212,6 +212,9 @@ static void T_PulseOneTic(boolean freeze_monsters)
             // No analog input during pulses: the discrete action already
             // moved/faced the player explicitly.
             memset(&players[i].cmd, 0, sizeof(ticcmd_t));
+            // Turn-mode attacks hold the fire button for the pulse.
+            if (turnctrl.firing && i == consoleplayer)
+                players[i].cmd.buttons |= BT_ATTACK;
             P_PlayerThink(&players[i]);
         }
 
@@ -421,9 +424,113 @@ static void T_DrawTextCentered(int y, const char *s)
     T_DrawText((320 - T_TextWidth(s)) / 2, y, s);
 }
 
+// Project a target's head to 320x200 screen space. False if behind.
+static boolean T_ProjectTarget(mobj_t *mo, int *sx, int *sy)
+{
+    double dx, dy, dz, tz, tx;
+    double va, rad;
+
+    if (mo == NULL || sx == NULL || sy == NULL)
+        return false;
+    dx = (double)(mo->x - viewx) / FRACUNIT;
+    dy = (double)(mo->y - viewy) / FRACUNIT;
+    dz = (double)((mo->z + mo->height) - viewz) / FRACUNIT;
+    va = (double)viewangle * 360.0 / 4294967296.0;
+    rad = va * 3.141592653589793 / 180.0;
+    tz = dx * cos(rad) + dy * sin(rad);
+    tx = -dx * sin(rad) + dy * cos(rad);
+    if (tz < 16.0)
+        return false;
+    *sx = (int)(160.0 + (tx / tz) * 160.0);
+    *sy = (int)(100.0 - (dz / tz) * 160.0) - 8;
+    return true;
+}
+
+// Placeholder hit chance for the phase-3 preview (phase 4 derives the
+// ------------------------------------------------------------------
+// Target service (phase 3)
+// ------------------------------------------------------------------
+
+static mobj_t *t_targets[T_MAXTARGETS];
+static int t_numtargets = 0;
+
+void T_RefreshTargets(void)
+{
+    player_t *player = &players[consoleplayer];
+    thinker_t *th;
+    t_numtargets = 0;
+    if (!T_Active() || player->mo == NULL)
+        return;
+
+    for (th = thinkercap.next; th != &thinkercap; th = th->next)
+    {
+        mobj_t *mo;
+        if (th->function.acp1 != (actionf_p1)P_MobjThinker)
+            continue;
+        mo = (mobj_t *)th;
+        if (mo == player->mo)
+            continue;
+        // Shootable, living, countable enemies only.
+        if (!(mo->flags & MF_SHOOTABLE))
+            continue;
+        if (mo->health <= 0)
+            continue;
+        if (mo->player != NULL)
+            continue; // never target players
+        if (!P_CheckSight(player->mo, mo))
+            continue;
+        if (t_numtargets < T_MAXTARGETS)
+            t_targets[t_numtargets++] = mo;
+    }
+}
+
+// real AD/AP/AS/Haste/crit model). Distance-based, deterministic.
+static int T_PreviewHit(mobj_t *mo)
+{
+    player_t *player = &players[consoleplayer];
+    int dist;
+    int hc;
+
+    if (player->mo == NULL || mo == NULL)
+        return 0;
+    dist = P_AproxDistance(mo->x - player->mo->x,
+                           mo->y - player->mo->y) / FRACUNIT;
+    hc = 95 - dist / 16;
+    if (hc < 5)
+        hc = 5;
+    if (hc > 95)
+        hc = 95;
+    return hc;
+}
+
+static const char *T_TargetName(mobj_t *mo)
+{
+    if (mo == NULL)
+        return "?";
+    switch (mo->type)
+    {
+      case MT_POSSESSED: return "ZOMBIE";
+      case MT_SHOTGUY:   return "SHOTGUN";
+      case MT_CHAINGUY:  return "CHAING";
+      case MT_TROOP:     return "IMP";
+      case MT_SERGEANT:  return "DEMON";
+      case MT_SHADOWS:   return "SPECTRE";
+      case MT_HEAD:      return "CACO";
+      case MT_BRUISER:   return "BARON";
+      case MT_KNIGHT:    return "KNIGHT";
+      case MT_SKULL:     return "SOUL";
+      case MT_SPIDER:    return "SPIDER";
+      case MT_BABY:      return "ARACH";
+      case MT_CYBORG:    return "CYBER";
+      case MT_PAIN:      return "PAIN";
+      default:           return "FOE";
+    }
+}
+
 void T_DrawHUD(void)
 {
     char line[96];
+    int i;
 
     if (!T_Active())
         return;
@@ -440,6 +547,109 @@ void T_DrawHUD(void)
     {
         T_DrawTextCentered(12, "WASD MOVE  X SWAP  SPC USE  . WAIT");
         T_DrawTextCentered(22, "H HUNKER  O OVERWATCH  T END TURN");
+        T_DrawTextCentered(32, "TAB TARGET  F ATTACK  ESC CANCEL");
+    }
+
+    // Target markers: stable numbers projected above each visible enemy.
+    // The selected target gets brackets.
+    for (i = 0; i < t_numtargets; i++)
+    {
+        mobj_t *mo = t_targets[i];
+        int sx, sy;
+        if (mo == NULL || mo->health <= 0)
+            continue;
+        if (!T_ProjectTarget(mo, &sx, &sy))
+            continue;
+        if (sx < 0 || sx > 312 || sy < 0 || sy > 192)
+            continue;
+        if (i == turnctrl.selected_target)
+            M_snprintf(line, sizeof(line), "[%d]", i + 1);
+        else
+            M_snprintf(line, sizeof(line), " %d ", i + 1);
+        T_DrawText(sx, sy, line);
+    }
+
+    // Target list (right side) and preview (bottom) while targeting.
+    if (turnctrl.state == TS_TARGETING || turnctrl.state == TS_CONFIRM)
+    {
+        int y = 44;
+        T_DrawText(224, y, "TARGETS");
+        y += 10;
+        for (i = 0; i < t_numtargets && i < 9; i++)
+        {
+            mobj_t *mo = t_targets[i];
+            if (mo == NULL)
+                continue;
+            M_snprintf(line, sizeof(line), "%d:%s %d",
+                       i + 1, T_TargetName(mo), mo->health);
+            if (i == turnctrl.selected_target)
+            {
+                // Selected entry: brackets.
+                M_snprintf(line, sizeof(line), "[%d:%s %d]",
+                           i + 1, T_TargetName(mo), mo->health);
+                T_DrawText(220, y, line);
+            }
+            else
+                T_DrawText(224, y, line);
+            y += 9;
+        }
+        // Preview panel for the selected target (above status bar).
+        {
+            mobj_t *mo = T_TargetMobj(turnctrl.selected_target);
+            if (mo != NULL)
+            {
+                int dist = P_AproxDistance(
+                    mo->x - players[consoleplayer].mo->x,
+                    mo->y - players[consoleplayer].mo->y) / FRACUNIT;
+                M_snprintf(line, sizeof(line),
+                           "[%d] %s HP:%d RNG:%d HIT:%d%% COST:%dTP",
+                           turnctrl.selected_target + 1,
+                           T_TargetName(mo), mo->health, dist,
+                           T_PreviewHit(mo),
+                           T_CostFor(TA_ATTACK));
+                T_DrawTextCentered(148, line);
+                if (turnctrl.state == TS_CONFIRM)
+                    T_DrawTextCentered(158,
+                        "CONFIRM: F FIRE  ESC CANCEL");
+            }
+        }
+    }
+}
+
+
+int T_NumTargets(void)
+{
+    return t_numtargets;
+}
+
+mobj_t *T_TargetMobj(int idx)
+{
+    if (idx < 0 || idx >= t_numtargets)
+        return NULL;
+    return t_targets[idx];
+}
+
+void T_ValidateSelection(void)
+{
+    // Drop the selection if the target died, left sight, or the list
+    // shrank. Called after pulses and round changes.
+    if (turnctrl.selected_target < 0
+        || turnctrl.selected_target >= t_numtargets)
+    {
+        turnctrl.selected_target = -1;
+        if (turnctrl.state == TS_TARGETING || turnctrl.state == TS_CONFIRM)
+            turnctrl.state = TS_PLANNING;
+        return;
+    }
+    {
+        mobj_t *mo = t_targets[turnctrl.selected_target];
+        if (mo == NULL || mo->health <= 0)
+        {
+            turnctrl.selected_target = -1;
+            if (turnctrl.state == TS_TARGETING
+                || turnctrl.state == TS_CONFIRM)
+                turnctrl.state = TS_PLANNING;
+        }
     }
 }
 

@@ -323,6 +323,172 @@ void T_DoOverwatch(void)
 }
 
 // ------------------------------------------------------------------
+// Target selection (phase 3): free, reversible. Tab / ] cycle forward,
+// [ cycles back, number keys jump directly. Selecting enters TARGETING
+// with a preview; ESC cancels back to PLANNING.
+// ------------------------------------------------------------------
+static void T_EnterTargeting(int idx)
+{
+    T_RefreshTargets();
+    if (T_NumTargets() == 0)
+    {
+        players[consoleplayer].message = "No visible targets.";
+        return;
+    }
+    if (idx < 0)
+        idx = 0;
+    if (idx >= T_NumTargets())
+        idx = T_NumTargets() - 1;
+    turnctrl.selected_target = idx;
+    turnctrl.state = TS_TARGETING;
+    T_DumpState("select");
+}
+
+void T_DoSelectNext(void)
+{
+    int n;
+    if (!T_Active() || players[consoleplayer].mo == NULL)
+        return;
+    if (!T_ActorAlive())
+        return;
+    if (T_InPulse())
+        return;
+    T_RefreshTargets();
+    n = T_NumTargets();
+    if (n == 0)
+    {
+        players[consoleplayer].message = "No visible targets.";
+        return;
+    }
+    if (turnctrl.selected_target < 0)
+        T_EnterTargeting(0);
+    else
+        T_EnterTargeting((turnctrl.selected_target + 1) % n);
+}
+
+void T_DoSelectPrev(void)
+{
+    int n;
+    if (!T_Active() || players[consoleplayer].mo == NULL)
+        return;
+    if (!T_ActorAlive())
+        return;
+    if (T_InPulse())
+        return;
+    T_RefreshTargets();
+    n = T_NumTargets();
+    if (n == 0)
+    {
+        players[consoleplayer].message = "No visible targets.";
+        return;
+    }
+    if (turnctrl.selected_target < 0)
+        T_EnterTargeting(n - 1);
+    else
+        T_EnterTargeting((turnctrl.selected_target - 1 + n) % n);
+}
+
+void T_DoSelectNum(int num)
+{
+    if (!T_Active() || players[consoleplayer].mo == NULL)
+        return;
+    if (!T_ActorAlive())
+        return;
+    if (T_InPulse())
+        return;
+    // Numbers are 1-based for the player.
+    T_EnterTargeting(num - 1);
+}
+
+void T_DoCancel(void)
+{
+    if (!T_Active())
+        return;
+    if (T_InPulse())
+        return;
+    if (turnctrl.state == TS_TARGETING || turnctrl.state == TS_CONFIRM)
+    {
+        turnctrl.selected_target = -1;
+        turnctrl.state = TS_PLANNING;
+        players[consoleplayer].message = "Targeting cancelled.";
+        T_DumpState("cancel");
+    }
+}
+
+// ------------------------------------------------------------------
+// ATTACK (phase 3): preview -> confirm -> auto-face -> pulse.
+// F/Enter in TARGETING enters CONFIRM; F/Enter in CONFIRM fires.
+// The attack resolves against the confirmed actor ID via the real
+// weapon state machine after auto-facing the target.
+// ------------------------------------------------------------------
+static void T_FaceTarget(mobj_t *target)
+{
+    player_t *player = &players[consoleplayer];
+    angle_t ang;
+
+    if (player->mo == NULL || target == NULL)
+        return;
+    ang = R_PointToAngle2(player->mo->x, player->mo->y,
+                          target->x, target->y);
+    player->mo->angle = ang;
+}
+
+void T_DoAttack(void)
+{
+    player_t *player = &players[consoleplayer];
+    mobj_t *target;
+
+    if (!T_Active() || player->mo == NULL)
+        return;
+    if (!T_ActorAlive())
+        return;
+    if (T_InPulse())
+        return;
+
+    if (turnctrl.state == TS_TARGETING)
+    {
+        // Preview -> confirm. No TP spent yet.
+        T_ValidateSelection();
+        if (turnctrl.selected_target < 0)
+            return;
+        turnctrl.state = TS_CONFIRM;
+        player->message = "Confirm attack: F fire, ESC cancel.";
+        T_DumpState("confirm");
+        return;
+    }
+
+    if (turnctrl.state != TS_CONFIRM)
+        return;
+
+    T_ValidateSelection();
+    target = T_TargetMobj(turnctrl.selected_target);
+    if (target == NULL)
+    {
+        player->message = "Target lost.";
+        turnctrl.state = TS_PLANNING;
+        return;
+    }
+    if (!T_CanAfford(TA_ATTACK))
+    {
+        T_RefuseTP(TA_ATTACK);
+        return;
+    }
+
+    // Commit: auto-face, spend TP, fire the real weapon in a pulse.
+    T_FaceTarget(target);
+    T_SpendTP(T_CostFor(TA_ATTACK));
+    turnctrl.firing = true;
+    T_BeginPulse(35, true, true);
+    turnctrl.firing = false;
+    // The world changed; rebuild targets and drop a dead selection.
+    T_RefreshTargets();
+    T_ValidateSelection();
+    if (turnctrl.state == TS_CONFIRM)
+        turnctrl.state = TS_PLANNING;
+    T_DumpState("attack");
+}
+
+// ------------------------------------------------------------------
 // Fixed-seed arena (test harness): deterministic encounter for gates.
 // Spawns a fixed set of monsters at fixed offsets from the player and
 // seeds the turn RNG. Same monsters, positions, RNG every run.
@@ -347,8 +513,8 @@ void T_SpawnArena(void)
         struct { mobjtype_t type; int dx, dy; } spawns[] = {
             { MT_POSSESSED,  256,  128 },
             { MT_POSSESSED,  256, -128 },
-            { MT_TROOP,      384,  256 },
-            { MT_TROOP,      384, -256 },
+            { MT_TROOP,      288,  128 },
+            { MT_TROOP,      288, -128 },
         };
         for (i = 0; i < 4; i++)
         {
@@ -374,8 +540,10 @@ void T_SpawnArena(void)
 //   MOVE_N | MOVE_E | MOVE_S | MOVE_W | USE | WAIT | END | DUMP | QUIT
 //   SWAP | HUNKER | OVERWATCH
 //   ASSERT_TP n | ASSERT_ROUND n     (gate checks; print PASS/FAIL)
+//   ASSERT_SEL n | ASSERT_TGT n      (selection / target count checks)
 //   SAVE n | LOAD n                  (slots 0-7; synchronous)
 //   GIVEWEAPON n                    (test: grant kit weapon n)
+//   SELECT_NEXT | SELECT_PREV | SELECT_NUM n | ATTACK | CANCEL
 //
 // Pulses run synchronously so scripts are fast and deterministic.
 // ------------------------------------------------------------------
@@ -416,7 +584,7 @@ void T_RunScript(const char *path)
 
     while (fgets(line, sizeof(line), f))
     {
-        int n;
+        int n, m;
         // strip trailing newline
         line[strcspn(line, "\r\n")] = 0;
 
@@ -455,6 +623,49 @@ void T_RunScript(const char *path)
             free(sn);
             G_DoLoadGame();
             printf("[TURN] loaded slot %d\n", n);
+        }
+        else if (!strcmp(line, "SELECT_NEXT")) T_DoSelectNext();
+        else if (!strcmp(line, "SELECT_PREV")) T_DoSelectPrev();
+        else if (sscanf(line, "SELECT_NUM %d", &n) == 1) T_DoSelectNum(n);
+        else if (!strcmp(line, "ATTACK"))  T_DoAttack();
+        else if (!strcmp(line, "CANCEL"))  T_DoCancel();
+        else if (sscanf(line, "ASSERT_SEL %d", &n) == 1)
+        {
+            if (turnctrl.selected_target == n - 1)
+                printf("[TURN] ASSERT_SEL %d: PASS\n", n);
+            else
+                printf("[TURN] ASSERT_SEL %d: FAIL (have %d)\n",
+                       n, turnctrl.selected_target + 1);
+        }
+        else if (sscanf(line, "ASSERT_TGT %d", &n) == 1)
+        {
+            T_RefreshTargets();
+            if (T_NumTargets() == n)
+                printf("[TURN] ASSERT_TGT %d: PASS\n", n);
+            else
+                printf("[TURN] ASSERT_TGT %d: FAIL (have %d)\n",
+                       n, T_NumTargets());
+        }
+        else if (sscanf(line, "ASSERT_THP_LT %d %d", &n, &m) == 2)
+        {
+            mobj_t *mo = (n >= 1) ? T_TargetMobj(n - 1) : NULL;
+            int hp = mo ? mo->health : -999;
+            if (mo && hp < m)
+                printf("[TURN] ASSERT_THP_LT %d %d: PASS (hp=%d)\n",
+                       n, m, hp);
+            else
+                printf("[TURN] ASSERT_THP_LT %d %d: FAIL (hp=%d)\n",
+                       n, m, hp);
+        }
+        else if (sscanf(line, "ASSERT_THP_EQ %d %d", &n, &m) == 2)
+        {
+            mobj_t *mo = (n >= 1) ? T_TargetMobj(n - 1) : NULL;
+            int hp = mo ? mo->health : -999;
+            if (mo && hp == m)
+                printf("[TURN] ASSERT_THP_EQ %d %d: PASS\n", n, m);
+            else
+                printf("[TURN] ASSERT_THP_EQ %d %d: FAIL (hp=%d)\n",
+                       n, m, hp);
         }
         else if (!strcmp(line, "QUIT"))   { fclose(f); turnctrl.sync = false; printf("[TURN] script done.\n"); fflush(stdout); exit(0); }
         else if (line[0] == 0 || line[0] == '#') continue;

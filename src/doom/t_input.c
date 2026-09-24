@@ -5,7 +5,7 @@
 // and (later) actor IDs ever leave this layer — never mouse position,
 // analog magnitude, or crosshair state.
 //
-// Phase 2 keymap (character screen closed):
+// Phase 3 keymap (character screen closed):
 //   W/A/S/D or arrows .. screen-relative step (1 TP)
 //   X .................. swap weapon (2 TP)
 //   SPACE .............. use / interact (2 TP)
@@ -13,7 +13,11 @@
 //   H .................. hunker (2 TP; defense bonus lands in phase 6)
 //   O .................. overwatch (all remaining TP, min 3; reaction in phase 6)
 //   T .................. end turn -> enemy phase
-//   TAB ................ reserved (target cycling lands in phase 3)
+//   TAB / ] ............ next target (free)
+//   [ .................. previous target (free)
+//   1-9 ................ select target by number (free)
+//   F or ENTER ......... attack: preview -> confirm -> fire (4 TP)
+//   ESC ................ cancel targeting (free)
 // C/E/Q/R keep their Diablo inventory meanings and are NOT intercepted.
 
 #include "t_turn.h"
@@ -37,14 +41,20 @@ static turnaction_t T_KeyAction(int key)
       case 'h': case 'H':                      return TA_HUNKER;
       case 'o': case 'O':                      return TA_OVERWATCH;
       case 't': case 'T':                      return TA_END_TURN;
-      case KEY_TAB:                            return TA_NONE; // swallowed
+      case KEY_TAB: case ']':                   return TA_SELECT_NEXT;
+      case '[':                                return TA_SELECT_PREV;
+      case 'f': case 'F': case KEY_ENTER:       return TA_ATTACK;
+      case KEY_ESCAPE:                         return TA_CANCEL;
+      case '1': case '2': case '3':
+      case '4': case '5': case '6':
+      case '7': case '8': case '9':             return TA_SELECT_NUM;
       default:                                 return TA_NONE;
     }
 }
 
 static boolean T_KeyMapped(int key)
 {
-    return T_KeyAction(key) != TA_NONE || key == KEY_TAB;
+    return T_KeyAction(key) != TA_NONE;
 }
 
 static void T_ExecuteAction(turnaction_t action)
@@ -61,8 +71,19 @@ static void T_ExecuteAction(turnaction_t action)
       case TA_HUNKER: T_DoHunker(); break;
       case TA_OVERWATCH: T_DoOverwatch(); break;
       case TA_END_TURN: T_DoEndTurn(); break;
+      case TA_SELECT_NEXT: T_DoSelectNext(); break;
+      case TA_SELECT_PREV: T_DoSelectPrev(); break;
+      case TA_ATTACK: T_DoAttack(); break;
+      case TA_CANCEL: T_DoCancel(); break;
       default: break;
     }
+}
+
+// Number-key selection carries its digit outside the action enum.
+static void T_ExecuteNumKey(int key)
+{
+    turnctrl.selected_num = key - '0';
+    T_DoSelectNum(turnctrl.selected_num);
 }
 
 boolean T_Responder(event_t *ev)
@@ -95,10 +116,13 @@ boolean T_Responder(event_t *ev)
 
     action = T_KeyAction(ev->data1);
     if (action == TA_NONE)
-        return ev->data1 == KEY_TAB; // swallow TAB, pass everything else
+        return false;
 
     // Discrete action. TP is spent only on confirmation inside the
     // action; selection and cancellation stay free.
-    T_ExecuteAction(action);
+    if (action == TA_SELECT_NUM)
+        T_ExecuteNumKey(ev->data1);
+    else
+        T_ExecuteAction(action);
     return true;
 }

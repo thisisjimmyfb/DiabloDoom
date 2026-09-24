@@ -71,9 +71,34 @@ typedef struct
     boolean pulse_fast;     // run 4 sim tics per real tic
     boolean pulse_enemy;    // this pulse is the enemy phase
     boolean sync;           // run pulses synchronously (script harness)
+    boolean firing;         // hold BT_ATTACK during the current pulse
 } turnctrl_t;
 
 extern turnctrl_t turnctrl;
+
+// ------------------------------------------------------------------
+// Target service (phase 3): visible-enemy enumeration with stable
+// numbers. The list is rebuilt on demand; numbers are 1-based and
+// stable while the world is frozen (thinker order = spawn order).
+// ------------------------------------------------------------------
+#define T_MAXTARGETS 32
+
+// Rebuild the target list from live, visible enemies.
+void T_RefreshTargets(void);
+// Number of current targets (0 = none).
+int T_NumTargets(void);
+// Target mobj by 0-based index, or NULL.
+struct mobj_s *T_TargetMobj(int idx);
+// Validate the selection after the world changed (death, etc.).
+void T_ValidateSelection(void);
+
+// Target selection (free, reversible).
+void T_DoSelectNext(void);
+void T_DoSelectPrev(void);
+void T_DoSelectNum(int num);
+void T_DoCancel(void);
+// Attack: TARGETING -> CONFIRM -> auto-face + pulse.
+void T_DoAttack(void);
 
 // True once T_Init ran and the mode guards passed.
 boolean T_Ready(void);
