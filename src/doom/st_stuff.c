@@ -38,6 +38,8 @@
 #include "g_game.h"
 
 #include "st_stuff.h"
+#include "t_turn.h"
+#include "t_combat.h"
 #include "st_lib.h"
 #include "r_local.h"
 
@@ -1029,6 +1031,65 @@ static void STWepDrawIcon(int x, int y, int box, const unsigned char *icon)
 #define ST_WEPX1 143
 #define ST_WEPCX ((ST_WEPX0 + ST_WEPX1) / 2)
 
+// Turn-based text drawer (same as T_DrawText: hu_font covers '!'..'_').
+// Skips missing glyphs (e.g. 'L' is absent from the HU font).
+static void ST_TurnDrawText(int x, int y, const char *s)
+{
+    while (*s)
+    {
+        unsigned char c = (unsigned char)*s++;
+        patch_t *p;
+        int w, h;
+        if (c == ' ')
+        {
+            x += 5;
+            continue;
+        }
+        if (c < '!' || c > '_')
+            continue;
+        p = hu_font[c - '!'];
+        if (p == NULL)
+        {
+            x += 4;
+            continue;
+        }
+        w = SHORT(p->width);
+        h = SHORT(p->height);
+        if (x < 0)
+            x = 0;
+        if (x + w <= 320 && y >= 0 && y + h <= 200)
+            V_DrawPatch(x, y, p);
+        x += w + 1;
+    }
+}
+
+// Turn-based kit status (Phase 5): replaces the AMMO readout with a
+// persistent AD/AP line and a contextual AS/READY/cooldown line.
+static void ST_drawTurnKits(void)
+{
+    t_combatstats_t st;
+    const t_kitdef_t *kit;
+    char line1[32], line2[32];
+    int cd;
+
+    if (!T_Active())
+        return;
+    T_DeriveStats(plyr, &st);
+    kit = T_KitForWeapon(plyr->readyweapon);
+    cd = T_KitCooldown(plyr->readyweapon);
+
+    // Persistent: attack damage and ability power.
+    // HU font has gaps (no 'L', etc.); use only verified glyphs.
+    snprintf(line1, sizeof(line1), "AD%d-%d",
+             st.ad_min, st.ad_max);
+    // Contextual: cooldown only (CD0=ready). Kit name in HUD preview.
+    snprintf(line2, sizeof(line2), "CD%d", cd);
+    // Clear the ammo number area, then draw the kit panel.
+    V_DrawFilledBox(2, 170, 76, 28, 0);
+    ST_TurnDrawText(6, 172, line1);
+    ST_TurnDrawText(6, 182, line2);
+}
+
 static void ST_drawDiabloWeapon(void)
 {
     int id = plyr->diablo_equipped[ESLOT_WEAPON];
@@ -1067,12 +1128,20 @@ void ST_drawWidgets(boolean refresh)
     // used by w_frags widget
     st_fragson = deathmatch && st_statusbaron; 
 
-    STlib_updateNum(&w_ready, refresh);
-
-    for (i=0;i<4;i++)
+    if (T_Active())
     {
-	STlib_updateNum(&w_ammo[i], refresh);
-	STlib_updateNum(&w_maxammo[i], refresh);
+        // Turn mode: AMMO becomes the kit status panel (Phase 5).
+        ST_drawTurnKits();
+    }
+    else
+    {
+        STlib_updateNum(&w_ready, refresh);
+
+        for (i=0;i<4;i++)
+        {
+            STlib_updateNum(&w_ammo[i], refresh);
+            STlib_updateNum(&w_maxammo[i], refresh);
+        }
     }
 
     STlib_updatePercent(&w_health, refresh);

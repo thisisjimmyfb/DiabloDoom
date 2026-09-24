@@ -304,6 +304,7 @@ static void T_EndPulse(void)
         turnctrl.tp = turnctrl.tp_max; // TP economy lands in phase 2
         turnctrl.hunkered = 0;
         turnctrl.overwatch_tp = 0;
+        T_KitTickCooldowns();
         turnctrl.state = TS_PLANNING;
         {
             static char msg[64];
@@ -599,13 +600,28 @@ void T_DrawHUD(void)
                     mo->x - pl->mo->x,
                     mo->y - pl->mo->y) / FRACUNIT;
                 T_DamageRange(pl, mo, &st, &dmin, &dmax);
-                M_snprintf(line, sizeof(line),
-                           "[%d]%s HP%d R%d H%d%% D%d-%d %dTP",
-                           turnctrl.selected_target + 1,
-                           T_TargetName(mo), mo->health, dist,
-                           T_HitChance(pl, mo, &st),
-                           dmin, dmax,
-                           T_CostFor(TA_ATTACK));
+                {
+                    const t_kitdef_t *kit = T_KitForWeapon(pl->readyweapon);
+                    int cd = T_KitCooldown(pl->readyweapon);
+                    if (kit->splash_radius > 0)
+                        M_snprintf(line, sizeof(line),
+                                   "[%d]%s HP%d H%d%% D%d-%d SPLASH %dTP%s",
+                                   turnctrl.selected_target + 1,
+                                   T_TargetName(mo), mo->health,
+                                   T_HitChance(pl, mo, &st),
+                                   dmin, dmax,
+                                   T_CostFor(TA_ATTACK),
+                                   cd > 0 ? " CD!" : "");
+                    else
+                        M_snprintf(line, sizeof(line),
+                                   "[%d]%s HP%d H%d%% D%d-%d %dTP%s",
+                                   turnctrl.selected_target + 1,
+                                   T_TargetName(mo), mo->health,
+                                   T_HitChance(pl, mo, &st),
+                                   dmin, dmax,
+                                   T_CostFor(TA_ATTACK),
+                                   cd > 0 ? " CD!" : "");
+                }
                 T_DrawTextCentered(148, line);
                 if (turnctrl.state == TS_CONFIRM)
                     T_DrawTextCentered(158,

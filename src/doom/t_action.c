@@ -36,16 +36,22 @@
 // be afforded is refused with a message and changes nothing.
 // ------------------------------------------------------------------
 
-// Derived attack cost from attack speed (Phase 4): dexterous attackers
-// pay less TP per swing, floor 2.
+// Derived attack cost (Phase 5): kit base TP, reduced by attack speed.
 int T_AttackCost(void)
 {
+    const t_kitdef_t *kit;
     t_combatstats_t st;
     player_t *player = &players[consoleplayer];
+    int cost;
     if (!T_Active() || player->mo == NULL)
         return 4;
+    kit = T_KitForWeapon(player->readyweapon);
     T_DeriveStats(player, &st);
-    return st.attack_tp;
+    // AS reduces the kit cost: -1 per 20 dex above 10, floor 2.
+    cost = kit->tp_cost - (10 + player->diablo_stats[DSTAT_DEX] - 10) / 20;
+    if (cost < 2)
+        cost = 2;
+    return cost;
 }
 
 int T_CostFor(turnaction_t action)
@@ -474,6 +480,14 @@ void T_DoAttack(void)
         turnctrl.state = TS_PLANNING;
         return;
     }
+    if (!T_KitReady(player->readyweapon))
+    {
+        player->message = "Weapon cooling down.";
+        printf("[TURN] attack refused: %s cooldown %d\n",
+               T_KitForWeapon(player->readyweapon)->name,
+               T_KitCooldown(player->readyweapon));
+        return;
+    }
     if (!T_CanAfford(TA_ATTACK))
     {
         T_RefuseTP(TA_ATTACK);
@@ -659,6 +673,7 @@ void T_RunScript(const char *path)
         }
         else if (sscanf(line, "ASSERT_THP_LT %d %d", &n, &m) == 2)
         {
+            T_RefreshTargets();
             mobj_t *mo = (n >= 1) ? T_TargetMobj(n - 1) : NULL;
             int hp = mo ? mo->health : -999;
             if (mo && hp < m)
@@ -727,6 +742,7 @@ void T_RunScript(const char *path)
         }
         else if (sscanf(line, "ASSERT_THP_EQ %d %d", &n, &m) == 2)
         {
+            T_RefreshTargets();
             mobj_t *mo = (n >= 1) ? T_TargetMobj(n - 1) : NULL;
             int hp = mo ? mo->health : -999;
             if (mo && hp == m)

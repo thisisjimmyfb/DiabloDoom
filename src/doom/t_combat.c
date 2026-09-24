@@ -163,10 +163,28 @@ int T_HitChance(player_t *player, mobj_t *target, const t_combatstats_t *st)
 void T_DamageRange(player_t *player, mobj_t *target,
                    const t_combatstats_t *st, int *minhp, int *maxhp)
 {
-    (void)player;
+    const t_kitdef_t *kit;
+    int str, kmin, kmax;
     (void)target;
-    *minhp = st->ad_min;
-    *maxhp = st->ad_max;
+    kit = T_KitForWeapon(player->readyweapon);
+    str = 10 + player->diablo_stats[DSTAT_STR];
+    kmin = kit->dmg_min + str / 2;
+    kmax = kit->dmg_max + str;
+    if (kit->ap_scaling)
+    {
+        kmin += st->ap / 4;
+        kmax += st->ap / 2;
+    }
+    if (kmax < kmin)
+        kmax = kmin;
+    // Pellets: show per-pellet range x count.
+    *minhp = kmin;
+    *maxhp = kmax;
+    if (kit->pellets > 1)
+    {
+        *minhp = kmin * kit->pellets;
+        *maxhp = kmax * kit->pellets;
+    }
 }
 
 // Monster armor table: a little mitigation so Armor/MR aren't
@@ -197,10 +215,73 @@ static int T_MonsterArmor(mobjtype_t type)
     }
 }
 
+// ---------------------------------------------------------------------------
+// Weapon kits.
+
+static const t_kitdef_t t_kits[NUMWEAPONS] = {
+    // wp_fist (fallback; not a real kit)
+    { "FISTS",    1,  3,  3, 0,   0,  0, 1, false },
+    // wp_pistol: balanced sidearm
+    { "SIDEARM",   6, 13,  4, 0,   0,  0, 1, false },
+    // wp_shotgun: close-range burst, 4 pellets
+    { "SHOTGUN",  4,  8,  5, 0,   0,  0, 4, false },
+    // wp_chaingun: 3-round burst
+    { "CHAINGUN", 4,  7,  5, 0,   0,  0, 3, false },
+    // wp_missile: rockets, enemy-targeted splash
+    { "ROCKET",  15, 25,  6, 1, 128, 50, 1, false },
+    // wp_plasma: AP-scaling energy
+    { "PULSE",   5, 10,  4, 0,   0,  0, 1, true  },
+    // wp_bfg: big enemy-targeted splash
+    { "BFG",     30, 50,  8, 2, 192, 60, 1, false },
+    // wp_chainsaw / wp_supershotgun (unused in turn mode)
+    { "SAW",      2,  6,  3, 0,   0,  0, 1, false },
+    { "SSG",     10, 20,  6, 1,   0,  0, 8, false },
+};
+
+const t_kitdef_t *T_KitForWeapon(weapontype_t w)
+{
+    if (w < 0 || w >= NUMWEAPONS)
+        return &t_kits[wp_fist];
+    return &t_kits[w];
+}
+
+// Per-weapon cooldowns, in rounds. Indexed by weapontype.
+static int t_cooldowns[NUMWEAPONS];
+
+int T_KitCooldown(weapontype_t w)
+{
+    if (w < 0 || w >= NUMWEAPONS)
+        return 0;
+    return t_cooldowns[w];
+}
+
+void T_KitSetCooldown(weapontype_t w, int rounds)
+{
+    if (w < 0 || w >= NUMWEAPONS)
+        return;
+    t_cooldowns[w] = rounds;
+}
+
+void T_KitTickCooldowns(void)
+{
+    int w;
+    for (w = 0; w < NUMWEAPONS; w++)
+        if (t_cooldowns[w] > 0)
+            t_cooldowns[w]--;
+}
+
+boolean T_KitReady(weapontype_t w)
+{
+    return T_KitCooldown(w) == 0;
+}
+
 boolean T_ResolveAttack(player_t *player, mobj_t *target)
 {
     t_combatstats_t st;
-    int chance, roll, dmg, range;
+    const t_kitdef_t *kit;
+    int chance, roll, dmg, range, p;
+    int total_dmg = 0;
+    int hits = 0;
 
     t_last_hit = 0;
     t_last_damage = 0;
@@ -209,36 +290,66 @@ boolean T_ResolveAttack(player_t *player, mobj_t *target)
     if (!player->mo || !target || target->health <= 0)
         return false;
 
+    kit = T_KitForWeapon(player->readyweapon);
     T_DeriveStats(player, &st);
 
-    // Hit roll.
+    // Kit damage: base from kit, STR scales, AP scales plasma.
+    {
+        int str = 10 + player->diablo_stats[DSTAT_STR];
+        int kmin = kit->dmg_min + str / 2;
+        int kmax = kit->dmg_max + str;
+        if (kit->ap_scaling)
+        {
+            kmin += st.ap / 4;
+            kmax += st.ap / 2;
+        }
+        if (kmax < kmin)
+            kmax = kmin;
+        st.ad_min = kmin;
+        st.ad_max = kmax;
+    }
+
     chance = T_HitChance(player, target, &st);
-    roll = T_Roll100();
-    if (roll > chance)
+
+    // Pellets: each rolls hit and damage separately (shotgun/chaingun).
+    for (p = 0; p < kit->pellets; p++)
+    {
+        roll = T_Roll100();
+        if (roll > chance)
+            continue; // pellet misses
+        hits++;
+
+        range = st.ad_max - st.ad_min + 1;
+        dmg = st.ad_min + (range > 1 ? T_Roll(range) : 0);
+
+        // Crit (once per attack, not per pellet).
+        if (p == 0 && T_Roll100() <= st.crit_chance)
+        {
+            dmg = dmg * st.crit_mult / 100;
+            t_last_crit = 1;
+        }
+        else if (t_last_crit)
+        {
+            dmg = dmg * st.crit_mult / 100;
+        }
+
+        // Target armor mitigation.
+        dmg -= T_MonsterArmor(target->type);
+        if (dmg < 1)
+            dmg = 1;
+
+        total_dmg += dmg;
+    }
+
+    if (hits == 0)
     {
         player->message = "MISS!";
         S_StartSound(player->mo, sfx_pistol);
         return false;
     }
 
-    // Damage roll inside the previewed range.
-    range = st.ad_max - st.ad_min + 1;
-    dmg = st.ad_min + (range > 1 ? T_Roll(range) : 0);
-
-    // Crit.
-    if (T_Roll100() <= st.crit_chance)
-    {
-        dmg = dmg * st.crit_mult / 100;
-        t_last_crit = 1;
-    }
-
-    // Target armor mitigation (physical).
-    dmg -= T_MonsterArmor(target->type);
-    if (dmg < 1)
-        dmg = 1;
-
     t_last_hit = 1;
-    t_last_damage = dmg;
+    t_last_damage = total_dmg;
 
     if (t_last_crit)
         player->message = "CRITICAL HIT!";
@@ -246,6 +357,45 @@ boolean T_ResolveAttack(player_t *player, mobj_t *target)
         player->message = "HIT!";
 
     S_StartSound(player->mo, sfx_pistol);
-    P_DamageMobj(target, player->mo, player->mo, dmg);
+    P_DamageMobj(target, player->mo, player->mo, total_dmg);
+
+    // Splash: enemy-targeted, centered on the confirmed target.
+    // Other visible enemies within radius take splash_pct% damage.
+    if (kit->splash_radius > 0 && target->health > 0)
+    {
+        thinker_t *th;
+        for (th = thinkercap.next; th != &thinkercap; th = th->next)
+        {
+            mobj_t *mo;
+            int dist, sdmg;
+            if (th->function.acp1 != (actionf_p1)P_MobjThinker)
+                continue;
+            mo = (mobj_t *)th;
+            if (mo == target || mo == player->mo)
+                continue;
+            if (!(mo->flags & MF_SHOOTABLE) || mo->health <= 0)
+                continue;
+            if (mo->player != NULL)
+                continue;
+            dist = P_AproxDistance(mo->x - target->x,
+                                   mo->y - target->y) / FRACUNIT;
+            if (dist > kit->splash_radius)
+                continue;
+            // Splash needs LOS from the blast (simple: use attacker sight).
+            if (!P_CheckSight(player->mo, mo))
+                continue;
+            sdmg = total_dmg * kit->splash_pct / 100;
+            sdmg -= T_MonsterArmor(mo->type);
+            if (sdmg < 1)
+                sdmg = 1;
+            P_DamageMobj(mo, player->mo, player->mo, sdmg);
+        }
+        player->message = "SPLASH HIT!";
+    }
+
+    // Start the kit cooldown.
+    if (kit->cooldown > 0)
+        T_KitSetCooldown(player->readyweapon, kit->cooldown);
+
     return true;
 }

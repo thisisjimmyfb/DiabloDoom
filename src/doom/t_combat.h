@@ -55,4 +55,28 @@ extern int t_last_crit;     // 1 if the hit crit
 void T_SetCombatSeed(unsigned int seed);
 unsigned int T_GetCombatSeed(void);
 
+// ---------------------------------------------------------------------------
+// Weapon kits (Phase 5). Six distinct kits; the resolver uses the player's
+// readyweapon. Rockets/BFG are enemy-targeted: pick an enemy, splash is
+// centered on them and previewed. No ground targeting, ever.
+
+typedef struct
+{
+    const char *name;   // display name
+    int dmg_min;        // base damage range (STR/AP scale on top)
+    int dmg_max;
+    int tp_cost;        // TP per attack (before AS reduction)
+    int cooldown;       // rounds of cooldown after firing (0 = none)
+    int splash_radius;  // splash radius in map units (0 = none)
+    int splash_pct;     // splash damage as % of primary (0 = none)
+    int pellets;        // separate hit rolls (shotgun/chaingun)
+    boolean ap_scaling; // plasma: damage scales with AP
+} t_kitdef_t;
+
+const t_kitdef_t *T_KitForWeapon(weapontype_t w);
+int T_KitCooldown(weapontype_t w);          // current cooldown rounds left
+void T_KitSetCooldown(weapontype_t w, int rounds);
+void T_KitTickCooldowns(void);             // call on round start
+boolean T_KitReady(weapontype_t w);         // cooldown == 0
+
 #endif
