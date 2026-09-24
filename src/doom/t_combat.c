@@ -413,6 +413,10 @@ boolean T_ResolveAttack(player_t *player, mobj_t *target)
     // Headshot modifier is consumed by the attack (hit or miss).
     turnctrl.headshot_mod = false;
 
+    // Phase 8: lifetime counters.
+    T_CountDamage(total_dmg);
+    // Check if the target died (kill credit).
+    // Note: P_DamageMobj is called below; we check after.
     if (t_last_crit)
         player->message = "CRITICAL HIT!";
     else
@@ -420,6 +424,15 @@ boolean T_ResolveAttack(player_t *player, mobj_t *target)
 
     S_StartSound(player->mo, sfx_pistol);
     P_DamageMobj(target, player->mo, player->mo, total_dmg);
+    // Phase 8: kill credit (check after damage).
+    if (target->health <= 0)
+    {
+        // Was this a headshot? turnctrl.headshot_mod was just cleared,
+        // so we need to track it. For now, use t_last_crit as proxy?
+        // Actually, headshot is a modifier, not necessarily a crit.
+        // We'll pass false for headshot (refine later) and check overwatch.
+        T_CountKill(target, false, T_InOverwatchReaction());
+    }
 
     // Splash: enemy-targeted, centered on the confirmed target.
     // Other visible enemies within radius take splash_pct% damage.

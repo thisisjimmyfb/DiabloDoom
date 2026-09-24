@@ -17,6 +17,9 @@
 
 #include "doomdef.h"
 #include "d_event.h"
+// Forward declare mobj_t for profile kill counter.
+struct mobj_s;
+typedef struct mobj_s mobj_t;
 
 // Turn controller phases.
 typedef enum
@@ -165,6 +168,48 @@ void T_RunScript(const char *path);
 // without the block load fine (defaults kept). Implemented in p_saveg.c.
 void P_ArchiveTurn(void);
 boolean P_UnArchiveTurn(void);
+
+// ------------------------------------------------------------------
+// Phase 8: versioned standalone turn-based profile.
+// Separate from level savegames; persists XP, levels, stat points,
+// lifetime counters, and the hero name across sessions.
+// Stored atomically (write temp + rename) on level exit and quit.
+// Loaded at startup when -turnbased is given.
+// ------------------------------------------------------------------
+#define T_PROFILE_VERSION 1
+#define T_PROFILE_NAME_LEN 32
+
+typedef struct
+{
+    int version;                            // T_PROFILE_VERSION
+    char name[T_PROFILE_NAME_LEN];          // hero name (NUL-terminated)
+    int xp;                                 // accumulated experience
+    int level;                              // current level (starts at 1)
+    int stat_points;                        // unspent attribute points
+    int lifetime_kills;                     // enemies killed (turn mode)
+    int lifetime_damage;                    // damage dealt (turn mode)
+    int lifetime_rounds;                    // rounds played (turn mode)
+    int lifetime_headshots;                 // headshot kills
+    int lifetime_overwatch_kills;           // kills via overwatch reaction
+} t_profile_t;
+
+extern t_profile_t t_profile;
+
+// Profile lifecycle.
+void T_ProfileInit(void);                   // defaults (call at startup)
+void T_ProfileLoad(void);                   // load from disk (if exists)
+void T_ProfileSave(void);                   // atomic save to disk
+const char *T_ProfilePath(void);            // filesystem path
+
+// XP and levels.
+void T_GainXP(int amount);                  // add XP, handle level-ups
+int T_XPForLevel(int level);                // XP threshold for level
+void T_AddStatPoint(const char *stat);      // spend 1 point on str/dex/vit/ene
+
+// Lifetime counters (call from combat code).
+void T_CountKill(mobj_t *target, boolean headshot, boolean overwatch);
+void T_CountDamage(int dmg);
+void T_CountRound(void);
 
 // Deterministic turn-mode RNG (independent of M_Random stream).
 int T_Random(void);

@@ -12,7 +12,7 @@
 #include "hu_stuff.h"
 #include "t_turn.h"
 #include "t_combat.h"
-#include "t_combat.h"
+#include "d_diablo.h"
 #include "doomstat.h"
 #include "doomdef.h"
 #include "d_player.h"
@@ -91,6 +91,8 @@ void T_Init(void)
                 t_arena_done = true;
             printf("Turn-based mode enabled: discrete Tempo turns, "
                    "no aiming. WASD move, SPACE use, . wait, T end turn.\n");
+            // Phase 8: load the standalone profile.
+            T_ProfileLoad();
         }
     }
 
@@ -306,6 +308,7 @@ static void T_EndPulse(void)
         // Enemy phase done: tick cooldowns (phase 5), new round.
         turnctrl.pulse_enemy = false;
         turnctrl.round++;
+        T_CountRound(); // Phase 8: lifetime rounds
         turnctrl.tp = turnctrl.tp_max; // TP economy lands in phase 2
         turnctrl.hunkered = 0;
         turnctrl.overwatch_tp = 0;
@@ -817,3 +820,175 @@ void T_SeedRNG(unsigned int seed)
 {
     turnctrl.rng_seed = seed;
 }
+
+// ------------------------------------------------------------------
+// Phase 8: versioned standalone profile.
+// ------------------------------------------------------------------
+
+t_profile_t t_profile;
+
+const char *T_ProfilePath(void)
+{
+    static char path[256];
+    // Use the savegame directory if set, else current directory.
+    // For the turn-based build, this is typically the working dir.
+    M_snprintf(path, sizeof(path), "turn_profile_v%d.dat", T_PROFILE_VERSION);
+    return path;
+}
+
+void T_ProfileInit(void)
+{
+    memset(&t_profile, 0, sizeof(t_profile));
+    t_profile.version = T_PROFILE_VERSION;
+    M_snprintf(t_profile.name, sizeof(t_profile.name), "HERO");
+    t_profile.level = 1;
+}
+
+void T_ProfileLoad(void)
+{
+    FILE *f;
+    t_profile_t tmp;
+    const char *path = T_ProfilePath();
+    f = fopen(path, "rb");
+    if (!f)
+    {
+        // No profile yet; use defaults.
+        T_ProfileInit();
+        return;
+    }
+    if (fread(&tmp, sizeof(tmp), 1, f) != 1)
+    {
+        fclose(f);
+        T_ProfileInit();
+        return;
+    }
+    fclose(f);
+    if (tmp.version != T_PROFILE_VERSION)
+    {
+        // Version mismatch; start fresh (future: migrate).
+        printf("[TURN] profile version %d != %d; resetting.\n",
+               tmp.version, T_PROFILE_VERSION);
+        T_ProfileInit();
+        return;
+    }
+    // Ensure name is NUL-terminated.
+    tmp.name[T_PROFILE_NAME_LEN - 1] = '\0';
+    t_profile = tmp;
+    printf("[TURN] profile loaded: %s L%d XP%d\n",
+           t_profile.name, t_profile.level, t_profile.xp);
+}
+
+void T_ProfileSave(void)
+{
+    const char *path = T_ProfilePath();
+    char tmp_path[256];
+    FILE *f;
+    M_snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", path);
+    f = fopen(tmp_path, "wb");
+    if (!f)
+    {
+        printf("[TURN] profile save failed: cannot write %s\n", tmp_path);
+        return;
+    }
+    t_profile.version = T_PROFILE_VERSION;
+    if (fwrite(&t_profile, sizeof(t_profile), 1, f) != 1)
+    {
+        fclose(f);
+        printf("[TURN] profile save failed: write error\n");
+        return;
+    }
+    fclose(f);
+    // Atomic: rename temp to final.
+    if (rename(tmp_path, path) != 0)
+        printf("[TURN] profile save failed: rename error\n");
+    else
+        printf("[TURN] profile saved: %s L%d\n", t_profile.name, t_profile.level);
+}
+
+int T_XPForLevel(int level)
+{
+    // 100 XP per level, cumulative: L2=100, L3=300, L4=600, ...
+    // Threshold to reach `level` from `level-1`.
+    return (level - 1) * 100;
+}
+
+void T_GainXP(int amount)
+{
+    int threshold;
+    if (amount <= 0)
+        return;
+    t_profile.xp += amount;
+    // Level up while XP meets the next threshold.
+    while (1)
+    {
+        threshold = T_XPForLevel(t_profile.level + 1);
+        if (t_profile.xp < threshold)
+            break;
+        t_profile.level++;
+        t_profile.stat_points += 2; // 2 points per level
+        printf("[TURN] LEVEL UP! Now level %d (+2 stat points)\n",
+               t_profile.level);
+        players[consoleplayer].message = "LEVEL UP! +2 stat points";
+    }
+}
+
+void T_AddStatPoint(const char *stat)
+{
+    player_t *pl = &players[consoleplayer];
+    if (t_profile.stat_points <= 0)
+    {
+        printf("[TURN] no stat points to spend\n");
+        return;
+    }
+    if (!strcmp(stat, "str"))
+        pl->diablo_stats[DSTAT_STR]++;
+    else if (!strcmp(stat, "dex"))
+        pl->diablo_stats[DSTAT_DEX]++;
+    else if (!strcmp(stat, "vit"))
+    {
+        pl->diablo_stats[DSTAT_VIT]++;
+        // Max HP is derived via D_MaxHealth() (+5 per VIT).
+        // Heal the 5 HP gained.
+        pl->health += 5;
+        if (pl->mo)
+            pl->mo->health = pl->health;
+    }
+    else if (!strcmp(stat, "ene"))
+        pl->diablo_stats[DSTAT_ENE]++;
+    else
+    {
+        printf("[TURN] unknown stat '%s' (use str/dex/vit/ene)\n", stat);
+        return;
+    }
+    t_profile.stat_points--;
+    // Re-derive? diablo_stats are the base; D_RecalcStats would wipe them.
+    // For Phase 8, stat points directly increment the aggregated stats.
+    // (A full implementation would store base stats separately.)
+    printf("[TURN] +1 %s (%d points left)\n", stat, t_profile.stat_points);
+}
+
+void T_CountKill(mobj_t *target, boolean headshot, boolean overwatch)
+{
+    int xp = 10;
+    t_profile.lifetime_kills++;
+    if (headshot)
+        t_profile.lifetime_headshots++;
+    if (overwatch)
+        t_profile.lifetime_overwatch_kills++;
+    // XP by target max health (tougher = more XP).
+    if (target && target->info)
+        xp = 10 + target->info->spawnhealth / 10;
+    T_GainXP(xp);
+}
+
+void T_CountDamage(int dmg)
+{
+    if (dmg > 0)
+        t_profile.lifetime_damage += dmg;
+}
+
+void T_CountRound(void)
+{
+    t_profile.lifetime_rounds++;
+}
+

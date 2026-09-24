@@ -1457,6 +1457,10 @@ void G_SecretExitLevel (void)
 void G_DoCompleted (void) 
 { 
     int             i; 
+
+    // Phase 8: atomic profile save on level exit (turn-based only).
+    if (turnbased_mode)
+        T_ProfileSave();
 	 
     gameaction = ga_nothing; 
  

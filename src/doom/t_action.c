@@ -653,6 +653,26 @@ void T_RunScript(const char *path)
         else if (!strcmp(line, "SWAP"))   T_DoSwapWeapon();
         else if (!strcmp(line, "HUNKER")) T_DoHunker();
         else if (!strcmp(line, "HEADSHOT"))  T_DoHeadshot();
+        else if (sscanf(line, "NAME %31s", t_profile.name) == 1)
+        {
+            printf("[TURN] name set to '%s'\n", t_profile.name);
+            T_DumpState("name");
+        }
+        else if (!strncmp(line, "ADDSTAT ", 8))
+        {
+            char statname[32];
+            if (sscanf(line + 8, "%31s", statname) == 1)
+                T_AddStatPoint(statname);
+        }
+        else if (!strcmp(line, "PROFILE"))
+        {
+            printf("[TURN] PROFILE: name='%s' L%d XP=%d SP=%d kills=%d dmg=%d rounds=%d hs=%d owk=%d\n",
+                   t_profile.name, t_profile.level, t_profile.xp,
+                   t_profile.stat_points, t_profile.lifetime_kills,
+                   t_profile.lifetime_damage, t_profile.lifetime_rounds,
+                   t_profile.lifetime_headshots,
+                   t_profile.lifetime_overwatch_kills);
+        }
         else if (!strcmp(line, "OVERWATCH")) T_DoOverwatch();
         else if (!strcmp(line, "DUMP"))   T_DumpState("script");
         else if (sscanf(line, "ASSERT_TP %d", &n) == 1) T_ScriptAssertTP(n);
@@ -782,7 +802,7 @@ void T_RunScript(const char *path)
                 printf("[TURN] ASSERT_THP_EQ %d %d: FAIL (hp=%d)\n",
                        n, m, hp);
         }
-        else if (!strcmp(line, "QUIT"))   { fclose(f); turnctrl.sync = false; printf("[TURN] script done.\n"); fflush(stdout); exit(0); }
+        else if (!strcmp(line, "QUIT"))   { fclose(f); turnctrl.sync = false; printf("[TURN] script done.\n"); fflush(stdout); T_ProfileSave(); exit(0); }
         else if (line[0] == 0 || line[0] == '#') continue;
         else printf("[TURN] unknown script token: %s\n", line);
     }
