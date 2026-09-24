@@ -26,7 +26,7 @@ typedef enum
     TS_TARGETING,  // a target is selected; preview shown
     TS_CONFIRM,    // action confirmed, awaiting pulse
     TS_PULSE,      // bounded simulation pulse resolving (input locked)
-    TS_REACTION,   // enemy reactions / overwatch resolution
+    TS_REACTION,   // enemy phase: monsters act, input locked
     TS_ROUND_END,  // cooldowns tick, round increments
 } turnstate_t;
 
@@ -65,32 +65,58 @@ typedef struct
     int cooldowns[8];       // per-weapon-kit cooldowns in rounds (phase 5)
     int charge_tp;          // plasma charge banked in TP (phase 5)
     unsigned int rng_seed;  // turn-mode deterministic RNG seed
+    // Pulse runner state (phase 1).
+    int pulse_left;         // sim tics remaining in the current pulse
+    boolean pulse_freeze;   // freeze live monsters during this pulse
+    boolean pulse_fast;     // run 4 sim tics per real tic
+    boolean pulse_enemy;    // this pulse is the enemy phase
+    boolean sync;           // run pulses synchronously (script harness)
 } turnctrl_t;
 
 extern turnctrl_t turnctrl;
 
-// Enabled only when launched with -turnbased (single-player).
-boolean T_Enabled(void);
+// True once T_Init ran and the mode guards passed.
+boolean T_Ready(void);
+
+// Fully active: flag on, init done, in-level, single-player.
+boolean T_Active(void);
 
 // Called once at startup from D_DoomMain after parms are parsed.
-// Must be a no-op unless -turnbased was given.
 void T_Init(void);
 
-// Called when a new game / level starts in turn mode.
+// Called on new game and level load in turn mode: full reset.
 void T_NewGame(void);
 
-// Per-tic hook called from G_Ticker. No-op unless turn mode active.
+// Called after loading a savegame: reset the state machine only
+// (round/TP are the player's ongoing progress).
+void T_OnLoad(void);
+
+// Per-tic hook called from G_Ticker instead of P_Ticker.
 void T_Ticker(void);
 
-// Input adapter: translate a key event into a turn action while in
-// PLANNING/TARGETING. Returns true if the event was consumed.
-// (Implemented in phase 1; stub returns false for now.)
+// Input adapter (t_input.c): translate a key event into a turn action
+// while planning/targeting. Returns true if the event was consumed.
 boolean T_Responder(event_t *ev);
 
-// Bounded simulation pulse: advance the world exactly `tics' tics.
-// If freeze_monsters is true, live monsters do not think (XCOM-style:
-// they act on their own phase). Input is locked during a pulse.
-void T_RunPulse(int tics, boolean freeze_monsters);
+// Pulse control.
+void T_BeginPulse(int tics, boolean freeze_monsters, boolean fast);
+boolean T_InPulse(void);
+// Synchronous pulse (test harness): run to completion immediately.
+void T_RunPulseSync(int tics, boolean freeze_monsters);
+
+// Turn-mode actions (t_action.c). Phase 1: move/use/wait/end.
+void T_DoMove(int dir);   // 0=N(fwd) 1=E(right) 2=S(back) 3=W(left)
+void T_DoUse(void);
+void T_DoWait(void);
+void T_DoEndTurn(void);
+
+// HUD: mode indicator + contextual help (called from HU_Drawer).
+void T_DrawHUD(void);
+
+// Test harnesses (SPEC: fixed-seed arena, action replay, state dump).
+void T_DumpState(const char *why);
+void T_SpawnArena(void);
+void T_RunScript(const char *path);
 
 // Deterministic turn-mode RNG (independent of M_Random stream).
 int T_Random(void);

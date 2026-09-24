@@ -39,6 +39,7 @@
 #include "s_sound.h"
 
 #include "doomstat.h"
+#include "t_turn.h"
 
 // Data.
 #include "dstrings.h"
@@ -440,6 +441,7 @@ void HU_Drawer(void)
     if (automapactive)
 	HUlib_drawTextLine(&w_title, false);
 
+    T_DrawHUD();  // turn-based mode indicator (no-op in real-time)
 }
 
 void HU_Erase(void)

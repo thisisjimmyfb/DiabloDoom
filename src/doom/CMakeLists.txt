@@ -68,6 +68,8 @@ add_library(doom STATIC
             statdump.c      statdump.h
             st_lib.c        st_lib.h
             st_stuff.c      st_stuff.h
+            t_action.c
+            t_input.c
             t_turn.c        t_turn.h
             wi_stuff.c      wi_stuff.h)
 

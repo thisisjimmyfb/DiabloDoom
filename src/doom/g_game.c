@@ -24,6 +24,7 @@
 #include "doomdef.h" 
 #include "doomkeys.h"
 #include "doomstat.h"
+#include "t_turn.h"
 
 #include "deh_main.h"
 #include "deh_misc.h"
@@ -725,6 +726,8 @@ void G_DoLoadLevel (void)
     memset(mousearray, 0, sizeof(mousearray));
     memset(joyarray, 0, sizeof(joyarray));
 
+    T_NewGame ();  // turn-based controller reset (no-op in real-time)
+
     if (testcontrols)
     {
         players[consoleplayer].message = "Press escape to quit.";
@@ -791,6 +794,10 @@ static void SetMouseButtons(unsigned int buttons_mask)
 // 
 boolean G_Responder (event_t* ev) 
 { 
+    // Turn-based mode owns gameplay keys while planning/targeting.
+    if (turnbased_mode && T_Responder(ev))
+	return true;
+
     // allow spy mode changes even during the demo
     if (gamestate == GS_LEVEL && ev->type == ev_keydown 
      && ev->data1 == key_spy && (singledemo || !deathmatch) )
@@ -1088,7 +1095,10 @@ void G_Ticker (void)
     switch (gamestate) 
     { 
       case GS_LEVEL: 
-	P_Ticker (); 
+	if (turnbased_mode && T_Ready())
+	    T_Ticker ();   // turn controller: frozen planning + pulses
+	else
+	    P_Ticker (); 
 	ST_Ticker (); 
 	AM_Ticker (); 
 	HU_Ticker ();            
@@ -1716,7 +1726,9 @@ void G_DoLoadGame (void)
 	R_ExecuteSetViewSize ();
     
     // draw the pattern into the back screen
-    R_FillBackScreen ();   
+    R_FillBackScreen ();
+
+    T_OnLoad ();  // turn mode: land in PLANNING (no-op in real-time)
 } 
  
 

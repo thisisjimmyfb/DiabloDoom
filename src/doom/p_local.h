@@ -77,6 +77,7 @@ void P_RemoveThinker (thinker_t* thinker);
 //
 void P_SetupPsprites (player_t* curplayer);
 void P_MovePsprites (player_t* curplayer);
+void P_CalcHeight (player_t* player);
 void P_DropWeapon (player_t* player);
 
 
