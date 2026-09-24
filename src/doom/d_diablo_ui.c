@@ -18,6 +18,7 @@
 #include "doomkeys.h"
 #include "doomstat.h"
 #include "hu_stuff.h"
+#include "i_input.h"
 #include "i_swap.h"
 #include "i_video.h"
 #include "v_video.h"
@@ -76,9 +77,6 @@ static boolean ui_skip_mouse = false;  // ignore stale motion on open
 // to place).
 static boolean ui_dragging = false;
 static int ui_press_x = 0, ui_press_y = 0;
-
-// Linked from i_input.c: disables mouse acceleration while the UI is open.
-boolean d_ui_accel_disabled = false;
 static int ui_msgtic = 0;
 
 // Resolved palette indices.
