@@ -49,7 +49,6 @@ typedef enum
     TA_SELECT_NEXT, TA_SELECT_PREV, TA_SELECT_NUM,
     TA_ATTACK,
     TA_ABILITY,        // weapon kit ability (phase 5)
-    TA_SWAP_WEAPON,
     TA_USE,
     TA_POTION,
     TA_END_TURN,
@@ -63,7 +62,7 @@ typedef enum
 #define T_QUEUE_MAX 16
 typedef struct
 {
-    turnaction_t action;   // TA_MOVE_*, TA_ATTACK, TA_USE, TA_SWAP_WEAPON
+    turnaction_t action;   // TA_MOVE_*, TA_ATTACK, TA_USE
     int cost;              // TP reserved at enqueue time
     angle_t moveangle;     // TA_MOVE_*: world-space step angle snapshot
     mobj_t *target;        // TA_ATTACK: actor snapshot (validated live)
@@ -159,15 +158,14 @@ void T_RunPulseSync(int tics, boolean freeze_monsters);
 boolean T_InSelection(void);
 
 // Turn-mode actions (t_action.c). Phase 1: move/use/end.
-// Phase 2: TP costs, legal-action checks, swap.
-// Queue model: T_DoMove/T_DoUse/T_DoSwapWeapon/T_DoAttack ENQUEUE
+// Phase 2: TP costs, legal-action checks.
+// Queue model: T_DoMove/T_DoUse/T_DoAttack ENQUEUE
 // (TP reserved); T_DoEndTurn drains the queue FIFO, then the enemy
 // phase runs. T_DoTurn stays immediate (free view control).
 void T_DoMove(int dir);   // 0=N(fwd) 1=E(right) 2=S(back) 3=W(left)
 void T_DoTurn(int dir);   // -1=left, +1=right; free 45-degree view turn
 void T_DoUse(void);
 void T_DoEndTurn(void);
-void T_DoSwapWeapon(void); // 2 TP: cycle to next owned weapon
 void T_DoUndoQueue(void);  // Backspace: undo last queued action, refund TP
 void T_DoClearQueue(void); // Z: clear the whole queue, refund all TP
 void T_ExecuteNext(void);  // run the next queued entry (queue drain)

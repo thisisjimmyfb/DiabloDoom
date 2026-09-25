@@ -91,7 +91,6 @@ pulse.
 | Select / cycle target | 0                         |
 | Facing-relative step (WASD) | 1                  |
 | Use / interact     | 2                           |
-| Weapon swap         | 2                           |
 | Attack selected enemy | Derived from attack speed |
 | Undo last queued action (Backspace) | 0 (refunds TP) |
 | Clear queue (Z)     | 0 (refunds all TP)          |
@@ -104,7 +103,7 @@ pulse.
 1. **Acquire** — every line-of-sight enemy gets a stable number + list entry.
 2. **Select** — cycle or press a number; inspect hit chance, damage, cost,
    HP, cover.
-3. **Queue** — planning actions (move, use, swap, attack) ENQUEUE and
+3. **Queue** — planning actions (move, use, attack) ENQUEUE and
    reserve TP immediately. The queue shows each entry with its cost and
    the total reserved TP. Unaffordable actions are dimmed and cannot be
    queued. Backspace removes the last entry (refunds TP); Z clears the
@@ -367,7 +366,7 @@ previous one "mostly works."
 |-------|------|------|
 | 0 | Baseline. Turn controller wired as the unconditional default — no flag, no real-time mode. Capture Doom save behavior and the existing rebirth gear-preservation path. | Inventory, save/load, death, level transitions unchanged. |
 | 1 | Turn kernel + derived movement. PLANNING/PULSE states, bounded simulation, round counter, discrete facing-relative MOVE (W/S step, A/D strafe, arrows turn view free). | Navigate and interact via MOVE, USE, END — no analog input; view turning is a free arrow-key action, not aiming. |
-| 2 | Tempo economy. 10 TP, action costs, free target browsing, weapon swap cost, legal-action checks, round refresh. | No action overspends TP; cycling/canceling spend zero; save/load restores decision state. |
+| 2 | Tempo economy. 10 TP, action costs, free target browsing, legal-action checks, round refresh. | No action overspends TP; cycling/canceling spend zero; save/load restores decision state. |
 | 3 | Target service + ATTACK contract. Visible-enemy enumeration, numbered markers, target list, Tab/`[`/`]`/number keys, auto-face, preview, confirm. | Every legal enemy has one stable number; ATTACK always resolves against the confirmed actor ID. |
 | 4 | Combat stats + hit preview. AD, AP, AS, Haste, crit, Armor, MR, range, cover, derived effects from the four attributes. | Fixed-seed tests reproduce displayed hit, damage, TP, cooldown, health, defense. |
 

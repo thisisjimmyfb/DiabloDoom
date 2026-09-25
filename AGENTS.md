@@ -106,7 +106,7 @@ consumable · Q unequip all · Esc close.
 
 Turn mode (queued actions, FIFO): W/S step forward/back, A/D strafe
 (1 TP, never change facing) · left/right arrows turn view 45° (free,
-immediate, never queued) · X swap weapon (2 TP) · SPACE use (2 TP) ·
+immediate, never queued) · SPACE use (2 TP) ·
 F attack via preview-confirm (TP by attack speed) · T end turn (drains
 queue FIFO, then enemy phase) · Backspace undo last queued action
 (free, refunds TP) · Z clear queue (free, refunds all TP) · Tab / [

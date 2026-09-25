@@ -781,7 +781,6 @@ static void T_DrawActionList(void)
 
     T_DrawActionRow(x, &y, "WASD", "MOVE/STRF", TA_MOVE_N, "1TP");
     T_DrawActionRow(x, &y, "<>", "TURN", TA_TURN_L, "FREE");
-    T_DrawActionRow(x, &y, "X", "SWAP", TA_SWAP_WEAPON, "2TP");
     T_DrawActionRow(x, &y, "SPC", "USE", TA_USE, "2TP");
     T_DrawActionRow(x, &y, "TAB", "TARGET", TA_SELECT_NEXT, "FREE");
     if (!T_KitReady(pl->readyweapon))

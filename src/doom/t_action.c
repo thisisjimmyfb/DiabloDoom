@@ -64,7 +64,6 @@ int T_CostFor(turnaction_t action)
       case TA_MOVE_N: case TA_MOVE_S: case TA_MOVE_E: case TA_MOVE_W:
         return 1;
       case TA_USE:
-      case TA_SWAP_WEAPON:
         return 2;
       case TA_ATTACK:
         return T_AttackCost();
@@ -164,9 +163,6 @@ void T_QueueEntryName(const t_queueentry_t *e, char *buf, size_t buflen)
         break;
       case TA_USE:
         M_snprintf(buf, buflen, "USE");
-        break;
-      case TA_SWAP_WEAPON:
-        M_snprintf(buf, buflen, "SWAP");
         break;
       default:
         M_snprintf(buf, buflen, "?");
@@ -363,7 +359,6 @@ static boolean T_ExecUse(void)
 // (drain continues inline, TP refunded). T_ExecMove/T_ExecUse are
 // defined above.
 static boolean T_ExecAttack(mobj_t *target, int cost);
-static boolean T_ExecSwap(int cost);
 
 // ------------------------------------------------------------------
 // END TURN: drain the queued actions FIFO — each entry executes through
@@ -433,9 +428,6 @@ void T_ExecuteNext(void)
           case TA_USE:
             pulsed = T_ExecUse();
             break;
-          case TA_SWAP_WEAPON:
-            pulsed = T_ExecSwap(e.cost);
-            break;
           default:
             pulsed = false;
             break;
@@ -446,86 +438,6 @@ void T_ExecuteNext(void)
     // Fully drained (skips included): the enemy phase runs as usual.
     turnctrl.executing = false;
     T_BeginEnemyPhase();
-}
-
-// ------------------------------------------------------------------
-// SWAP WEAPON: 2 TP. Cycle readyweapon to the next owned Doom weapon
-// among the six turn-mode kits (pistol..BFG). The Diablo equipment weapon
-// item is orthogonal (it grants stats); the six kits live on the Doom
-// weapons. Fists are not a kit, so swap never selects them.
-//
-// Queue model: validated at enqueue (a candidate must exist); the swap
-// itself resolves at drain time from the then-current weapon, so two
-// queued swaps advance twice.
-// ------------------------------------------------------------------
-void T_DoSwapWeapon(void)
-{
-    player_t *player = &players[consoleplayer];
-    int w, cand;
-
-    if (!T_Active() || player->mo == NULL)
-        return;
-    if (!T_ActorAlive())
-        return;
-    if (T_InPulse() || turnctrl.executing)
-        return;
-    if (!T_CanAfford(TA_SWAP_WEAPON))
-    {
-        T_RefuseTP(TA_SWAP_WEAPON);
-        return;
-    }
-
-    for (w = 1; w <= (wp_bfg - wp_pistol); w++)
-    {
-        cand = wp_pistol + (player->readyweapon - wp_pistol + w)
-                         % (wp_bfg - wp_pistol + 1);
-        if (player->weaponowned[cand] && cand != player->readyweapon)
-            break;
-    }
-    if (w > (wp_bfg - wp_pistol) || cand == player->readyweapon)
-    {
-        player->message = "No other weapon.";
-        printf("[TURN] swap refused: no other weapon owned\n");
-        return;
-    }
-
-    T_Enqueue(TA_SWAP_WEAPON, T_CostFor(TA_SWAP_WEAPON), 0, NULL);
-}
-
-// Executor: advance to the next owned kit weapon from the current one.
-// Returns true: a frozen pulse was begun so the lower/raise animation
-// completes via P_PlayerThink.
-static boolean T_ExecSwap(int cost)
-{
-    player_t *player = &players[consoleplayer];
-    int w, cand;
-
-    if (player->mo == NULL)
-        return false;
-
-    for (w = 1; w <= (wp_bfg - wp_pistol); w++)
-    {
-        cand = wp_pistol + (player->readyweapon - wp_pistol + w)
-                         % (wp_bfg - wp_pistol + 1);
-        if (player->weaponowned[cand] && cand != player->readyweapon)
-            break;
-    }
-    if (w > (wp_bfg - wp_pistol) || cand == player->readyweapon)
-    {
-        // Should not happen (validated at enqueue); skip gracefully.
-        printf("[TURN] queued swap skipped: no other weapon\n");
-        turnctrl.tp += cost;
-        players[consoleplayer].message = "Swap skipped (+2 TP).";
-        return false;
-    }
-
-    player->pendingweapon = cand;
-    // Frozen pulse lets the weapon lower/raise; ammo is topped up so the
-    // state machine can never reject the switch for lack of ammo.
-    T_BeginPulse(30, true, true);
-    printf("[TURN] swapped to weapon %d\n", cand);
-    T_DumpState("exec-swap");
-    return true;
 }
 
 // ------------------------------------------------------------------
@@ -887,7 +799,7 @@ void T_SpawnArena(void)
 // no mouse events. One token per line:
 //
 //   MOVE_N | MOVE_E | MOVE_S | MOVE_W | USE | END | DUMP | QUIT
-//   SWAP | UNDO | CLEAR
+//   UNDO | CLEAR
 //   ASSERT_TP n | ASSERT_ROUND n     (gate checks; print PASS/FAIL)
 //   ASSERT_QUEUE n | ASSERT_QTP n    (queue length / reserved TP)
 //   ASSERT_SEL n | ASSERT_TGT n      (selection / target count checks)
@@ -899,7 +811,7 @@ void T_SpawnArena(void)
 //   GIVEITEM t i                    (test: grant Diablo item, equip it)
 //   SELECT_NEXT | SELECT_PREV | SELECT_NUM n | ATTACK | CANCEL
 //
-// Queue model: MOVE/USE/SWAP/ATTACK enqueue; END drains the queue FIFO
+// Queue model: MOVE/USE/ATTACK enqueue; END drains the queue FIFO
 // then runs the enemy phase. Pulses run synchronously so scripts are
 // fast and deterministic.
 // ------------------------------------------------------------------
@@ -954,7 +866,6 @@ void T_RunScript(const char *path)
         else if (!strcmp(line, "MOVE_W")) T_DoMove(3);
         else if (!strcmp(line, "USE"))    T_DoUse();
         else if (!strcmp(line, "END"))    T_DoEndTurn();
-        else if (!strcmp(line, "SWAP"))   T_DoSwapWeapon();
         else if (!strcmp(line, "UNDO"))   T_DoUndoQueue();
         else if (!strcmp(line, "CLEAR"))   T_DoClearQueue();
         else if (sscanf(line, "ASSERT_QUEUE %d", &n) == 1)
