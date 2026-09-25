@@ -1056,52 +1056,91 @@ static void UIDrawTooltip(int id)
         UIDrawText(x + 5, y + 4 + i * 10, lines[i]);
 }
 
-static void UIDrawStats(player_t *player)
+static void UIDrawStats(player_t *player, int y); // fwd
+static int UIDrawPowers(player_t *player); // fwd, returns y below section
+
+static void UIDrawStats(player_t *player, int y)
 {
-    char buf[48];
-    int x = UI_BP_X, y = 115;
+    char buf[64];
+    int x = UI_BP_X;
 
     UIDrawText(x, y, "STATS");
-    y += 12;
+    y += 10;
     snprintf(buf, sizeof(buf), "DMG %d-%d   ARM %d",
              D_Stat((struct player_s *)player, DSTAT_DMG_MIN),
              D_Stat((struct player_s *)player, DSTAT_DMG_MAX),
              D_Stat((struct player_s *)player, DSTAT_ARMOR));
     UIDrawText(x, y, buf);
-    y += 9;
-    snprintf(buf, sizeof(buf), "STR %d  DEX %d",
+    y += 8;
+    snprintf(buf, sizeof(buf), "STR %d DEX %d VIT %d ENE %d POT +%d%%",
              D_Stat((struct player_s *)player, DSTAT_STR),
-             D_Stat((struct player_s *)player, DSTAT_DEX));
-    UIDrawText(x, y, buf);
-    y += 9;
-    snprintf(buf, sizeof(buf), "DODGE %d%%  CRIT %d%%",
-             D_DodgeChance((struct player_s *)player),
-             D_CritChance((struct player_s *)player));
-    UIDrawText(x, y, buf);
-    y += 9;
-    snprintf(buf, sizeof(buf), "VIT %d  ENE %d (+%d%% pot)",
+             D_Stat((struct player_s *)player, DSTAT_DEX),
              D_Stat((struct player_s *)player, DSTAT_VIT),
              D_Stat((struct player_s *)player, DSTAT_ENE),
              D_PotionBonus((struct player_s *)player));
     UIDrawText(x, y, buf);
-    y += 9;
-    snprintf(buf, sizeof(buf), "RES F%d C%d L%d P%d",
-             D_Stat((struct player_s *)player, DSTAT_FRES),
-             D_Stat((struct player_s *)player, DSTAT_CRES),
-             D_Stat((struct player_s *)player, DSTAT_LRES),
-             D_Stat((struct player_s *)player, DSTAT_PRES));
-    UIDrawText(x, y, buf);
-    y += 9;
-    snprintf(buf, sizeof(buf), "LEECH %d%%  FIND %d%%",
+    y += 8;
+    snprintf(buf, sizeof(buf), "DODGE %d%% CRIT %d%% LEECH %d%% FIND %d%%",
+             D_DodgeChance((struct player_s *)player),
+             D_CritChance((struct player_s *)player),
              D_Stat((struct player_s *)player, DSTAT_LIFESTEAL),
              D_Stat((struct player_s *)player, DSTAT_MAGICFIND));
     UIDrawText(x, y, buf);
-    y += 9;
-    snprintf(buf, sizeof(buf), "SPEED +%d%%  HP %d/%d",
+    y += 8;
+    snprintf(buf, sizeof(buf), "RES F%d C%d L%d P%d SPD +%d%% HP %d/%d",
+             D_Stat((struct player_s *)player, DSTAT_FRES),
+             D_Stat((struct player_s *)player, DSTAT_CRES),
+             D_Stat((struct player_s *)player, DSTAT_LRES),
+             D_Stat((struct player_s *)player, DSTAT_PRES),
              D_Stat((struct player_s *)player, DSTAT_MOVESPEED),
              player->health,
              D_MaxHealth((struct player_s *)player));
     UIDrawText(x, y, buf);
+}
+
+// Special mechanics granted by equipped gear (MECH_*), below the
+// backpack. Plain stat boosts are filtered out -- those live in STATS.
+// Returns the y coordinate below the section.
+static int UIDrawPowers(player_t *player)
+{
+    int mechs = D_ActiveMechs((struct player_s *)player);
+    int x = UI_BP_X, y = 115;
+    int i, shown = 0, total = 0;
+    char buf[48];
+
+    UIDrawText(x, y, "POWERS");
+    y += 10;
+
+    // Count first, so we can show "+N more" when it overflows.
+    for (i = 0; i < 14; i++)
+        if (mechs & (1 << i))
+            total++;
+
+    for (i = 0; i < 14 && shown < 3; i++)
+    {
+        if (mechs & (1 << i))
+        {
+            const char *desc = D_MechDesc(1 << i);
+            if (desc)
+            {
+                UIDrawText(x, y, desc);
+                y += 8;
+                shown++;
+            }
+        }
+    }
+    if (total > shown)
+    {
+        snprintf(buf, sizeof(buf), "+%d more", total - shown);
+        UIDrawText(x, y, buf);
+        y += 8;
+    }
+    if (total == 0)
+    {
+        UIDrawText(x, y, "(none)");
+        y += 8;
+    }
+    return y;
 }
 
 void D_UIDrawer(void)
@@ -1153,8 +1192,11 @@ void D_UIDrawer(void)
                        id);
     }
 
-    // Stats panel under the backpack.
-    UIDrawStats(player);
+    // Powers (special mechanics) and stats under the backpack.
+    {
+        int py = UIDrawPowers(player);
+        UIDrawStats(player, py + 4);
+    }
 
     // Keyboard cursor highlight (mouse mode keeps the crosshair).
     if (ui_kb_active)

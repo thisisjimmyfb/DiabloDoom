@@ -438,6 +438,52 @@ int D_EquippedWeaponMech(struct player_s *pl)
     return 0;
 }
 
+// OR of MECH_* bits from every equipped item (not just the gun).
+// Powers the inventory POWERS panel: special mechanics granted by gear,
+// with plain stat boosts filtered out (those live in the STATS panel).
+int D_ActiveMechs(struct player_s *pl)
+{
+    player_t *player = (player_t *)pl;
+    int i, mechs = 0;
+
+    if (!player)
+        return 0;
+    for (i = 0; i < NUM_ESLOTS; i++)
+    {
+        int id = player->diablo_equipped[i];
+        const diablo_itemdef_t *def;
+        if (id == D_NOITEM)
+            continue;
+        def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
+        if (def)
+            mechs |= def->mech;
+    }
+    return mechs;
+}
+
+// One-line display text for a single MECH_* bit. NULL for unknown bits.
+const char *D_MechDesc(int mech_bit)
+{
+    switch (mech_bit)
+    {
+        case MECH_PHOENIX:   return "Phoenix: kills vent 50 heat";
+        case MECH_OVERCLOCK: return "Overclock: +25 heat vent/round";
+        case MECH_CALDERA:   return "Caldera: overheat fires nova";
+        case MECH_VOLTAIC:   return "Voltaic: blasts chain 50%";
+        case MECH_BANDOLIER: return "Bandolier: +1 max charge";
+        case MECH_SIEGE:     return "Siege: hits knock foes back";
+        case MECH_HUNGRY:    return "Hungry: kills -1 cooldown";
+        case MECH_HORIZON:   return "Event Horizon: blast drags in";
+        case MECH_BREACHER:  return "Breacher: kills refund reload";
+        case MECH_BULL:      return "Bull: firing shoves you back";
+        case MECH_SPLITTING: return "Splitting: +2 pellets";
+        case MECH_REAPER:    return "Reaper: kills refund 2 TP";
+        case MECH_LUCKY:     return "Lucky: every 3rd shot crits";
+        case MECH_GLACIER:   return "Glacier: hits slow foes";
+        default:             return NULL;
+    }
+}
+
 void D_RecalcStats(struct player_s *pl)
 {
     player_t *player = (player_t *)pl;

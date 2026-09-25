@@ -164,6 +164,8 @@ void D_ResetPlayer(struct player_s *player);
 void D_RecalcStats(struct player_s *player);
 void D_SyncDoomWeapon(struct player_s *player); // gun -> readyweapon/sprite
 int D_EquippedWeaponMech(struct player_s *player); // MECH_* of equipped gun
+int D_ActiveMechs(struct player_s *player); // OR of MECH_* from all equipped
+const char *D_MechDesc(int mech_bit); // short display text for one MECH_* bit
 int D_Stat(struct player_s *player, int stat);
 int D_MaxHealth(struct player_s *player);
 
