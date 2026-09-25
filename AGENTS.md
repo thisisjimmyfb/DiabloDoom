@@ -36,10 +36,10 @@ title with `~/workspace/doom/wshot.py` — with `window_width 1280` /
 - `src/doom/d_diablo_icons.c/.h` — item icon art.
 - `src/doom/st_stuff.c` — status bar. The classic 2–7 arms boxes were
   replaced with the equipped Diablo weapon panel (icon + damage range,
-  `FISTS` when empty). See `ST_drawDiabloWeapon`. Planned: under the
-  no-ammo rule, both ammo displays go away and the AMMO readout becomes
-  a stats panel (character stats + live weapon state: attack speed,
-  cooldown, charge/heat). Which stats TBD — see `SPEC.md`.
+  `FISTS` when empty). See `ST_drawDiabloWeapon`. In turn mode the right-side
+  ammo counts are replaced by a LoL-style AD/AP stat block (gold sword icon
+  + damage range, teal sparkle + ability power, cooldown below) — see
+  `ST_drawTurnKits`. The left-side AMMO readout is unused in turn mode.
 - `src/doom/p_inter.c` — pickup/drop, including Diablo loot drops.
 - `DIABLO.md` — user-facing doc for the loot/equipment system (Phases 1–2
   era; update it when behavior changes).

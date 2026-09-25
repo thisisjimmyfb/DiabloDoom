@@ -1063,31 +1063,92 @@ static void ST_TurnDrawText(int x, int y, const char *s)
     }
 }
 
-// Turn-based kit status (Phase 5): replaces the AMMO readout with a
-// persistent AD/AP line and a contextual AS/READY/cooldown line.
+// LoL-style AD/AP stat block (turn mode): replaces the right-side ammo
+// counts with icon + number rows. AD gets a gold sword, AP a teal sparkle,
+// cooldown small underneath. Numbers right-align at the screen edge.
+static const char *st_icon_sword[8] = {
+    "......##",
+    ".....###",
+    "....###.",
+    "########",
+    "...###..",
+    "..###...",
+    "..##....",
+    ".##.....",
+};
+
+static const char *st_icon_spark[8] = {
+    "...##...",
+    "...##...",
+    "...##...",
+    "########",
+    "########",
+    "...##...",
+    "...##...",
+    "...##...",
+};
+
+// Nearest PLAYPAL index to an RGB triple. Used once for the AP teal.
+static int ST_NearestColor(int r, int g, int b)
+{
+    static int cached = -1;
+    byte *pal;
+    int best = 0, bestd = 1 << 30, i;
+
+    if (cached >= 0)
+        return cached;
+    pal = W_CacheLumpName("PLAYPAL", PU_STATIC);
+    for (i = 0; i < 256; i++)
+    {
+        int dr = pal[i * 3] - r;
+        int dg = pal[i * 3 + 1] - g;
+        int db = pal[i * 3 + 2] - b;
+        int d = dr * dr + dg * dg + db * db;
+        if (d < bestd)
+        {
+            bestd = d;
+            best = i;
+        }
+    }
+    Z_ChangeTag(pal, PU_CACHE);
+    cached = best;
+    return best;
+}
+
+static void ST_DrawIcon8(int x, int y, const char **bits, int color)
+{
+    int r, c;
+    for (r = 0; r < 8; r++)
+        for (c = 0; c < 8; c++)
+            if (bits[r][c] != '.')
+                V_DrawFilledBox(x + c, y + r, 1, 1, color);
+}
+
+// Turn-based kit status (Phase 5): replaces the right-side AMMO counts
+// with a persistent AD/AP stat block and a contextual cooldown line.
 static void ST_drawTurnKits(void)
 {
     t_combatstats_t st;
-    const t_kitdef_t *kit;
-    char line1[32], line2[32];
-    int cd;
+    char adbuf[16], apbuf[16], cdbuf[16];
+    int cd, teal;
 
     if (!T_Active())
         return;
     T_DeriveStats(plyr, &st);
-    kit = T_KitForWeapon(plyr->readyweapon);
     cd = T_KitCooldown(plyr->readyweapon);
+    teal = ST_NearestColor(32, 200, 190);
 
-    // Persistent: attack damage and ability power.
-    // HU font has gaps (no 'L', etc.); use only verified glyphs.
-    snprintf(line1, sizeof(line1), "AD%d-%d",
-             st.ad_min, st.ad_max);
-    // Contextual: cooldown only (CD0=ready). Kit name in HUD preview.
-    snprintf(line2, sizeof(line2), "CD%d", cd);
-    // Clear the ammo number area, then draw the kit panel.
-    V_DrawFilledBox(2, 170, 76, 28, 0);
-    ST_TurnDrawText(6, 172, line1);
-    ST_TurnDrawText(6, 182, line2);
+    snprintf(adbuf, sizeof(adbuf), "%d-%d", st.ad_min, st.ad_max);
+    snprintf(apbuf, sizeof(apbuf), "%d", st.ap);
+    snprintf(cdbuf, sizeof(cdbuf), "CD%d", cd);
+
+    // Clear the right-side ammo count area, then draw the stat block.
+    V_DrawFilledBox(278, 170, 42, 30, 0);
+    ST_DrawIcon8(280, 171, st_icon_sword, 160); // gold sword: attack damage
+    ST_TurnDrawText(318 - STWepTextWidth(adbuf), 171, adbuf);
+    ST_DrawIcon8(280, 180, st_icon_spark, teal); // teal sparkle: ability power
+    ST_TurnDrawText(318 - STWepTextWidth(apbuf), 180, apbuf);
+    ST_TurnDrawText(282, 189, cdbuf);
 }
 
 static void ST_drawDiabloWeapon(void)
