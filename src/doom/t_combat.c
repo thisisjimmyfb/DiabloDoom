@@ -298,8 +298,8 @@ static const t_kitdef_t t_kits[NUMWEAPONS] = {
     { "CHAINGUN", 1,  3,  5, 0,   0,  0, 3, false, 0,  0,  0, 0 },
     // wp_missile: AP rockets, enemy-targeted splash, charge-gated
     { "ROCKET",   5,  9,  6, 0, 128, 50, 1, true, 10,  0,  0, 2 },
-    // wp_plasma: AP energy, heat-gated (Rumble-style). Free to spam;
-    // heat is the only gate: locks at 100 until fully cooled to 0.
+    // wp_plasma: AP energy. Heat is inverse ammo: free to spam while
+    // heat < 100, vents 40/round.
     { "PULSE",    2,  4,  4, 0,   0,  0, 1, true,  0, 25, 40, 0 },
     // wp_bfg: AP ultimate, cooldown + mana
     { "BFG",     10, 18,  8, 3, 192, 60, 1, true, 20,  0,  0, 0 },
@@ -336,8 +336,7 @@ int T_KitFireSound(weapontype_t w)
 
 // Per-weapon cadence state, in rounds/tics. Indexed by weapontype.
 static int t_cooldowns[NUMWEAPONS];
-static int t_heat[NUMWEAPONS];      // 0-100 (plasma)
-static boolean t_overheated[NUMWEAPONS]; // latched at 100, clears at 0
+static int t_heat[NUMWEAPONS];      // 0-100 (plasma): inverse ammo
 static int t_charges[NUMWEAPONS];   // 0..max_charges (rocket)
 static boolean t_cadence_inited;
 
@@ -427,8 +426,6 @@ void T_KitLoadCadence(const int *cool, const int *heat,
         int maxc = t_kits[w].max_charges;
         t_cooldowns[w] = cool[w] > 0 ? cool[w] : 0;
         t_heat[w] = heat[w] < 0 ? 0 : (heat[w] > 100 ? 100 : heat[w]);
-        // Overheated latch: saved at 100 means it was locked.
-        t_overheated[w] = (t_heat[w] >= 100);
         t_charges[w] = charges[w] < 0 ? 0
                      : (charges[w] > maxc ? maxc : charges[w]);
         t_shots[w] = shots[w] > 0 ? shots[w] : 0;
@@ -452,11 +449,8 @@ void T_KitTickCooldowns(void)
             if (D_EquippedWeaponMech(&players[consoleplayer]) & MECH_OVERCLOCK)
                 vent += 25;
             t_heat[w] -= vent;
-            if (t_heat[w] <= 0)
-            {
+            if (t_heat[w] < 0)
                 t_heat[w] = 0;
-                t_overheated[w] = false; // fully cooled: unlocked
-            }
         }
         {
             int maxc = T_KitMaxCharges((weapontype_t)w);
@@ -475,7 +469,8 @@ boolean T_KitCanFire(weapontype_t w)
         return false;
     if (kit->max_charges > 0 && T_KitCharges(w) <= 0)
         return false;
-    if (kit->heat_per_shot > 0 && t_overheated[w])
+    // Heat is inverse ammo: usable while below the overheat threshold.
+    if (kit->heat_per_shot > 0 && T_KitHeat(w) >= 100)
         return false;
     return T_HasAmmoForKit(w);
 }
@@ -487,7 +482,7 @@ const char *T_KitDenyReason(weapontype_t w)
         return "ON COOLDOWN";
     if (kit->max_charges > 0 && T_KitCharges(w) <= 0)
         return "NO CHARGES";
-    if (kit->heat_per_shot > 0 && t_overheated[w])
+    if (kit->heat_per_shot > 0 && T_KitHeat(w) >= 100)
         return "OVERHEATED";
     if (!T_HasAmmoForKit(w))
         return "NO AMMO";
@@ -606,11 +601,8 @@ boolean T_ResolveAttack(player_t *player, mobj_t *target)
         if (kit->heat_per_shot > 0)
         {
             t_heat[w] += kit->heat_per_shot;
-            if (t_heat[w] >= 100)
-            {
+            if (t_heat[w] > 100)
                 t_heat[w] = 100;
-                t_overheated[w] = true; // locked until fully cooled
-            }
         }
         if (kit->max_charges > 0 && t_charges[w] > 0)
             t_charges[w]--;
