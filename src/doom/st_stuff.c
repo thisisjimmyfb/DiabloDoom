@@ -1201,9 +1201,11 @@ static const char *st_icon_drop[8] = {
 static void ST_drawTurnKits(void)
 {
     t_combatstats_t st;
-    char dmgbuf[24], cdbuf[24], mechbuf[24];
+    char dmglab[8], dmgval[16], cdlab[8], cdval[8], mechlab[8], mechval[16];
     const t_kitdef_t *kit;
     int cd, dmg_min, dmg_max;
+    // Panel geometry: labels left-aligned, values right-aligned.
+    const int labx = 254, valright = 316;
 
     if (!T_Active())
         return;
@@ -1216,29 +1218,47 @@ static void ST_drawTurnKits(void)
 
     // Damage: AD range for AD guns, AP value for AP guns (not both).
     if (kit->ap_weapon)
-        snprintf(dmgbuf, sizeof(dmgbuf), "AP %d", T_ApplyApPct(plyr, st.ap));
+    {
+        snprintf(dmglab, sizeof(dmglab), "AP");
+        snprintf(dmgval, sizeof(dmgval), "%d", T_ApplyApPct(plyr, st.ap));
+    }
     else
-        snprintf(dmgbuf, sizeof(dmgbuf), "AD %d-%d", dmg_min, dmg_max);
-    snprintf(cdbuf, sizeof(cdbuf), "CD %d", cd);
+    {
+        snprintf(dmglab, sizeof(dmglab), "AD");
+        snprintf(dmgval, sizeof(dmgval), "%d-%d", dmg_min, dmg_max);
+    }
+    snprintf(cdlab, sizeof(cdlab), "CD");
+    snprintf(cdval, sizeof(cdval), "%d", cd);
     // Weapon-specific gate: heat for plasma, charges for rocket.
     if (kit->heat_per_shot > 0)
-        snprintf(mechbuf, sizeof(mechbuf), "HEAT %d/%d",
+    {
+        snprintf(mechlab, sizeof(mechlab), "HEAT");
+        snprintf(mechval, sizeof(mechval), "%d/%d",
                  T_KitHeat(plyr->readyweapon), T_KitHeatMax());
+    }
     else if (kit->max_charges > 0)
-        snprintf(mechbuf, sizeof(mechbuf), "CHG %d/%d",
+    {
+        snprintf(mechlab, sizeof(mechlab), "CHG");
+        snprintf(mechval, sizeof(mechval), "%d/%d",
                  T_KitCharges(plyr->readyweapon), kit->max_charges);
+    }
     else
-        mechbuf[0] = '\0';
+        mechlab[0] = '\0';
 
     // Clear the right-side ammo count area (incl. BULL/SHELL/RCKT/CELL
     // labels), then draw the stat block. Keep the panel narrow (x=250+)
-    // so it doesn't clip the armor% widget at x=221. Text is right-aligned
-    // to x=316 for a clean edge.
+    // so it doesn't clip the armor% widget at x=221.
+    // Labels left-aligned, values right-aligned for a clean stat sheet.
     V_DrawFilledBox(250, 170, 70, 30, 0);
-    ST_TurnDrawText(316 - STWepTextWidth(dmgbuf), 171, dmgbuf);
-    ST_TurnDrawText(316 - STWepTextWidth(cdbuf), 180, cdbuf);
-    if (mechbuf[0])
-        ST_TurnDrawText(316 - STWepTextWidth(mechbuf), 189, mechbuf);
+    ST_TurnDrawText(labx, 171, dmglab);
+    ST_TurnDrawText(valright - STWepTextWidth(dmgval), 171, dmgval);
+    ST_TurnDrawText(labx, 180, cdlab);
+    ST_TurnDrawText(valright - STWepTextWidth(cdval), 180, cdval);
+    if (mechlab[0])
+    {
+        ST_TurnDrawText(labx, 189, mechlab);
+        ST_TurnDrawText(valright - STWepTextWidth(mechval), 189, mechval);
+    }
 }
 
 static void ST_drawDiabloWeapon(void)
