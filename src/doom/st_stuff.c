@@ -1232,12 +1232,13 @@ static void ST_drawTurnKits(void)
 
     // Clear the right-side ammo count area (incl. BULL/SHELL/RCKT/CELL
     // labels), then draw the stat block. Keep the panel narrow (x=250+)
-    // so it doesn't clip the armor% widget at x=221.
+    // so it doesn't clip the armor% widget at x=221. Text is right-aligned
+    // to x=316 for a clean edge.
     V_DrawFilledBox(250, 170, 70, 30, 0);
-    ST_TurnDrawText(254, 171, dmgbuf);
-    ST_TurnDrawText(254, 180, cdbuf);
+    ST_TurnDrawText(316 - STWepTextWidth(dmgbuf), 171, dmgbuf);
+    ST_TurnDrawText(316 - STWepTextWidth(cdbuf), 180, cdbuf);
     if (mechbuf[0])
-        ST_TurnDrawText(254, 189, mechbuf);
+        ST_TurnDrawText(316 - STWepTextWidth(mechbuf), 189, mechbuf);
 }
 
 static void ST_drawDiabloWeapon(void)
