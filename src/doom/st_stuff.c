@@ -1216,8 +1216,9 @@ static void ST_drawTurnKits(void)
     snprintf(apbuf, sizeof(apbuf), "AP %d", T_ApplyApPct(plyr, st.ap));
     snprintf(cdbuf, sizeof(cdbuf), "CD %d", cd);
 
-    // Clear the right-side ammo count area, then draw the stat block.
-    V_DrawFilledBox(278, 170, 42, 30, 0);
+    // Clear the right-side ammo count area (incl. BULL/SHELL/RCKT/CELL
+    // labels), then draw the stat block.
+    V_DrawFilledBox(230, 170, 90, 30, 0);
     ST_TurnDrawText(282, 171, adbuf);
     ST_TurnDrawText(282, 180, apbuf);
     ST_TurnDrawText(282, 189, cdbuf);
