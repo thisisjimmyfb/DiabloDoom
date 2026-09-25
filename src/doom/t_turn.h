@@ -5,9 +5,10 @@
 // turn-mode conditionals through every weapon and monster; route
 // turn-mode behavior through this controller and the gameplay bridge.
 //
-// State machine: PLANNING -> TARGETING -> CONFIRM -> PULSE -> (REACTION)
-// -> ROUND_END. Targeting and confirmation are reversible; TP is spent
-// only when a valid action enters PULSE.
+// State machine: PLANNING -> TARGETING -> CONFIRM -> (queue) ->
+// END TURN -> drain FIFO (PULSE per entry) -> REACTION -> ROUND_END.
+// Targeting and confirmation are reversible; TP is reserved when an
+// action is enqueued and refunded on undo/clear/skip.
 //
 // Core invariant: no turn-mode action reads mouse position, analog
 // magnitude, crosshair overlap, or a manually chosen world coordinate.
@@ -17,17 +18,23 @@
 
 #include "doomdef.h"
 #include "d_event.h"
+#include "tables.h" // angle_t for the queued-action snapshot
 // Forward declare mobj_t for profile kill counter.
 struct mobj_s;
 typedef struct mobj_s mobj_t;
 
 // Turn controller phases.
+//
+// Queue model: PLANNING enqueues actions (TP reserved immediately);
+// END TURN drains the queue FIFO (each entry runs its own pulse),
+// then the enemy phase runs, then round bookkeeping.
+// TARGETING/CONFIRM build an attack for the queue; they never execute.
 typedef enum
 {
     TS_OFF,        // turn mode not active (real-time path)
-    TS_PLANNING,   // world frozen; player issues discrete actions
+    TS_PLANNING,   // world frozen; player queues discrete actions
     TS_TARGETING,  // a target is selected; preview shown
-    TS_CONFIRM,    // action confirmed, awaiting pulse
+    TS_CONFIRM,    // attack previewed, awaiting enqueue
     TS_PULSE,      // bounded simulation pulse resolving (input locked)
     TS_REACTION,   // enemy phase: monsters act, input locked
     TS_ROUND_END,  // cooldowns tick, round increments
@@ -37,17 +44,31 @@ typedef enum
 typedef enum
 {
     TA_NONE,
-    TA_MOVE_N, TA_MOVE_S, TA_MOVE_E, TA_MOVE_W,  // screen-relative steps
+    TA_MOVE_N, TA_MOVE_S, TA_MOVE_E, TA_MOVE_W,  // facing-relative steps
+    TA_TURN_L, TA_TURN_R,  // free view turn (arrow keys), 0 TP
     TA_SELECT_NEXT, TA_SELECT_PREV, TA_SELECT_NUM,
-    TA_ATTACK, TA_HEADSHOT,
+    TA_ATTACK,
     TA_ABILITY,        // weapon kit ability (phase 5)
     TA_SWAP_WEAPON,
     TA_USE,
     TA_POTION,
-    TA_WAIT,
     TA_END_TURN,
     TA_CANCEL,
+    TA_UNDO,           // undo last queued action (Backspace)
+    TA_CLEAR_QUEUE,    // clear the whole queue (Z)
 } turnaction_t;
+
+// Queued action entry: planning snapshots everything the entry needs,
+// so the queue reads concretely ("STEP EAST") and execution is FIFO.
+#define T_QUEUE_MAX 16
+typedef struct
+{
+    turnaction_t action;   // TA_MOVE_*, TA_ATTACK, TA_USE, TA_SWAP_WEAPON
+    int cost;              // TP reserved at enqueue time
+    angle_t moveangle;     // TA_MOVE_*: world-space step angle snapshot
+    mobj_t *target;        // TA_ATTACK: actor snapshot (validated live)
+    char target_name[16];  // TA_ATTACK: display-name snapshot
+} t_queueentry_t;
 
 // Central controller state. Owned by t_turn.c; read via accessors.
 typedef struct
@@ -58,8 +79,11 @@ typedef struct
     int tp_max;             // 10
     int selected_target;    // index into target list, -1 = none
     int selected_num;       // display number chosen via number keys
-    turnaction_t queued;    // action awaiting pulse
-    boolean headshot_mod;   // headshot modifier armed for next attack
+    // Queued-action model: PLANNING enqueues, END TURN drains FIFO.
+    t_queueentry_t queue[T_QUEUE_MAX]; // ordered actions
+    int queue_len;          // entries currently queued
+    int queue_tp;           // TP reserved by queued actions
+    boolean executing;      // draining the queue (input locked)
     int heat;               // chaingun heat 0-100 (phase 5)
     int cooldowns[8];       // per-weapon-kit cooldowns in rounds (phase 5)
     int charge_tp;          // plasma charge banked in TP (phase 5)
@@ -86,6 +110,7 @@ extern turnctrl_t turnctrl;
 void T_RefreshTargets(void);
 // Number of current targets (0 = none).
 int T_NumTargets(void);
+mobj_t *T_SelectedMobj(void);
 // Target mobj by 0-based index, or NULL.
 struct mobj_s *T_TargetMobj(int idx);
 // Validate the selection after the world changed (death, etc.).
@@ -131,14 +156,22 @@ void T_RunPulseSync(int tics, boolean freeze_monsters);
 // lets ESC fall through to the turn responder (cancel) in that case.
 boolean T_InSelection(void);
 
-// Turn-mode actions (t_action.c). Phase 1: move/use/wait/end.
+// Turn-mode actions (t_action.c). Phase 1: move/use/end.
 // Phase 2: TP costs, legal-action checks, swap.
+// Queue model: T_DoMove/T_DoUse/T_DoSwapWeapon/T_DoAttack ENQUEUE
+// (TP reserved); T_DoEndTurn drains the queue FIFO, then the enemy
+// phase runs. T_DoTurn stays immediate (free view control).
 void T_DoMove(int dir);   // 0=N(fwd) 1=E(right) 2=S(back) 3=W(left)
+void T_DoTurn(int dir);   // -1=left, +1=right; free 45-degree view turn
 void T_DoUse(void);
-void T_DoWait(void);
 void T_DoEndTurn(void);
 void T_DoSwapWeapon(void); // 2 TP: cycle to next owned weapon
-void T_DoHeadshot(void);    // free: arm headshot modifier for next attack
+void T_DoUndoQueue(void);  // Backspace: undo last queued action, refund TP
+void T_DoClearQueue(void); // Z: clear the whole queue, refund all TP
+void T_ExecuteNext(void);  // run the next queued entry (queue drain)
+void T_BeginEnemyPhase(void);
+void T_QueueEntryName(const t_queueentry_t *e, char *buf, size_t buflen);
+const char *T_TargetName(mobj_t *mo);
 void T_TelegraphEnemies(void);  // Phase 6: warn of newly alerted enemies
 
 // Phase 2: Tempo economy.
@@ -170,7 +203,7 @@ boolean P_UnArchiveTurn(void);
 // Stored atomically (write temp + rename) on level exit and quit.
 // Loaded at startup.
 // ------------------------------------------------------------------
-#define T_PROFILE_VERSION 2
+#define T_PROFILE_VERSION 3
 #define T_PROFILE_NAME_LEN 32
 
 typedef struct
@@ -183,7 +216,6 @@ typedef struct
     int lifetime_kills;                     // enemies killed (turn mode)
     int lifetime_damage;                    // damage dealt (turn mode)
     int lifetime_rounds;                    // rounds played (turn mode)
-    int lifetime_headshots;                 // headshot kills
 } t_profile_t;
 
 extern t_profile_t t_profile;
@@ -200,7 +232,7 @@ int T_XPForLevel(int level);                // XP threshold for level
 void T_AddStatPoint(const char *stat);      // spend 1 point on str/dex/vit/ene
 
 // Lifetime counters (call from combat code).
-void T_CountKill(mobj_t *target, boolean headshot);
+void T_CountKill(mobj_t *target);
 void T_CountDamage(int dmg);
 void T_CountRound(void);
 

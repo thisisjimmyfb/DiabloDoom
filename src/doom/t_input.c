@@ -6,17 +6,22 @@
 // analog magnitude, or crosshair state.
 //
 // Phase 3 keymap (character screen closed):
-//   W/A/S/D or arrows .. screen-relative step (1 TP)
-//   X .................. swap weapon (2 TP)
-//   SPACE .............. use / interact (2 TP)
-//   . or Z ............. wait (0 TP; always legal, never soft-locks)
-//   Y .................. headshot modifier (free; +2 TP on next attack)
-//   T .................. end turn -> enemy phase
+//   W or up-arrow .... step forward (1 TP, queued)
+//   S or down-arrow .. step back (1 TP, queued)
+//   A / D ............ strafe left / right (1 TP, queued, no facing change)
+//   left/right arrows  turn view 45 degrees (free, 0 TP, always legal,
+//                      immediate — camera control is never queued)
+//   X .................. swap weapon (2 TP, queued)
+//   SPACE .............. use / interact (2 TP, queued)
+//   T .................. end turn -> drain queue FIFO, then enemy phase
+//   BACKSPACE .......... undo last queued action (free, refunds TP)
+//   Z or . ............. clear the whole queue (free, refunds all TP)
 //   TAB / ] ............ next target (free)
 //   [ .................. previous target (free)
 //   1-9 ................ select target by number (free)
-//   F or ENTER ......... attack: preview -> confirm -> fire (4 TP)
+//   F or ENTER ......... attack: preview -> confirm -> enqueue (4 TP)
 //   ESC ................ cancel targeting (free)
+// Queue model: planning keys ENQUEUE (TP reserved); END TURN executes.
 // C/E/Q/R keep their Diablo inventory meanings and are NOT intercepted.
 
 #include "t_turn.h"
@@ -32,13 +37,15 @@ static turnaction_t T_KeyAction(int key)
     {
       case 'w': case 'W': case KEY_UPARROW:    return TA_MOVE_N;
       case 's': case 'S': case KEY_DOWNARROW:  return TA_MOVE_S;
-      case 'a': case 'A': case KEY_LEFTARROW:  return TA_MOVE_W;
-      case 'd': case 'D': case KEY_RIGHTARROW: return TA_MOVE_E;
+      case 'a': case 'A':                      return TA_MOVE_W;
+      case 'd': case 'D':                      return TA_MOVE_E;
+      case KEY_LEFTARROW:                      return TA_TURN_L;
+      case KEY_RIGHTARROW:                     return TA_TURN_R;
       case ' ':                                return TA_USE;
-      case '.': case 'z': case 'Z':             return TA_WAIT;
       case 'x': case 'X':                      return TA_SWAP_WEAPON;
-      case 'y': case 'Y':                      return TA_HEADSHOT;
       case 't': case 'T':                      return TA_END_TURN;
+      case KEY_BACKSPACE:                      return TA_UNDO;
+      case 'z': case 'Z': case '.':             return TA_CLEAR_QUEUE;
       case KEY_TAB: case ']':                   return TA_SELECT_NEXT;
       case '[':                                return TA_SELECT_PREV;
       case 'f': case 'F': case KEY_ENTER:       return TA_ATTACK;
@@ -63,11 +70,13 @@ static void T_ExecuteAction(turnaction_t action)
       case TA_MOVE_E: T_DoMove(1); break;
       case TA_MOVE_S: T_DoMove(2); break;
       case TA_MOVE_W: T_DoMove(3); break;
+      case TA_TURN_L: T_DoTurn(-1); break;
+      case TA_TURN_R: T_DoTurn(1); break;
       case TA_USE:    T_DoUse();   break;
-      case TA_WAIT:   T_DoWait();  break;
       case TA_SWAP_WEAPON: T_DoSwapWeapon(); break;
-      case TA_HEADSHOT: T_DoHeadshot(); break;
       case TA_END_TURN: T_DoEndTurn(); break;
+      case TA_UNDO: T_DoUndoQueue(); break;
+      case TA_CLEAR_QUEUE: T_DoClearQueue(); break;
       case TA_SELECT_NEXT: T_DoSelectNext(); break;
       case TA_SELECT_PREV: T_DoSelectPrev(); break;
       case TA_ATTACK: T_DoAttack(); break;
@@ -115,8 +124,9 @@ boolean T_Responder(event_t *ev)
     if (action == TA_NONE)
         return false;
 
-    // Discrete action. TP is spent only on confirmation inside the
-    // action; selection and cancellation stay free.
+    // Discrete action. Planning actions enqueue (TP reserved at queue
+    // time); view turns stay immediate; selection/cancellation/undo
+    // stay free.
     if (action == TA_SELECT_NUM)
         T_ExecuteNumKey(ev->data1);
     else

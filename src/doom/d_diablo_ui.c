@@ -984,6 +984,11 @@ static int UITooltipLines(int id, char lines[12][48])
         snprintf(lines[n++], 48, "Ability power +%d%%", def->ap_pct);
     if (def->haste)
         snprintf(lines[n++], 48, "Haste %d%% (cooldowns)", def->haste);
+    // Crit is gear-inherent (Diablo-style).
+    if (def->crit_chance)
+        snprintf(lines[n++], 48, "+%d%% Crit Chance", def->crit_chance);
+    if (def->crit_dmg)
+        snprintf(lines[n++], 48, "+%d%% Crit Damage", def->crit_dmg);
     return n;
 }
 

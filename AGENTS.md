@@ -53,7 +53,10 @@ title with `~/workspace/doom/wshot.py` — with `window_width 1280` /
 2. **No scalar input, ever** (Jimmy's words: *"We shouldn't have actions
    that require scalar input because that will be too difficult to aim."*).
    Turn-mode actions are discrete: directions and actor IDs only. No
-   aiming, no crosshair math, no ground targeting, no manual turning.
+   aiming, no crosshair math, no ground targeting. Manual view turning
+   is allowed as free view control (arrow keys rotate 45 degrees, 0 TP)
+   — it does not break the no-aiming contract because targeting is still
+   numbered selection only.
 3. **Phase 0 needs Jimmy's explicit approval.** Do not start implementing
    turn-based mode until he says go.
 4. **No ammo.** Every weapon effectively has infinite ammo; availability
@@ -91,6 +94,16 @@ network.
 
 ## Controls (current, keyboard-first)
 
-W/S move, A/D strafe, arrows turn · C character screen · Tab
-backpack/paperdoll · Enter/Space pick up/place · E equip · R/Backspace
-cancel/use held consumable · Q unequip all · Esc close.
+Diablo inventory: C character screen · Tab backpack/paperdoll ·
+Enter/Space pick up/place · E equip · R/Backspace cancel/use held
+consumable · Q unequip all · Esc close.
+
+Turn mode (queued actions, FIFO): W/S step forward/back, A/D strafe
+(1 TP, never change facing) · left/right arrows turn view 45° (free,
+immediate, never queued) · X swap weapon (2 TP) · SPACE use (2 TP) ·
+F attack via preview-confirm (TP by attack speed) · T end turn (drains
+queue FIFO, then enemy phase) · Backspace undo last queued action
+(free, refunds TP) · Z clear queue (free, refunds all TP) · Tab / [
+/ ] / 1-9 target selection (free) · Esc cancel. Planning actions
+enqueue and reserve TP; END TURN executes. There is no WAIT and no
+HEADSHOT; crits come from gear, not dexterity.

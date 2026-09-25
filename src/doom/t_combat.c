@@ -91,11 +91,12 @@ void T_DeriveStats(player_t *player, t_combatstats_t *out)
     if (out->attack_tp > 4)
         out->attack_tp = 4;
 
-    // Dexterity feeds crit.
-    out->crit_chance = 5 + dex / 4;
+    // Crit is gear-inherent (Diablo-style): weapons and items grant
+    // crit chance and bonus crit damage. No attribute derivation.
+    out->crit_chance = player->diablo_stats[DSTAT_CRIT_CHANCE];
     if (out->crit_chance > 50)
         out->crit_chance = 50;
-    out->crit_mult = 150 + str / 10; // stronger crits for strong heroes
+    out->crit_mult = 200 + player->diablo_stats[DSTAT_CRIT_DMG];
 
     // Armor / MR from attributes + equipment.
     out->armor = player->diablo_stats[DSTAT_ARMOR] + str / 3 + vit / 4;
@@ -195,10 +196,6 @@ int T_HitChance(player_t *player, mobj_t *target, const t_combatstats_t *st)
         else if (blocked == 2)
             chance -= 25;
     }
-
-    // Headshot modifier: -15% hit (the +2 TP is in T_CostFor).
-    if (turnctrl.headshot_mod)
-        chance -= 15;
 
     if (chance < 5)
         chance = 5;
@@ -358,11 +355,6 @@ boolean T_ResolveAttack(player_t *player, mobj_t *target)
 
     chance = T_HitChance(player, target, &st);
 
-    // Headshot: 2x crit effect (the -15% hit is in T_HitChance,
-    // the +2 TP is in T_CostFor). Doubles the crit multiplier.
-    if (turnctrl.headshot_mod)
-        st.crit_mult *= 2;
-
     // Pellets: each rolls hit and damage separately (shotgun/chaingun).
     for (p = 0; p < kit->pellets; p++)
     {
@@ -397,23 +389,24 @@ boolean T_ResolveAttack(player_t *player, mobj_t *target)
     {
         player->message = "MISS!";
         S_StartSound(player->mo, sfx_pistol);
-        // Headshot modifier is consumed even on a miss.
-        turnctrl.headshot_mod = false;
         return false;
     }
 
     t_last_hit = 1;
     t_last_damage = total_dmg;
-
-    // Headshot modifier is consumed by the attack (hit or miss).
-    turnctrl.headshot_mod = false;
+    printf("[TURN] attack resolved: hits=%d dmg=%d crit=%d ad=%d-%d\n",
+           hits, total_dmg, t_last_crit, st.ad_min, st.ad_max);
 
     // Phase 8: lifetime counters.
     T_CountDamage(total_dmg);
     // Check if the target died (kill credit).
     // Note: P_DamageMobj is called below; we check after.
     if (t_last_crit)
+    {
         player->message = "CRITICAL HIT!";
+        printf("[TURN] CRITICAL HIT: %d dmg (x%d%%)\n",
+               total_dmg, st.crit_mult);
+    }
     else
         player->message = "HIT!";
 
@@ -421,13 +414,7 @@ boolean T_ResolveAttack(player_t *player, mobj_t *target)
     P_DamageMobj(target, player->mo, player->mo, total_dmg);
     // Phase 8: kill credit (check after damage).
     if (target->health <= 0)
-    {
-        // Was this a headshot? turnctrl.headshot_mod was just cleared,
-        // so we need to track it. For now, use t_last_crit as proxy?
-        // Actually, headshot is a modifier, not necessarily a crit.
-        // We'll pass false for headshot (refine later).
-        T_CountKill(target, false);
-    }
+        T_CountKill(target);
 
     // Splash: enemy-targeted, centered on the confirmed target.
     // Other visible enemies within radius take splash_pct% damage.

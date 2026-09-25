@@ -25,7 +25,8 @@ pauses while the screen is open.
 - **Backpack** (right): 10×4 grid. Items occupy their grid_w × grid_h
   footprint (e.g., weapons 2×3, potions 1×1).
 - **Stats** (bottom): damage, armor, strength, dexterity, vitality,
-  energy, resistances, life steal, magic find, movement speed.
+  energy, resistances, life steal, magic find, movement speed,
+  crit chance, crit damage.
 
 ### Mouse controls (two-click)
 

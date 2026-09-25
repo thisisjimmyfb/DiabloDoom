@@ -70,6 +70,9 @@ typedef enum
     DSTAT_AD_PCT,     // percent; multiplies attack damage
     DSTAT_AP_PCT,     // percent; multiplies ability power
     DSTAT_HASTE,      // percent; reduces cooldowns (turn-based)
+    // Crit is gear-inherent (Diablo-style): weapons/items grant it.
+    DSTAT_CRIT_CHANCE, // percent; chance to crit
+    DSTAT_CRIT_DMG,    // percent; bonus crit damage (x2 = 200 base)
     NUM_DSTATS
 } diablo_stat_t;
 
@@ -122,6 +125,9 @@ typedef struct
     int ad_pct;      // percent; multiplies attack damage
     int ap_pct;      // percent; multiplies ability power
     int haste;       // percent; reduces cooldowns
+    // Crit is gear-inherent (Diablo-style).
+    int crit_chance; // percent; chance to crit
+    int crit_dmg;    // percent; bonus crit damage (base x2 = 200)
 } diablo_itemdef_t;
 
 // Item table access.
@@ -169,8 +175,8 @@ int D_MagicFind(struct player_s *player);             // percent
 // Phase 4: dexterity/energy/resistance hooks.
 boolean D_DodgeRoll(struct player_s *player);   // true = avoided the hit
 int D_DodgeChance(struct player_s *player);     // percent, for UI
-int D_CritRoll(struct player_s *player, int damage);  // may double damage
-int D_CritChance(struct player_s *player);      // percent, for UI
+int D_CritRoll(struct player_s *player, int damage);  // gear crit damage
+int D_CritChance(struct player_s *player);      // percent, gear-derived, for UI
 // Reduce damage by the resistance matching the inflictor's element.
 // inflictor may be NULL (environmental/slime -> poison).
 int D_ResistReduce(struct player_s *player, struct mobj_s *inflictor,

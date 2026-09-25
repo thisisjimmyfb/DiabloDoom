@@ -90,29 +90,47 @@ pulse.
 | Action              | TP                          |
 |---------------------|-----------------------------|
 | Select / cycle target | 0                         |
-| Screen-relative step | 1                          |
+| Facing-relative step (WASD) | 1                  |
 | Use / interact     | 2                           |
 | Weapon swap         | 2                           |
-| Wait                | 0 (always legal)            |
 | Attack selected enemy | Derived from attack speed |
-| Headshot modifier   | +2                          |
+| Undo last queued action (Backspace) | 0 (refunds TP) |
+| Clear queue (Z)     | 0 (refunds all TP)          |
 | End turn            | 0 (always legal; listed last as the exit row) |
 
 `attack_cost = clamp(2, 8, ceil(base_cost / attack_speed))`
 
-### Turn flow
+### Turn flow (queued actions, FIFO execution)
 
 1. **Acquire** — every line-of-sight enemy gets a stable number + list entry.
 2. **Select** — cycle or press a number; inspect hit chance, damage, cost,
    HP, cover.
-3. **Confirm** — attack, ability, move, use, potion, or
-   end turn.
-4. **Resolve** — auto-face + simulation pulse. Facing is never an action.
+3. **Queue** — planning actions (move, use, swap, attack) ENQUEUE and
+   reserve TP immediately. The queue shows each entry with its cost and
+   the total reserved TP. Unaffordable actions are dimmed and cannot be
+   queued. Backspace removes the last entry (refunds TP); Z clears the
+   whole queue (refunds all TP).
+4. **Execute** — END TURN drains the queue FIFO: each entry runs with its
+   normal settle behavior, then the enemy phase runs. An empty queue
+   skips straight to the enemy phase.
 
-**Resolution rule:** input locks while a pulse resolves. An attack
-auto-faces the selected enemy; a step auto-faces its screen-relative
-movement direction. Selection and cancellation are free; TP is spent only
-after confirmation, so browsing targets never changes world state.
+**Queue rules:**
+- Movement entries snapshot their world-space direction at queue time
+  (e.g. STEP E); turning the view afterward does not change them.
+- Attack entries snapshot the target actor; at execution the target is
+  revalidated — if it died or became invalid, the attack skips gracefully,
+  refunds its TP, and the drain continues.
+- Blocked movement retains partial-progress behavior.
+- Input locks while the queue drains.
+
+**Resolution rule:** An attack auto-faces its snapshotted target at
+execution; steps are facing-relative (W/S forward/back, A/D strafe) and
+never change facing. The left/right arrows rotate the view 45 degrees
+for free — that is view control, not aiming: targeting is still numbered
+selection, so the no-aiming contract holds. View turning is immediate
+and never queued. Selection, cancellation, undo, and clear are free;
+TP is reserved at queue time, so browsing targets never changes world
+state.
 
 **Inventory rule:** opening the character screen costs no TP. Equipping or
 consuming an item does. Grid organization stays free.
@@ -129,7 +147,7 @@ consuming an item does. Grid organization stays free.
 | AP     | Ability Power        | Scales plasma, BFG, status, charged effects. Energy feeds AP. |
 | AS     | Attack Speed         | Reduces TP attack cost / shots per burst; hard floors prevent zero-cost attacks. |
 | Haste  | Cooldown recovery    | Shortens cooldowns by a displayed, rounded turn count.  |
-| Crit   | Chance + damage      | Dexterity drives chance; items add crit damage. Both visible. |
+| Crit   | Chance + damage      | Gear-inherent (Diablo-style): weapons/items grant crit chance and bonus crit damage. Base crits deal x2; each crit-damage point adds 1%. Chance caps at 50%. |
 | Armor  | Physical defense     | Diminishing-returns reduction of AD-tagged damage.      |
 | MR     | Magic resistance     | Reduces AP-tagged plasma, occult, status damage.        |
 | Move   | Movement efficiency  | Boots/effects can reduce step cost, never below 1 TP.   |
@@ -147,7 +165,7 @@ cooldown; crit; special trait.
 ### Level-up attributes (the existing four)
 
 - **Strength** — AD, knockback resistance, heavy-weapon handling.
-- **Dexterity** — hit chance, crit chance, reaction accuracy.
+- **Dexterity** — hit chance, attack-speed TP cost, dodge.
 - **Energy** — AP, charge efficiency, potion and status power.
 - **Vitality** — max health, physical resilience, recovery.
 
@@ -205,19 +223,16 @@ cannot afford render **dimmed gold** with their TP cost shown and cannot be
 selected. END TURN is always the final action-list row, visually separated
 as the exit (`>>T END TURN 0TP<<`).
 
-### Select → preview → confirm
+### Select → preview → confirm (enqueues)
 
 - `Tab` / `]` next target, `[` previous, number keys select directly.
 - ATTACK shows hit chance, damage, TP cost, range, cover, target HP.
-- Confirm spends TP and auto-faces the enemy. Cancel returns to selection
-  for free. Selection never advances time.
+- Confirm enqueues the attack and reserves its TP; it executes FIFO on
+  END TURN, auto-facing the snapshotted target. Cancel returns to
+  selection for free. Selection never advances time.
 - If the enemy becomes invalid before commitment, the action cancels
-  without spending TP.
-
-### Fallout-style aimed choice
-
-HEADSHOT is a menu modifier, not an aim test: **+2 TP, −15% hit chance,
-2× crit effect.** `headshot = attack(target, cost + 2, hit − 15%, crit × 2)`.
+  without reserving TP. If it becomes invalid before execution, the
+  queued attack skips gracefully and refunds its TP.
 
 ### Enemy-targeted abilities
 
@@ -346,7 +361,7 @@ previous one "mostly works."
 | Phase | Work | Gate |
 |-------|------|------|
 | 0 | Baseline. Turn controller wired as the unconditional default — no flag, no real-time mode. Capture Doom save behavior and the existing rebirth gear-preservation path. | Inventory, save/load, death, level transitions unchanged. |
-| 1 | Turn kernel + derived movement. PLANNING/PULSE states, bounded simulation, round counter, discrete screen-relative MOVE with auto-facing. | Navigate and interact via MOVE, USE, WAIT, END — no manual turning or analog input. |
+| 1 | Turn kernel + derived movement. PLANNING/PULSE states, bounded simulation, round counter, discrete facing-relative MOVE (W/S step, A/D strafe, arrows turn view free). | Navigate and interact via MOVE, USE, END — no analog input; view turning is a free arrow-key action, not aiming. |
 | 2 | Tempo economy. 10 TP, action costs, free target browsing, weapon swap cost, legal-action checks, round refresh. | No action overspends TP; cycling/canceling spend zero; save/load restores decision state. |
 | 3 | Target service + ATTACK contract. Visible-enemy enumeration, numbered markers, target list, Tab/`[`/`]`/number keys, auto-face, preview, confirm. | Every legal enemy has one stable number; ATTACK always resolves against the confirmed actor ID. |
 | 4 | Combat stats + hit preview. AD, AP, AS, Haste, crit, Armor, MR, range, cover, derived effects from the four attributes. | Fixed-seed tests reproduce displayed hit, damage, TP, cooldown, health, defense. |
@@ -360,7 +375,7 @@ point, the input contract has failed.
 | Phase | Work | Gate |
 |-------|------|------|
 | 5 | Weapon kits + enemy-targeted abilities. All six kits; rockets/BFG select an enemy and preview splash around it. | All six kits distinct; no attack or ability accepts a ground point or crosshair target. |
-| 6 | Headshot, cover, telegraphs. HEADSHOT math, multi-point cover traces, telegraphs. | Full cover blocks attacks; headshot math matches preview; newly alerted enemies telegraph before acting. |
+| 6 | Cover and telegraphs. Multi-point cover traces, telegraphs. | Full cover blocks attacks; newly alerted enemies telegraph before acting. |
 | 7 | Tactical loot pass. Affixes for AD/AP ratios, AS, Haste, charge, heat, move thresholds; selected unique traits. | Tooltips explain every change; equip/unequip reverses state exactly. |
 
 **Combat checkpoint:** finish the complete one-map tactical loop before
@@ -400,7 +415,7 @@ The smallest complete tactical loop: single-player turn-based
 mode with Tab/`[`/`]`/number selection, preview, confirm, auto-facing; six
 enemy-targeted weapon kits; 10-TP rounds with discrete controls only;
 numbered markers + target list (name, hit, distance, HP); AD/AP/AS/Haste/
-crit/Armor/MR + four allocatable attributes; cover, HEADSHOT,
+crit/Armor/MR + four allocatable attributes; cover,
 tactical affixes, selected uniques; tier-scaled XP, thresholds,
 stat points, one rebalanced map; standalone profile; first-session name
 vote, character-sheet posts, manual-paste bio text.
@@ -425,7 +440,7 @@ maps, then expanded command grammar and public-session cadence.
 | Decision | Recommendation / rule |
 |----------|----------------------|
 | Pulse boundary | Define exactly which weapon, projectile, monster, and world thinkers advance per action pulse. |
-| Movement unit | Short fixed-distance, collision-aware step. WASD is screen-relative at commit; auto-face the resulting world direction. |
+| Movement unit | Short fixed-distance, collision-aware step. WASD is facing-relative at commit (W/S step, A/D strafe); the view never auto-faces. |
 | Round timing | Cooldowns tick at round end (recommended) for clarity. |
 | Target identity | Display numbers stable while planning state is unchanged; resolve through actor IDs; rebuild + visibly renumber only after world state changes. |
 | Failure handling | Action invalid after commitment → refund TP, return to planning, unless world state already changed. |

@@ -2017,7 +2017,7 @@ void P_ArchiveTurn(void)
     saveg_write32(0); // reserved (was overwatch_tp)
     for (i = 0; i < 8; i++)
         saveg_write32(turnctrl.cooldowns[i]);
-    saveg_write32(turnctrl.headshot_mod ? 1 : 0);
+    saveg_write32(0); // reserved (was headshot_mod)
 }
 
 boolean P_UnArchiveTurn(void)
@@ -2052,12 +2052,15 @@ boolean P_UnArchiveTurn(void)
     saveg_read32(); // reserved (was overwatch_tp)
     for (i = 0; i < 8; i++)
         turnctrl.cooldowns[i] = saveg_read32();
-    turnctrl.headshot_mod = saveg_read32() ? true : false;
+    saveg_read32(); // reserved (was headshot_mod)
 
     // Land in a plannable state; G_DoLoadGame calls T_OnLoad next.
+    // The queue is transient planning state (never saved).
     turnctrl.state = TS_PLANNING;
     turnctrl.pulse_left = 0;
-    turnctrl.queued = TA_NONE;
+    turnctrl.queue_len = 0;
+    turnctrl.queue_tp = 0;
+    turnctrl.executing = false;
 
     return true;
 }

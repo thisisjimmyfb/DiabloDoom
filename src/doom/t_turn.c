@@ -87,8 +87,9 @@ void T_Init(void)
             t_arena_done = false; // spawn on first level tick
         else
             t_arena_done = true;
-        printf("Turn-based mode: discrete Tempo turns, "
-               "no aiming. WASD move, SPACE use, . wait, T end turn.\n");
+        printf("Turn-based mode: queue actions in planning (WASD move/strafe, "
+               "arrows turn view free, SPACE use, T end turn), "
+               "END TURN executes the queue FIFO.\n");
         // Phase 8: load the standalone profile.
         T_ProfileLoad();
     }
@@ -117,9 +118,13 @@ void T_OnLoad(void)
     // the player can continue the round; round/TP persist in memory.
     if (!T_Active())
         return;
+    // Land in a plannable state; the queue is transient planning state
+    // (never saved) and starts empty.
     turnctrl.state = TS_PLANNING;
     turnctrl.pulse_left = 0;
-    turnctrl.queued = TA_NONE;
+    turnctrl.queue_len = 0;
+    turnctrl.queue_tp = 0;
+    turnctrl.executing = false;
 }
 
 // ------------------------------------------------------------------
@@ -302,6 +307,21 @@ void T_RunPulseSync(int tics, boolean freeze_monsters)
     turnctrl.sync = was_sync;
 }
 
+// Enemy phase: telegraph, then monsters act for a bounded pulse with
+// input locked, then round bookkeeping (in T_EndPulse).
+void T_BeginEnemyPhase(void)
+{
+    players[consoleplayer].message = "Enemy phase...";
+    // Telegraph newly alerted enemies before they get to act.
+    T_TelegraphEnemies();
+    // Flag before the pulse: in sync (script) mode T_BeginPulse runs
+    // T_EndPulse immediately, which needs to see the enemy phase.
+    turnctrl.pulse_enemy = true;
+    T_BeginPulse(ENEMY_PHASE_TICS, false, false); // 2s, real-time rate
+    if (!turnctrl.sync)
+        turnctrl.state = TS_REACTION;
+}
+
 // Round bookkeeping when a pulse finishes.
 static void T_EndPulse(void)
 {
@@ -321,11 +341,16 @@ static void T_EndPulse(void)
             players[consoleplayer].message = msg;
         }
     }
+    else if (turnctrl.executing)
+    {
+        // Queue drain: run the next entry; when the queue is fully
+        // drained T_ExecuteNext starts the enemy phase itself.
+        T_ExecuteNext();
+    }
     else
     {
         turnctrl.state = TS_PLANNING;
     }
-    turnctrl.queued = TA_NONE;
     T_DumpState("pulse-end");
 }
 
@@ -584,6 +609,15 @@ static boolean T_ProjectTarget(mobj_t *mo, int *sx, int *sy)
 static mobj_t *t_targets[T_MAXTARGETS];
 static int t_numtargets = 0;
 
+// Test/script tooling: mobj of the current selection, or NULL.
+mobj_t *T_SelectedMobj(void)
+{
+    if (turnctrl.selected_target < 0 ||
+        turnctrl.selected_target >= t_numtargets)
+        return NULL;
+    return t_targets[turnctrl.selected_target];
+}
+
 void T_RefreshTargets(void)
 {
     player_t *player = &players[consoleplayer];
@@ -666,7 +700,7 @@ static int T_PreviewHit(mobj_t *mo)
     return T_HitChance(player, mo, &st);
 }
 
-static const char *T_TargetName(mobj_t *mo)
+const char *T_TargetName(mobj_t *mo)
 {
     if (mo == NULL)
         return "?";
@@ -692,13 +726,15 @@ static const char *T_TargetName(mobj_t *mo)
 
 // Action availability for the HUD: an action is enabled when it can be
 // afforded right now. ATTACK additionally needs a ready (off-cooldown)
-// kit. WAIT and END TURN cost 0 TP, so they are always enabled — the
-// player always has a legal move.
+// kit. UNDO/CLEAR need a non-empty queue. END TURN costs 0 TP, so it is
+// always enabled — the player always has a legal move.
 static boolean T_ActionEnabled(turnaction_t action)
 {
     if (action == TA_ATTACK)
         return T_CanAfford(TA_ATTACK)
             && T_KitReady(players[consoleplayer].readyweapon);
+    if (action == TA_UNDO || action == TA_CLEAR_QUEUE)
+        return turnctrl.queue_len > 0;
     return T_CanAfford(action);
 }
 
@@ -727,11 +763,10 @@ static void T_DrawActionList(void)
     int x = 8, y = 26;
     player_t *pl = &players[consoleplayer];
 
-    T_DrawActionRow(x, &y, "WASD", "MOVE", TA_MOVE_N, "1TP");
+    T_DrawActionRow(x, &y, "WASD", "MOVE/STRF", TA_MOVE_N, "1TP");
+    T_DrawActionRow(x, &y, "<>", "TURN", TA_TURN_L, "FREE");
     T_DrawActionRow(x, &y, "X", "SWAP", TA_SWAP_WEAPON, "2TP");
     T_DrawActionRow(x, &y, "SPC", "USE", TA_USE, "2TP");
-    T_DrawActionRow(x, &y, ".", "WAIT", TA_WAIT, "0TP");
-    T_DrawActionRow(x, &y, "Y", "HEADSHOT", TA_HEADSHOT, "0TP");
     T_DrawActionRow(x, &y, "TAB", "TARGET", TA_SELECT_NEXT, "FREE");
     if (!T_KitReady(pl->readyweapon))
         T_DrawActionRow(x, &y, "F", "ATTACK", TA_ATTACK, "CD");
@@ -740,6 +775,8 @@ static void T_DrawActionList(void)
         M_snprintf(cost, sizeof(cost), "%dTP", T_CostFor(TA_ATTACK));
         T_DrawActionRow(x, &y, "F", "ATTACK", TA_ATTACK, cost);
     }
+    T_DrawActionRow(x, &y, "BKSP", "UNDO", TA_UNDO, "FREE");
+    T_DrawActionRow(x, &y, "Z", "CLEARQ", TA_CLEAR_QUEUE, "FREE");
     // The exit: divider, then END TURN bracketed in highlight gold.
     T_DrawTextDim(x, y, "----------------");
     y += 9;
@@ -751,6 +788,43 @@ static void T_DrawActionList(void)
     }
 }
 
+// Queued-action panel: FIFO order with per-action costs and the total
+// reserved TP. Drawn below the action list while planning (and while
+// targeting, so the queue stays visible). Hidden when empty.
+static void T_DrawQueuePanel(void)
+{
+    char line[64], name[48];
+    int x = 8, y = 122, i, shown;
+
+    if (turnctrl.queue_len == 0)
+        return;
+    // Hide the panel while the queue is executing or a pulse resolves:
+    // the drain is visible in the world, not the list.
+    if (turnctrl.executing || T_InPulse())
+        return;
+    T_DrawText(x, y, "QUEUE");
+    y += 9;
+    // Cap visible rows so the panel never reaches the status bar.
+    shown = turnctrl.queue_len > 3 ? 3 : turnctrl.queue_len;
+    for (i = 0; i < shown; i++)
+    {
+        t_queueentry_t *e = &turnctrl.queue[i];
+        T_QueueEntryName(e, name, sizeof(name));
+        M_snprintf(line, sizeof(line), "%d %s %dTP", i + 1, name, e->cost);
+        T_DrawText(x, y, line);
+        y += 9;
+    }
+    if (turnctrl.queue_len > shown)
+    {
+        M_snprintf(line, sizeof(line), "+%d MORE", turnctrl.queue_len - shown);
+        T_DrawTextDim(x, y, line);
+        y += 9;
+    }
+    M_snprintf(line, sizeof(line), "%d ACTS %dTP RSVD",
+               turnctrl.queue_len, turnctrl.queue_tp);
+    T_DrawTextHi(x, y, line);
+}
+
 void T_DrawHUD(void)
 {
     char line[96];
@@ -760,8 +834,16 @@ void T_DrawHUD(void)
         return;
     T_TintFonts();
 
-    M_snprintf(line, sizeof(line), "TURN MODE - ROUND %d - TP %d/%d",
-               turnctrl.round, turnctrl.tp, turnctrl.tp_max);
+    // TP readout shows reserved (queued) TP separately: "TP 4/10"
+    // is spendable now, "(6 IN QUEUE)" is already committed.
+    if (turnctrl.queue_len > 0)
+        M_snprintf(line, sizeof(line),
+                   "TURN MODE - ROUND %d - TP %d/%d (%d IN QUEUE)",
+                   turnctrl.round, turnctrl.tp, turnctrl.tp_max,
+                   turnctrl.queue_tp);
+    else
+        M_snprintf(line, sizeof(line), "TURN MODE - ROUND %d - TP %d/%d",
+                   turnctrl.round, turnctrl.tp, turnctrl.tp_max);
     T_DrawTextCentered(2, line);
 
     if (turnctrl.state == TS_REACTION)
@@ -776,9 +858,12 @@ void T_DrawHUD(void)
         // The action list keeps drawing (left column): it repaints the
         // border-zone pixels every frame and keeps costs/disabled states
         // visible while targeting.
-        T_DrawTextCentered(12, "T END TURN   . WAIT   ESC BACK");
+        T_DrawTextCentered(12, "T END TURN  BKSP UNDO  Z CLEAR  <> TURN  ESC BACK");
         T_DrawActionList();
     }
+    // Queued-action panel (below the action list): FIFO order,
+    // per-action costs, total reserved TP.
+    T_DrawQueuePanel();
 
     // Target markers: stable numbers projected above each visible enemy.
     // The selected target is unmistakable: bright highlight gold with
@@ -928,9 +1013,11 @@ void T_DumpState(const char *why)
     const char *st = (turnctrl.state >= 0 && turnctrl.state <= TS_ROUND_END)
                      ? names[turnctrl.state] : "?";
 
-    printf("[TURN] %-10s round=%d tp=%d/%d state=%s sel=%d hp=%d pos=(%d,%d) angle=%u\n",
+    printf("[TURN] %-10s round=%d tp=%d/%d qlen=%d qtp=%d exec=%d state=%s sel=%d hp=%d pos=(%d,%d) angle=%u\n",
            why ? why : "-",
-           turnctrl.round, turnctrl.tp, turnctrl.tp_max, st,
+           turnctrl.round, turnctrl.tp, turnctrl.tp_max,
+           turnctrl.queue_len, turnctrl.queue_tp, turnctrl.executing ? 1 : 0,
+           st,
            turnctrl.selected_target,
            p->mo ? p->health : -1,
            p->mo ? p->mo->x >> FRACBITS : 0,
@@ -1100,12 +1187,10 @@ void T_AddStatPoint(const char *stat)
     printf("[TURN] +1 %s (%d points left)\n", stat, t_profile.stat_points);
 }
 
-void T_CountKill(mobj_t *target, boolean headshot)
+void T_CountKill(mobj_t *target)
 {
     int xp = 10;
     t_profile.lifetime_kills++;
-    if (headshot)
-        t_profile.lifetime_headshots++;
     // XP by target max health (tougher = more XP).
     if (target && target->info)
         xp = 10 + target->info->spawnhealth / 10;

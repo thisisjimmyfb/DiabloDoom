@@ -2,7 +2,7 @@
 // t_action.c — Turn-based mode: action implementations (gameplay bridge).
 //
 // Approved discrete commands into the existing player/world systems.
-// Phase 1: MOVE (derived, collision-aware, auto-facing), USE, WAIT,
+// Phase 1: MOVE (derived, collision-aware, facing-relative), USE, WAIT,
 // END TURN (enemy phase). TP costs land in phase 2; attacks in phase 3.
 
 #include <string.h>
@@ -11,6 +11,7 @@
 
 #include "t_turn.h"
 #include "t_combat.h"
+#include "d_diablo.h"
 #include "doomstat.h"
 #include "d_player.h"
 #include "g_game.h"
@@ -32,8 +33,10 @@
 // Phase 2: Tempo economy.
 //
 // Baseline action costs (SPEC). Selection and cancellation are always
-// free; TP is spent only after an action commits. An action that cannot
-// be afforded is refused with a message and changes nothing.
+// free. Queue model: TP is RESERVED when an action is enqueued (the
+// queue can never hold more than tp_max worth of actions) and refunded
+// on undo, clear, or a gracefully skipped entry. An action that cannot
+// be afforded is refused at enqueue with a message and changes nothing.
 // ------------------------------------------------------------------
 
 // Derived attack cost (Phase 5): kit base TP, reduced by attack speed.
@@ -63,13 +66,10 @@ int T_CostFor(turnaction_t action)
       case TA_USE:
       case TA_SWAP_WEAPON:
         return 2;
-      case TA_WAIT:
-        // WAIT is the always-legal pass action: 0 TP, so the player can
-        // never be soft-locked with no affordable move.
-        return 0;
       case TA_ATTACK:
-        return T_AttackCost() + (turnctrl.headshot_mod ? 2 : 0);
-      case TA_HEADSHOT: // arming the modifier is free; the +2 lands on ATTACK
+        return T_AttackCost();
+      case TA_TURN_L: case TA_TURN_R:
+        // View turning is view control, not a game action: free, 0 TP.
         return 0;
       case TA_ABILITY: // per-kit costs land in phase 5
         return 3;
@@ -120,35 +120,146 @@ static boolean T_ActorAlive(void)
 }
 
 // ------------------------------------------------------------------
-// MOVE: screen-relative discrete step with auto-facing.
+// Queued actions (FIFO). Planning enqueues; END TURN drains.
+//
+// Every enqueue runs the same validation the immediate model ran at
+// commit (TP affordability, cooldowns, target validity) and RESERVES
+// TP immediately, so the queue can never hold more than tp_max worth
+// of actions. Unaffordable actions stay dimmed/unqueuable.
+// ------------------------------------------------------------------
+
+// 8-wind compass name for a world-space angle (for "STEP EAST" etc.).
+static const char *T_CompassName(angle_t a)
+{
+    static const char *names[8] =
+        { "E", "NE", "N", "NW", "W", "SW", "S", "SE" };
+    return names[((a + ANG45 / 2) >> 29) & 7];
+}
+
+// Human-readable queue entry name for the HUD and messages.
+void T_QueueEntryName(const t_queueentry_t *e, char *buf, size_t buflen)
+{
+    if (e == NULL || buf == NULL || buflen == 0)
+        return;
+    switch (e->action)
+    {
+      case TA_MOVE_N: case TA_MOVE_S: case TA_MOVE_E: case TA_MOVE_W:
+        M_snprintf(buf, buflen, "STEP %s", T_CompassName(e->moveangle));
+        break;
+      case TA_ATTACK:
+        M_snprintf(buf, buflen, "ATTACK %s", e->target_name);
+        break;
+      case TA_USE:
+        M_snprintf(buf, buflen, "USE");
+        break;
+      case TA_SWAP_WEAPON:
+        M_snprintf(buf, buflen, "SWAP");
+        break;
+      default:
+        M_snprintf(buf, buflen, "?");
+        break;
+    }
+}
+
+// Append an action to the queue, reserving its TP. Snapshots (world-
+// space move angle, target actor) are taken by the caller at queue time.
+static boolean T_Enqueue(turnaction_t action, int cost, angle_t moveangle,
+                         mobj_t *target)
+{
+    t_queueentry_t *e;
+    char name[48];
+    static char msg[64];
+
+    if (!T_Active())
+        return false;
+    if (turnctrl.queue_len >= T_QUEUE_MAX)
+    {
+        players[consoleplayer].message = "Queue is full.";
+        printf("[TURN] enqueue refused: queue full\n");
+        return false;
+    }
+    if (turnctrl.queue_tp + cost > turnctrl.tp_max)
+    {
+        // Belt and braces: T_CanAfford should have gated this already.
+        T_RefuseTP(action);
+        return false;
+    }
+    e = &turnctrl.queue[turnctrl.queue_len++];
+    e->action = action;
+    e->cost = cost;
+    e->moveangle = moveangle;
+    e->target = target;
+    if (action == TA_ATTACK && target != NULL)
+        M_StringCopy(e->target_name, T_TargetName(target),
+                     sizeof(e->target_name));
+    else
+        e->target_name[0] = '\0';
+    // Reserve TP immediately.
+    turnctrl.tp -= cost;
+    turnctrl.queue_tp += cost;
+    T_QueueEntryName(e, name, sizeof(name));
+    M_snprintf(msg, sizeof(msg), "Queued %s (%d TP).", name, cost);
+    players[consoleplayer].message = msg;
+    printf("[TURN] enqueued %s cost=%d tp_left=%d qlen=%d\n",
+           name, cost, turnctrl.tp, turnctrl.queue_len);
+    T_DumpState("enqueue");
+    return true;
+}
+
+// ------------------------------------------------------------------
+// MOVE: facing-relative discrete step. Facing never changes here —
+// W/S step forward/back, A/D strafe left/right, all relative to the
+// current facing. View turning is a separate free action (arrow keys).
 // dir: 0=N(forward) 1=E(right) 2=S(back) 3=W(left), relative to facing.
 // Doom angles increase counterclockwise (+y is north), so strafing
 // right is -90 degrees and strafing left is +90.
+//
+// Queue model: the world-space step direction is snapshotted NOW (from
+// the facing at queue time), so the queue reads concretely even if the
+// view turns later. Execution keeps the existing collision-aware
+// partial-progress behavior.
+// ------------------------------------------------------------------
 void T_DoMove(int dir)
 {
     player_t *player = &players[consoleplayer];
     mobj_t *mo = player->mo;
     angle_t moveangle;
-    fixed_t dx, dy;
-    int k;
     static const angle_t diroff[4] = { 0, (angle_t)-ANG90, ANG180, ANG90 };
+    static const turnaction_t kinds[4] =
+        { TA_MOVE_N, TA_MOVE_E, TA_MOVE_S, TA_MOVE_W };
 
     if (!T_Active() || mo == NULL)
         return;
     if (!T_ActorAlive())
+        return;
+    if (T_InPulse() || turnctrl.executing)
+        return;
+    if (dir < 0 || dir > 3)
         return;
     if (!T_CanAfford(TA_MOVE_N))
     {
         T_RefuseTP(TA_MOVE_N);
         return;
     }
-    if (dir < 0 || dir > 3)
-        return;
 
+    // No auto-facing: steps are facing-relative and never rotate the
+    // view. A/D strafe without swinging the camera; arrows turn it.
     moveangle = mo->angle + diroff[dir];
+    T_Enqueue(kinds[dir], T_CostFor(TA_MOVE_N), moveangle, NULL);
+}
 
-    // Auto-face the movement direction. Facing is never an action.
-    mo->angle = moveangle;
+// Executor: step along a snapshotted world-space angle. Collision-
+// aware with partial progress (sub-steps avoid tunneling through thin
+// lines). Returns true: a settle pulse was begun.
+static boolean T_ExecMove(angle_t moveangle)
+{
+    player_t *player = &players[consoleplayer];
+    mobj_t *mo = player->mo;
+    fixed_t dx, dy;
+    int k;
+
+    if (mo == NULL)
+        return false;
 
     dx = FixedMul(STEP_LEN, finecosine[moveangle >> ANGLETOFINESHIFT]);
     dy = FixedMul(STEP_LEN, finesine[moveangle >> ANGLETOFINESHIFT]);
@@ -161,24 +272,55 @@ void T_DoMove(int dir)
     mo->momx = mo->momy = 0;
     mo->momz = 0;
 
-    T_SpendTP(T_CostFor(TA_MOVE_N));
-
     // Settle pulse: sector effects, in-flight odds and ends. Monsters
     // stay frozen — they act on their own phase.
     T_BeginPulse(6, true, true);
-    T_DumpState("move");
+    T_DumpState("exec-move");
+    return true;
+}
+
+// ------------------------------------------------------------------
+// TURN: free view rotation. Arrow keys rotate the player's facing by a
+// fixed 45-degree increment (8 presses per full rotation — the classic
+// Doom snap feel). This is view control, not a game action: 0 TP, no
+// pulse, legal in PLANNING/TARGETING/CONFIRM. The target list is
+// refreshed so markers track the new facing.
+// dir: -1 = turn left (counterclockwise), +1 = turn right.
+// ------------------------------------------------------------------
+void T_DoTurn(int dir)
+{
+    player_t *player = &players[consoleplayer];
+    mobj_t *mo = player->mo;
+
+    if (!T_Active() || mo == NULL)
+        return;
+    if (!T_ActorAlive())
+        return;
+    if (T_InPulse())
+        return;
+
+    if (dir < 0)
+        mo->angle += ANG45; // counterclockwise = left
+    else
+        mo->angle -= ANG45; // clockwise = right
+
+    T_RefreshTargets();
+    T_ValidateSelection();
+    T_DumpState("turn");
 }
 
 // ------------------------------------------------------------------
 // USE: interact with the line in front (doors, switches).
+// Queue model: enqueued with the same affordability validation;
+// executes from the player's position at drain time.
 // ------------------------------------------------------------------
 void T_DoUse(void)
 {
-    player_t *player = &players[consoleplayer];
-
-    if (!T_Active() || player->mo == NULL)
+    if (!T_Active() || players[consoleplayer].mo == NULL)
         return;
     if (!T_ActorAlive())
+        return;
+    if (T_InPulse() || turnctrl.executing)
         return;
     if (!T_CanAfford(TA_USE))
     {
@@ -186,75 +328,122 @@ void T_DoUse(void)
         return;
     }
 
-    P_UseLines(player);
-    T_SpendTP(T_CostFor(TA_USE));
-    T_BeginPulse(6, true, true);
-    T_DumpState("use");
+    T_Enqueue(TA_USE, T_CostFor(TA_USE), 0, NULL);
 }
 
-// ------------------------------------------------------------------
-// WAIT: pass a little time without acting. Costs 0 TP: this and END
-// TURN are the always-legal moves, reachable from every selection
-// state, so the player can never be soft-locked at 0 TP.
-// ------------------------------------------------------------------
-void T_DoWait(void)
+// Executor: use whatever line is in front at execution time.
+// Returns true: a settle pulse was begun.
+static boolean T_ExecUse(void)
 {
-    if (!T_Active())
-        return;
-    if (!T_ActorAlive())
-        return;
-    if (!T_CanAfford(TA_WAIT))
-    {
-        T_RefuseTP(TA_WAIT);
-        return;
-    }
+    player_t *player = &players[consoleplayer];
 
-    players[consoleplayer].message = "Wait.";
-    // Leaving a selection state: drop the target, back to planning.
-    turnctrl.selected_target = -1;
-    if (turnctrl.state == TS_TARGETING || turnctrl.state == TS_CONFIRM)
-        turnctrl.state = TS_PLANNING;
-    T_SpendTP(T_CostFor(TA_WAIT));
-    T_BeginPulse(8, true, true);
-    T_DumpState("wait");
+    if (player->mo == NULL)
+        return false;
+    P_UseLines(player);
+    T_BeginPulse(6, true, true);
+    T_DumpState("exec-use");
+    return true;
 }
 
+// Executors (defined below): return true when a settle pulse was
+// begun (drain pauses until T_EndPulse), false on a graceful skip
+// (drain continues inline, TP refunded). T_ExecMove/T_ExecUse are
+// defined above.
+static boolean T_ExecAttack(mobj_t *target, int cost);
+static boolean T_ExecSwap(int cost);
+
 // ------------------------------------------------------------------
-// END TURN: enemy phase — monsters act for a bounded pulse with input
-// locked — then round bookkeeping.
+// END TURN: drain the queued actions FIFO — each entry executes through
+// its normal implementation with its settle pulse — then the enemy
+// phase runs as before, then round bookkeeping. An empty queue skips
+// straight to the enemy phase. END TURN is always legal (0 TP) from
+// every state.
 // ------------------------------------------------------------------
 void T_DoEndTurn(void)
 {
     if (!T_Active())
         return;
-    if (T_InPulse())
+    if (T_InPulse() || turnctrl.executing)
         return;
     if (!T_ActorAlive())
         return;
 
-    players[consoleplayer].message = "Enemy phase...";
     // Leaving a selection state: drop the target, back to planning.
-    // END TURN is always legal (0 TP) from every state.
     turnctrl.selected_target = -1;
     if (turnctrl.state == TS_TARGETING || turnctrl.state == TS_CONFIRM)
         turnctrl.state = TS_PLANNING;
-    // Telegraph newly alerted enemies before they get to act.
-    T_TelegraphEnemies();
-    // Flag before the pulse: in sync (script) mode T_BeginPulse runs
-    // T_EndPulse immediately, which needs to see the enemy phase.
-    turnctrl.pulse_enemy = true;
-    T_BeginPulse(70, false, false); // 2s of monster action, real-time rate
-    if (!turnctrl.sync)
-        turnctrl.state = TS_REACTION;
+
+    if (turnctrl.queue_len == 0)
+    {
+        // Empty queue: just the enemy phase.
+        T_BeginEnemyPhase();
+    }
+    else
+    {
+        turnctrl.executing = true;
+        players[consoleplayer].message = "Executing queued actions...";
+        T_ExecuteNext();
+    }
     T_DumpState("end-turn");
+}
+
+// Drain one queue entry: shift it off and run its executor. Entries
+// that begin a settle pulse return true and the drain pauses until
+// T_EndPulse; gracefully skipped entries return false and the drain
+// continues inline. When the queue is fully drained, the enemy phase
+// begins. Called from T_DoEndTurn and T_EndPulse.
+void T_ExecuteNext(void)
+{
+    while (turnctrl.queue_len > 0)
+    {
+        t_queueentry_t e;
+        int i;
+        boolean pulsed;
+
+        e = turnctrl.queue[0];
+        for (i = 1; i < turnctrl.queue_len; i++)
+            turnctrl.queue[i - 1] = turnctrl.queue[i];
+        turnctrl.queue_len--;
+        // TP was reserved at enqueue; the reservation now funds this
+        // execution. A skipped action refunds it (see executors).
+        turnctrl.queue_tp -= e.cost;
+
+        switch (e.action)
+        {
+          case TA_MOVE_N: case TA_MOVE_S:
+          case TA_MOVE_E: case TA_MOVE_W:
+            pulsed = T_ExecMove(e.moveangle);
+            break;
+          case TA_ATTACK:
+            pulsed = T_ExecAttack(e.target, e.cost);
+            break;
+          case TA_USE:
+            pulsed = T_ExecUse();
+            break;
+          case TA_SWAP_WEAPON:
+            pulsed = T_ExecSwap(e.cost);
+            break;
+          default:
+            pulsed = false;
+            break;
+        }
+        if (pulsed)
+            return; // T_EndPulse resumes the drain
+    }
+    // Fully drained (skips included): the enemy phase runs as usual.
+    turnctrl.executing = false;
+    T_BeginEnemyPhase();
 }
 
 // ------------------------------------------------------------------
 // SWAP WEAPON: 2 TP. Cycle readyweapon to the next owned Doom weapon
 // among the six turn-mode kits (pistol..BFG). The Diablo equipment weapon
 // item is orthogonal (it grants stats); the six kits live on the Doom
-// weapons. Fists are not a kit, so swap never selects them. Runs a short
-// frozen pulse so the lower/raise animation completes via P_PlayerThink.
+// weapons. Fists are not a kit, so swap never selects them.
+//
+// Queue model: validated at enqueue (a candidate must exist); the swap
+// itself resolves at drain time from the then-current weapon, so two
+// queued swaps advance twice.
 // ------------------------------------------------------------------
 void T_DoSwapWeapon(void)
 {
@@ -264,6 +453,8 @@ void T_DoSwapWeapon(void)
     if (!T_Active() || player->mo == NULL)
         return;
     if (!T_ActorAlive())
+        return;
+    if (T_InPulse() || turnctrl.executing)
         return;
     if (!T_CanAfford(TA_SWAP_WEAPON))
     {
@@ -285,37 +476,98 @@ void T_DoSwapWeapon(void)
         return;
     }
 
+    T_Enqueue(TA_SWAP_WEAPON, T_CostFor(TA_SWAP_WEAPON), 0, NULL);
+}
+
+// Executor: advance to the next owned kit weapon from the current one.
+// Returns true: a frozen pulse was begun so the lower/raise animation
+// completes via P_PlayerThink.
+static boolean T_ExecSwap(int cost)
+{
+    player_t *player = &players[consoleplayer];
+    int w, cand;
+
+    if (player->mo == NULL)
+        return false;
+
+    for (w = 1; w <= (wp_bfg - wp_pistol); w++)
+    {
+        cand = wp_pistol + (player->readyweapon - wp_pistol + w)
+                         % (wp_bfg - wp_pistol + 1);
+        if (player->weaponowned[cand] && cand != player->readyweapon)
+            break;
+    }
+    if (w > (wp_bfg - wp_pistol) || cand == player->readyweapon)
+    {
+        // Should not happen (validated at enqueue); skip gracefully.
+        printf("[TURN] queued swap skipped: no other weapon\n");
+        turnctrl.tp += cost;
+        players[consoleplayer].message = "Swap skipped (+2 TP).";
+        return false;
+    }
+
     player->pendingweapon = cand;
-    T_SpendTP(T_CostFor(TA_SWAP_WEAPON));
     // Frozen pulse lets the weapon lower/raise; ammo is topped up so the
     // state machine can never reject the switch for lack of ammo.
     T_BeginPulse(30, true, true);
     printf("[TURN] swapped to weapon %d\n", cand);
-    T_DumpState("swap");
+    T_DumpState("exec-swap");
+    return true;
 }
 
-// HEADSHOT: free action. Arms the headshot modifier for the next ATTACK.
-// The modifier adds +2 TP (in T_CostFor), -15% hit (in T_HitChance), and
-// 2x crit effect (in T_ResolveAttack). It is consumed by the next attack
-// (hit or miss). Arming is free and does not advance time.
-void T_DoHeadshot(void)
+// ------------------------------------------------------------------
+// UNDO (Backspace): remove the last queued action and refund its TP.
+// CLEAR (Z): drop the whole queue and refund all reserved TP.
+// Both are free and legal whenever planning input is live.
+// ------------------------------------------------------------------
+void T_DoUndoQueue(void)
 {
+    t_queueentry_t *e;
+    char name[48];
+    static char msg[64];
+
     if (!T_Active())
         return;
-    if (!T_ActorAlive())
+    if (T_InPulse() || turnctrl.executing)
         return;
-    if (turnctrl.headshot_mod)
+    if (turnctrl.queue_len == 0)
     {
-        // Already armed; disarm (toggle).
-        turnctrl.headshot_mod = false;
-        players[consoleplayer].message = "Headshot off.";
+        players[consoleplayer].message = "Queue is empty.";
+        return;
     }
-    else
+    e = &turnctrl.queue[--turnctrl.queue_len];
+    turnctrl.tp += e->cost;
+    turnctrl.queue_tp -= e->cost;
+    T_QueueEntryName(e, name, sizeof(name));
+    M_snprintf(msg, sizeof(msg), "Undid %s (+%d TP).", name, e->cost);
+    players[consoleplayer].message = msg;
+    printf("[TURN] undo %s refund=%d tp=%d qlen=%d\n",
+           name, e->cost, turnctrl.tp, turnctrl.queue_len);
+    T_DumpState("undo");
+}
+
+void T_DoClearQueue(void)
+{
+    int refund;
+    static char msg[64];
+
+    if (!T_Active())
+        return;
+    if (T_InPulse() || turnctrl.executing)
+        return;
+    if (turnctrl.queue_len == 0)
     {
-        turnctrl.headshot_mod = true;
-        players[consoleplayer].message = "Headshot armed (+2TP -15% 2xCRIT).";
+        players[consoleplayer].message = "Queue is empty.";
+        return;
     }
-    T_DumpState("headshot");
+    refund = turnctrl.queue_tp;
+    turnctrl.tp += refund;
+    turnctrl.queue_tp = 0;
+    turnctrl.queue_len = 0;
+    M_snprintf(msg, sizeof(msg), "Queue cleared (+%d TP).", refund);
+    players[consoleplayer].message = msg;
+    printf("[TURN] clear queue refund=%d tp=%d\n", refund, turnctrl.tp);
+    T_DumpState("clear-queue");
 }
 
 // ------------------------------------------------------------------
@@ -438,7 +690,7 @@ void T_DoAttack(void)
         return;
     if (!T_ActorAlive())
         return;
-    if (T_InPulse())
+    if (T_InPulse() || turnctrl.executing)
         return;
 
     if (turnctrl.state == TS_TARGETING)
@@ -495,19 +747,51 @@ void T_DoAttack(void)
         return;
     }
 
-    // Commit: auto-face, spend TP, resolve with turn-based combat math.
-    // Hit chance, damage range, and mitigation all come from the derived
-    // combat stats; the fixed-seed RNG keeps previews and resolutions
-    // in agreement.
+    // Commit: snapshot the target actor and enqueue. TP is reserved
+    // now; at drain time the attack auto-faces and resolves with the
+    // turn-based combat math. The selection is consumed: back to
+    // planning so more actions can be queued.
+    T_Enqueue(TA_ATTACK, T_CostFor(TA_ATTACK), 0, target);
+    turnctrl.selected_target = -1;
+    turnctrl.state = TS_PLANNING;
+}
+
+// Executor: resolve a queued attack against its snapshotted target.
+// The target is validated live: an earlier queued action may have
+// killed it (or the weapon may have gone on cooldown), in which case
+// the attack skips gracefully with a message and a TP refund.
+// Attacks resolve instantly (existing behavior — no settle pulse),
+// so this returns false and the drain continues inline.
+static boolean T_ExecAttack(mobj_t *target, int cost)
+{
+    player_t *player = &players[consoleplayer];
+
+    if (target == NULL || target->health <= 0
+        || !(target->flags & MF_SHOOTABLE))
+    {
+        players[consoleplayer].message = "Target down - attack skipped.";
+        printf("[TURN] queued attack skipped: target invalid (+%d TP)\n",
+               cost);
+        turnctrl.tp += cost;
+        T_DumpState("exec-attack-skip");
+        return false;
+    }
+    if (!T_KitReady(player->readyweapon))
+    {
+        players[consoleplayer].message = "Weapon cooling down - skipped.";
+        printf("[TURN] queued attack skipped: kit on cooldown (+%d TP)\n",
+               cost);
+        turnctrl.tp += cost;
+        T_DumpState("exec-attack-skip");
+        return false;
+    }
+
     T_FaceTarget(target);
-    T_SpendTP(T_CostFor(TA_ATTACK));
     T_ResolveAttack(player, target);
-    // The world changed; rebuild targets and drop a dead selection.
+    // The world changed; rebuild targets for the HUD.
     T_RefreshTargets();
-    T_ValidateSelection();
-    if (turnctrl.state == TS_CONFIRM)
-        turnctrl.state = TS_PLANNING;
-    T_DumpState("attack");
+    T_DumpState("exec-attack");
+    return false;
 }
 
 // ------------------------------------------------------------------
@@ -559,15 +843,22 @@ void T_SpawnArena(void)
 // Action replay (test harness): text scripts drive the controller with
 // no mouse events. One token per line:
 //
-//   MOVE_N | MOVE_E | MOVE_S | MOVE_W | USE | WAIT | END | DUMP | QUIT
-//   SWAP | HEADSHOT
+//   MOVE_N | MOVE_E | MOVE_S | MOVE_W | USE | END | DUMP | QUIT
+//   SWAP | UNDO | CLEAR
 //   ASSERT_TP n | ASSERT_ROUND n     (gate checks; print PASS/FAIL)
+//   ASSERT_QUEUE n | ASSERT_QTP n    (queue length / reserved TP)
 //   ASSERT_SEL n | ASSERT_TGT n      (selection / target count checks)
+//   ASSERT_CRIT n                   (last attack crit: 1/0)
 //   SAVE n | LOAD n                  (slots 0-7; synchronous)
+//   TGTNAME                       (test: print selected target's name)
+//   TURN_L | TURN_R                (test: arrow-key view turn, 45 deg)
 //   GIVEWEAPON n                    (test: grant kit weapon n)
+//   GIVEITEM t i                    (test: grant Diablo item, equip it)
 //   SELECT_NEXT | SELECT_PREV | SELECT_NUM n | ATTACK | CANCEL
 //
-// Pulses run synchronously so scripts are fast and deterministic.
+// Queue model: MOVE/USE/SWAP/ATTACK enqueue; END drains the queue FIFO
+// then runs the enemy phase. Pulses run synchronously so scripts are
+// fast and deterministic.
 // ------------------------------------------------------------------
 static void T_ScriptAssertTP(int want)
 {
@@ -619,10 +910,26 @@ void T_RunScript(const char *path)
         else if (!strcmp(line, "MOVE_S")) T_DoMove(2);
         else if (!strcmp(line, "MOVE_W")) T_DoMove(3);
         else if (!strcmp(line, "USE"))    T_DoUse();
-        else if (!strcmp(line, "WAIT"))   T_DoWait();
         else if (!strcmp(line, "END"))    T_DoEndTurn();
         else if (!strcmp(line, "SWAP"))   T_DoSwapWeapon();
-        else if (!strcmp(line, "HEADSHOT"))  T_DoHeadshot();
+        else if (!strcmp(line, "UNDO"))   T_DoUndoQueue();
+        else if (!strcmp(line, "CLEAR"))   T_DoClearQueue();
+        else if (sscanf(line, "ASSERT_QUEUE %d", &n) == 1)
+        {
+            if (turnctrl.queue_len == n)
+                printf("[TURN] ASSERT_QUEUE %d: PASS\n", n);
+            else
+                printf("[TURN] ASSERT_QUEUE %d: FAIL (have %d)\n",
+                       n, turnctrl.queue_len);
+        }
+        else if (sscanf(line, "ASSERT_QTP %d", &n) == 1)
+        {
+            if (turnctrl.queue_tp == n)
+                printf("[TURN] ASSERT_QTP %d: PASS\n", n);
+            else
+                printf("[TURN] ASSERT_QTP %d: FAIL (have %d)\n",
+                       n, turnctrl.queue_tp);
+        }
         else if (sscanf(line, "NAME %31s", t_profile.name) == 1)
         {
             printf("[TURN] name set to '%s'\n", t_profile.name);
@@ -636,11 +943,10 @@ void T_RunScript(const char *path)
         }
         else if (!strcmp(line, "PROFILE"))
         {
-            printf("[TURN] PROFILE: name='%s' L%d XP=%d SP=%d kills=%d dmg=%d rounds=%d hs=%d\n",
+            printf("[TURN] PROFILE: name='%s' L%d XP=%d SP=%d kills=%d dmg=%d rounds=%d\n",
                    t_profile.name, t_profile.level, t_profile.xp,
                    t_profile.stat_points, t_profile.lifetime_kills,
-                   t_profile.lifetime_damage, t_profile.lifetime_rounds,
-                   t_profile.lifetime_headshots);
+                   t_profile.lifetime_damage, t_profile.lifetime_rounds);
         }
         else if (!strcmp(line, "DUMP"))   T_DumpState("script");
         else if (sscanf(line, "ASSERT_TP %d", &n) == 1) T_ScriptAssertTP(n);
@@ -659,6 +965,21 @@ void T_RunScript(const char *path)
             players[consoleplayer].weaponowned[n] = true;
             printf("[TURN] gave weapon %d (test)\n", n);
         }
+        else if (sscanf(line, "GIVEITEM %d %d", &n, &m) == 2)
+        {
+            // Test: grant a Diablo item (tier idx) and equip it via
+            // the real backpack/equip path.
+            player_t *pl = &players[consoleplayer];
+            if (n >= TIER_NORMAL && n <= TIER_UNIQUE
+                && D_ValidItem(n, m)
+                && D_BackpackAdd((struct player_s *)pl, n, m))
+            {
+                D_EquipRecent((struct player_s *)pl);
+                printf("[TURN] gave item tier=%d idx=%d (test)\n", n, m);
+            }
+            else
+                printf("[TURN] GIVEITEM failed: tier=%d idx=%d\n", n, m);
+        }
         else if (sscanf(line, "LOAD %d", &n) == 1 && n >= 0 && n < 8)
         {
             extern char savename[256];
@@ -673,6 +994,16 @@ void T_RunScript(const char *path)
         else if (sscanf(line, "SELECT_NUM %d", &n) == 1) T_DoSelectNum(n);
         else if (!strcmp(line, "ATTACK"))  T_DoAttack();
         else if (!strcmp(line, "CANCEL"))  T_DoCancel();
+        else if (!strcmp(line, "TURN_L"))   T_DoTurn(-1);
+        else if (!strcmp(line, "TURN_R"))   T_DoTurn(1);
+        else if (!strcmp(line, "TGTNAME"))
+        {
+            // Test: print the display name + HP of the current selection.
+            mobj_t *tgmo = T_SelectedMobj();
+            printf("[TURN] TGTNAME sel=%d name=%s hp=%d\n",
+                   turnctrl.selected_target, T_TargetName(tgmo),
+                   tgmo ? tgmo->health : -999);
+        }
         else if (sscanf(line, "ASSERT_SEL %d", &n) == 1)
         {
             if (turnctrl.selected_target == n - 1)
@@ -748,6 +1079,16 @@ void T_RunScript(const char *path)
                    st.ad_min, st.ad_max, st.ap, st.attack_tp,
                    st.crit_chance, st.crit_mult,
                    st.armor, st.mr, st.accuracy, st.haste);
+        }
+        else if (sscanf(line, "ASSERT_CRIT %d", &n) == 1)
+        {
+            // Verify the last T_ResolveAttack crit: 1 crit, 0 not.
+            if (t_last_crit == n)
+                printf("[TURN] ASSERT_CRIT %d: PASS (dmg=%d)\n",
+                       n, t_last_damage);
+            else
+                printf("[TURN] ASSERT_CRIT %d: FAIL (have %d)\n",
+                       n, t_last_crit);
         }
         else if (sscanf(line, "ASSERT_LASTDMG %d %d", &n, &m) == 2)
         {
