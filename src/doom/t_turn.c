@@ -792,6 +792,10 @@ static void T_DrawActionList(void)
     }
     T_DrawActionRow(x, &y, "BKSP", "UNDO", TA_UNDO, "FREE");
     T_DrawActionRow(x, &y, "Z", "CLEARQ", TA_CLEAR_QUEUE, "FREE");
+    // The Diablo inventory/character screen is always available during a
+    // round (free, immediate). It owns all input while open; the turn
+    // controller simply waits in PLANNING.
+    T_DrawActionRow(x, &y, "C", "INVEN", TA_NONE, "FREE");
     // The exit: divider, then END TURN bracketed in highlight gold.
     T_DrawTextDim(x, y, "----------------");
     y += 9;

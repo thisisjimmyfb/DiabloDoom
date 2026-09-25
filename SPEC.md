@@ -94,6 +94,7 @@ pulse.
 | Attack selected enemy | Derived from attack speed |
 | Undo last queued action (Backspace) | 0 (refunds TP) |
 | Clear queue (Z)     | 0 (refunds all TP)          |
+| Inventory / character screen (C) | 0 (free; owns input while open) |
 | End turn            | 0 (always legal; listed last as the exit row) |
 
 `attack_cost = clamp(2, 8, ceil(base_cost / attack_speed))`

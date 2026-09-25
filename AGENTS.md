@@ -109,7 +109,8 @@ Turn mode (queued actions, FIFO): W/S step forward/back, A/D strafe
 immediate, never queued) · SPACE use (2 TP) ·
 F attack via preview-confirm (TP by attack speed) · T end turn (drains
 queue FIFO, then enemy phase) · Backspace undo last queued action
-(free, refunds TP) · Z clear queue (free, refunds all TP) · Tab / [
+(free, refunds TP) · Z clear queue (free, refunds all TP) · C inventory
+(free, always available in rounds) · Tab / [
 / ] / 1-9 target selection (free) · Esc cancel. Planning actions
 enqueue and reserve TP; END TURN executes. There is no WAIT and no
 HEADSHOT; crits come from gear, not dexterity.
