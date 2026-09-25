@@ -34,13 +34,12 @@ one panel at a time. The bar stays; only the panels change.
   weapon equipped in the Diablo inventory: item icon + aggregated damage
   range, or `FISTS` when the slot is empty. See `ST_drawDiabloWeapon` in
   `src/doom/st_stuff.c`.
-- **AMMO → stats panel** (planned, not implemented). With the no-ammo
-  design rule, both the left ammo readout and the right-side per-type
-  ammo counters go away. The stats panel shows Diablo character stats
-  and live weapon state (attack speed, cooldown, charge/heat).
-  Open design question: which stats fit and matter most — candidates are
-  the character-screen stats (DMG, ARM, STR, DEX, VIT, ENE) and/or the
-  turn-mode combat stats (AD, AP, AS, Haste, crit).
+- **AMMO → mana + kit panel** (done). The left ammo readout is now the
+  unified mana pool display (blue droplet, `MANA cur/max`, `ST_drawTurnMana`
+  in `src/doom/st_stuff.c`): 100 max, starts at 50, backpack doubles the
+  max to 200. The right-side per-type ammo counters are replaced by the
+  kit status panel: LoL-style AD/AP stat block (gold sword icon + damage
+  range, teal sparkle + ability power, cooldown below), `ST_drawTurnKits`.
 
 ## Five design pillars
 
@@ -179,23 +178,29 @@ cooldown; crit; special trait.
 | Shotgun  | AD      | Burst    | Pump cycle: wide close-range burst around the selected enemy, then one-round recovery. Player never places the spread. |
 | Chaingun | AD      | Heat     | Spin up: each burst raises heat and improves attack speed. Overheat locks firing one round; ending early preserves control. |
 | Rocket   | Hybrid  | Cooldown | Siege shot: select an enemy, splash around it, no ground cursor. Charged variant: bigger radius + damage, then two-round cooldown. |
-| Plasma   | AP      | Charge   | Capacitor: charge 1–3 TP; each level raises damage and armor penetration. Carrying charge across a round adds heat/decay. |
+| Plasma   | AP      | Charge   | Capacitor: charge 1–3 TP; each level raises damage and armor penetration. Carrying charge across a round adds heat/decay. Costs 5 mana per attack (the PULSE kit). |
 | BFG      | AP      | Ultimate | Annihilation: select an enemy, preview splash, commit a long charge + four-round cooldown. |
 
 Chainsaw and super shotgun come after the slice. Cooldowns tick at round
 end (recommended) with a one-round minimum; Haste shortens them.
 
-**No ammo.** Weapons never consume ammunition — every weapon effectively
-has infinite ammo. Availability is governed entirely by attack speed
-(TP cost), cooldowns, charge, and heat, League-style. There are no ammo
-pickups, no ammo counters, no reloading. Balance lives in the kit
-mechanics, not in resource scarcity.
+**Mana is ammo, renamed.** The engine ammo system is the unified mana
+pool (`player->ammo[am_clip]`): 100 max, starts at 50, backpack doubles
+the max to 200. Every ammo pickup funnels into mana while keeping its own
+`clipammo` amount, so a shard (+10) and a crystal (+50) restore different
+amounts; at full mana pickups are left on the ground. Mana Potions restore
+50 mana, capped by the max. The PULSE kit (`wp_plasma`) costs 5 mana per
+attack on top of its TP cost — validated when the attack is queued
+(`NEED 5 MANA (HAVE n).` on failure), deducted when it executes. Other
+kits cost no mana. Availability is still governed by attack speed (TP
+cost), cooldowns, charge, and heat, League-style; mana is the one
+spendable resource on top.
 
-**Ammo as equipment.** "Ammo" survives only as a new paperdoll
-inventory slot: equippable ammo items (armor-piercing rounds, incendiary
-shells, …) that are never consumed and passively grant stat bonuses to
-the equipped weapon. Open: one shared ammo slot vs per-weapon slots;
-which stats ammo items may grant.
+**FOCUS slot.** "Ammo" survives as a paperdoll inventory slot renamed
+FOCUS: equippable focus items (Piercing Rounds, Incendiary Shells, Swift
+Cartridges, Spotter Rounds) that are never consumed and passively grant
+stat bonuses to the equipped weapon. One shared slot; layout unchanged,
+no profile-version bump.
 
 **Loot rule:** common affixes bend numbers; rare/unique traits bend
 mechanics (e.g. a unique plasma rifle preserves charge between rounds).

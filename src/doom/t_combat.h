@@ -74,6 +74,7 @@ typedef struct
     int splash_pct;     // splash damage as % of primary (0 = none)
     int pellets;        // separate hit rolls (shotgun/chaingun)
     boolean ap_scaling; // plasma: damage scales with AP
+    int mana_cost;      // mana (ammo[am_clip]) spent per attack, 0 = none
 } t_kitdef_t;
 
 const t_kitdef_t *T_KitForWeapon(weapontype_t w);
@@ -81,5 +82,6 @@ int T_KitCooldown(weapontype_t w);          // current cooldown rounds left
 void T_KitSetCooldown(weapontype_t w, int rounds);
 void T_KitTickCooldowns(void);             // call on round start
 boolean T_KitReady(weapontype_t w);         // cooldown == 0
+boolean T_HasManaForKit(weapontype_t w);    // consoleplayer can pay mana_cost
 
 #endif

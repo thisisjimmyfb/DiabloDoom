@@ -39,7 +39,8 @@ title with `~/workspace/doom/wshot.py` — with `window_width 1280` /
   `FISTS` when empty). See `ST_drawDiabloWeapon`. In turn mode the right-side
   ammo counts are replaced by a LoL-style AD/AP stat block (gold sword icon
   + damage range, teal sparkle + ability power, cooldown below) — see
-  `ST_drawTurnKits`. The left-side AMMO readout is unused in turn mode.
+  `ST_drawTurnKits`. The left-side AMMO readout becomes the unified mana
+  pool display (blue droplet + `MANA cur/max`) — see `ST_drawTurnMana`.
 - `src/doom/p_inter.c` — pickup/drop, including Diablo loot drops.
 - `DIABLO.md` — user-facing doc for the loot/equipment system (Phases 1–2
   era; update it when behavior changes).
@@ -59,12 +60,17 @@ title with `~/workspace/doom/wshot.py` — with `window_width 1280` /
    numbered selection only.
 3. **Phase 0 needs Jimmy's explicit approval.** Do not start implementing
    turn-based mode until he says go.
-4. **No ammo.** Every weapon effectively has infinite ammo; availability
-   is governed by attack speed (TP cost), cooldowns, charge, and heat,
-   League-style. No ammo pickups, counters, or reloading. "Ammo" survives
-   only as a planned paperdoll inventory slot: equippable ammo items that
-   are never consumed and passively grant stat bonuses to the equipped
-   weapon (one shared slot vs per-weapon TBD).
+4. **Mana is ammo, renamed.** The engine ammo system is the unified mana
+   pool (`player->ammo[am_clip]`): 100 max, starts at 50, backpack doubles
+   the max to 200. Every ammo pickup funnels into mana, keeping its own
+   `clipammo` amount (shard +10, crystal +50, ember +1, cache +5,
+   vial +20, flask +100, orbs +4, orb box +20); at full mana pickups are
+   left on the ground. The PULSE kit (`wp_plasma`) costs 5 mana per attack
+   on top of TP — validated when the attack is queued, deducted when it
+   executes. Mana Potions restore 50 mana (capped). "Ammo" also survives
+   as the passive, non-consumable FOCUS paperdoll slot: equippable focus
+   items (Piercing Rounds, Incendiary Shells, …) that passively grant stat
+   bonuses to the equipped weapon.
 5. **Screenshots use fresh timestamped filenames** — the client caches
    repeated names.
 5. **One logical change per commit**, pushed to `master` on

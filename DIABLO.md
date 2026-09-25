@@ -21,7 +21,9 @@ pauses while the screen is open.
 ### Layout
 
 - **Paperdoll** (left): helm, armor, weapon, shield, 2 rings, amulet,
-  boots, gloves, belt.
+  boots, gloves, belt, plus a **FOCUS** slot — passive, non-consumable
+  focus items (Piercing Rounds, Incendiary Shells, …) that grant stat
+  bonuses to the equipped weapon.
 - **Backpack** (right): 10×4 grid. Items occupy their grid_w × grid_h
   footprint (e.g., weapons 2×3, potions 1×1).
 - **Stats** (bottom): damage, armor, strength, dexterity, vitality,
@@ -70,6 +72,14 @@ The UI uses click-to-pick-up / click-to-place (not hold-and-drag):
 
 - Original 2D art/icons for every loot item.
 - Convert and pack artwork into Doom-compatible assets.
+
+## Mana
+
+Turn-based mode has a unified mana pool (the engine ammo system, renamed):
+100 max, starts at 50, backpack doubles the max to 200. Every ammo pickup
+funnels into mana — a **Mana Potion** quaffs for +50 mana (capped). The
+PULSE weapon kit spends 5 mana per attack. The status bar's left AMMO area
+shows the pool as blue `MANA cur/max`.
 
 ## Building
 

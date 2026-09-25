@@ -107,6 +107,19 @@ static void T_RefuseTP(turnaction_t action)
            action, need, turnctrl.tp);
 }
 
+// Refuse an attack the kit can't afford in mana: message, no state change,
+// no pulse. Mirrors T_RefuseTP — mana is validated at queue time against
+// the current pool, like TP.
+static void T_RefuseMana(weapontype_t w)
+{
+    static char msg[64];
+    int need = T_KitForWeapon(w)->mana_cost;
+    int have = players[consoleplayer].ammo[am_clip];
+    M_snprintf(msg, sizeof(msg), "NEED %d MANA (HAVE %d).", need, have);
+    players[consoleplayer].message = msg;
+    printf("[TURN] refused attack: need %d mana, have %d\n", need, have);
+}
+
 // Dead heroes take no actions. (Death/rebirth flow lands in a later phase.)
 static boolean T_ActorAlive(void)
 {
@@ -716,6 +729,11 @@ void T_DoAttack(void)
             T_RefuseTP(TA_ATTACK);
             return;
         }
+        if (!T_HasManaForKit(player->readyweapon))
+        {
+            T_RefuseMana(player->readyweapon);
+            return;
+        }
         turnctrl.state = TS_CONFIRM;
         player->message = "Confirm attack: F fire, ESC cancel.";
         T_DumpState("confirm");
@@ -744,6 +762,11 @@ void T_DoAttack(void)
     if (!T_CanAfford(TA_ATTACK))
     {
         T_RefuseTP(TA_ATTACK);
+        return;
+    }
+    if (!T_HasManaForKit(player->readyweapon))
+    {
+        T_RefuseMana(player->readyweapon);
         return;
     }
 
@@ -784,6 +807,26 @@ static boolean T_ExecAttack(mobj_t *target, int cost)
         turnctrl.tp += cost;
         T_DumpState("exec-attack-skip");
         return false;
+    }
+
+    // Mana is spent on firing: deducted at execution, not at queue time.
+    // An earlier queued action may have spent the pool since validation;
+    // skip gracefully with a TP refund like the other skip paths.
+    {
+        const t_kitdef_t *kit = T_KitForWeapon(player->readyweapon);
+        if (kit->mana_cost > 0)
+        {
+            if (player->ammo[am_clip] < kit->mana_cost)
+            {
+                players[consoleplayer].message = "Not enough mana - skipped.";
+                printf("[TURN] queued attack skipped: need %d mana, have %d (+%d TP)\n",
+                       kit->mana_cost, player->ammo[am_clip], cost);
+                turnctrl.tp += cost;
+                T_DumpState("exec-attack-skip");
+                return false;
+            }
+            player->ammo[am_clip] -= kit->mana_cost;
+        }
     }
 
     T_FaceTarget(target);
@@ -964,6 +1007,55 @@ void T_RunScript(const char *path)
         {
             players[consoleplayer].weaponowned[n] = true;
             printf("[TURN] gave weapon %d (test)\n", n);
+        }
+        else if (sscanf(line, "SPAWNPICKUP %d", &n) == 1)
+        {
+            // Test helper: spawn a real ammo pickup at the player's feet.
+            // n: 0=clip, 1=clipbox, 2=shells, 3=cell, 4=backpack.
+            mobjtype_t types[5] = { MT_CLIP, MT_MISC17, MT_MISC22, MT_MISC20,
+                                     MT_MISC24 };
+            mobj_t *mo = players[consoleplayer].mo;
+            if (n >= 0 && n < 5 && mo)
+            {
+                // 32 units ahead of the player: stepping forward (MOVE_N)
+                // touches it through the normal P_TryMove path.
+                fixed_t nx = mo->x + FixedMul(32*FRACUNIT,
+                    finecosine[mo->angle >> ANGLETOFINESHIFT]);
+                fixed_t ny = mo->y + FixedMul(32*FRACUNIT,
+                    finesine[mo->angle >> ANGLETOFINESHIFT]);
+                P_SpawnMobj(nx, ny, ONFLOORZ, types[n]);
+            }
+        }
+        else if (sscanf(line, "SETMANA %d", &n) == 1)
+        {
+            player_t *pl = &players[consoleplayer];
+            pl->ammo[am_clip] = n;
+            if (pl->ammo[am_clip] > pl->maxammo[am_clip])
+                pl->ammo[am_clip] = pl->maxammo[am_clip];
+            if (pl->ammo[am_clip] < 0)
+                pl->ammo[am_clip] = 0;
+            printf("[TURN] set mana %d (test)\n", pl->ammo[am_clip]);
+        }
+        else if (sscanf(line, "ASSERT_MAXMANA %d", &n) == 1)
+        {
+            int have = players[consoleplayer].maxammo[am_clip];
+            printf("[TURN] ASSERT_MAXMANA %d: %s (have %d)\n",
+                   n, have == n ? "PASS" : "FAIL", have);
+        }
+        else if (sscanf(line, "ASSERT_MANA %d", &n) == 1)
+        {
+            int have = players[consoleplayer].ammo[am_clip];
+            if (have == n)
+                printf("[TURN] ASSERT_MANA %d: PASS\n", n);
+            else
+                printf("[TURN] ASSERT_MANA %d: FAIL (have %d)\n", n, have);
+        }
+        else if (sscanf(line, "QUAFF %d", &n) == 1)
+        {
+            // Test: use the backpack item at index n through the real
+            // consumable path (D_UseConsumable).
+            D_UseBackpackItem((struct player_s *)&players[consoleplayer], n);
+            printf("[TURN] quaffed backpack slot %d (test)\n", n);
         }
         else if (sscanf(line, "GIVEITEM %d %d", &n, &m) == 2)
         {

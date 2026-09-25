@@ -51,7 +51,10 @@
 
 // a weapon is found with two clip loads,
 // a big item has five clip loads
-int	maxammo[NUMAMMO] = {200, 50, 300, 50};
+// DiabloDoom: am_clip is the unified MANA pool (100 max; the backpack
+// doubles it to 200). All ammo pickups funnel into it (see P_GiveAmmo);
+// the other types keep their slots only so old code paths stay valid.
+int	maxammo[NUMAMMO] = {100, 50, 300, 50};
 int	clipammo[NUMAMMO] = {10, 4, 20, 1};
 
 
@@ -80,14 +83,13 @@ P_GiveAmmo
     if (ammo >= NUMAMMO)
 	I_Error ("P_GiveAmmo: bad type %i", ammo);
 		
-    if ( player->ammo[ammo] == player->maxammo[ammo]  )
-	return false;
-		
+    // Amount comes from the pickup's original ammo type: a shard and a
+    // crystal restore different amounts of mana.
     if (num)
 	num *= clipammo[ammo];
     else
 	num = clipammo[ammo]/2;
-    
+
     if (gameskill == sk_baby
 	|| gameskill == sk_nightmare)
     {
@@ -95,8 +97,16 @@ P_GiveAmmo
 	// you'll need in nightmare
 	num <<= 1;
     }
-    
-		
+
+    // DiabloDoom: unified mana pool. Every ammo pickup funnels into
+    // am_clip (mana).
+    ammo = am_clip;
+
+    // Full-pool check is against the mana pool, not the pickup's nominal
+    // type: at full mana the pickup is left on the ground.
+    if ( player->ammo[ammo] == player->maxammo[ammo]  )
+	return false;
+
     oldammo = player->ammo[ammo];
     player->ammo[ammo] += num;
 
@@ -107,7 +117,12 @@ P_GiveAmmo
     // don't change up weapons,
     // player was lower on purpose.
     if (oldammo)
-	return true;	
+	return true;
+
+    // DiabloDoom: in turn mode mana pickups never auto-switch weapons;
+    // the X swap action owns weapon changes.
+    if (T_Active())
+	return true;
 
     // We were down to zero,
     // so select a new weapon.

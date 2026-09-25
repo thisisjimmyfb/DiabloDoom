@@ -4,6 +4,7 @@
 #include "t_turn.h"
 #include "d_diablo.h"
 #include "p_local.h"
+#include "doomstat.h"
 #include "s_sound.h"
 #include "sounds.h"
 #include "m_misc.h"
@@ -264,22 +265,22 @@ static int T_MonsterArmor(mobjtype_t type)
 
 static const t_kitdef_t t_kits[NUMWEAPONS] = {
     // wp_fist (fallback; not a real kit)
-    { "FISTS",    1,  3,  3, 0,   0,  0, 1, false },
+    { "FISTS",    1,  3,  3, 0,   0,  0, 1, false, 0 },
     // wp_pistol: balanced sidearm
-    { "SIDEARM",   6, 13,  4, 0,   0,  0, 1, false },
+    { "SIDEARM",   6, 13,  4, 0,   0,  0, 1, false, 0 },
     // wp_shotgun: close-range burst, 4 pellets
-    { "SHOTGUN",  4,  8,  5, 0,   0,  0, 4, false },
+    { "SHOTGUN",  4,  8,  5, 0,   0,  0, 4, false, 0 },
     // wp_chaingun: 3-round burst
-    { "CHAINGUN", 4,  7,  5, 0,   0,  0, 3, false },
+    { "CHAINGUN", 4,  7,  5, 0,   0,  0, 3, false, 0 },
     // wp_missile: rockets, enemy-targeted splash
-    { "ROCKET",  15, 25,  6, 1, 128, 50, 1, false },
+    { "ROCKET",  15, 25,  6, 1, 128, 50, 1, false, 0 },
     // wp_plasma: AP-scaling energy
-    { "PULSE",   5, 10,  4, 0,   0,  0, 1, true  },
+    { "PULSE",   5, 10,  4, 0,   0,  0, 1, true,  5 },
     // wp_bfg: big enemy-targeted splash
-    { "BFG",     30, 50,  8, 2, 192, 60, 1, false },
+    { "BFG",     30, 50,  8, 2, 192, 60, 1, false, 0 },
     // wp_chainsaw / wp_supershotgun (unused in turn mode)
-    { "SAW",      2,  6,  3, 0,   0,  0, 1, false },
-    { "SSG",     10, 20,  6, 1,   0,  0, 8, false },
+    { "SAW",      2,  6,  3, 0,   0,  0, 1, false, 0 },
+    { "SSG",     10, 20,  6, 1,   0,  0, 8, false, 0 },
 };
 
 const t_kitdef_t *T_KitForWeapon(weapontype_t w)
@@ -317,6 +318,18 @@ void T_KitTickCooldowns(void)
 boolean T_KitReady(weapontype_t w)
 {
     return T_KitCooldown(w) == 0;
+}
+
+// Mana affordability: the PULSE kit spends mana_cost per attack from the
+// unified mana pool (player->ammo[am_clip]). Kits with no mana cost are
+// always affordable.
+boolean T_HasManaForKit(weapontype_t w)
+{
+    const t_kitdef_t *kit = T_KitForWeapon(w);
+    player_t *player = &players[consoleplayer];
+    if (kit->mana_cost <= 0)
+        return true;
+    return player->ammo[am_clip] >= kit->mana_cost;
 }
 
 boolean T_ResolveAttack(player_t *player, mobj_t *target)

@@ -60,7 +60,7 @@ static const diablo_itemdef_t diablo_normal[] =
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0),
     IT("Healing Potion",    TIER_NORMAL, ESLOT_NONE,   1,1, 1,USE_HEAL,40, 0,0,0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0),
-    IT("Mana Potion",       TIER_NORMAL, ESLOT_NONE,   1,1, 1,USE_MANA,40, 0,0,0,
+    IT("Mana Potion",       TIER_NORMAL, ESLOT_NONE,   1,1, 1,USE_MANA,50, 0,0,0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0),
     IT("Rancid Gas Potion", TIER_NORMAL, ESLOT_NONE,   1,1, 1,USE_BLAST,50, 0,0,0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0),
@@ -88,13 +88,13 @@ static const diablo_itemdef_t diablo_magic[] =
        0,2,0,0,   0,0,0,0,   0,0,10,0,0,0,0,0),
     IT("Assault Gloves",    TIER_MAGIC, ESLOT_GLOVES, 2,2, 0,0,0,  0, 0, 6,
        3,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0),
-    IT("Piercing Rounds",   TIER_MAGIC, ESLOT_AMMO,   1,1, 0,0,0,   0, 0, 0,
+    IT("Piercing Rounds",   TIER_MAGIC, ESLOT_FOCUS,   1,1, 0,0,0,   0, 0, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,  15,0,0,0,0),
-    IT("Incendiary Shells", TIER_MAGIC, ESLOT_AMMO,   1,1, 0,0,0,   0, 0, 0,
+    IT("Incendiary Shells", TIER_MAGIC, ESLOT_FOCUS,   1,1, 0,0,0,   0, 0, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,  0,10,0,0,0),
-    IT("Swift Cartridges",  TIER_MAGIC, ESLOT_AMMO,   1,1, 0,0,0,   0, 0, 0,
+    IT("Swift Cartridges",  TIER_MAGIC, ESLOT_FOCUS,   1,1, 0,0,0,   0, 0, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,  0,0,20,0,0),
-    IT("Spotter Rounds",    TIER_MAGIC, ESLOT_AMMO,   1,1, 0,0,0,   0, 0, 0,
+    IT("Spotter Rounds",    TIER_MAGIC, ESLOT_FOCUS,   1,1, 0,0,0,   0, 0, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,  0,0,0,10,0),
 };
 
@@ -560,13 +560,11 @@ static void D_UseConsumable(player_t *player, const diablo_itemdef_t *def)
         break;
 
       case USE_MANA:
-        // No mana pool in Doom: the potion becomes a mana ward.
-        player->armorpoints += amount;
-        if (player->armorpoints > deh_max_armor)
-            player->armorpoints = deh_max_armor;
-        if (!player->armortype)
-            player->armortype = 1;
-        D_Msg(player, "Mana ward from the %s. (+%d armor)",
+        // Mana pool: ammo[am_clip] is the unified mana pool (100 max).
+        player->ammo[am_clip] += amount;
+        if (player->ammo[am_clip] > player->maxammo[am_clip])
+            player->ammo[am_clip] = player->maxammo[am_clip];
+        D_Msg(player, "You quaff the %s. (+%d mana)",
               def->name, amount);
         break;
 

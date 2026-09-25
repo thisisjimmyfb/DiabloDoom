@@ -47,14 +47,14 @@ static const struct { int slot, x, y; } ui_slots[NUM_ESLOTS] =
     { ESLOT_GLOVES,  6, 122 }, { ESLOT_BELT,  40, 122 },
     { ESLOT_BOOTS,  74, 122 },
     { ESLOT_RING1,   6, 152 }, { ESLOT_RING2, 40, 152 },
-    { ESLOT_AMMO,   74, 152 },
+    { ESLOT_FOCUS,  74, 152 },
 };
 
 static const char *ui_slotnames[NUM_ESLOTS] =
 {
     "HELM", "ARMOR", "WEAPON", "SHIELD", "RING",
     "RING", "AMULET", "BOOTS", "GLOVES", "BELT",
-    "AMMO",
+    "FOCUS",
 };
 
 static const char *ui_tiernames[NUM_TIERS] =

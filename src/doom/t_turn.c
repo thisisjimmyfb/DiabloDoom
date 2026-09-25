@@ -184,11 +184,11 @@ static void T_MaintainView(void)
 
 static void T_EndPulse(void);
 
-// Phase 2: infinite-ammo invariant. Turn mode never tracks ammunition;
-// availability is governed by TP cost, cooldowns, charge, and heat.
-// Keep every ammo pool maxed while planning so the weapon state machine
-// can never fail or auto-switch for lack of ammo. Real-time mode never
-// reaches this code.
+// Mana design: am_clip is the unified mana pool, a real resource that
+// pickups, Mana Potions, and kit costs move up and down. Every other ammo
+// pool stays maxed while planning so the underlying weapon state machine
+// can never fail or auto-switch for lack of ammo; mana itself is never
+// topped up here. Real-time mode never reaches this code.
 void T_TopUpAmmo(void)
 {
     player_t *p;
@@ -197,7 +197,8 @@ void T_TopUpAmmo(void)
         return;
     p = &players[consoleplayer];
     for (i = 0; i < NUMAMMO; i++)
-        p->ammo[i] = p->maxammo[i];
+        if (i != am_clip)
+            p->ammo[i] = p->maxammo[i];
 }
 
 // One world tic with optional monster freeze. Mirrors P_Ticker's
@@ -732,7 +733,8 @@ static boolean T_ActionEnabled(turnaction_t action)
 {
     if (action == TA_ATTACK)
         return T_CanAfford(TA_ATTACK)
-            && T_KitReady(players[consoleplayer].readyweapon);
+            && T_KitReady(players[consoleplayer].readyweapon)
+            && T_HasManaForKit(players[consoleplayer].readyweapon);
     if (action == TA_UNDO || action == TA_CLEAR_QUEUE)
         return turnctrl.queue_len > 0;
     return T_CanAfford(action);

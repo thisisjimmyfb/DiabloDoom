@@ -1203,7 +1203,7 @@ void G_PlayerReborn (int player)
     p->readyweapon = p->pendingweapon = wp_pistol; 
     p->weaponowned[wp_fist] = true; 
     p->weaponowned[wp_pistol] = true; 
-    p->ammo[am_clip] = deh_initial_bullets; 
+    p->ammo[am_clip] = deh_initial_bullets; // mana pool starts at 50
 	 
     for (i=0 ; i<NUMAMMO ; i++) 
 	p->maxammo[i] = maxammo[i]; 
