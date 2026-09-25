@@ -1202,20 +1202,53 @@ static const char *st_icon_drop[8] = {
 // label, and cur/max in the same blue.
 static void ST_drawTurnMana(void)
 {
-    char manabuf[16];
-    int blue;
+    char resbuf[16], valbuf[16];
+    int color;
+    const t_kitdef_t *kit;
+    weapontype_t w;
 
     if (!T_Active())
         return;
-    blue = ST_NearestColor(40, 120, 255); // LoL mana blue
+    w = plyr->readyweapon;
+    kit = T_KitForWeapon(w);
 
-    snprintf(manabuf, sizeof(manabuf), "%d/%d",
-             plyr->ammo[am_clip], plyr->maxammo[am_clip]);
+    // Weapon-specific resource (LoL-style): heat for plasma, charges
+    // for rocket, mana for BFG, kit name for resourceless AD guns.
     // Clear the baked-in "AMMO" label + big-number area on the left.
     V_DrawFilledBox(2, 170, 76, 28, 0);
-    ST_DrawIcon8(4, 172, st_icon_drop, blue);
-    ST_TurnDrawTextTinted(14, 172, "MANA", blue);
-    ST_TurnDrawTextTinted(4, 182, manabuf, blue);
+    if (kit->heat_per_shot > 0)
+    {
+        // Plasma: Rumble-style heat 0-100.
+        color = ST_NearestColor(255, 120, 0); // orange
+        snprintf(resbuf, sizeof(resbuf), "HEAT");
+        snprintf(valbuf, sizeof(valbuf), "%d/100", T_KitHeat(w));
+    }
+    else if (kit->max_charges > 0)
+    {
+        // Rocket: charge count.
+        color = ST_NearestColor(255, 220, 0); // yellow
+        snprintf(resbuf, sizeof(resbuf), "CHG");
+        snprintf(valbuf, sizeof(valbuf), "%d/%d",
+                 T_KitCharges(w), kit->max_charges);
+    }
+    else if (kit->mana_cost > 0)
+    {
+        // BFG: mana pool.
+        color = ST_NearestColor(40, 120, 255); // LoL mana blue
+        snprintf(resbuf, sizeof(resbuf), "MANA");
+        snprintf(valbuf, sizeof(valbuf), "%d/%d",
+                 plyr->ammo[am_clip], plyr->maxammo[am_clip]);
+    }
+    else
+    {
+        // AD guns / SSG: no resource; show the kit name.
+        color = ST_NearestColor(200, 200, 200); // light gray
+        snprintf(resbuf, sizeof(resbuf), "%s", kit->name);
+        valbuf[0] = '\0';
+    }
+    ST_TurnDrawTextTinted(4, 172, resbuf, color);
+    if (valbuf[0])
+        ST_TurnDrawTextTinted(4, 182, valbuf, color);
 }
 
 // Turn-based kit status (Phase 5): replaces the right-side AMMO counts
