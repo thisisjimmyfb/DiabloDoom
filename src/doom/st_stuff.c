@@ -1195,27 +1195,6 @@ static const char *st_icon_drop[8] = {
     "..####..",
 };
 
-// Turn-mode mana display: the dead left AMMO area becomes the unified
-// mana pool (player->ammo[am_clip]). Paints over the baked-in "AMMO"
-// label from the STBAR sprite, then draws a LoL-blue droplet, the MANA
-// label, and cur/max in the same blue.
-static void ST_drawTurnMana(void)
-{
-    char ammobuf[16];
-    int blue;
-
-    if (!T_Active())
-        return;
-    blue = ST_NearestColor(40, 120, 255); // LoL mana blue
-
-    snprintf(ammobuf, sizeof(ammobuf), "%d/%d",
-             plyr->ammo[am_clip], plyr->maxammo[am_clip]);
-    // Clear the baked-in "AMMO" label + big-number area on the left.
-    V_DrawFilledBox(2, 170, 76, 28, 0);
-    ST_TurnDrawTextTinted(4, 172, "AMMO", blue);
-    ST_TurnDrawTextTinted(4, 182, ammobuf, blue);
-}
-
 // Turn-based kit status (Phase 5): replaces the right-side AMMO counts
 // with a persistent AD/AP stat block and a contextual cooldown line.
 // Text labels (AD/AP/CD) instead of icons for clarity.
@@ -1284,9 +1263,11 @@ void ST_drawWidgets(boolean refresh)
 
     if (T_Active())
     {
-        // Turn mode: the left AMMO area becomes the mana pool display
-        // and the right-side ammo counts become the kit status panel.
-        ST_drawTurnMana();
+        // Turn mode: left AMMO area shows the unified ammo pool (classic
+        // Doom big-number style); right-side ammo counts become the kit
+        // status panel.
+        w_ready.num = &plyr->ammo[am_clip];
+        STlib_updateNum(&w_ready, refresh);
         ST_drawTurnKits();
     }
     else
