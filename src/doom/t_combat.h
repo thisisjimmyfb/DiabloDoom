@@ -85,6 +85,7 @@ typedef struct
     int heat_vent;      // heat dissipated per round
     int max_charges;    // charge capacity (rocket); 0 = no charge system
     int leech;          // inherent lifesteal % (chainsaw); stacks with gear
+    int knockback;      // tiles to shove target on hit (SSG); 0 = none
 } t_kitdef_t;
 
 const t_kitdef_t *T_KitForWeapon(weapontype_t w);
