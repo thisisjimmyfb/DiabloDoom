@@ -1259,6 +1259,14 @@ static void ST_drawTurnKits(void)
         ST_TurnDrawText(labx, 189, mechlab);
         ST_TurnDrawText(valright - STWepTextWidth(mechval), 189, mechval);
     }
+
+    // Loot alert: persistent "G: LOOT!" prompt when drops are on the map.
+    // Drawn at the top of the AD/AP panel area (y=160, above the stats).
+    if (T_LootAvailable())
+    {
+        V_DrawFilledBox(250, 160, 70, 10, 0);
+        ST_TurnDrawText(254, 161, "G: LOOT!");
+    }
 }
 
 static void ST_drawDiabloWeapon(void)

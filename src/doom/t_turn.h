@@ -167,6 +167,7 @@ void T_DoMove(int dir);   // 0=N(fwd) 1=E(right) 2=S(back) 3=W(left)
 void T_DoTurn(int dir);   // -1=left, +1=right; free 45-degree view turn
 void T_DoUse(void);
 void T_DoCollect(void);   // G: auto-path to nearest loot and pick it up
+boolean T_LootAvailable(void); // true if any Diablo loot is on the map
 void T_DoEndTurn(void);
 void T_DoUndoQueue(void);  // Backspace: undo last queued action, refund TP
 void T_DoClearQueue(void); // Z: clear the whole queue, refund all TP

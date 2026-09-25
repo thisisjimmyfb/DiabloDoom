@@ -368,9 +368,13 @@ static void T_EndPulse(void)
         }
         turnctrl.state = TS_PLANNING;
         {
-            static char msg[64];
-            M_snprintf(msg, sizeof(msg), "Round %d - your move.",
-                       turnctrl.round);
+            static char msg[96];
+            if (T_LootAvailable())
+                M_snprintf(msg, sizeof(msg), "Round %d - LOOT AVAILABLE! Press G.",
+                           turnctrl.round);
+            else
+                M_snprintf(msg, sizeof(msg), "Round %d - your move.",
+                           turnctrl.round);
             players[consoleplayer].message = msg;
         }
     }

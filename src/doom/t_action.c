@@ -301,6 +301,15 @@ static mobj_t *T_FindNearestLoot(mobj_t *player_mo)
     return best;
 }
 
+// Public: check if any Diablo loot exists on the map (for the HUD prompt).
+boolean T_LootAvailable(void)
+{
+    player_t *player = &players[consoleplayer];
+    if (player->mo == NULL)
+        return false;
+    return T_FindNearestLoot(player->mo) != NULL;
+}
+
 // BFS from player to target. Returns number of steps in path, or -1 if
 // no path. Fills path_dirs with directions (0=N,1=E,2=S,3=W).
 static int T_FindPath(mobj_t *player_mo, mobj_t *target, int *path_dirs, int max_steps)
