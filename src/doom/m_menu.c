@@ -291,21 +291,17 @@ menu_t  EpiDef =
 //
 enum
 {
-    killthings,
-    toorough,
-    hurtme,
-    violence,
-    nightmare,
+    diff_normal,    // -> sk_medium
+    diff_nightmare, // -> sk_hard
+    diff_hell,      // -> sk_nightmare
     newg_end
 } newgame_e;
 
 menuitem_t NewGameMenu[]=
 {
-    {1,"M_JKILL",	M_ChooseSkill, 'i'},
-    {1,"M_ROUGH",	M_ChooseSkill, 'h'},
-    {1,"M_HURT",	M_ChooseSkill, 'h'},
-    {1,"M_ULTRA",	M_ChooseSkill, 'u'},
-    {1,"M_NMARE",	M_ChooseSkill, 'n'}
+    {1,"",	M_ChooseSkill, 'n'},
+    {1,"",	M_ChooseSkill, 'i'},
+    {1,"",	M_ChooseSkill, 'h'}
 };
 
 menu_t  NewDef =
@@ -315,7 +311,7 @@ menu_t  NewDef =
     NewGameMenu,	// menuitem_t ->
     M_DrawNewGame,	// drawing routine ->
     48,63,              // x,y
-    hurtme		// lastOn
+    diff_normal		// lastOn
 };
 
 
@@ -888,6 +884,10 @@ void M_DrawNewGame(void)
 {
     V_DrawPatchDirect(96, 14, W_CacheLumpName(DEH_String("M_NEWG"), PU_CACHE));
     V_DrawPatchDirect(54, 38, W_CacheLumpName(DEH_String("M_SKILL"), PU_CACHE));
+    // Diablo-style difficulties: text labels (menu items have empty names).
+    M_WriteText(48, 63, "NORMAL");
+    M_WriteText(48, 63 + 16, "NIGHTMARE");
+    M_WriteText(48, 63 + 32, "HELL");
 }
 
 void M_NewGame(int choice)
@@ -922,19 +922,29 @@ void M_VerifyNightmare(int key)
     if (key != key_menu_confirm)
 	return;
 		
-    G_DeferedInitNew(nightmare,epi+1,1);
+    G_DeferedInitNew(sk_nightmare,epi+1,1);
     M_ClearMenus ();
 }
 
 void M_ChooseSkill(int choice)
 {
-    if (choice == nightmare)
+    skill_t skill;
+
+    // Map the 3 Diablo-style difficulties to internal skill levels.
+    if (choice == diff_normal)
+        skill = sk_medium;
+    else if (choice == diff_nightmare)
+        skill = sk_hard;
+    else // diff_hell
+        skill = sk_nightmare;
+
+    if (skill == sk_nightmare)
     {
 	M_StartMessage(DEH_String(NIGHTMARE),M_VerifyNightmare,true);
 	return;
     }
 	
-    G_DeferedInitNew(choice,epi+1,1);
+    G_DeferedInitNew(skill,epi+1,1);
     M_ClearMenus ();
 }
 

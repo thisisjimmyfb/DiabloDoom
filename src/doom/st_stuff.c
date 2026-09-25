@@ -1085,8 +1085,8 @@ static void ST_DrawPatchFlat(int x, int y, patch_t *p, int color)
 }
 
 // Tinted variant of ST_TurnDrawText: same gold-font glyphs, drawn flat
-// in one color (LoL mana blue for the mana widget), with a 1px black
-// shadow for legibility on the dark status bar.
+// in one color (LoL mana blue for the mana widget). No shadow: the
+// crisp single-pass render reads better at status-bar size.
 static void ST_TurnDrawTextTinted(int x, int y, const char *s, int color)
 {
     while (*s)
@@ -1112,7 +1112,6 @@ static void ST_TurnDrawTextTinted(int x, int y, const char *s, int color)
             x = 0;
         if (x + w <= 320 && y >= 0 && y < 200)
         {
-            ST_DrawPatchFlat(x + 1, y + 1, p, 0);
             ST_DrawPatchFlat(x, y, p, color);
         }
         x += w + 1;

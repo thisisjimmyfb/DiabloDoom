@@ -1821,7 +1821,11 @@ void D_DoomMain (void)
 
     if (p)
     {
-	startskill = myargv[p+1][0]-'1';
+	// 1=Normal->sk_medium, 2=Nightmare->sk_hard, 3=Hell->sk_nightmare.
+	int s = myargv[p+1][0]-'1';
+	if (s < 0) s = 0;
+	if (s > 2) s = 2;
+	startskill = (s == 0) ? sk_medium : (s == 1) ? sk_hard : sk_nightmare;
 	autostart = true;
     }
 
