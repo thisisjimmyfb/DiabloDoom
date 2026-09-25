@@ -34,12 +34,16 @@ one panel at a time. The bar stays; only the panels change.
   weapon equipped in the Diablo inventory: item icon + aggregated damage
   range, or `FISTS` when the slot is empty. See `ST_drawDiabloWeapon` in
   `src/doom/st_stuff.c`.
-- **AMMO → mana + kit panel** (done). The left ammo readout is now the
-  unified mana pool display (blue droplet, `MANA cur/max`, `ST_drawTurnMana`
-  in `src/doom/st_stuff.c`): 100 max, starts at 50, backpack doubles the
-  max to 200. The right-side per-type ammo counters are replaced by the
-  kit status panel: LoL-style AD/AP stat block (gold sword icon + damage
-  range, teal sparkle + ability power, cooldown below), `ST_drawTurnKits`.
+- **AMMO → classic restored** (done). The left ammo readout is back to
+  classic Doom: baked-in `AMMO` label with big red numbers showing the
+  unified ammo pool (`player->ammo[am_clip]`), via the `w_ready` widget
+  in `src/doom/st_stuff.c`. No custom text rendering.
+- **Right ammo counts → AD/AP/CD panel** (done). The four per-type ammo
+  counters (and their `BULL`/`SHELL`/`RCKT`/`CELL` labels, painted over)
+  are replaced by a stat block, `ST_drawTurnKits`: damage (`AD x-y` for
+  AD guns, `AP x` for AP guns — never both), cooldown (`CD x`), and the
+  weapon's gate (`HEAT x` for plasma, `CHG x/y` for rocket). Text is
+  single-pass (no shadow) for crispness.
 
 ## Five design pillars
 
@@ -62,6 +66,19 @@ one panel at a time. The bar stays; only the panels change.
 - No squad turns, netplay, demo compatibility, or multiplayer sync.
 - No automatic Threads bio edits (no API endpoint exists).
 - No campaign-wide rebalance before the core loop proves itself.
+
+## Difficulties
+
+Three Diablo-style difficulties, replacing Doom's five skill levels:
+
+| Menu | Internal skill | Behavior |
+|------|---------------|----------|
+| NORMAL | `sk_medium` | Standard. |
+| NIGHTMARE | `sk_hard` | Harder monsters. |
+| HELL | `sk_nightmare` | Fast, respawning monsters (keeps the confirm prompt). |
+
+The New Game menu shows text labels (`M_DrawNewGame` in
+`src/doom/m_menu.c`); `-skill 1/2/3` maps to the same three levels.
 
 ## Hard input rule
 
@@ -183,10 +200,15 @@ equipped), not loot.
 | Shotgun | AD | — (close burst) | Positioning reward, pellet spread. |
 | Chaingun | AD | — (sustained) | TP-hungry DPS hose. |
 | Chainsaw | AD | — (melee) | High risk, constant uptime. |
-| Plasma Rifle | AP | **Heat** (Rumble-style) | Burst, then vent: +25 heat per shot, −40 per round; at 100 the gun overheats and locks until heat ≤ 50. |
-| Rocket Launcher | AP | **Charges** (2, +1/round) | Punctuated splash; firing consumes 1 charge. |
-| Super Shotgun | AP | **Cooldown** (2-round breach reload) | Heavy double-barrel blast, forced reload rhythm. |
-| BFG9000 | AP | **Cooldown + Mana** (3 rounds, 20 mana) | Ultimate: highest damage, gated hardest. |
+| Plasma Rifle | AP | **Heat** (inverse ammo) | Free to spam while heat < 100: +25 heat per shot, −40 per round. |
+| Rocket Launcher | AP | **Charges** (2, +1/round) + 10 ammo | Punctuated splash; firing consumes 1 charge. |
+| Super Shotgun | AP | **Cooldown** (2-round breach reload) + 8 ammo | Heavy double-barrel blast, forced reload rhythm. |
+| BFG9000 | AP | **Cooldown** (3 rounds) + 20 ammo | Ultimate: highest damage, gated hardest. |
+
+**Base kits are deliberately weak.** Kit damage is ~1/3 of the original
+values (e.g. BFG 10–18 instead of 30–50, Pistol 2–4 instead of 6–13), so
+the looted gun's Diablo stats are the real damage source. Hunting better
+gear is the progression; a naked gun does chip damage.
 
 Damage model:
 
@@ -201,23 +223,21 @@ Cadence plumbing:
 
 - Cooldowns, charges, and heat tick at round start (`T_KitTickCooldowns`).
 - `T_KitCanFire` covers every gate: cooldown == 0 **and** charges > 0
-  **and** not overheated **and** mana affordable.
+  **and** heat < 100 **and** ammo affordable.
 - Fire-denied messages name the gate:
-  `OVERHEATED` / `NO CHARGES` / `ON COOLDOWN` / `NO MANA`.
-- The rounds overlay kit line shows gate state: heat bar, charge pips,
+  `OVERHEATED` / `NO CHARGES` / `ON COOLDOWN` / `NO AMMO`.
+- The rounds overlay kit line shows gate state: heat value, charge count,
   or cooldown count.
 - Inventory tooltips show AD or AP typing and the mechanic
   (e.g. "AP weapon — Heat: +25/shot").
 
-**Mana is ammo, renamed.** The engine ammo system is the unified mana
-pool (`player->ammo[am_clip]`): 100 max, starts at 50, backpack doubles
-the max to 200. Every ammo pickup funnels into mana while keeping its own
-`clipammo` amount; at full mana pickups are left on the ground. Mana
-Potions restore 50 mana, capped by the max. The BFG kit costs 20 mana per
-attack on top of its TP cost — validated when the attack is queued
-(`NEED 20 MANA (HAVE n).` on failure), deducted when it executes.
-Availability is still governed by attack speed (TP cost), cooldowns,
-charges, and heat, League-style; mana is the one spendable resource on top.
+**Ammo is a spam-gate, not a hard resource.** The engine ammo system is
+the unified pool (`player->ammo[am_clip]`): 100 max, +25 regen every
+round (`T_EndPulse`), so AP guns never run dry. Ammo costs gate burst,
+not sustained use: BFG 20, Rocket 10, SSG 8 per attack; Plasma is free
+(heat is its only gate); AD guns are free. Costs are validated when the
+attack is queued (`NEED n AMMO (HAVE m).` on failure), deducted when it
+executes. `T_HasAmmoForKit` is the affordability check.
 
 **FOCUS slot.** "Ammo" survives as a paperdoll inventory slot renamed
 FOCUS: equippable focus items (Piercing Rounds, Incendiary Shells, Swift
