@@ -455,8 +455,11 @@ static void P_DropDiabloLoot(mobj_t *target, mobj_t *source)
     else
         tier = TIER_NORMAL;
 
-    // Pick a specific item from the tier's table.
-    index = P_Random() % D_TierCount(tier);
+    // Pick a specific item from the tier's table, filtered by difficulty.
+    // Higher difficulties unlock stronger affix tiers.
+    index = D_RollItemForDifficulty(tier);
+    if (index < 0)
+        return; // no valid items for this difficulty (shouldn't happen)
 
     P_SpawnDiabloLootAt(target->x, target->y, D_MAKEITEM(tier, index));
 }

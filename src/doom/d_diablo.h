@@ -154,6 +154,7 @@ typedef struct
     int ad_flat;     // flat bonus damage (added before AD%)
     int ap_flat;     // flat bonus ability power (added before AP%)
     int cd_flat;     // flat cooldown reduction in rounds
+    int diff_tier;   // min difficulty tier to drop (0=any, 1=Nightmare+, 2=Hell+)
     int doomweapon;  // weapontype_t for ESLOT_WEAPON guns, -1 otherwise.
                      // Equipping syncs the Doom readyweapon so the
                      // first-person sprite and turn-mode kit follow the gun.
@@ -213,6 +214,10 @@ int D_LoopHpMult(void);    // enemy HP multiplier in percent (100 = normal)
 int D_LoopDmgMult(void);   // enemy damage multiplier in percent
 int D_LoopMagicFind(void); // bonus magic find % from loop
 void D_BeatGame(void);     // called when the final map is cleared
+
+// Affix difficulty tiers: 0=Normal, 1=Nightmare, 2=Hell.
+int D_DifficultyTier(void);
+int D_RollItemForDifficulty(int tier); // filtered random item by difficulty
 
 // Phase 4: dexterity/energy/resistance hooks.
 boolean D_DodgeRoll(struct player_s *player);   // true = avoided the hit
