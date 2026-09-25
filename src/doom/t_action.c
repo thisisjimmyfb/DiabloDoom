@@ -116,7 +116,7 @@ static void T_RefuseMana(weapontype_t w)
     int have = players[consoleplayer].ammo[am_clip];
     M_snprintf(msg, sizeof(msg), "NEED %d MANA (HAVE %d).", need, have);
     players[consoleplayer].message = msg;
-    printf("[TURN] refused attack: need %d mana, have %d\n", need, have);
+    printf("[TURN] refused attack: need %d ammo, have %d\n", need, have);
 }
 
 // Dead heroes take no actions. (Death/rebirth flow lands in a later phase.)
@@ -641,7 +641,7 @@ void T_DoAttack(void)
             T_RefuseTP(TA_ATTACK);
             return;
         }
-        if (!T_HasManaForKit(player->readyweapon))
+        if (!T_HasAmmoForKit(player->readyweapon))
         {
             T_RefuseMana(player->readyweapon);
             return;
@@ -676,7 +676,7 @@ void T_DoAttack(void)
         T_RefuseTP(TA_ATTACK);
         return;
     }
-    if (!T_HasManaForKit(player->readyweapon))
+    if (!T_HasAmmoForKit(player->readyweapon))
     {
         T_RefuseMana(player->readyweapon);
         return;
@@ -730,8 +730,8 @@ static boolean T_ExecAttack(mobj_t *target, int cost)
         {
             if (player->ammo[am_clip] < kit->mana_cost)
             {
-                players[consoleplayer].message = "Not enough mana - skipped.";
-                printf("[TURN] queued attack skipped: need %d mana, have %d (+%d TP)\n",
+                players[consoleplayer].message = "Not enough ammo - skipped.";
+                printf("[TURN] queued attack skipped: need %d ammo, have %d (+%d TP)\n",
                        kit->mana_cost, player->ammo[am_clip], cost);
                 turnctrl.tp += cost;
                 T_DumpState("exec-attack-skip");
@@ -969,7 +969,7 @@ void T_RunScript(const char *path)
                 pl->ammo[am_clip] = pl->maxammo[am_clip];
             if (pl->ammo[am_clip] < 0)
                 pl->ammo[am_clip] = 0;
-            printf("[TURN] set mana %d (test)\n", pl->ammo[am_clip]);
+            printf("[TURN] set ammo %d (test)\n", pl->ammo[am_clip]);
         }
         else if (sscanf(line, "ASSERT_MAXMANA %d", &n) == 1)
         {

@@ -207,11 +207,12 @@ static void T_MaintainView(void)
 
 static void T_EndPulse(void);
 
-// Mana design: am_clip is the unified mana pool, a real resource that
-// pickups, Mana Potions, and kit costs move up and down. Every other ammo
+// Ammo design: am_clip is the unified ammo pool. Every other ammo
 // pool stays maxed while planning so the underlying weapon state machine
-// can never fail or auto-switch for lack of ammo; mana itself is never
-// topped up here. Real-time mode never reaches this code.
+// can never fail or auto-switch for lack of ammo. The ammo pool itself
+// regens +25 each round (see T_EndPulse) so AP guns never run dry;
+// pickups and Mana Potions also restore it. Real-time mode never
+// reaches this code.
 void T_TopUpAmmo(void)
 {
     player_t *p;
@@ -357,6 +358,14 @@ static void T_EndPulse(void)
         T_CountRound(); // Phase 8: lifetime rounds
         turnctrl.tp = turnctrl.tp_max; // TP economy lands in phase 2
         T_KitTickCooldowns();
+        // Ammo regen (LoL-style): the pool refills each round so AP guns
+        // never run dry; kit costs gate burst, not sustained use.
+        {
+            player_t *p = &players[consoleplayer];
+            p->ammo[am_clip] += 25;
+            if (p->ammo[am_clip] > p->maxammo[am_clip])
+                p->ammo[am_clip] = p->maxammo[am_clip];
+        }
         turnctrl.state = TS_PLANNING;
         {
             static char msg[64];
@@ -792,8 +801,8 @@ static void T_KitGateStr(weapontype_t w, char *buf, int bufsz)
     else if (kit->max_charges > 0)
         M_snprintf(buf, bufsz, " CHG %d/%d", T_KitCharges(w),
                    T_KitMaxCharges(w));
-    else if (!T_HasManaForKit(w))
-        M_snprintf(buf, bufsz, " MANA!");
+    else if (!T_HasAmmoForKit(w))
+        M_snprintf(buf, bufsz, " AMMO!");
 }
 
 // Planning-time action list with per-action TP costs. Disabled

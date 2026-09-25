@@ -295,15 +295,15 @@ static const t_kitdef_t t_kits[NUMWEAPONS] = {
     // wp_chaingun: 3-round burst
     { "CHAINGUN", 4,  7,  5, 0,   0,  0, 3, false, 0,  0,  0, 0 },
     // wp_missile: AP rockets, enemy-targeted splash, charge-gated
-    { "ROCKET",  15, 25,  6, 0, 128, 50, 1, true,  0,  0,  0, 2 },
+    { "ROCKET",  15, 25,  6, 0, 128, 50, 1, true, 10,  0,  0, 2 },
     // wp_plasma: AP energy, heat-gated (Rumble-style)
-    { "PULSE",    5, 10,  4, 0,   0,  0, 1, true,  0, 25, 40, 0 },
+    { "PULSE",    5, 10,  4, 0,   0,  0, 1, true,  5, 25, 40, 0 },
     // wp_bfg: AP ultimate, cooldown + mana
     { "BFG",     30, 50,  8, 3, 192, 60, 1, true, 20,  0,  0, 0 },
     // wp_chainsaw: AD melee
     { "SAW",      2,  6,  3, 0,   0,  0, 1, false, 0,  0,  0, 0 },
     // wp_supershotgun: AP double-barrel, breach reload
-    { "SSG",     10, 20,  6, 2,   0,  0, 8, true,  0,  0,  0, 0 },
+    { "SSG",     10, 20,  6, 2,   0,  0, 8, true,  8,  0,  0, 0 },
 };
 
 const t_kitdef_t *T_KitForWeapon(weapontype_t w)
@@ -468,7 +468,7 @@ boolean T_KitCanFire(weapontype_t w)
         return false;
     if (kit->heat_per_shot > 0 && T_KitHeat(w) >= 100)
         return false;
-    return T_HasManaForKit(w);
+    return T_HasAmmoForKit(w);
 }
 
 const char *T_KitDenyReason(weapontype_t w)
@@ -480,15 +480,15 @@ const char *T_KitDenyReason(weapontype_t w)
         return "NO CHARGES";
     if (kit->heat_per_shot > 0 && T_KitHeat(w) >= 100)
         return "OVERHEATED";
-    if (!T_HasManaForKit(w))
+    if (!T_HasAmmoForKit(w))
         return "NO MANA";
     return NULL;
 }
 
-// Mana affordability: the PULSE kit spends mana_cost per attack from the
-// unified mana pool (player->ammo[am_clip]). Kits with no mana cost are
+// Ammo affordability: AP kits spend mana_cost per attack from the
+// unified ammo pool (player->ammo[am_clip]). Kits with no ammo cost are
 // always affordable.
-boolean T_HasManaForKit(weapontype_t w)
+boolean T_HasAmmoForKit(weapontype_t w)
 {
     const t_kitdef_t *kit = T_KitForWeapon(w);
     player_t *player = &players[consoleplayer];

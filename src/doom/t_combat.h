@@ -103,7 +103,7 @@ void T_KitTickCooldowns(void);             // call on round start
 boolean T_KitCanFire(weapontype_t w);       // all gates pass
 const char *T_KitDenyReason(weapontype_t w);// "ON COOLDOWN"/"NO CHARGES"/
                                            // "OVERHEATED"/"NO MANA"/NULL
-boolean T_HasManaForKit(weapontype_t w);    // consoleplayer can pay mana_cost
+boolean T_HasAmmoForKit(weapontype_t w);    // consoleplayer can pay ammo cost
 boolean T_LastKill(void);                   // did the last attack kill?
 
 #endif
