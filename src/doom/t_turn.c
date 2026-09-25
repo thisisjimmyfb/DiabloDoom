@@ -127,6 +127,20 @@ void T_OnLoad(void)
     turnctrl.executing = false;
 }
 
+// Test harness: the script LOAD token runs G_DoLoadGame, which goes
+// through G_InitNew -> G_DoLoadLevel -> T_NewGame. That zeroes the live
+// controller (clearing sync mode) and resets the script/arena one-shot
+// flags, so a script that continues after LOAD would run async and then
+// re-run itself forever on the next tick (also re-spawning the arena).
+// Re-assert the script context here; the load itself already restored
+// round/TP/cooldowns via P_UnArchiveTurn.
+void T_ScriptLoadFixup(void)
+{
+    turnctrl.sync = true;
+    t_script_done = true;
+    t_arena_done = true;
+}
+
 // ------------------------------------------------------------------
 // Bounded simulation pulse
 // ------------------------------------------------------------------

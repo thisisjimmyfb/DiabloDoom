@@ -139,7 +139,9 @@ void T_NewGame(void);
 // Called after loading a savegame: reset the state machine only
 // (round/TP are the player's ongoing progress).
 void T_OnLoad(void);
-
+// Test harness: re-assert the in-script context after LOAD (which runs
+// G_DoLoadLevel -> T_NewGame and would otherwise clear it).
+void T_ScriptLoadFixup(void);
 // Per-tic hook called from G_Ticker instead of P_Ticker.
 void T_Ticker(void);
 

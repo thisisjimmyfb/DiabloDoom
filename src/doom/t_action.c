@@ -1079,6 +1079,7 @@ void T_RunScript(const char *path)
             M_StringCopy(savename, sn, sizeof(savename));
             free(sn);
             G_DoLoadGame();
+            T_ScriptLoadFixup();
             printf("[TURN] loaded slot %d\n", n);
         }
         else if (!strcmp(line, "SELECT_NEXT")) T_DoSelectNext();
