@@ -1201,7 +1201,8 @@ static const char *st_icon_drop[8] = {
 static void ST_drawTurnKits(void)
 {
     t_combatstats_t st;
-    char adbuf[24], apbuf[24], cdbuf[24];
+    char dmgbuf[24], cdbuf[24], mechbuf[24];
+    const t_kitdef_t *kit;
     int cd, dmg_min, dmg_max;
 
     if (!T_Active())
@@ -1210,18 +1211,31 @@ static void ST_drawTurnKits(void)
     // Show the same damage the attack preview computes: kit base stacked
     // on, then AD%/AP% (T_DamageRange mirrors T_ResolveAttack exactly).
     T_DamageRange(plyr, NULL, &st, &dmg_min, &dmg_max);
+    kit = T_KitForWeapon(plyr->readyweapon);
     cd = T_KitCooldown(plyr->readyweapon);
 
-    snprintf(adbuf, sizeof(adbuf), "AD %d-%d", dmg_min, dmg_max);
-    snprintf(apbuf, sizeof(apbuf), "AP %d", T_ApplyApPct(plyr, st.ap));
+    // Damage: AD range for AD guns, AP value for AP guns (not both).
+    if (kit->ap_weapon)
+        snprintf(dmgbuf, sizeof(dmgbuf), "AP %d", T_ApplyApPct(plyr, st.ap));
+    else
+        snprintf(dmgbuf, sizeof(dmgbuf), "AD %d-%d", dmg_min, dmg_max);
     snprintf(cdbuf, sizeof(cdbuf), "CD %d", cd);
+    // Weapon-specific gate: heat for plasma, charges for rocket.
+    if (kit->heat_per_shot > 0)
+        snprintf(mechbuf, sizeof(mechbuf), "HEAT %d", T_KitHeat(plyr->readyweapon));
+    else if (kit->max_charges > 0)
+        snprintf(mechbuf, sizeof(mechbuf), "CHG %d/%d",
+                 T_KitCharges(plyr->readyweapon), kit->max_charges);
+    else
+        mechbuf[0] = '\0';
 
     // Clear the right-side ammo count area (incl. BULL/SHELL/RCKT/CELL
     // labels), then draw the stat block.
     V_DrawFilledBox(230, 170, 90, 30, 0);
-    ST_TurnDrawText(282, 171, adbuf);
-    ST_TurnDrawText(282, 180, apbuf);
-    ST_TurnDrawText(282, 189, cdbuf);
+    ST_TurnDrawText(282, 171, dmgbuf);
+    ST_TurnDrawText(282, 180, cdbuf);
+    if (mechbuf[0])
+        ST_TurnDrawText(282, 189, mechbuf);
 }
 
 static void ST_drawDiabloWeapon(void)
