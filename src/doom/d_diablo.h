@@ -75,6 +75,9 @@ typedef enum
     DSTAT_CRIT_CHANCE, // percent; chance to crit
     DSTAT_CRIT_DMG,    // percent; bonus crit damage (x2 = 200 base)
     DSTAT_HEAT_MAX,    // bonus to plasma overheat threshold (base 100)
+    DSTAT_AD_FLAT,     // flat bonus damage (added before AD%)
+    DSTAT_AP_FLAT,     // flat bonus ability power (added before AP%)
+    DSTAT_CD_FLAT,     // flat cooldown reduction in rounds
     NUM_DSTATS
 } diablo_stat_t;
 
@@ -148,6 +151,9 @@ typedef struct
     int crit_chance; // percent; chance to crit
     int crit_dmg;    // percent; bonus crit damage (base x2 = 200)
     int heat_max;    // bonus to plasma overheat threshold (base 100)
+    int ad_flat;     // flat bonus damage (added before AD%)
+    int ap_flat;     // flat bonus ability power (added before AP%)
+    int cd_flat;     // flat cooldown reduction in rounds
     int doomweapon;  // weapontype_t for ESLOT_WEAPON guns, -1 otherwise.
                      // Equipping syncs the Doom readyweapon so the
                      // first-person sprite and turn-mode kit follow the gun.

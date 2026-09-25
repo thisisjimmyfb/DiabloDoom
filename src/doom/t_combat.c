@@ -118,9 +118,12 @@ void T_DeriveStats(player_t *player, t_combatstats_t *out)
 // Gear percent multipliers, applied AFTER all flat damage (kit base +
 // gun damage + attributes), per the approved AD/AP formula. Diablo-style:
 // +X% Attack Damage / +Y% Ability Power from items and focus buffs.
+// Flat bonuses (DSTAT_AD_FLAT/DSTAT_AP_FLAT) are added before the %
+// multiplier.
 int T_ApplyAdPct(player_t *player, int dmg)
 {
     int pct = player->diablo_stats[DSTAT_AD_PCT];
+    dmg += player->diablo_stats[DSTAT_AD_FLAT];
     if (pct != 0)
         dmg = dmg * (100 + pct) / 100;
     return dmg;
@@ -129,6 +132,7 @@ int T_ApplyAdPct(player_t *player, int dmg)
 int T_ApplyApPct(player_t *player, int ap)
 {
     int pct = player->diablo_stats[DSTAT_AP_PCT];
+    ap += player->diablo_stats[DSTAT_AP_FLAT];
     if (pct != 0)
         ap = ap * (100 + pct) / 100;
     return ap;
@@ -615,11 +619,12 @@ boolean T_ResolveAttack(player_t *player, mobj_t *target)
             t_charges[w]--;
         if (kit->cooldown > 0)
         {
-            // Haste reduces cooldown rounds (min 1).
+            // Haste (%) then flat reduction (min 1 round).
             t_combatstats_t st;
             int cd = kit->cooldown;
             T_DeriveStats(player, &st);
             cd -= cd * st.haste / 100;
+            cd -= player->diablo_stats[DSTAT_CD_FLAT];
             if (cd < 1)
                 cd = 1;
             T_KitSetCooldown(w, cd);
