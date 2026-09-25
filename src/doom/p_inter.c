@@ -957,12 +957,15 @@ P_DamageMobj
 	damage >>= 1; 	// take half damage in trainer mode
 
     // Diablo equipment (mod): when a player hurts a monster, add the
-    // equipped weapon's damage bonus and strength bonus, then roll for
-    // a dexterity crit (double damage).
+    // equipped weapon's damage bonus.
+    // Turn mode: T_ResolveAttack already rolled crit exactly once per
+    // attack (deterministic, once-per-attack pellet semantics), so the
+    // legacy D_CritRoll here must be skipped or crits double-roll.
     if (source && source->player && target->player == NULL)
     {
 	damage += D_WeaponBonus(source->player);
-	damage = D_CritRoll(source->player, damage);
+	if (!T_Active())
+	    damage = D_CritRoll(source->player, damage);
     }
 		
 

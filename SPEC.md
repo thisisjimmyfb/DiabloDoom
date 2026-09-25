@@ -146,7 +146,7 @@ consuming an item does. Grid organization stays free.
 | AP     | Ability Power        | Scales plasma, BFG, status, charged effects. Energy feeds AP. |
 | AS     | Attack Speed         | Reduces TP attack cost / shots per burst; hard floors prevent zero-cost attacks. |
 | Haste  | Cooldown recovery    | Shortens cooldowns by a displayed, rounded turn count.  |
-| Crit   | Chance + damage      | Gear-inherent (Diablo-style): weapons/items grant crit chance and bonus crit damage. Base crits deal x2; each crit-damage point adds 1%. Chance caps at 50%. |
+| Crit   | Chance + damage      | Gear-inherent (Diablo-style): weapons/items grant crit chance and bonus crit damage. Base crits deal x2; each crit-damage point adds 1%. Chance caps at 50%. Crit is rolled exactly once per attack inside `T_ResolveAttack` (deterministic turn RNG, once-per-attack pellet semantics); the legacy `P_DamageMobj` crit hook is bypassed in turn mode so crits can never double-roll. |
 | Armor  | Physical defense     | Diminishing-returns reduction of AD-tagged damage.      |
 | MR     | Magic resistance     | Reduces AP-tagged plasma, occult, status damage.        |
 | Move   | Movement efficiency  | Boots/effects can reduce step cost, never below 1 TP.   |
