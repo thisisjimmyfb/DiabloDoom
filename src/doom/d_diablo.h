@@ -98,6 +98,23 @@ typedef enum
 #define D_ITEMTIER(id)         (((id) >> 8) & 0xff)
 #define D_ITEMIDX(id)          ((id) & 0xff)
 
+// Mechanic affix flags (rare guns grant mechanics, not just numbers).
+// Stored on diablo_itemdef_t.mech; hand-authored per item.
+#define MECH_PHOENIX    (1 << 0)   // kills vent 50 heat (plasma)
+#define MECH_OVERCLOCK  (1 << 1)   // +25 heat dissipation/round (plasma)
+#define MECH_CALDERA    (1 << 2)   // overheat -> fire nova, vent to 0 (plasma)
+#define MECH_VOLTAIC    (1 << 3)   // explosions chain 50% to nearby foe (rocket)
+#define MECH_BANDOLIER  (1 << 4)   // +1 max charge (rocket)
+#define MECH_SIEGE      (1 << 5)   // direct hits knock foes back 1 tile (rocket)
+#define MECH_HUNGRY     (1 << 6)   // kills -1 round cooldown (BFG)
+#define MECH_HORIZON    (1 << 7)   // blast drags foes 1 tile inward (BFG)
+#define MECH_BREACHER   (1 << 8)   // kills refund reload cooldown (SSG)
+#define MECH_BULL       (1 << 9)   // firing shoves you 1 tile back (SSG)
+#define MECH_SPLITTING  (1 << 10)  // +2 pellets (shotgun/chaingun)
+#define MECH_REAPER     (1 << 11)  // kills refund 2 TP (any)
+#define MECH_LUCKY      (1 << 12)  // every 3rd pistol shot crits (pistol)
+#define MECH_GLACIER    (1 << 13)  // hits slow foes (STRETCH: enemy-phase hook)
+
 typedef struct
 {
     const char *name;
@@ -129,6 +146,10 @@ typedef struct
     // Crit is gear-inherent (Diablo-style).
     int crit_chance; // percent; chance to crit
     int crit_dmg;    // percent; bonus crit damage (base x2 = 200)
+    int doomweapon;  // weapontype_t for ESLOT_WEAPON guns, -1 otherwise.
+                     // Equipping syncs the Doom readyweapon so the
+                     // first-person sprite and turn-mode kit follow the gun.
+    int mech;        // MECH_* bitmask: rare affixes grant mechanics.
 } diablo_itemdef_t;
 
 // Item table access.
@@ -141,6 +162,8 @@ int D_GetItemIconIdx(int tier, int idx);
 // Player equipment state.
 void D_ResetPlayer(struct player_s *player);
 void D_RecalcStats(struct player_s *player);
+void D_SyncDoomWeapon(struct player_s *player); // gun -> readyweapon/sprite
+int D_EquippedWeaponMech(struct player_s *player); // MECH_* of equipped gun
 int D_Stat(struct player_s *player, int stat);
 int D_MaxHealth(struct player_s *player);
 

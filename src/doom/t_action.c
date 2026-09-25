@@ -628,12 +628,12 @@ void T_DoAttack(void)
         if (turnctrl.selected_target < 0)
             return;
         target = T_TargetMobj(turnctrl.selected_target);
-        if (target != NULL && !T_KitReady(player->readyweapon))
+        if (target != NULL && !T_KitCanFire(player->readyweapon))
         {
-            player->message = "Weapon cooling down.";
-            printf("[TURN] attack refused: %s cooldown %d\n",
+            player->message = T_KitDenyReason(player->readyweapon);
+            printf("[TURN] attack refused: %s %s\n",
                    T_KitForWeapon(player->readyweapon)->name,
-                   T_KitCooldown(player->readyweapon));
+                   T_KitDenyReason(player->readyweapon));
             return;
         }
         if (!T_CanAfford(TA_ATTACK))
@@ -663,12 +663,12 @@ void T_DoAttack(void)
         turnctrl.state = TS_PLANNING;
         return;
     }
-    if (!T_KitReady(player->readyweapon))
+    if (!T_KitCanFire(player->readyweapon))
     {
-        player->message = "Weapon cooling down.";
-        printf("[TURN] attack refused: %s cooldown %d\n",
+        player->message = T_KitDenyReason(player->readyweapon);
+        printf("[TURN] attack refused: %s %s\n",
                T_KitForWeapon(player->readyweapon)->name,
-               T_KitCooldown(player->readyweapon));
+               T_KitDenyReason(player->readyweapon));
         return;
     }
     if (!T_CanAfford(TA_ATTACK))
@@ -711,11 +711,11 @@ static boolean T_ExecAttack(mobj_t *target, int cost)
         T_DumpState("exec-attack-skip");
         return false;
     }
-    if (!T_KitReady(player->readyweapon))
+    if (!T_KitCanFire(player->readyweapon))
     {
-        players[consoleplayer].message = "Weapon cooling down - skipped.";
-        printf("[TURN] queued attack skipped: kit on cooldown (+%d TP)\n",
-               cost);
+        players[consoleplayer].message = T_KitDenyReason(player->readyweapon);
+        printf("[TURN] queued attack skipped: %s (+%d TP)\n",
+               T_KitDenyReason(player->readyweapon), cost);
         turnctrl.tp += cost;
         T_DumpState("exec-attack-skip");
         return false;
@@ -745,6 +745,16 @@ static boolean T_ExecAttack(mobj_t *target, int cost)
     T_ResolveAttack(player, target);
     // The world changed; rebuild targets for the HUD.
     T_RefreshTargets();
+    // Kill moment: a death beat freezes living monsters for ~2s (their AI
+    // stays down) while the corpse's death animation plays out under the
+    // kill banner — screenshot-able. The drain resumes at T_EndPulse.
+    if (T_LastKill())
+    {
+        player->damagecount = 10; // kill flash; decays during the beat
+        T_BeginPulse(70, true, false);
+        T_DumpState("exec-attack-kill");
+        return true;
+    }
     T_DumpState("exec-attack");
     return false;
 }
@@ -903,6 +913,20 @@ void T_RunScript(const char *path)
                    t_profile.lifetime_damage, t_profile.lifetime_rounds);
         }
         else if (!strcmp(line, "DUMP"))   T_DumpState("script");
+        else if (!strcmp(line, "CADENCE"))
+        {
+            // Test: print per-weapon cadence state (cooldown / heat /
+            // charges / shots fired).
+            int w;
+            static const char *wnames[] = {
+                "FIST", "PISTOL", "SHOTGUN", "CHAINGUN", "ROCKET",
+                "PLASMA", "BFG", "SAW", "SSG"
+            };
+            for (w = 0; w < NUMWEAPONS; w++)
+                printf("[TURN] CADENCE %-7s cd=%d heat=%d chg=%d shots=%d\n",
+                       wnames[w], T_KitCooldown(w), T_KitHeat(w),
+                       T_KitCharges(w), T_KitShots(w));
+        }
         else if (sscanf(line, "ASSERT_TP %d", &n) == 1) T_ScriptAssertTP(n);
         else if (sscanf(line, "ASSERT_ROUND %d", &n) == 1)
             T_ScriptAssertRound(n);

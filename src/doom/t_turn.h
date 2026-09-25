@@ -236,6 +236,10 @@ void T_CountKill(mobj_t *target);
 void T_CountDamage(int dmg);
 void T_CountRound(void);
 
+// Kill banner: latched on the first kill of an attack, drawn big over the
+// game view for ~2.5s so the kill moment is screenshot-able.
+void T_KillBanner(const char *title, const char *sub);
+
 // Deterministic turn-mode RNG (independent of M_Random stream).
 int T_Random(void);
 void T_SeedRNG(unsigned int seed);

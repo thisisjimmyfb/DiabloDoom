@@ -28,6 +28,11 @@
 #include "w_wad.h"
 #include "z_zone.h"
 
+// Kill banner (defined near the kill counters below): forward declarations
+// so T_Ticker and T_DrawHUD can use them before the definitions.
+static void T_TickKillBanner(void);
+static void T_DrawKillBanner(void);
+
 turnctrl_t turnctrl;
 
 static boolean t_ready = false;
@@ -92,6 +97,8 @@ void T_Init(void)
                "END TURN executes the queue FIFO.\n");
         // Phase 8: load the standalone profile.
         T_ProfileLoad();
+        // Gun cadence (cooldowns/heat/charges) starts fresh every game.
+        T_KitResetCadence();
     }
 
     t_ready = true;
@@ -110,6 +117,8 @@ void T_NewGame(void)
     turnctrl.state = TS_PLANNING;
     t_arena_done = (M_CheckParm("-tbarena") <= 0);
     t_script_done = false;
+    // Fresh gun cadence for the new run (loaded games restore theirs).
+    T_KitResetCadence();
 }
 
 void T_OnLoad(void)
@@ -375,6 +384,9 @@ void T_Ticker(void)
 
     if (!T_Active())
         return;
+
+    // Kill banner counts down in real time, independent of turn state.
+    T_TickKillBanner();
 
     // Belt and braces: no real-time input may leak into pulses.
     for (i = 0; i < MAXPLAYERS; i++)
@@ -747,8 +759,7 @@ static boolean T_ActionEnabled(turnaction_t action)
 {
     if (action == TA_ATTACK)
         return T_CanAfford(TA_ATTACK)
-            && T_KitReady(players[consoleplayer].readyweapon)
-            && T_HasManaForKit(players[consoleplayer].readyweapon);
+            && T_KitCanFire(players[consoleplayer].readyweapon);
     if (action == TA_UNDO || action == TA_CLEAR_QUEUE)
         return turnctrl.queue_len > 0;
     return T_CanAfford(action);
@@ -767,6 +778,24 @@ static void T_DrawActionRow(int x, int *y, const char *key, const char *name,
     *y += 9;
 }
 
+// Gate state for the target-preview line: " CD2", " HEAT 45", " CHG 1/2",
+// " MANA!", or "" when the kit can fire.
+static void T_KitGateStr(weapontype_t w, char *buf, int bufsz)
+{
+    const t_kitdef_t *kit = T_KitForWeapon(w);
+    int cd = T_KitCooldown(w);
+    buf[0] = '\0';
+    if (cd > 0)
+        M_snprintf(buf, bufsz, " CD%d", cd);
+    else if (kit->heat_per_shot > 0)
+        M_snprintf(buf, bufsz, " HEAT %d", T_KitHeat(w));
+    else if (kit->max_charges > 0)
+        M_snprintf(buf, bufsz, " CHG %d/%d", T_KitCharges(w),
+                   T_KitMaxCharges(w));
+    else if (!T_HasManaForKit(w))
+        M_snprintf(buf, bufsz, " MANA!");
+}
+
 // Planning-time action list with per-action TP costs. Disabled
 // (unaffordable) actions render dim gold and their keypresses are
 // refused with a "Need N TP" message — they are never selectable.
@@ -783,8 +812,22 @@ static void T_DrawActionList(void)
     T_DrawActionRow(x, &y, "<>", "TURN", TA_TURN_L, "FREE");
     T_DrawActionRow(x, &y, "SPC", "USE", TA_USE, "2TP");
     T_DrawActionRow(x, &y, "TAB", "TARGET", TA_SELECT_NEXT, "FREE");
-    if (!T_KitReady(pl->readyweapon))
-        T_DrawActionRow(x, &y, "F", "ATTACK", TA_ATTACK, "CD");
+    if (!T_KitCanFire(pl->readyweapon))
+    {
+        // Gated: show the specific gate, not a generic "CD".
+        const char *reason = T_KitDenyReason(pl->readyweapon);
+        const char *shortr = "CD";
+        if (reason != NULL)
+        {
+            if (!strcmp(reason, "OVERHEATED"))
+                shortr = "HEAT";
+            else if (!strcmp(reason, "NO CHARGES"))
+                shortr = "CHG";
+            else if (!strcmp(reason, "NO MANA"))
+                shortr = "MANA";
+        }
+        T_DrawActionRow(x, &y, "F", "ATTACK", TA_ATTACK, shortr);
+    }
     else
     {
         M_snprintf(cost, sizeof(cost), "%dTP", T_CostFor(TA_ATTACK));
@@ -952,7 +995,8 @@ void T_DrawHUD(void)
                 T_DamageRange(pl, mo, &st, &dmin, &dmax);
                 {
                     const t_kitdef_t *kit = T_KitForWeapon(pl->readyweapon);
-                    int cd = T_KitCooldown(pl->readyweapon);
+                    char gate[24];
+                    T_KitGateStr(pl->readyweapon, gate, sizeof(gate));
                     if (kit->splash_radius > 0)
                         M_snprintf(line, sizeof(line),
                                    "[%d]%s HP%d R%d H%d%% D%d-%d SPLASH %dTP%s",
@@ -961,7 +1005,7 @@ void T_DrawHUD(void)
                                    T_HitChance(pl, mo, &st),
                                    dmin, dmax,
                                    T_CostFor(TA_ATTACK),
-                                   cd > 0 ? " CD!" : "");
+                                   gate);
                     else
                         M_snprintf(line, sizeof(line),
                                    "[%d]%s HP%d R%d H%d%% D%d-%d %dTP%s",
@@ -970,7 +1014,7 @@ void T_DrawHUD(void)
                                    T_HitChance(pl, mo, &st),
                                    dmin, dmax,
                                    T_CostFor(TA_ATTACK),
-                                   cd > 0 ? " CD!" : "");
+                                   gate);
                 }
                 T_DrawTextCenteredHi(148, line);
                 if (turnctrl.state == TS_CONFIRM)
@@ -979,6 +1023,9 @@ void T_DrawHUD(void)
             }
         }
     }
+
+    // Kill banner draws last: on top of everything.
+    T_DrawKillBanner();
 }
 
 
@@ -1214,6 +1261,43 @@ void T_CountKill(mobj_t *target)
     if (target && target->info)
         xp = 10 + target->info->spawnhealth / 10;
     T_GainXP(xp);
+}
+
+// ------------------------------------------------------------------
+// Kill banner: the screenshot-able kill moment. Latched on the first
+// kill of an attack; the ticker counts it down in real time and the
+// HUD draws it big over the game view. The death beat (see T_ExecAttack)
+// freezes living monsters for ~2s so the death animation plays out
+// underneath the banner.
+// ------------------------------------------------------------------
+static int t_killbanner_tics;
+static char t_killbanner_title[32];
+static char t_killbanner_sub[64];
+
+void T_KillBanner(const char *title, const char *sub)
+{
+    // Always latch the newest kill: T_ResolveKill already keeps the
+    // first kill of a multi-kill attack, so a fresh attack replaces a
+    // stale banner instead of showing the old text.
+    M_snprintf(t_killbanner_title, sizeof(t_killbanner_title), "%s", title);
+    M_snprintf(t_killbanner_sub, sizeof(t_killbanner_sub), "%s", sub);
+    t_killbanner_tics = 90; // ~2.5s at 35 tics/sec
+}
+
+static void T_TickKillBanner(void);
+
+static void T_TickKillBanner(void)
+{
+    if (t_killbanner_tics > 0)
+        t_killbanner_tics--;
+}
+
+static void T_DrawKillBanner(void)
+{
+    if (t_killbanner_tics <= 0)
+        return;
+    T_DrawTextCenteredHi(70, t_killbanner_title);
+    T_DrawTextCentered(82, t_killbanner_sub);
 }
 
 void T_CountDamage(int dmg)

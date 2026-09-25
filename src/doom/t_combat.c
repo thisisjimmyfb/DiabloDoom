@@ -12,6 +12,13 @@
 int t_last_hit = -1;
 int t_last_damage = 0;
 int t_last_crit = 0;
+static int t_last_kill = 0; // set when the resolved attack killed anything
+static int t_shots[NUMWEAPONS]; // shots fired per weapon (Lucky rhythm)
+
+boolean T_LastKill(void)
+{
+    return t_last_kill != 0;
+}
 
 // Dedicated combat RNG (LCG). Independent of the game's P_Random so
 // fixed-seed tests are deterministic regardless of map RNG use.
@@ -65,24 +72,13 @@ void T_DeriveStats(player_t *player, t_combatstats_t *out)
     out->ad_max = dmg_max + str;
     if (out->ad_max < out->ad_min)
         out->ad_max = out->ad_min;
-    // Phase 7: AD_PCT multiplies attack damage (tactical ammo affix).
-    {
-        int adpct = player->diablo_stats[DSTAT_AD_PCT];
-        if (adpct != 0)
-        {
-            out->ad_min = out->ad_min * (100 + adpct) / 100;
-            out->ad_max = out->ad_max * (100 + adpct) / 100;
-        }
-    }
+    // NOTE: AD_PCT is NOT applied here. The approved formula applies it
+    // after kit_base + gun damage + STR, so it lives at the formula
+    // sites (T_ResolveAttack / T_DamageRange) via T_ApplyAdPct.
 
     // Energy feeds ability power.
     out->ap = ene * 2;
-    // Phase 7: AP_PCT multiplies ability power.
-    {
-        int appct = player->diablo_stats[DSTAT_AP_PCT];
-        if (appct != 0)
-            out->ap = out->ap * (100 + appct) / 100;
-    }
+    // NOTE: AP_PCT likewise applies after the kit base (T_ApplyApPct).
 
     // Dexterity feeds attack speed: faster attackers pay less TP.
     // 4 TP base; -1 per 20 dex above 10, floor 2.
@@ -117,6 +113,25 @@ void T_DeriveStats(player_t *player, t_combatstats_t *out)
     out->haste = ene / 5 + player->diablo_stats[DSTAT_HASTE];
     if (out->haste > 50)
         out->haste = 50; // cap at 50% reduction
+}
+
+// Gear percent multipliers, applied AFTER all flat damage (kit base +
+// gun damage + attributes), per the approved AD/AP formula. Diablo-style:
+// +X% Attack Damage / +Y% Ability Power from items and focus buffs.
+int T_ApplyAdPct(player_t *player, int dmg)
+{
+    int pct = player->diablo_stats[DSTAT_AD_PCT];
+    if (pct != 0)
+        dmg = dmg * (100 + pct) / 100;
+    return dmg;
+}
+
+int T_ApplyApPct(player_t *player, int ap)
+{
+    int pct = player->diablo_stats[DSTAT_AP_PCT];
+    if (pct != 0)
+        ap = ap * (100 + pct) / 100;
+    return ap;
 }
 
 // Multi-point cover (Phase 6): trace from three attacker positions
@@ -209,26 +224,33 @@ void T_DamageRange(player_t *player, mobj_t *target,
                    const t_combatstats_t *st, int *minhp, int *maxhp)
 {
     const t_kitdef_t *kit;
-    int str, kmin, kmax;
+    int kmin, kmax, pellets;
     (void)target;
     kit = T_KitForWeapon(player->readyweapon);
-    str = 10 + player->diablo_stats[DSTAT_STR];
-    kmin = kit->dmg_min + str / 2;
-    kmax = kit->dmg_max + str;
-    if (kit->ap_scaling)
+    // Mirror the T_ResolveAttack formula: AD guns stack kit base onto the
+    // derived (gun + STR) range, then AD%; AP guns scale with AP, then AP%.
+    if (kit->ap_weapon)
     {
-        kmin += st->ap / 4;
-        kmax += st->ap / 2;
+        kmin = T_ApplyApPct(player, kit->dmg_min + st->ap / 4);
+        kmax = T_ApplyApPct(player, kit->dmg_max + st->ap / 2);
+    }
+    else
+    {
+        kmin = T_ApplyAdPct(player, st->ad_min + kit->dmg_min);
+        kmax = T_ApplyAdPct(player, st->ad_max + kit->dmg_max);
     }
     if (kmax < kmin)
         kmax = kmin;
-    // Pellets: show per-pellet range x count.
+    // Pellets: show per-pellet range x count (incl. Splitting).
+    pellets = kit->pellets;
+    if (D_EquippedWeaponMech(player) & MECH_SPLITTING)
+        pellets += 2;
     *minhp = kmin;
     *maxhp = kmax;
-    if (kit->pellets > 1)
+    if (pellets > 1)
     {
-        *minhp = kmin * kit->pellets;
-        *maxhp = kmax * kit->pellets;
+        *minhp = kmin * pellets;
+        *maxhp = kmax * pellets;
     }
 }
 
@@ -265,22 +287,23 @@ static int T_MonsterArmor(mobjtype_t type)
 
 static const t_kitdef_t t_kits[NUMWEAPONS] = {
     // wp_fist (fallback; not a real kit)
-    { "FISTS",    1,  3,  3, 0,   0,  0, 1, false, 0 },
-    // wp_pistol: balanced sidearm
-    { "SIDEARM",   6, 13,  4, 0,   0,  0, 1, false, 0 },
+    { "FISTS",    1,  3,  3, 0,   0,  0, 1, false, 0,  0,  0, 0 },
+    // wp_pistol: balanced AD sidearm
+    { "SIDEARM",  6, 13,  4, 0,   0,  0, 1, false, 0,  0,  0, 0 },
     // wp_shotgun: close-range burst, 4 pellets
-    { "SHOTGUN",  4,  8,  5, 0,   0,  0, 4, false, 0 },
+    { "SHOTGUN",  4,  8,  5, 0,   0,  0, 4, false, 0,  0,  0, 0 },
     // wp_chaingun: 3-round burst
-    { "CHAINGUN", 4,  7,  5, 0,   0,  0, 3, false, 0 },
-    // wp_missile: rockets, enemy-targeted splash
-    { "ROCKET",  15, 25,  6, 1, 128, 50, 1, false, 0 },
-    // wp_plasma: AP-scaling energy
-    { "PULSE",   5, 10,  4, 0,   0,  0, 1, true,  5 },
-    // wp_bfg: big enemy-targeted splash
-    { "BFG",     30, 50,  8, 2, 192, 60, 1, false, 0 },
-    // wp_chainsaw / wp_supershotgun (unused in turn mode)
-    { "SAW",      2,  6,  3, 0,   0,  0, 1, false, 0 },
-    { "SSG",     10, 20,  6, 1,   0,  0, 8, false, 0 },
+    { "CHAINGUN", 4,  7,  5, 0,   0,  0, 3, false, 0,  0,  0, 0 },
+    // wp_missile: AP rockets, enemy-targeted splash, charge-gated
+    { "ROCKET",  15, 25,  6, 0, 128, 50, 1, true,  0,  0,  0, 2 },
+    // wp_plasma: AP energy, heat-gated (Rumble-style)
+    { "PULSE",    5, 10,  4, 0,   0,  0, 1, true,  0, 25, 40, 0 },
+    // wp_bfg: AP ultimate, cooldown + mana
+    { "BFG",     30, 50,  8, 3, 192, 60, 1, true, 20,  0,  0, 0 },
+    // wp_chainsaw: AD melee
+    { "SAW",      2,  6,  3, 0,   0,  0, 1, false, 0,  0,  0, 0 },
+    // wp_supershotgun: AP double-barrel, breach reload
+    { "SSG",     10, 20,  6, 2,   0,  0, 8, true,  0,  0,  0, 0 },
 };
 
 const t_kitdef_t *T_KitForWeapon(weapontype_t w)
@@ -290,8 +313,29 @@ const t_kitdef_t *T_KitForWeapon(weapontype_t w)
     return &t_kits[w];
 }
 
-// Per-weapon cooldowns, in rounds. Indexed by weapontype.
+// Per-gun firing report. The chaingun uses Doom's classic plasma
+// report; the chainsaw idles with the saw sound.
+int T_KitFireSound(weapontype_t w)
+{
+    switch (w)
+    {
+        case wp_shotgun:      return sfx_shotgn;
+        case wp_chaingun:     return sfx_plasma;
+        case wp_missile:      return sfx_rlaunc;
+        case wp_plasma:       return sfx_plasma;
+        case wp_bfg:          return sfx_bfg;
+        case wp_chainsaw:     return sfx_sawful;
+        case wp_supershotgun: return sfx_dshtgn;
+        case wp_pistol:
+        default:              return sfx_pistol;
+    }
+}
+
+// Per-weapon cadence state, in rounds/tics. Indexed by weapontype.
 static int t_cooldowns[NUMWEAPONS];
+static int t_heat[NUMWEAPONS];      // 0-100 (plasma)
+static int t_charges[NUMWEAPONS];   // 0..max_charges (rocket)
+static boolean t_cadence_inited;
 
 int T_KitCooldown(weapontype_t w)
 {
@@ -307,17 +351,138 @@ void T_KitSetCooldown(weapontype_t w, int rounds)
     t_cooldowns[w] = rounds;
 }
 
-void T_KitTickCooldowns(void)
+int T_KitHeat(weapontype_t w)
+{
+    if (w < 0 || w >= NUMWEAPONS)
+        return 0;
+    return t_heat[w];
+}
+
+int T_KitCharges(weapontype_t w)
+{
+    if (w < 0 || w >= NUMWEAPONS)
+        return 0;
+    return t_charges[w];
+}
+
+int T_KitShots(weapontype_t w)
+{
+    if (w < 0 || w >= NUMWEAPONS)
+        return 0;
+    return t_shots[w];
+}
+
+int T_KitMaxCharges(weapontype_t w)
+{
+    const t_kitdef_t *kit = T_KitForWeapon(w);
+    int max = kit->max_charges;
+    // Bandolier affix: +1 max charge while its rocket launcher is equipped.
+    if (w == wp_missile &&
+        (D_EquippedWeaponMech(&players[consoleplayer]) & MECH_BANDOLIER))
+        max += 1;
+    return max;
+}
+
+// Reset all per-weapon cadence state: cooldowns and heat to zero,
+// charges to full, Lucky shot counters to zero. Called on new game;
+// loaded games restore their saved cadence instead (P_UnArchiveTurn).
+void T_KitResetCadence(void)
 {
     int w;
     for (w = 0; w < NUMWEAPONS; w++)
-        if (t_cooldowns[w] > 0)
-            t_cooldowns[w]--;
+    {
+        t_cooldowns[w] = 0;
+        t_heat[w] = 0;
+        t_charges[w] = t_kits[w].max_charges;
+        t_shots[w] = 0;
+    }
+    t_cadence_inited = true;
 }
 
-boolean T_KitReady(weapontype_t w)
+// Snapshot/restore the whole per-weapon cadence state for save/load.
+// Each array holds NUMWEAPONS ints: cooldowns, heat, charges, shots.
+// Loads clamp garbage rather than trusting the file.
+void T_KitSaveCadence(int *cool, int *heat, int *charges, int *shots)
 {
-    return T_KitCooldown(w) == 0;
+    int w;
+    for (w = 0; w < NUMWEAPONS; w++)
+    {
+        cool[w] = t_cooldowns[w];
+        heat[w] = t_heat[w];
+        charges[w] = t_charges[w];
+        shots[w] = t_shots[w];
+    }
+}
+
+void T_KitLoadCadence(const int *cool, const int *heat,
+                      const int *charges, const int *shots)
+{
+    int w;
+    for (w = 0; w < NUMWEAPONS; w++)
+    {
+        int maxc = t_kits[w].max_charges;
+        t_cooldowns[w] = cool[w] > 0 ? cool[w] : 0;
+        t_heat[w] = heat[w] < 0 ? 0 : (heat[w] > 100 ? 100 : heat[w]);
+        t_charges[w] = charges[w] < 0 ? 0
+                     : (charges[w] > maxc ? maxc : charges[w]);
+        t_shots[w] = shots[w] > 0 ? shots[w] : 0;
+    }
+    t_cadence_inited = true;
+}
+
+void T_KitTickCooldowns(void)
+{
+    int w;
+    if (!t_cadence_inited)
+        T_KitResetCadence();
+    for (w = 0; w < NUMWEAPONS; w++)
+    {
+        if (t_cooldowns[w] > 0)
+            t_cooldowns[w]--;
+        if (t_heat[w] > 0)
+        {
+            int vent = t_kits[w].heat_vent;
+            // Overclocked affix: +25 dissipation while equipped.
+            if (D_EquippedWeaponMech(&players[consoleplayer]) & MECH_OVERCLOCK)
+                vent += 25;
+            t_heat[w] -= vent;
+            if (t_heat[w] < 0)
+                t_heat[w] = 0;
+        }
+        {
+            int maxc = T_KitMaxCharges((weapontype_t)w);
+            if (t_charges[w] < maxc)
+                t_charges[w]++;
+            else if (t_charges[w] > maxc)
+                t_charges[w] = maxc; // affix gun unequipped: clamp down
+        }
+    }
+}
+
+boolean T_KitCanFire(weapontype_t w)
+{
+    const t_kitdef_t *kit = T_KitForWeapon(w);
+    if (T_KitCooldown(w) > 0)
+        return false;
+    if (kit->max_charges > 0 && T_KitCharges(w) <= 0)
+        return false;
+    if (kit->heat_per_shot > 0 && T_KitHeat(w) >= 100)
+        return false;
+    return T_HasManaForKit(w);
+}
+
+const char *T_KitDenyReason(weapontype_t w)
+{
+    const t_kitdef_t *kit = T_KitForWeapon(w);
+    if (T_KitCooldown(w) > 0)
+        return "ON COOLDOWN";
+    if (kit->max_charges > 0 && T_KitCharges(w) <= 0)
+        return "NO CHARGES";
+    if (kit->heat_per_shot > 0 && T_KitHeat(w) >= 100)
+        return "OVERHEATED";
+    if (!T_HasManaForKit(w))
+        return "NO MANA";
+    return NULL;
 }
 
 // Mana affordability: the PULSE kit spends mana_cost per attack from the
@@ -332,44 +497,165 @@ boolean T_HasManaForKit(weapontype_t w)
     return player->ammo[am_clip] >= kit->mana_cost;
 }
 
+// Kill credit + banner + kill-triggered affix mechanics for one victim.
+// The banner latches the first kill of the attack (usually the primary
+// target); multi-kills keep it. t_banner_latched resets per resolved
+// attack in T_ResolveAttack.
+static boolean t_banner_latched = false;
+
+static void T_ResolveKill(player_t *player, mobj_t *victim, int dmg,
+                          const char *kitname)
+{
+    char title[32], sub[64];
+    int mech;
+
+    t_last_kill = 1;
+    T_CountKill(victim);
+    if (!t_banner_latched)
+    {
+        M_snprintf(title, sizeof(title), "%s SLAIN", T_TargetName(victim));
+        M_snprintf(sub, sizeof(sub), "%d DMG - %s", dmg, kitname);
+        T_KillBanner(title, sub);
+        t_banner_latched = true;
+    }
+
+    mech = D_EquippedWeaponMech(player);
+    if (mech & MECH_PHOENIX)
+    {
+        // Kills vent 50 heat off the firing weapon.
+        t_heat[player->readyweapon] -= 50;
+        if (t_heat[player->readyweapon] < 0)
+            t_heat[player->readyweapon] = 0;
+    }
+    if (mech & MECH_HUNGRY)
+    {
+        // Kills reduce the remaining cooldown by one round.
+        if (t_cooldowns[player->readyweapon] > 0)
+            t_cooldowns[player->readyweapon]--;
+    }
+    if (mech & MECH_BREACHER)
+    {
+        // Kills immediately refund the reload cooldown.
+        t_cooldowns[player->readyweapon] = 0;
+    }
+    if (mech & MECH_REAPER)
+    {
+        // Kills refund 2 TP (capped at max).
+        turnctrl.tp += 2;
+        if (turnctrl.tp > turnctrl.tp_max)
+            turnctrl.tp = turnctrl.tp_max;
+    }
+}
+
+// Caldera nova: half the shot's damage to every shootable foe within
+// 128 map units of the player. Kills credit normally.
+static void T_CalderaNova(player_t *player, int total_dmg)
+{
+    thinker_t *th;
+    int ndmg = total_dmg / 2;
+
+    player->message = "CALDERA NOVA!";
+    for (th = thinkercap.next; th != &thinkercap; th = th->next)
+    {
+        mobj_t *mo;
+        int dist, dmg;
+        if (th->function.acp1 != (actionf_p1)P_MobjThinker)
+            continue;
+        mo = (mobj_t *)th;
+        if (mo == player->mo || mo->health <= 0)
+            continue;
+        if (!(mo->flags & MF_SHOOTABLE) || mo->player != NULL)
+            continue;
+        dist = P_AproxDistance(mo->x - player->mo->x,
+                               mo->y - player->mo->y) / FRACUNIT;
+        if (dist > 128)
+            continue;
+        dmg = ndmg - T_MonsterArmor(mo->type);
+        if (dmg < 1)
+            dmg = 1;
+        P_DamageMobj(mo, player->mo, player->mo, dmg);
+        if (mo->health <= 0)
+            T_ResolveKill(player, mo, total_dmg, "CALDERA");
+    }
+}
+
 boolean T_ResolveAttack(player_t *player, mobj_t *target)
 {
     t_combatstats_t st;
     const t_kitdef_t *kit;
-    int chance, roll, dmg, range, p;
+    int chance, roll, dmg, range, p, pellets;
+    int mech;
+    boolean lucky;
     int total_dmg = 0;
     int hits = 0;
 
     t_last_hit = 0;
     t_last_damage = 0;
     t_last_crit = 0;
+    t_last_kill = 0;
+    t_banner_latched = false;
 
     if (!player->mo || !target || target->health <= 0)
         return false;
 
     kit = T_KitForWeapon(player->readyweapon);
+    mech = D_EquippedWeaponMech(player);
     T_DeriveStats(player, &st);
 
-    // Kit damage: base from kit, STR scales, AP scales plasma.
+    // Cadence is spent when the weapon FIRES, not when it hits: heat
+    // builds, a charge is consumed, the cooldown starts. Kill-triggered
+    // affixes (Phoenix/Hungry/Breacher) run later in resolution and see
+    // the spent state, so their refunds apply on top of it.
     {
-        int str = 10 + player->diablo_stats[DSTAT_STR];
-        int kmin = kit->dmg_min + str / 2;
-        int kmax = kit->dmg_max + str;
-        if (kit->ap_scaling)
+        weapontype_t w = player->readyweapon;
+        if (kit->heat_per_shot > 0)
         {
-            kmin += st.ap / 4;
-            kmax += st.ap / 2;
+            t_heat[w] += kit->heat_per_shot;
+            if (t_heat[w] > 100)
+                t_heat[w] = 100;
         }
+        if (kit->max_charges > 0 && t_charges[w] > 0)
+            t_charges[w]--;
+        if (kit->cooldown > 0)
+            T_KitSetCooldown(w, kit->cooldown);
+        t_shots[w]++; // Lucky rhythm counts shots fired, not hits
+    }
+
+    // Firing report: per-gun sound plus the muzzle flash. Flash only —
+    // the weapon's atkstate sequence runs the real A_Fire* damage
+    // functions, which turn mode must never trigger.
+    S_StartSound(player->mo, T_KitFireSound(player->readyweapon));
+    if (weaponinfo[player->readyweapon].flashstate != S_NULL)
+        P_SetPsprite(player, ps_flash,
+                     weaponinfo[player->readyweapon].flashstate);
+
+    // Gun damage, approved formula. AD: kit_base + gun_dmg_range +
+    // STR/2..STR, then AD%. AP: kit_base + AP/4..AP/2, then AP%.
+    // (AD%/AP% used to be applied inside T_DeriveStats, before the kit
+    // base was stacked on; now they apply to the whole thing.)
+    if (kit->ap_weapon)
+    {
+        int kmin = kit->dmg_min + st.ap / 4;
+        int kmax = kit->dmg_max + st.ap / 2;
         if (kmax < kmin)
             kmax = kmin;
-        st.ad_min = kmin;
-        st.ad_max = kmax;
+        st.ad_min = T_ApplyApPct(player, kmin);
+        st.ad_max = T_ApplyApPct(player, kmax);
+    }
+    else
+    {
+        st.ad_min = T_ApplyAdPct(player, st.ad_min + kit->dmg_min);
+        st.ad_max = T_ApplyAdPct(player, st.ad_max + kit->dmg_max);
+        if (st.ad_max < st.ad_min)
+            st.ad_max = st.ad_min;
     }
 
     chance = T_HitChance(player, target, &st);
 
     // Pellets: each rolls hit and damage separately (shotgun/chaingun).
-    for (p = 0; p < kit->pellets; p++)
+    // Splitting affix: +2 pellets.
+    pellets = kit->pellets + ((mech & MECH_SPLITTING) ? 2 : 0);
+    for (p = 0; p < pellets; p++)
     {
         roll = T_Roll100();
         if (roll > chance)
@@ -379,8 +665,11 @@ boolean T_ResolveAttack(player_t *player, mobj_t *target)
         range = st.ad_max - st.ad_min + 1;
         dmg = st.ad_min + (range > 1 ? T_Roll(range) : 0);
 
-        // Crit (once per attack, not per pellet).
-        if (p == 0 && T_Roll100() <= st.crit_chance)
+        // Crit (once per attack, not per pellet). Lucky: every 3rd
+        // pistol shot fired is a guaranteed crit.
+        lucky = (mech & MECH_LUCKY) && player->readyweapon == wp_pistol
+                && (t_shots[wp_pistol] % 3 == 0);
+        if (p == 0 && (lucky || T_Roll100() <= st.crit_chance))
         {
             dmg = dmg * st.crit_mult / 100;
             t_last_crit = 1;
@@ -401,7 +690,6 @@ boolean T_ResolveAttack(player_t *player, mobj_t *target)
     if (hits == 0)
     {
         player->message = "MISS!";
-        S_StartSound(player->mo, sfx_pistol);
         return false;
     }
 
@@ -423,11 +711,21 @@ boolean T_ResolveAttack(player_t *player, mobj_t *target)
     else
         player->message = "HIT!";
 
-    S_StartSound(player->mo, sfx_pistol);
     P_DamageMobj(target, player->mo, player->mo, total_dmg);
-    // Phase 8: kill credit (check after damage).
+    // Siege: direct hits shove living foes 1 tile away from you.
+    if ((mech & MECH_SIEGE) && target->health > 0)
+    {
+        fixed_t dx = target->x - player->mo->x;
+        fixed_t dy = target->y - player->mo->y;
+        int dist = P_AproxDistance(dx, dy);
+        if (dist > FRACUNIT / 2)
+            P_TryMove(target,
+                      target->x + FixedMul(FixedDiv(dx, dist), 64 * FRACUNIT),
+                      target->y + FixedMul(FixedDiv(dy, dist), 64 * FRACUNIT));
+    }
+    // Kill credit, banner, and kill-triggered affixes.
     if (target->health <= 0)
-        T_CountKill(target);
+        T_ResolveKill(player, target, total_dmg, kit->name);
 
     // Splash: enemy-targeted, centered on the confirmed target.
     // Other visible enemies within radius take splash_pct% damage.
@@ -458,14 +756,86 @@ boolean T_ResolveAttack(player_t *player, mobj_t *target)
             sdmg -= T_MonsterArmor(mo->type);
             if (sdmg < 1)
                 sdmg = 1;
+            // Event Horizon: the blast drags foes 1 tile toward its center.
+            if ((mech & MECH_HORIZON) && mo->health > 0)
+            {
+                fixed_t dx = target->x - mo->x;
+                fixed_t dy = target->y - mo->y;
+                int pdist = P_AproxDistance(dx, dy);
+                if (pdist > FRACUNIT / 2)
+                    P_TryMove(mo,
+                              mo->x + FixedMul(FixedDiv(dx, pdist),
+                                               64 * FRACUNIT),
+                              mo->y + FixedMul(FixedDiv(dy, pdist),
+                                               64 * FRACUNIT));
+            }
             P_DamageMobj(mo, player->mo, player->mo, sdmg);
+            if (mo->health <= 0)
+                T_ResolveKill(player, mo, total_dmg, kit->name);
         }
         player->message = "SPLASH HIT!";
     }
 
-    // Start the kit cooldown.
-    if (kit->cooldown > 0)
-        T_KitSetCooldown(player->readyweapon, kit->cooldown);
+    // Voltaic: the explosion chains 50% damage to the nearest other foe
+    // near the blast.
+    if (mech & MECH_VOLTAIC)
+    {
+        thinker_t *th;
+        mobj_t *best = NULL;
+        int bestdist = kit->splash_radius > 0
+                       ? kit->splash_radius * FRACUNIT : 128 * FRACUNIT;
+        for (th = thinkercap.next; th != &thinkercap; th = th->next)
+        {
+            mobj_t *mo;
+            int d;
+            if (th->function.acp1 != (actionf_p1)P_MobjThinker)
+                continue;
+            mo = (mobj_t *)th;
+            if (mo == target || mo == player->mo || mo->health <= 0)
+                continue;
+            if (!(mo->flags & MF_SHOOTABLE) || mo->player != NULL)
+                continue;
+            d = P_AproxDistance(mo->x - target->x, mo->y - target->y);
+            if (d < bestdist)
+            {
+                bestdist = d;
+                best = mo;
+            }
+        }
+        if (best != NULL)
+        {
+            int cdmg = total_dmg / 2 - T_MonsterArmor(best->type);
+            if (cdmg < 1)
+                cdmg = 1;
+            P_DamageMobj(best, player->mo, player->mo, cdmg);
+            if (best->health <= 0)
+                T_ResolveKill(player, best, total_dmg, kit->name);
+            player->message = "VOLTAIC CHAIN!";
+        }
+    }
+
+    // Caldera: overheating from this shot becomes a fire nova around
+    // you and vents to zero instead of locking the gun. (Heat was
+    // already added at fire time above.)
+    if (kit->heat_per_shot > 0 && t_heat[player->readyweapon] >= 100
+        && (mech & MECH_CALDERA))
+    {
+        t_heat[player->readyweapon] = 0;
+        T_CalderaNova(player, total_dmg);
+    }
+
+    // of the Bull: recoil shoves you 1 tile backward (away from facing).
+    if (mech & MECH_BULL)
+    {
+        angle_t ang = player->mo->angle;
+        fixed_t nx = player->mo->x
+                     - FixedMul(64 * FRACUNIT,
+                                finecosine[ang >> ANGLETOFINESHIFT]);
+        fixed_t ny = player->mo->y
+                     - FixedMul(64 * FRACUNIT,
+                                finesine[ang >> ANGLETOFINESHIFT]);
+        P_TryMove(player->mo, nx, ny);
+    }
 
     return true;
 }

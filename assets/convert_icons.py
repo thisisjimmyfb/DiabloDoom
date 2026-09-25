@@ -1,78 +1,82 @@
 #!/usr/bin/env python3
 """Convert item icons to Doom palette-indexed C arrays.
 
-Reads WebP icons from assets/items/, resizes to 32x32, quantizes to the
-Doom PLAYPAL palette, and outputs a C source file with the icon data.
+Reads WebP icons from assets/items/ (repo-relative), resizes to 32x32,
+quantizes to the Doom PLAYPAL palette, and writes
+src/doom/d_diablo_icons.c + src/doom/d_diablo_icons.h.
+
+Icon policy (AD/AP gun rework):
+- The 8 gun bases share one icon each (variants reuse the base icon).
+- The 4 FOCUS items share the ammo-box icon.
+- Every other item keeps a unique icon.
+Total: 47 icons. Order defines the D_ICON_* indices.
 """
 import os
 from PIL import Image
 
-ASSETS_DIR = "/tmp/diablofork/assets/items"
-OUTPUT_C = "/tmp/diablofork/src/doom/d_diablo_icons.c"
-OUTPUT_H = "/tmp/diablofork/src/doom/d_diablo_icons.h"
+REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ASSETS_DIR = os.path.join(REPO_DIR, "assets", "items")
+OUTPUT_C = os.path.join(REPO_DIR, "src", "doom", "d_diablo_icons.c")
+OUTPUT_H = os.path.join(REPO_DIR, "src", "doom", "d_diablo_icons.h")
 PALETTE_RAW = "/tmp/doom_palette.raw"
 ICON_SIZE = 32
 
 # Icon name -> filename (without extension).
-# One unique icon per item (52 total). Order defines D_ICON_* indices.
 ICONS = [
-    # Normal (10) - original 8 kept, 2 new boots/gloves
-    "sword_short",       # Short Sword
-    "armor_leather",     # Leather Armor
-    "shield_buckler",    # Buckler
-    "helm_cap",          # Cap
-    "belt",              # Sash
-    "potion_red",        # Healing Potion
-    "potion_blue",       # Mana Potion
-    "potion_green",      # Rancid Gas Potion
-    "boot_leather",      # Leather Boots
-    "glove_leather",     # Leather Gloves
-    # Magic (8)
-    "m_cruel_war_axe",       # Cruel War Axe
-    "m_kings_long_sword",    # King's Long Sword
-    "m_vampiric_bone_shield",# Vampiric Bone Shield
-    "m_prismatic_amulet",    # Prismatic Amulet
-    "m_lizards_ring",        # Lizard's Ring
-    "m_soldiers_chain_mail", # Soldier's Chain Mail
-    "boot_traveler",         # Traveler's Treads
-    "glove_assault",         # Assault Gloves
-    # Rare (10)
-    "r_doombringer",     # Doombringer
-    "r_stormlash",       # Stormlash
-    "r_soulrender",      # Soulrender
-    "r_demonhorn_edge",  # Demonhorn Edge
-    "r_nightmare_coil",  # Nightmare Coil
-    "r_grimward",        # Grimward
-    "r_bloodletter",     # Bloodletter
-    "r_fleshrender",     # Fleshrender
-    "boot_stormwalker",  # Stormwalkers
-    "glove_doom_grasp",  # Doom Grasp
-    # Set (10)
-    "s_tal_rasha_crest", # Tal Rasha's Horadric Crest
-    "s_ik_soul_cage",    # Immortal King's Soul Cage
-    "s_trang_oul_guise", # Trang-Oul's Guise
-    "s_mavina_sight",    # M'avina's True Sight
-    "s_natalya_shadow",  # Natalya's Shadow
-    "s_griswold_valor",  # Griswold's Valor
-    "s_berserker_hatchet",# Berserker's Hatchet
-    "s_sazabi_redeemer", # Sazabi's Cobalt Redeemer
-    "boot_ik_pillar",    # Immortal King's Pillar
-    "glove_mavina_clutch",# M'avina's Icy Clutch
-    # Unique (14)
-    "u_stone_of_jordan", # Stone of Jordan
-    "u_harlequin_crest", # Harlequin Crest
-    "u_grandfather",     # The Grandfather
-    "u_windforce",       # Windforce (bow)
-    "u_arkaine_valor",   # Arkaine's Valor
-    "u_maras_kaleidoscope",# Mara's Kaleidoscope
-    "u_bulkathos_band",  # Bul-Kathos' Wedding Band
-    "u_titans_revenge",  # Titan's Revenge (javelin)
-    "u_lidless_wall",    # Lidless Wall
-    "u_vipermagi",       # Skin of the Vipermagi
-    "u_thundergod_vigor",# Thundergod's Vigor
-    "u_raven_frost",     # Raven Frost
-    "boot_war_traveler", # War Traveler
-    "glove_frostburn",   # Frostburn
+    # Gun bases (8): all variants of a base share its icon.
+    "gun_pistol",
+    "gun_shotgun",
+    "gun_chaingun",
+    "gun_chainsaw",
+    "gun_rocket",
+    "gun_plasma",
+    "gun_bfg",
+    "gun_ssg",
+    # Shared (1): the 4 FOCUS items (ammo-as-equipment).
+    "ammo_box",
+    # Normal non-gun (9)
+    "armor_leather",
+    "shield_buckler",
+    "helm_cap",
+    "belt",
+    "potion_red",
+    "potion_blue",
+    "potion_green",
+    "boot_leather",
+    "glove_leather",
+    # Magic non-gun (6)
+    "m_vampiric_bone_shield",
+    "m_prismatic_amulet",
+    "m_lizards_ring",
+    "m_soldiers_chain_mail",
+    "boot_traveler",
+    "glove_assault",
+    # Rare non-gun (4)
+    "r_nightmare_coil",
+    "r_grimward",
+    "boot_stormwalker",
+    "glove_doom_grasp",
+    # Set non-gun (8)
+    "s_tal_rasha_crest",
+    "s_ik_soul_cage",
+    "s_trang_oul_guise",
+    "s_mavina_sight",
+    "s_natalya_shadow",
+    "s_griswold_valor",
+    "boot_ik_pillar",
+    "glove_mavina_clutch",
+    # Unique non-gun (11)
+    "u_stone_of_jordan",
+    "u_harlequin_crest",
+    "u_arkaine_valor",
+    "u_maras_kaleidoscope",
+    "u_bulkathos_band",
+    "u_lidless_wall",
+    "u_vipermagi",
+    "u_thundergod_vigor",
+    "u_raven_frost",
+    "boot_war_traveler",
+    "glove_frostburn",
 ]
 
 def load_palette():
@@ -115,49 +119,43 @@ def main():
     print(f"Loaded palette with {len(palette)} colors")
 
     icon_data = {}
+    missing = []
     for name in ICONS:
         path = os.path.join(ASSETS_DIR, name + ".webp")
         if not os.path.exists(path):
             print(f"WARNING: Missing {path}")
+            missing.append(name)
             continue
         data = convert_icon(path, palette)
         icon_data[name] = data
         print(f"Converted {name}: {len(data)} bytes")
+
+    if missing:
+        raise SystemExit(f"Missing icons: {missing}")
 
     # Write C file
     with open(OUTPUT_C, "w") as f:
         f.write("// DiabloDoom item icons - Doom palette-indexed 32x32 pixel data.\n")
         f.write("// Auto-generated by assets/convert_icons.py - DO NOT EDIT.\n\n")
         f.write('#include "d_diablo_icons.h"\n\n')
-        f.write(f"#define D_ICON_SIZE {ICON_SIZE}\n\n")
-
         for i, name in enumerate(ICONS):
-            if name not in icon_data:
-                continue
             data = icon_data[name]
-            f.write(f"// {name}\n")
-            f.write(f"static const unsigned char icon_{name}[{ICON_SIZE*ICON_SIZE}] =\n{{\n")
+            f.write(f"static const unsigned char icon_{i}[] = {{\n")
             for y in range(ICON_SIZE):
-                f.write("   ")
-                for x in range(ICON_SIZE):
-                    idx = y * ICON_SIZE + x
-                    f.write(f" {data[idx]:3d},")
-                f.write("\n")
+                row = data[y*ICON_SIZE:(y+1)*ICON_SIZE]
+                f.write("    " + ", ".join(str(b) for b in row) + ",\n")
             f.write("};\n\n")
-
-        f.write("const unsigned char *d_item_icons[] =\n{\n")
-        for name in ICONS:
-            if name in icon_data:
-                f.write(f"    icon_{name},\n")
-            else:
-                f.write(f"    0, // missing: {name}\n")
+        f.write("const unsigned char *d_item_icons[] = {\n")
+        for i in range(len(ICONS)):
+            f.write(f"    icon_{i},\n")
         f.write("};\n\n")
-        f.write(f"const int d_num_item_icons = {len([n for n in ICONS if n in icon_data])};\n")
+        f.write(f"const int d_num_item_icons = {len(ICONS)};\n")
         f.write(f"const int d_icon_size = {ICON_SIZE};\n")
 
     # Write header
     with open(OUTPUT_H, "w") as f:
         f.write("// DiabloDoom item icons - public interface.\n")
+        f.write("// Auto-generated by assets/convert_icons.py - DO NOT EDIT.\n")
         f.write("#ifndef D_DIABLO_ICONS_H\n")
         f.write("#define D_DIABLO_ICONS_H\n\n")
         f.write("// 32x32 palette-indexed icon data, one per entry.\n")
@@ -169,7 +167,7 @@ def main():
             f.write(f"#define D_ICON_{name.upper()} {i}\n")
         f.write("\n#endif\n")
 
-    print(f"\nWrote {OUTPUT_C} and {OUTPUT_H}")
+    print(f"Wrote {len(ICONS)} icons to {OUTPUT_C} and {OUTPUT_H}")
 
 if __name__ == "__main__":
     main()

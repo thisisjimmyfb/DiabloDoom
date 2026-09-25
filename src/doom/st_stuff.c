@@ -1224,16 +1224,19 @@ static void ST_drawTurnKits(void)
 {
     t_combatstats_t st;
     char adbuf[16], apbuf[16], cdbuf[16];
-    int cd, teal;
+    int cd, teal, dmg_min, dmg_max;
 
     if (!T_Active())
         return;
     T_DeriveStats(plyr, &st);
+    // Show the same damage the attack preview computes: kit base stacked
+    // on, then AD%/AP% (T_DamageRange mirrors T_ResolveAttack exactly).
+    T_DamageRange(plyr, NULL, &st, &dmg_min, &dmg_max);
     cd = T_KitCooldown(plyr->readyweapon);
     teal = ST_NearestColor(32, 200, 190);
 
-    snprintf(adbuf, sizeof(adbuf), "%d-%d", st.ad_min, st.ad_max);
-    snprintf(apbuf, sizeof(apbuf), "%d", st.ap);
+    snprintf(adbuf, sizeof(adbuf), "%d-%d", dmg_min, dmg_max);
+    snprintf(apbuf, sizeof(apbuf), "%d", T_ApplyApPct(plyr, st.ap));
     snprintf(cdbuf, sizeof(cdbuf), "CD%d", cd);
 
     // Clear the right-side ammo count area, then draw the stat block.

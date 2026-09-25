@@ -25,6 +25,7 @@
 #include <string.h>
 
 #include "d_diablo.h"
+#include "d_diablo_icons.h"
 #include "d_player.h"
 #include "deh_misc.h"
 #include "doomdef.h"
@@ -41,141 +42,191 @@
 //         ad_pct, ap_pct, haste, crit_chance, crit_dmg
 #define IT(n_, t_, s_, w_, h_, c_, u_, he_, dm_, dx_, ar_, \
            st_, de_, vi_, en_, fr_, cr_, lr_, pr_, ls_, mf_, ms_, \
-           ad_, ap_, ha_, cc_, cd_) \
+           ad_, ap_, ha_, cc_, cd_, dw_, me_) \
     { n_, t_, s_, w_, h_, c_, u_, he_, dm_, dx_, ar_, \
       st_, de_, vi_, en_, fr_, cr_, lr_, pr_, ls_, mf_, ms_, \
-      ad_, ap_, ha_, cc_, cd_ }
+      ad_, ap_, ha_, cc_, cd_, dw_, me_ }
 
 static const diablo_itemdef_t diablo_normal[] =
 {
-    IT("Short Sword",       TIER_NORMAL, ESLOT_WEAPON, 1,3, 0,0,0,   2, 5, 0,
-       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,5,0),
+    IT("Pistol",            TIER_NORMAL, ESLOT_WEAPON, 1,3, 0,0,0,   2, 6, 0,
+       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,5,0, wp_pistol, 0),
+    IT("Shotgun",           TIER_NORMAL, ESLOT_WEAPON, 2,2, 0,0,0,   3, 8, 0,
+       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, wp_shotgun, 0),
+
     IT("Leather Armor",     TIER_NORMAL, ESLOT_ARMOR,  2,3, 0,0,0,   0, 0, 5,
-       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0),
+       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, -1, 0),
     IT("Buckler",           TIER_NORMAL, ESLOT_SHIELD, 2,2, 0,0,0,   0, 0, 3,
-       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0),
+       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, -1, 0),
     IT("Cap",               TIER_NORMAL, ESLOT_HELM,   2,2, 0,0,0,   0, 0, 2,
-       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0),
+       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, -1, 0),
     IT("Sash",              TIER_NORMAL, ESLOT_BELT,   2,1, 0,0,0,   0, 0, 2,
-       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0),
+       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, -1, 0),
     IT("Healing Potion",    TIER_NORMAL, ESLOT_NONE,   1,1, 1,USE_HEAL,40, 0,0,0,
-       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0),
+       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, -1, 0),
     IT("Mana Potion",       TIER_NORMAL, ESLOT_NONE,   1,1, 1,USE_MANA,50, 0,0,0,
-       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0),
+       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, -1, 0),
     IT("Rancid Gas Potion", TIER_NORMAL, ESLOT_NONE,   1,1, 1,USE_BLAST,50, 0,0,0,
-       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0),
+       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, -1, 0),
     IT("Leather Boots",     TIER_NORMAL, ESLOT_BOOTS,  2,2, 0,0,0,   0, 0, 3,
-       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0),
+       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, -1, 0),
     IT("Leather Gloves",    TIER_NORMAL, ESLOT_GLOVES, 2,2, 0,0,0,   0, 0, 2,
-       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0),
+       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, -1, 0),
 };
 
 static const diablo_itemdef_t diablo_magic[] =
 {
-    IT("Cruel War Axe",       TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0,  6,14, 0,
-       3,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,25),
-    IT("King's Long Sword",   TIER_MAGIC, ESLOT_WEAPON, 1,3, 0,0,0,  5,10, 0,
-       2,0,2,0,   0,0,0,0,   0,0,0,0,0,0,8,0),
+    IT("Cruel Chaingun",    TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0,  6,14, 0,
+       3,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,25, wp_chaingun, 0),
+    IT("King's Shotgun",    TIER_MAGIC, ESLOT_WEAPON, 2,2, 0,0,0,  5,10, 0,
+       2,0,2,0,   0,0,0,0,   0,0,0,0,0,0,8,0, wp_shotgun, 0),
+    IT("Vampiric Rocket Launcher", TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0,  8,16, 0,
+       0,0,0,0,   0,0,0,0,   5,0,0,0,0,0,0,0, wp_missile, 0),
+    IT("Soldier's Plasma Rifle", TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0,  7,15, 0,
+       3,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, wp_plasma, 0),
+    IT("Swift Chainsaw",    TIER_MAGIC, ESLOT_WEAPON, 2,2, 0,0,0,  5,12, 0,
+       0,3,0,0,   0,0,0,0,   0,0,0,0,0,20,0,0, wp_chainsaw, 0),
+    IT("Heavy Super Shotgun", TIER_MAGIC, ESLOT_WEAPON, 2,2, 0,0,0,  9,18, 0,
+       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,10,0, wp_supershotgun, 0),
+
+
     IT("Vampiric Bone Shield", TIER_MAGIC, ESLOT_SHIELD, 2,2, 0,0,0,  0, 0, 8,
-       0,0,0,0,   0,0,0,0,   5,0,0,0,0,0,0,0),
+       0,0,0,0,   0,0,0,0,   5,0,0,0,0,0,0,0, -1, 0),
     IT("Prismatic Amulet",    TIER_MAGIC, ESLOT_AMULET, 1,1, 0,0,0,  0, 0, 0,
-       0,0,0,0,  10,10,10,10, 0,0,0,0,0,0,0,0),
+       0,0,0,0,  10,10,10,10, 0,0,0,0,0,0,0,0, -1, 0),
     IT("Lizard's Ring",       TIER_MAGIC, ESLOT_RING1,  1,1, 0,0,0,  0, 0, 0,
-       0,0,0,8,   0,0,0,0,   0,5,0,0,0,0,0,0),
+       0,0,0,8,   0,0,0,0,   0,5,0,0,0,0,0,0, -1, 0),
     IT("Soldier's Chain Mail",TIER_MAGIC, ESLOT_ARMOR,  2,3, 0,0,0,  0, 0,12,
-       3,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0),
+       3,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, -1, 0),
     IT("Traveler's Treads", TIER_MAGIC, ESLOT_BOOTS,  2,2, 0,0,0,  0, 0, 8,
-       0,2,0,0,   0,0,0,0,   0,0,10,0,0,0,0,0),
+       0,2,0,0,   0,0,0,0,   0,0,10,0,0,0,0,0, -1, 0),
     IT("Assault Gloves",    TIER_MAGIC, ESLOT_GLOVES, 2,2, 0,0,0,  0, 0, 6,
-       3,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0),
+       3,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, -1, 0),
     IT("Piercing Rounds",   TIER_MAGIC, ESLOT_FOCUS,   1,1, 0,0,0,   0, 0, 0,
-       0,0,0,0,   0,0,0,0,   0,0,0,  15,0,0,0,0),
+       0,0,0,0,   0,0,0,0,   0,0,0,  15,0,0,0,0, -1, 0),
     IT("Incendiary Shells", TIER_MAGIC, ESLOT_FOCUS,   1,1, 0,0,0,   0, 0, 0,
-       0,0,0,0,   0,0,0,0,   0,0,0,  0,10,0,0,0),
+       0,0,0,0,   0,0,0,0,   0,0,0,  0,10,0,0,0, -1, 0),
     IT("Swift Cartridges",  TIER_MAGIC, ESLOT_FOCUS,   1,1, 0,0,0,   0, 0, 0,
-       0,0,0,0,   0,0,0,0,   0,0,0,  0,0,20,0,0),
+       0,0,0,0,   0,0,0,0,   0,0,0,  0,0,20,0,0, -1, 0),
     IT("Spotter Rounds",    TIER_MAGIC, ESLOT_FOCUS,   1,1, 0,0,0,   0, 0, 0,
-       0,0,0,0,   0,0,0,0,   0,0,0,  0,0,0,10,0),
+       0,0,0,0,   0,0,0,0,   0,0,0,  0,0,0,10,0, -1, 0),
 };
 
 static const diablo_itemdef_t diablo_rare[] =
 {
-    IT("Doombringer",       TIER_RARE, ESLOT_WEAPON, 2,3, 0,0,0,  12,24, 0,
-       5,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,40),
-    IT("Stormlash",         TIER_RARE, ESLOT_WEAPON, 1,3, 0,0,0,  10,20, 0,
-       0,0,0,0,   0,0,15,0,  0,0,0,0,0,0,10,0),
-    IT("Soulrender",        TIER_RARE, ESLOT_WEAPON, 2,3, 0,0,0,  11,22, 0,
-       0,0,0,0,   0,0,0,0,   3,0,0,0,0,0,0,0),
-    IT("Demonhorn Edge",    TIER_RARE, ESLOT_WEAPON, 1,3, 0,0,0,   9,18, 0,
-       0,5,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0),
+    IT("Doombringer BFG",       TIER_RARE, ESLOT_WEAPON, 2,3, 0,0,0,  12,24, 0,
+       5,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,40, wp_bfg, 0),
+
+    IT("Stormlash Plasma Rifle",         TIER_RARE, ESLOT_WEAPON, 2,3, 0,0,0,  10,20, 0,
+       0,0,0,0,   0,0,15,0,  0,0,0,0,0,0,10,0, wp_plasma, 0),
+
+    IT("Soulrender Rocket Launcher",        TIER_RARE, ESLOT_WEAPON, 2,3, 0,0,0,  11,22, 0,
+       0,0,0,0,   0,0,0,0,   3,0,0,0,0,0,0,0, wp_missile, 0),
+
+
     IT("Nightmare Coil",    TIER_RARE, ESLOT_RING1,  1,1, 0,0,0,   0, 0, 0,
-       5,0,0,0,  15,0,0,0,   0,0,0,0,0,0,5,0),
+       5,0,0,0,  15,0,0,0,   0,0,0,0,0,0,5,0, -1, 0),
     IT("Grimward",          TIER_RARE, ESLOT_SHIELD, 2,2, 0,0,0,   0, 0,15,
-       0,0,0,0,   0,0,0,15,  0,0,0,0,0,0,0,0),
-    IT("Bloodletter",       TIER_RARE, ESLOT_WEAPON, 1,3, 0,0,0,  10,19, 0,
-       0,0,0,0,   0,0,0,0,   4,0,0,0,0,0,12,0),
-    IT("Fleshrender",       TIER_RARE, ESLOT_WEAPON, 2,3, 0,0,0,  13,23, 0,
-       0,0,4,0,   0,0,0,0,   0,0,0,0,0,0,0,30),
+       0,0,0,0,   0,0,0,15,  0,0,0,0,0,0,0,0, -1, 0),
+    IT("Bloodletter Chaingun",       TIER_RARE, ESLOT_WEAPON, 2,3, 0,0,0,  10,19, 0,
+       0,0,0,0,   0,0,0,0,   4,0,0,0,0,0,12,0, wp_chaingun, 0),
+
+
     IT("Stormwalkers",      TIER_RARE, ESLOT_BOOTS,  2,2, 0,0,0,   0, 0,14,
-       0,4,0,0,   0,0,15,0,  0,0,15,0,0,0,0,0),
+       0,4,0,0,   0,0,15,0,  0,0,15,0,0,0,0,0, -1, 0),
     IT("Doom Grasp",        TIER_RARE, ESLOT_GLOVES, 2,2, 0,0,0,   0, 0,12,
-       5,0,0,0,   0,0,0,0,   3,0,0,0,0,0,0,0),
+       5,0,0,0,   0,0,0,0,   3,0,0,0,0,0,0,0, -1, 0),
+
+    // Mechanic-affix guns (AD/AP rework): rares grant mechanics.
+    IT("Phoenix Plasma Rifle", TIER_RARE, ESLOT_WEAPON, 2,3, 0,0,0, 11,21, 0,
+       0,0,0,5,   0,0,0,0,   0,0,0,0,0,0,10,0, wp_plasma, MECH_PHOENIX),
+    IT("Overclocked Plasma Rifle", TIER_RARE, ESLOT_WEAPON, 2,3, 0,0,0, 10,20, 0,
+       0,0,0,5,   0,0,0,0,   0,0,0,0,0,0,10,0, wp_plasma, MECH_OVERCLOCK),
+    IT("Caldera Plasma Rifle", TIER_RARE, ESLOT_WEAPON, 2,3, 0,0,0, 12,22, 0,
+       0,0,0,5,   0,0,0,0,   0,0,0,0,0,0,10,0, wp_plasma, MECH_CALDERA),
+    IT("Voltaic Rocket Launcher", TIER_RARE, ESLOT_WEAPON, 2,3, 0,0,0, 12,22, 0,
+       3,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, wp_missile, MECH_VOLTAIC),
+    IT("Bandolier Rocket Launcher", TIER_RARE, ESLOT_WEAPON, 2,3, 0,0,0, 11,21, 0,
+       3,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, wp_missile, MECH_BANDOLIER),
+    IT("Siege Rocket Launcher", TIER_RARE, ESLOT_WEAPON, 2,3, 0,0,0, 13,24, 0,
+       4,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, wp_missile, MECH_SIEGE),
+    IT("Hungry BFG9000",    TIER_RARE, ESLOT_WEAPON, 2,3, 0,0,0, 26,48, 0,
+       8,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, wp_bfg, MECH_HUNGRY),
+    IT("Event Horizon BFG9000", TIER_RARE, ESLOT_WEAPON, 2,3, 0,0,0, 26,48, 0,
+       8,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, wp_bfg, MECH_HORIZON),
+    IT("Breacher Super Shotgun", TIER_RARE, ESLOT_WEAPON, 2,2, 0,0,0, 12,22, 0,
+       4,0,0,0,   0,0,0,0,   0,0,0,0,0,0,10,0, wp_supershotgun, MECH_BREACHER),
+    IT("Super Shotgun of the Bull", TIER_RARE, ESLOT_WEAPON, 2,2, 0,0,0, 12,22, 0,
+       4,0,0,0,   0,0,0,0,   0,0,0,0,0,0,10,0, wp_supershotgun, MECH_BULL),
+    IT("Splitting Shotgun", TIER_RARE, ESLOT_WEAPON, 2,2, 0,0,0,  6,12, 0,
+       3,0,0,0,   0,0,0,0,   0,0,0,0,0,0,10,0, wp_shotgun, MECH_SPLITTING),
+    IT("Reaper Chainsaw",   TIER_RARE, ESLOT_WEAPON, 2,2, 0,0,0,  8,16, 0,
+       4,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, wp_chainsaw, MECH_REAPER),
+    IT("Lucky Pistol",      TIER_RARE, ESLOT_WEAPON, 1,3, 0,0,0,  4, 9, 0,
+       0,3,0,0,   0,0,0,0,   0,0,0,0,0,0,15,0, wp_pistol, MECH_LUCKY),
+    IT("Splitting Chaingun", TIER_RARE, ESLOT_WEAPON, 2,2, 0,0,0,  5,10, 0,
+       2,4,0,0,   0,0,0,0,   0,0,0,0,0,0,10,0, wp_chaingun, MECH_SPLITTING),
 };
 
 static const diablo_itemdef_t diablo_set[] =
 {
     IT("Tal Rasha's Horadric Crest", TIER_SET, ESLOT_HELM, 2,2, 0,0,0, 0,0,15,
-       0,0,0,8,   0,0,0,0,   0,10,0,0,0,0,0,0),
+       0,0,0,8,   0,0,0,0,   0,10,0,0,0,0,0,0, -1, 0),
     IT("Immortal King's Soul Cage", TIER_SET, ESLOT_ARMOR, 2,3, 0,0,0, 0,0,25,
-       8,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0),
+       8,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, -1, 0),
     IT("Trang-Oul's Guise",          TIER_SET, ESLOT_HELM, 2,2, 0,0,0, 0,0,14,
-       0,0,0,0,   0,0,0,20,  0,0,0,0,0,0,0,0),
+       0,0,0,0,   0,0,0,20,  0,0,0,0,0,0,0,0, -1, 0),
     IT("M'avina's True Sight",       TIER_SET, ESLOT_HELM, 2,2, 0,0,0, 0,0,14,
-       0,8,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0),
+       0,8,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, -1, 0),
     IT("Natalya's Shadow",           TIER_SET, ESLOT_ARMOR,2,3, 0,0,0, 0,0,22,
-       0,6,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0),
+       0,6,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, -1, 0),
     IT("Griswold's Valor",           TIER_SET, ESLOT_HELM, 2,2, 0,0,0, 0,0,16,
-       6,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0),
-    IT("Berserker's Hatchet",        TIER_SET, ESLOT_WEAPON,1,3,0,0,0,15,28,0,
-       6,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,35),
-    IT("Sazabi's Cobalt Redeemer",   TIER_SET, ESLOT_WEAPON,1,3,0,0,0,14,26,0,
-       0,0,0,0,   0,20,0,0,  0,0,0,0,0,0,0,0),
+       6,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, -1, 0),
+    IT("Berserker's Boomstick",      TIER_SET, ESLOT_WEAPON,2,2,0,0,0,15,28,0,
+       6,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,35, wp_shotgun, 0),
+
+    IT("Sazabi's Cobalt Repeater",   TIER_SET, ESLOT_WEAPON,2,3,0,0,0,14,26,0,
+       0,0,0,0,   0,20,0,0,  0,0,0,0,0,0,0,0, wp_chaingun, 0),
+
     IT("Immortal King's Pillar",    TIER_SET, ESLOT_BOOTS, 2,2,0,0,0, 0,0,18,
-       5,0,0,0,   20,0,0,0,  0,0,20,0,0,0,0,0),
+       5,0,0,0,   20,0,0,0,  0,0,20,0,0,0,0,0, -1, 0),
     IT("M'avina's Icy Clutch",      TIER_SET, ESLOT_GLOVES,2,2,0,0,0, 0,0,14,
-       0,6,0,0,   0,20,0,0,  0,0,0,0,0,0,0,0),
+       0,6,0,0,   0,20,0,0,  0,0,0,0,0,0,0,0, -1, 0),
 };
 
 static const diablo_itemdef_t diablo_unique[] =
 {
     IT("Stone of Jordan",       TIER_UNIQUE, ESLOT_RING1, 1,1, 0,0,0,  0, 0, 0,
-       0,0,0,15,   0,0,0,0,   5,15,0,0,0,0,0,0),
+       0,0,0,15,   0,0,0,0,   5,15,0,0,0,0,0,0, -1, 0),
     IT("Harlequin Crest",       TIER_UNIQUE, ESLOT_HELM,  2,2, 0,0,0,  0, 0,18,
-       0,0,10,0,   0,0,0,0,   0,25,0,0,0,0,0,0),
-    IT("The Grandfather",       TIER_UNIQUE, ESLOT_WEAPON,2,3, 0,0,0, 25,50, 0,
-       10,0,0,0,   0,0,0,0,   0,0,0,0,0,0,15,50),
-    IT("Windforce",             TIER_UNIQUE, ESLOT_WEAPON,2,3, 0,0,0, 22,45, 0,
-       0,10,0,0,   0,0,0,0,   0,0,0,0,0,0,20,0),
+       0,0,10,0,   0,0,0,0,   0,25,0,0,0,0,0,0, -1, 0),
+    IT("BFG10K",              TIER_UNIQUE, ESLOT_WEAPON,2,3, 0,0,0, 25,50, 0,
+       10,0,0,0,   0,0,0,0,   0,0,0,0,0,0,15,50, wp_bfg, 0),
+
+    IT("Unmaker",             TIER_UNIQUE, ESLOT_WEAPON,2,3, 0,0,0, 22,45, 0,
+       0,10,0,0,   0,0,0,0,   0,0,0,0,0,0,20,0, wp_plasma, 0),
+
     IT("Arkaine's Valor",       TIER_UNIQUE, ESLOT_ARMOR, 2,3, 0,0,0,  0, 0,30,
-       0,0,12,0,   0,0,0,0,   0,0,0,0,0,0,0,0),
+       0,0,12,0,   0,0,0,0,   0,0,0,0,0,0,0,0, -1, 0),
     IT("Mara's Kaleidoscope",   TIER_UNIQUE, ESLOT_AMULET,1,1, 0,0,0,  0, 0, 0,
-       8,0,0,0,  20,20,20,20, 0,0,0,0,0,0,0,0),
+       8,0,0,0,  20,20,20,20, 0,0,0,0,0,0,0,0, -1, 0),
     IT("Bul-Kathos' Wedding Band",TIER_UNIQUE,ESLOT_RING1,1,1, 0,0,0,  0, 0, 0,
-       0,0,8,0,    0,0,0,0,   8,0,0,0,0,0,10,25),
-    IT("Titan's Revenge",       TIER_UNIQUE, ESLOT_WEAPON,1,3, 0,0,0, 20,40, 0,
-       8,5,0,0,    0,0,0,0,   0,0,0,0,0,0,15,0),
+       0,0,8,0,    0,0,0,0,   8,0,0,0,0,0,10,25, -1, 0),
+    IT("Old Painless",        TIER_UNIQUE, ESLOT_WEAPON,2,3, 0,0,0, 20,40, 0,
+       8,5,0,0,    0,0,0,0,   0,0,0,0,0,0,15,0, wp_chaingun, 0),
+
     IT("Lidless Wall",          TIER_UNIQUE, ESLOT_SHIELD,2,2, 0,0,0,  0, 0,20,
-       0,0,0,10,   0,0,0,0,   0,0,0,0,0,0,0,0),
+       0,0,0,10,   0,0,0,0,   0,0,0,0,0,0,0,0, -1, 0),
     IT("Skin of the Vipermagi", TIER_UNIQUE, ESLOT_ARMOR, 2,3, 0,0,0,  0, 0,24,
-       0,0,0,0,  25,0,25,0,   0,0,0,0,0,0,0,0),
+       0,0,0,0,  25,0,25,0,   0,0,0,0,0,0,0,0, -1, 0),
     IT("Thundergod's Vigor",    TIER_UNIQUE, ESLOT_BELT,  2,1, 0,0,0,  0, 0,10,
-       5,0,8,0,    0,0,25,0,  0,0,0,0,0,0,0,0),
+       5,0,8,0,    0,0,25,0,  0,0,0,0,0,0,0,0, -1, 0),
     IT("Raven Frost",           TIER_UNIQUE, ESLOT_RING1, 1,1, 0,0,0,  0, 0, 0,
-       0,8,0,0,    0,25,0,0,  0,0,0,0,0,0,0,0),
+       0,8,0,0,    0,25,0,0,  0,0,0,0,0,0,0,0, -1, 0),
     IT("War Traveler",          TIER_UNIQUE, ESLOT_BOOTS, 2,2, 0,0,0,  0, 0,22,
-       5,0,8,0,    0,0,0,0,   0,15,25,0,0,0,0,0),
+       5,0,8,0,    0,0,0,0,   0,15,25,0,0,0,0,0, -1, 0),
     IT("Frostburn",             TIER_UNIQUE, ESLOT_GLOVES,2,2, 0,0,0,  0, 0,16,
-       5,5,0,0,    0,25,0,0,  4,0,0,0,0,0,0,0),
+       5,5,0,0,    0,25,0,0,  4,0,0,0,0,0,0,0, -1, 0),
 };
 
 #undef IT
@@ -231,45 +282,89 @@ boolean D_ValidItem(int tier, int idx)
 }
 
 // Map (tier, idx) to a d_diablo_icons.h icon index.
-// Every item has its own unique icon; rarity is shown via the UI border.
+// Guns share their base-gun icon (all variants of a base); the 4 FOCUS
+// items share the ammo-box icon; everything else has a unique icon.
 int D_GetItemIconIdx(int tier, int idx)
 {
-    // Icon indices from d_diablo_icons.h (52 unique, one per item).
-    // Normal (10): Short Sword, Leather Armor, Buckler, Cap, Sash,
-    //   Healing/Mana/Gas Potions, Leather Boots, Leather Gloves
-    static const int normal_icons[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
-    // Magic (8): Cruel War Axe, King's Long Sword, Vampiric Bone Shield,
-    //   Prismatic Amulet, Lizard's Ring, Soldier's Chain Mail,
-    //   Traveler's Treads, Assault Gloves
-    static const int magic_icons[]  = { 10, 11, 12, 13, 14, 15, 16, 17 };
-    // Rare (10): Doombringer, Stormlash, Soulrender, Demonhorn Edge,
-    //   Nightmare Coil, Grimward, Bloodletter, Fleshrender,
-    //   Stormwalkers, Doom Grasp
-    static const int rare_icons[]   = { 18, 19, 20, 21, 22, 23, 24, 25, 26, 27 };
-    // Set (10): Tal Rasha's Crest, IK Soul Cage, Trang-Oul's Guise,
-    //   M'avina's Sight, Natalya's Shadow, Griswold's Valor,
-    //   Berserker's Hatchet, Sazabi's Redeemer,
-    //   IK Pillar, M'avina's Clutch
-    static const int set_icons[]    = { 28, 29, 30, 31, 32, 33, 34, 35, 36, 37 };
-    // Unique (14): Stone of Jordan, Harlequin Crest, The Grandfather,
-    //   Windforce, Arkaine's Valor, Mara's Kaleidoscope, Bul-Kathos' Band,
-    //   Titan's Revenge, Lidless Wall, Vipermagi, Thundergod's Vigor,
-    //   Raven Frost, War Traveler, Frostburn
-    static const int unique_icons[] = { 38, 39, 40, 41, 42, 43, 44, 45,
-                                        46, 47, 48, 49, 50, 51 };
+    const diablo_itemdef_t *def;
+    // Non-gun icons by table position (guns/FOCUS return before these).
+    // Normal (11): 0 Pistol, 1 Shotgun are guns.
+    static const int normal_icons[] = {
+        -1, -1,
+        D_ICON_ARMOR_LEATHER, D_ICON_SHIELD_BUCKLER, D_ICON_HELM_CAP,
+        D_ICON_BELT, D_ICON_POTION_RED, D_ICON_POTION_BLUE,
+        D_ICON_POTION_GREEN, D_ICON_BOOT_LEATHER, D_ICON_GLOVE_LEATHER,
+    };
+    // Magic (16): 0-5 are guns, 12-15 are FOCUS.
+    static const int magic_icons[]  = {
+        -1, -1, -1, -1, -1, -1,
+        D_ICON_M_VAMPIRIC_BONE_SHIELD, D_ICON_M_PRISMATIC_AMULET,
+        D_ICON_M_LIZARDS_RING, D_ICON_M_SOLDIERS_CHAIN_MAIL,
+        D_ICON_BOOT_TRAVELER, D_ICON_GLOVE_ASSAULT,
+        -1, -1, -1, -1,
+    };
+    // Rare (22): guns at 0, 1, 2, 5, 8-21.
+    static const int rare_icons[]   = {
+        -1, -1, -1,
+        D_ICON_R_NIGHTMARE_COIL, D_ICON_R_GRIMWARD, -1,
+        D_ICON_BOOT_STORMWALKER, D_ICON_GLOVE_DOOM_GRASP,
+        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    };
+    // Set (10): 6, 7 are guns (Boomstick, Cobalt Repeater).
+    static const int set_icons[]    = {
+        D_ICON_S_TAL_RASHA_CREST, D_ICON_S_IK_SOUL_CAGE,
+        D_ICON_S_TRANG_OUL_GUISE, D_ICON_S_MAVINA_SIGHT,
+        D_ICON_S_NATALYA_SHADOW, D_ICON_S_GRISWOLD_VALOR,
+        -1, -1,
+        D_ICON_BOOT_IK_PILLAR, D_ICON_GLOVE_MAVINA_CLUTCH,
+    };
+    // Unique (14): 2, 3, 7 are guns (BFG10K, Unmaker, Old Painless).
+    static const int unique_icons[] = {
+        D_ICON_U_STONE_OF_JORDAN, D_ICON_U_HARLEQUIN_CREST,
+        -1, -1,
+        D_ICON_U_ARKAINE_VALOR, D_ICON_U_MARAS_KALEIDOSCOPE,
+        D_ICON_U_BULKATHOS_BAND, -1,
+        D_ICON_U_LIDLESS_WALL, D_ICON_U_VIPERMAGI,
+        D_ICON_U_THUNDERGOD_VIGOR, D_ICON_U_RAVEN_FROST,
+        D_ICON_BOOT_WAR_TRAVELER, D_ICON_GLOVE_FROSTBURN,
+    };
 
     if (!D_ValidItem(tier, idx))
         return 0;
 
+    def = D_GetItemDef(tier, idx);
+    if (def->slot == ESLOT_WEAPON && def->doomweapon >= 0)
+    {
+        switch (def->doomweapon)
+        {
+            case wp_pistol:       return D_ICON_GUN_PISTOL;
+            case wp_shotgun:      return D_ICON_GUN_SHOTGUN;
+            case wp_chaingun:     return D_ICON_GUN_CHAINGUN;
+            case wp_chainsaw:     return D_ICON_GUN_CHAINSAW;
+            case wp_missile:      return D_ICON_GUN_ROCKET;
+            case wp_plasma:       return D_ICON_GUN_PLASMA;
+            case wp_bfg:          return D_ICON_GUN_BFG;
+            case wp_supershotgun: return D_ICON_GUN_SSG;
+            default: break;
+        }
+    }
+    if (def->slot == ESLOT_FOCUS)
+        return D_ICON_AMMO_BOX;
+
+    // Bounds-checked: the arrays below must match their item tables;
+    // a mismatch returns icon 0 instead of reading out of bounds.
+#define ICON_AT(arr, i) \
+    ((i) >= 0 && (i) < (int)(sizeof(arr) / sizeof((arr)[0])) ? (arr)[i] : 0)
     switch (tier)
     {
-        case TIER_NORMAL: return normal_icons[idx];
-        case TIER_MAGIC:  return magic_icons[idx];
-        case TIER_RARE:   return rare_icons[idx];
-        case TIER_SET:    return set_icons[idx];
-        case TIER_UNIQUE: return unique_icons[idx];
+        case TIER_NORMAL: return ICON_AT(normal_icons, idx);
+        case TIER_MAGIC:  return ICON_AT(magic_icons, idx);
+        case TIER_RARE:   return ICON_AT(rare_icons, idx);
+        case TIER_SET:    return ICON_AT(set_icons, idx);
+        case TIER_UNIQUE: return ICON_AT(unique_icons, idx);
         default: return 0;
     }
+#undef ICON_AT
 }
 
 void D_ResetPlayer(struct player_s *pl)
@@ -289,6 +384,58 @@ void D_ResetPlayer(struct player_s *pl)
     player->diablo_recent = -1;
     for (i = 0; i < NUM_DSTATS; i++)
         player->diablo_stats[i] = 0;
+}
+
+// Sync the Doom readyweapon to the equipped Diablo gun, so the
+// first-person sprite and the turn-mode kit follow the gun.
+// No weapon equipped -> pistol (guns only; no fist fallback).
+void D_SyncDoomWeapon(struct player_s *pl)
+{
+    player_t *player = (player_t *)pl;
+    int id, w;
+
+    if (!player || !player->mo)
+        return;
+
+    w = wp_pistol;
+    id = player->diablo_equipped[ESLOT_WEAPON];
+    if (id != D_NOITEM)
+    {
+        const diablo_itemdef_t *def =
+            D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
+        if (def && def->doomweapon >= 0 && def->doomweapon < NUMWEAPONS)
+            w = def->doomweapon;
+    }
+
+    player->weaponowned[w] = true;
+    if (player->readyweapon == w)
+        return;
+    player->readyweapon = w;
+    player->pendingweapon = wp_nochange;
+    // Snap the first-person sprite immediately. Turn mode is frozen
+    // during planning, so no lower/raise animation is needed.
+    P_SetPsprite(player, ps_weapon, weaponinfo[w].readystate);
+}
+
+// Mechanic flags of the equipped gun (0 when unarmed). Kill/hit hooks
+// in the combat code read this instead of caching per-item state.
+int D_EquippedWeaponMech(struct player_s *pl)
+{
+    player_t *player = (player_t *)pl;
+    int id;
+
+    if (!player)
+        return 0;
+    id = player->diablo_equipped[ESLOT_WEAPON];
+    if (id == D_NOITEM)
+        return 0;
+    {
+        const diablo_itemdef_t *def =
+            D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
+        if (def)
+            return def->mech;
+    }
+    return 0;
 }
 
 void D_RecalcStats(struct player_s *pl)
@@ -330,6 +477,8 @@ void D_RecalcStats(struct player_s *pl)
         player->diablo_stats[DSTAT_CRIT_CHANCE] += def->crit_chance;
         player->diablo_stats[DSTAT_CRIT_DMG] += def->crit_dmg;
     }
+
+    D_SyncDoomWeapon(player);
 }
 
 int D_Stat(struct player_s *pl, int stat)

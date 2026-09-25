@@ -35,6 +35,12 @@ typedef struct
 // Fill out from the player's attributes + equipment.
 void T_DeriveStats(player_t *player, t_combatstats_t *out);
 
+// Gear percent multipliers, applied AFTER all flat damage (kit base +
+// gun damage + attributes): AD: kit_base + gun + STR/2..STR, then AD%;
+// AP: kit_base + AP/4..AP/2, then AP%.
+int T_ApplyAdPct(player_t *player, int dmg);
+int T_ApplyApPct(player_t *player, int ap);
+
 // Hit percent for an attack, 5..95. Same value preview shows.
 int T_HitChance(player_t *player, mobj_t *target, const t_combatstats_t *st);
 
@@ -66,22 +72,38 @@ unsigned int T_GetCombatSeed(void);
 typedef struct
 {
     const char *name;   // display name
-    int dmg_min;        // base damage range (STR/AP scale on top)
+    int dmg_min;        // base damage range (AD/AP scale on top)
     int dmg_max;
     int tp_cost;        // TP per attack (before AS reduction)
     int cooldown;       // rounds of cooldown after firing (0 = none)
     int splash_radius;  // splash radius in map units (0 = none)
     int splash_pct;     // splash damage as % of primary (0 = none)
     int pellets;        // separate hit rolls (shotgun/chaingun)
-    boolean ap_scaling; // plasma: damage scales with AP
+    boolean ap_weapon;  // true: AP scaling (ENE); false: AD (STR + gun dmg)
     int mana_cost;      // mana (ammo[am_clip]) spent per attack, 0 = none
+    int heat_per_shot;  // heat gained per shot (plasma); 0 = no heat system
+    int heat_vent;      // heat dissipated per round
+    int max_charges;    // charge capacity (rocket); 0 = no charge system
 } t_kitdef_t;
 
 const t_kitdef_t *T_KitForWeapon(weapontype_t w);
+int T_KitFireSound(weapontype_t w);     // per-gun firing report sfx
 int T_KitCooldown(weapontype_t w);          // current cooldown rounds left
 void T_KitSetCooldown(weapontype_t w, int rounds);
+void T_KitResetCadence(void);           // new game: zero cd/heat, full
+                                        // charges, zero Lucky counters
+void T_KitSaveCadence(int *cool, int *heat, int *charges, int *shots);
+void T_KitLoadCadence(const int *cool, const int *heat,
+                      const int *charges, const int *shots);
+int T_KitHeat(weapontype_t w);              // current heat 0-100
+int T_KitCharges(weapontype_t w);           // current charges
+int T_KitMaxCharges(weapontype_t w);        // charge capacity (+ affixes)
+int T_KitShots(weapontype_t w);             // shots fired (Lucky rhythm)
 void T_KitTickCooldowns(void);             // call on round start
-boolean T_KitReady(weapontype_t w);         // cooldown == 0
+boolean T_KitCanFire(weapontype_t w);       // all gates pass
+const char *T_KitDenyReason(weapontype_t w);// "ON COOLDOWN"/"NO CHARGES"/
+                                           // "OVERHEATED"/"NO MANA"/NULL
 boolean T_HasManaForKit(weapontype_t w);    // consoleplayer can pay mana_cost
+boolean T_LastKill(void);                   // did the last attack kill?
 
 #endif

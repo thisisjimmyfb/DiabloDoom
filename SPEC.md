@@ -170,31 +170,54 @@ cooldown; crit; special trait.
 
 ---
 
-## Weapon kits (vertical slice: six)
+## Gun base types (AD/AP)
 
-| Weapon   | Scaling | Mechanic | Identity |
-|----------|---------|----------|----------|
-| Pistol   | AD      | Tap      | Quickdraw: low TP cost, no cooldown. Consecutive shots on the same target gain accuracy. |
-| Shotgun  | AD      | Burst    | Pump cycle: wide close-range burst around the selected enemy, then one-round recovery. Player never places the spread. |
-| Chaingun | AD      | Heat     | Spin up: each burst raises heat and improves attack speed. Overheat locks firing one round; ending early preserves control. |
-| Rocket   | Hybrid  | Cooldown | Siege shot: select an enemy, splash around it, no ground cursor. Charged variant: bigger radius + damage, then two-round cooldown. |
-| Plasma   | AP      | Charge   | Capacitor: charge 1–3 TP; each level raises damage and armor penetration. Carrying charge across a round adds heat/decay. Costs 5 mana per attack (the PULSE kit). |
-| BFG      | AP      | Ultimate | Annihilation: select an enemy, preview splash, commit a long charge + four-round cooldown. |
+The Diablo weapon loot is 8 Doom gun base types. Equipping a gun syncs the
+Doom `readyweapon`, so the first-person sprite, ground pickup sprite, and
+turn-mode kit all follow the gun. Fist is the unarmed fallback (no gun
+equipped), not loot.
 
-Chainsaw and super shotgun come after the slice. Cooldowns tick at round
-end (recommended) with a one-round minimum; Haste shortens them.
+| Gun | Type | LoL mechanic | Identity |
+|-----|------|--------------|----------|
+| Pistol | AD | — (spammable) | Reliable fallback sidearm. |
+| Shotgun | AD | — (close burst) | Positioning reward, pellet spread. |
+| Chaingun | AD | — (sustained) | TP-hungry DPS hose. |
+| Chainsaw | AD | — (melee) | High risk, constant uptime. |
+| Plasma Rifle | AP | **Heat** (Rumble-style) | Burst, then vent: +25 heat per shot, −40 per round; at 100 the gun overheats and locks until heat ≤ 50. |
+| Rocket Launcher | AP | **Charges** (2, +1/round) | Punctuated splash; firing consumes 1 charge. |
+| Super Shotgun | AP | **Cooldown** (2-round breach reload) | Heavy double-barrel blast, forced reload rhythm. |
+| BFG9000 | AP | **Cooldown + Mana** (3 rounds, 20 mana) | Ultimate: highest damage, gated hardest. |
+
+Damage model:
+
+- **AD gun:** `dmg = kit_base + gun_dmg_range + STR/2..STR`, then × (1 + AD%).
+  Always available; gated only by TP.
+- **AP gun:** `dmg = kit_base + AP/4..AP/2`, then × (1 + AP%).
+  STR does not scale AP guns; ENE does.
+- Kit damage **stacks with** the gun's Diablo stats instead of overwriting
+  them, so the looted gun and its affixes move real damage.
+
+Cadence plumbing:
+
+- Cooldowns, charges, and heat tick at round start (`T_KitTickCooldowns`).
+- `T_KitCanFire` covers every gate: cooldown == 0 **and** charges > 0
+  **and** not overheated **and** mana affordable.
+- Fire-denied messages name the gate:
+  `OVERHEATED` / `NO CHARGES` / `ON COOLDOWN` / `NO MANA`.
+- The rounds overlay kit line shows gate state: heat bar, charge pips,
+  or cooldown count.
+- Inventory tooltips show AD or AP typing and the mechanic
+  (e.g. "AP weapon — Heat: +25/shot").
 
 **Mana is ammo, renamed.** The engine ammo system is the unified mana
 pool (`player->ammo[am_clip]`): 100 max, starts at 50, backpack doubles
 the max to 200. Every ammo pickup funnels into mana while keeping its own
-`clipammo` amount, so a shard (+10) and a crystal (+50) restore different
-amounts; at full mana pickups are left on the ground. Mana Potions restore
-50 mana, capped by the max. The PULSE kit (`wp_plasma`) costs 5 mana per
+`clipammo` amount; at full mana pickups are left on the ground. Mana
+Potions restore 50 mana, capped by the max. The BFG kit costs 20 mana per
 attack on top of its TP cost — validated when the attack is queued
-(`NEED 5 MANA (HAVE n).` on failure), deducted when it executes. Other
-kits cost no mana. Availability is still governed by attack speed (TP
-cost), cooldowns, charge, and heat, League-style; mana is the one
-spendable resource on top.
+(`NEED 20 MANA (HAVE n).` on failure), deducted when it executes.
+Availability is still governed by attack speed (TP cost), cooldowns,
+charges, and heat, League-style; mana is the one spendable resource on top.
 
 **FOCUS slot.** "Ammo" survives as a paperdoll inventory slot renamed
 FOCUS: equippable focus items (Piercing Rounds, Incendiary Shells, Swift
@@ -202,11 +225,56 @@ Cartridges, Spotter Rounds) that are never consumed and passively grant
 stat bonuses to the equipped weapon. One shared slot; layout unchanged,
 no profile-version bump.
 
+### Rare affixes grant mechanics
+
+Hand-authored mechanic flags on `diablo_itemdef_t` — no dynamic affix
+composer (deferred; revisit only if hand-authored affixes feel flat).
+~14 rare guns, two signature affixes per gun. Every affix is a flag plus
+one small hook; no new subsystems except where noted.
+
+**Plasma Rifle (Heat)**
+
+| Affix | Effect |
+|-------|--------|
+| of the Phoenix | Kills vent 50 heat (kill-reset). |
+| Overclocked | +25 heat dissipation per round. |
+| Caldera | Overheating detonates a fire nova around you instead of locking the weapon, then vents to 0. |
+
+**Rocket Launcher (Charges)**
+
+| Affix | Effect |
+|-------|--------|
+| Voltaic | Explosions chain 50% damage to a nearby enemy. |
+| Bandolier | +1 max charge (3 total). |
+| Siege | Direct hits knock enemies back 1 tile. |
+
+**BFG9000 (Cooldown + Mana)**
+
+| Affix | Effect |
+|-------|--------|
+| Hungry | Kills reduce remaining cooldown by 1 round. |
+| Event Horizon | The blast drags enemies 1 tile toward its center. |
+
+**Super Shotgun (Cooldown — reload)**
+
+| Affix | Effect |
+|-------|--------|
+| Breacher | Kills refund the reload cooldown instantly. |
+| of the Bull | Firing shoves *you* 1 tile backward (recoil repositioning). |
+
+**AD guns**
+
+| Affix | Effect |
+|-------|--------|
+| Splitting | Shotgun/Chaingun fire +2 pellets. |
+| of the Reaper | Kills refund 2 TP (signature on the Chainsaw). |
+| Lucky | Every 3rd pistol shot is a guaranteed crit. |
+| of the Glacier | Hits slow enemies: they act 1 round later. **Stretch goal** — needs an enemy-phase hook. |
+
 **Loot rule:** common affixes bend numbers; rare/unique traits bend
-mechanics (e.g. a unique plasma rifle preserves charge between rounds).
+mechanics.
 
 ---
-
 ## Selection combat
 
 ### Target acquisition

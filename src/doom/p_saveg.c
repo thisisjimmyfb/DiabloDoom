@@ -30,6 +30,7 @@
 #include "d_diablo.h"
 #include "p_saveg.h"
 #include "t_turn.h"
+#include "t_combat.h"
 
 // State.
 #include "doomstat.h"
@@ -1904,12 +1905,19 @@ void P_UnArchiveSpecials (void)
 //
 
 #define DIABLO_SAVE_MAGIC 0x44494142  // 'DIAB' (first byte 0x44 != 0x1d)
+#define DIABLO_SAVE_MAGIC2 0x44494232 // 'DIB2': versioned item database
+
+// Item-database version. Bumped when the item tables are rewritten (the
+// gun rework replaced melee weapons with gun bases and reordered magic),
+// so old saves never silently reinterpret shifted item IDs.
+#define DIABLO_SAVE_VERSION 2
 
 void P_ArchiveDiablo(void)
 {
     int i, j;
 
-    saveg_write32(DIABLO_SAVE_MAGIC);
+    saveg_write32(DIABLO_SAVE_MAGIC2);
+    saveg_write32(DIABLO_SAVE_VERSION);
 
     for (i = 0; i < MAXPLAYERS; i++)
     {
@@ -1944,8 +1952,36 @@ boolean P_UnArchiveDiablo(void)
 
     magic = c | (saveg_read8() << 8) | (saveg_read8() << 16)
               | (saveg_read8() << 24);
-    if (magic != DIABLO_SAVE_MAGIC)
+    if (magic == DIABLO_SAVE_MAGIC)
+    {
+        // Pre-gun-rework item database: consume the section so the
+        // stream stays aligned, then drop the equipment. The old item
+        // IDs no longer mean the same items, so keeping them would
+        // silently hand the player wrong gear. D_ResetPlayer (already
+        // run by P_UnArchivePlayers) left everything empty.
+        for (i = 0; i < MAXPLAYERS; i++)
+        {
+            if (!playeringame[i])
+                continue;
+            for (j = 0; j < NUM_ESLOTS; j++)
+                saveg_read32(); // equipped
+            saveg_read32(); // backpack count
+            for (j = 0; j < D_BACKPACK_SIZE; j++)
+            {
+                saveg_read32(); // item
+                saveg_read32(); // gx
+                saveg_read32(); // gy
+            }
+            saveg_read32(); // recent
+        }
+        printf("P_UnArchiveDiablo: old item database version; "
+               "equipment cleared.\n");
+        return true;
+    }
+    if (magic != DIABLO_SAVE_MAGIC2)
         I_Error("P_UnArchiveDiablo: bad magic 0x%x", magic);
+    if (saveg_read32() != DIABLO_SAVE_VERSION)
+        I_Error("P_UnArchiveDiablo: unsupported item database version");
 
     for (i = 0; i < MAXPLAYERS; i++)
     {
@@ -2002,12 +2038,15 @@ boolean P_UnArchiveDiablo(void)
 // slots keep the layout stable (hunker/overwatch were removed).
 // ------------------------------------------------------------------
 #define TURN_SAVE_MAGIC 0x5455524E  // 'TURN' (first byte 0x54 != 0x1d)
+#define TURN_SAVE_MAGIC2 0x54555232 // 'TUR2': + gun cadence state
 
 void P_ArchiveTurn(void)
 {
-    int i;
+    int i, w;
+    int cool[NUMWEAPONS], heat[NUMWEAPONS];
+    int charges[NUMWEAPONS], shots[NUMWEAPONS];
 
-    saveg_write32(TURN_SAVE_MAGIC);
+    saveg_write32(TURN_SAVE_MAGIC2);
     saveg_write32(turnctrl.round);
     saveg_write32(turnctrl.tp);
     saveg_write32(turnctrl.tp_max);
@@ -2018,11 +2057,22 @@ void P_ArchiveTurn(void)
     for (i = 0; i < 8; i++)
         saveg_write32(turnctrl.cooldowns[i]);
     saveg_write32(0); // reserved (was headshot_mod)
+    // Gun cadence: per-weapon cooldowns, heat, charges, Lucky counters.
+    T_KitSaveCadence(cool, heat, charges, shots);
+    for (w = 0; w < NUMWEAPONS; w++)
+    {
+        saveg_write32(cool[w]);
+        saveg_write32(heat[w]);
+        saveg_write32(charges[w]);
+        saveg_write32(shots[w]);
+    }
 }
 
 boolean P_UnArchiveTurn(void)
 {
-    int c, magic, i;
+    int c, magic, i, w;
+    int cool[NUMWEAPONS], heat[NUMWEAPONS];
+    int charges[NUMWEAPONS], shots[NUMWEAPONS];
 
     c = saveg_read8();
     if (c == SAVEGAME_EOF)
@@ -2030,7 +2080,7 @@ boolean P_UnArchiveTurn(void)
 
     magic = c | (saveg_read8() << 8) | (saveg_read8() << 16)
               | (saveg_read8() << 24);
-    if (magic != TURN_SAVE_MAGIC)
+    if (magic != TURN_SAVE_MAGIC && magic != TURN_SAVE_MAGIC2)
         I_Error("P_UnArchiveTurn: bad magic 0x%x", magic);
 
     turnctrl.round = saveg_read32();
@@ -2053,6 +2103,24 @@ boolean P_UnArchiveTurn(void)
     for (i = 0; i < 8; i++)
         turnctrl.cooldowns[i] = saveg_read32();
     saveg_read32(); // reserved (was headshot_mod)
+
+    if (magic == TURN_SAVE_MAGIC2)
+    {
+        // Gun cadence state (clamped inside T_KitLoadCadence).
+        for (w = 0; w < NUMWEAPONS; w++)
+        {
+            cool[w] = saveg_read32();
+            heat[w] = saveg_read32();
+            charges[w] = saveg_read32();
+            shots[w] = saveg_read32();
+        }
+        T_KitLoadCadence(cool, heat, charges, shots);
+    }
+    else
+    {
+        // Old turn block: no cadence was saved; start fresh.
+        T_KitResetCadence();
+    }
 
     // Land in a plannable state; G_DoLoadGame calls T_OnLoad next.
     // The queue is transient planning state (never saved).

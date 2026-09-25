@@ -414,7 +414,22 @@ static void P_DropDiabloLoot(mobj_t *target, mobj_t *source)
             }
             else switch (def->slot)
             {
-                case ESLOT_WEAPON: st = S_SHOT; break; // weapon pickup
+                case ESLOT_WEAPON:
+                    // Gun-appropriate pickup sprite per Doom base type.
+                    // (Doom has no pistol pickup; the clip reads closest.)
+                    switch (def->doomweapon)
+                    {
+                        case wp_pistol:   st = S_CLIP; break;
+                        case wp_shotgun:  st = S_SHOT; break;
+                        case wp_supershotgun: st = S_SHOT2; break;
+                        case wp_chaingun: st = S_MGUN; break;
+                        case wp_missile:  st = S_LAUN; break;
+                        case wp_plasma:   st = S_PLAS; break;
+                        case wp_bfg:      st = S_BFUG; break;
+                        case wp_chainsaw: st = S_CSAW; break;
+                        default:          st = S_SHOT; break;
+                    }
+                    break;
                 case ESLOT_ARMOR:  st = S_ARM1; break; // green armor
                 case ESLOT_SHIELD: st = S_ARM2; break; // blue armor
                 case ESLOT_HELM:   st = S_BON2; break;
