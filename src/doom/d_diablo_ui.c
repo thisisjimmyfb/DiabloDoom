@@ -17,6 +17,7 @@
 #include "doomdef.h"
 #include "doomkeys.h"
 #include "doomstat.h"
+#include "p_inter.h"
 #include "hu_stuff.h"
 #include "i_input.h"
 #include "i_swap.h"
@@ -742,6 +743,44 @@ static void UIKbEquip(player_t *player)
     UILeftClick();  // equip / swap
 }
 
+// X: drop the held item (or the kb-selected backpack item) on the ground
+// at the player's feet as a loot pickup.
+static void UIKbDrop(player_t *player)
+{
+    int id = D_NOITEM;
+    int bpi;
+
+    ui_kb_active = true;
+    if (ui_held != D_NOITEM)
+    {
+        id = ui_held;
+        ui_held = D_NOITEM;
+        ui_held_from = -1;
+    }
+    else
+    {
+        if (ui_kb_pane != 0)
+        {
+            UIMsg("Select a backpack item.");
+            return;
+        }
+        bpi = UIBackpackAt(player, ui_kb_gx, ui_kb_gy);
+        if (bpi < 0)
+        {
+            UIMsg("Nothing there.");
+            return;
+        }
+        id = player->diablo_backpack[bpi];
+        D_BackpackRemoveAt((struct player_s *)player, bpi);
+    }
+
+    if (id != D_NOITEM && player->mo)
+    {
+        P_SpawnDiabloLootAt(player->mo->x, player->mo->y, id);
+        UIMsg("Dropped.");
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Input responder.
 // ---------------------------------------------------------------------------
@@ -845,6 +884,8 @@ boolean D_UIResponder(event_t *ev)
             D_UnequipAll((struct player_s *)player);
             UIMsg("Unequipped.");
         }
+        else if (k == 'x' || k == 'X')
+            UIKbDrop(player);
         // Eat all other keys too: no game input while the screen is up.
         return true;
     }
@@ -1224,7 +1265,7 @@ void D_UIDrawer(void)
 
     // Hint lines.
     UIDrawText(10, 180, "ARROWS:MOVE TAB:PANE ENTER:PICK/PLACE E:EQUIP");
-    UIDrawText(10, 190, "R:CANCEL Q:UNEQUIP ALL   MOUSE:DRAG/CLICK");
+    UIDrawText(10, 190, "R:CANCEL Q:UNEQUIP ALL X:DROP  MOUSE:DRAG/CLICK");
 
     // Transient message.
     if (ui_msg[0] && gametic < ui_msgtic)

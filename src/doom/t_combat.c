@@ -497,27 +497,14 @@ boolean T_HasManaForKit(weapontype_t w)
     return player->ammo[am_clip] >= kit->mana_cost;
 }
 
-// Kill credit + banner + kill-triggered affix mechanics for one victim.
-// The banner latches the first kill of the attack (usually the primary
-// target); multi-kills keep it. t_banner_latched resets per resolved
-// attack in T_ResolveAttack.
-static boolean t_banner_latched = false;
-
+// Kill credit + kill-triggered affix mechanics for one victim.
 static void T_ResolveKill(player_t *player, mobj_t *victim, int dmg,
                           const char *kitname)
 {
-    char title[32], sub[64];
     int mech;
 
     t_last_kill = 1;
     T_CountKill(victim);
-    if (!t_banner_latched)
-    {
-        M_snprintf(title, sizeof(title), "%s SLAIN", T_TargetName(victim));
-        M_snprintf(sub, sizeof(sub), "%d DMG - %s", dmg, kitname);
-        T_KillBanner(title, sub);
-        t_banner_latched = true;
-    }
 
     mech = D_EquippedWeaponMech(player);
     if (mech & MECH_PHOENIX)
@@ -593,7 +580,6 @@ boolean T_ResolveAttack(player_t *player, mobj_t *target)
     t_last_damage = 0;
     t_last_crit = 0;
     t_last_kill = 0;
-    t_banner_latched = false;
 
     if (!player->mo || !target || target->health <= 0)
         return false;

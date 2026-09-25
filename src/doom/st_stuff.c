@@ -1220,11 +1220,12 @@ static void ST_drawTurnMana(void)
 
 // Turn-based kit status (Phase 5): replaces the right-side AMMO counts
 // with a persistent AD/AP stat block and a contextual cooldown line.
+// Text labels (AD/AP/CD) instead of icons for clarity.
 static void ST_drawTurnKits(void)
 {
     t_combatstats_t st;
-    char adbuf[16], apbuf[16], cdbuf[16];
-    int cd, teal, dmg_min, dmg_max;
+    char adbuf[24], apbuf[24], cdbuf[24];
+    int cd, dmg_min, dmg_max;
 
     if (!T_Active())
         return;
@@ -1233,18 +1234,15 @@ static void ST_drawTurnKits(void)
     // on, then AD%/AP% (T_DamageRange mirrors T_ResolveAttack exactly).
     T_DamageRange(plyr, NULL, &st, &dmg_min, &dmg_max);
     cd = T_KitCooldown(plyr->readyweapon);
-    teal = ST_NearestColor(32, 200, 190);
 
-    snprintf(adbuf, sizeof(adbuf), "%d-%d", dmg_min, dmg_max);
-    snprintf(apbuf, sizeof(apbuf), "%d", T_ApplyApPct(plyr, st.ap));
-    snprintf(cdbuf, sizeof(cdbuf), "CD%d", cd);
+    snprintf(adbuf, sizeof(adbuf), "AD %d-%d", dmg_min, dmg_max);
+    snprintf(apbuf, sizeof(apbuf), "AP %d", T_ApplyApPct(plyr, st.ap));
+    snprintf(cdbuf, sizeof(cdbuf), "CD %d", cd);
 
     // Clear the right-side ammo count area, then draw the stat block.
     V_DrawFilledBox(278, 170, 42, 30, 0);
-    ST_DrawIcon8(280, 171, st_icon_sword, 160); // gold sword: attack damage
-    ST_TurnDrawText(318 - STWepTextWidth(adbuf), 171, adbuf);
-    ST_DrawIcon8(280, 180, st_icon_spark, teal); // teal sparkle: ability power
-    ST_TurnDrawText(318 - STWepTextWidth(apbuf), 180, apbuf);
+    ST_TurnDrawText(282, 171, adbuf);
+    ST_TurnDrawText(282, 180, apbuf);
     ST_TurnDrawText(282, 189, cdbuf);
 }
 

@@ -34,6 +34,7 @@
 #include "am_map.h"
 
 #include "p_local.h"
+#include "p_pspr.h"
 #include "t_turn.h"
 
 // Diablo equipment backend (mod).
@@ -353,12 +354,78 @@ P_GivePower
 
 // (Diablo item names now live in d_diablo.c's data tables.)
 
+// Spawn a loot pickup for a specific item id at (x, y). Shared by
+// kill drops and player-initiated drops from the inventory.
+void P_SpawnDiabloLootAt(fixed_t x, fixed_t y, int item_id)
+{
+    int tier = D_ITEMTIER(item_id);
+    int index = D_ITEMIDX(item_id);
+    mobjtype_t type = MT_LOOT_NORMAL + tier;
+    mobj_t *mo;
+    const diablo_itemdef_t *def;
+    statenum_t st;
+
+    mo = P_SpawnMobj(x, y, ONFLOORZ, type);
+    mo->flags |= MF_DROPPED;
+    mo->diablo_loot_id = item_id;
+
+    // Show an item-appropriate sprite instead of the tier's stock sprite.
+    // (Pickup still keys off the mobj type, so this is purely visual.)
+    def = D_GetItemDef(tier, index);
+    st = S_BON1; // fallback
+    if (def)
+    {
+        if (def->consumable)
+        {
+            // Potions: healing -> stimpack, mana -> armor bonus,
+            // blast -> rocket (explosive).
+            if (def->usekind == USE_HEAL)
+                st = S_STIM;
+            else if (def->usekind == USE_MANA)
+                st = S_BON2;
+            else
+                st = S_ROCK;
+        }
+        else switch (def->slot)
+        {
+            case ESLOT_WEAPON:
+                // Gun-appropriate pickup sprite per Doom base type.
+                // (Doom has no pistol pickup; the clip reads closest.)
+                switch (def->doomweapon)
+                {
+                    case wp_pistol:   st = S_CLIP; break;
+                    case wp_shotgun:  st = S_SHOT; break;
+                    case wp_supershotgun: st = S_SHOT2; break;
+                    case wp_chaingun: st = S_MGUN; break;
+                    case wp_missile:  st = S_LAUN; break;
+                    case wp_plasma:   st = S_PLAS; break;
+                    case wp_bfg:      st = S_BFUG; break;
+                    case wp_chainsaw: st = S_CSAW; break;
+                    default:          st = S_SHOT; break;
+                }
+                break;
+            case ESLOT_ARMOR:  st = S_ARM1; break; // green armor
+            case ESLOT_SHIELD: st = S_ARM2; break; // blue armor
+            case ESLOT_HELM:   st = S_BON2; break;
+            case ESLOT_RING1:
+            case ESLOT_RING2:
+            case ESLOT_AMULET: st = S_BON1; break; // small shiny
+            case ESLOT_BELT:   st = S_BON2; break;
+            case ESLOT_BOOTS:
+            case ESLOT_GLOVES: st = S_BON1; break;
+            default: break;
+        }
+    }
+    P_SetMobjState(mo, st);
+    // Full-bright: loot pops in dark sectors instead of sinking
+    // into the floor lighting.
+    mo->frame |= FF_FULLBRIGHT;
+}
+
 // Roll loot for a dead monster and spawn the pickup.
 static void P_DropDiabloLoot(mobj_t *target, mobj_t *source)
 {
     int r, roll, tier, index;
-    mobjtype_t type;
-    mobj_t *mo;
     int magic_find = 0;
 
     // 70% chance that a kill drops something at all.
@@ -385,65 +452,11 @@ static void P_DropDiabloLoot(mobj_t *target, mobj_t *source)
         tier = TIER_MAGIC;
     else
         tier = TIER_NORMAL;
-    type = MT_LOOT_NORMAL + tier;
 
     // Pick a specific item from the tier's table.
     index = P_Random() % D_TierCount(tier);
 
-    mo = P_SpawnMobj(target->x, target->y, ONFLOORZ, type);
-    mo->flags |= MF_DROPPED;
-    mo->diablo_loot_id = D_MAKEITEM(tier, index);
-
-    // Show an item-appropriate sprite instead of the tier's stock sprite.
-    // (Pickup still keys off the mobj type, so this is purely visual.)
-    {
-        const diablo_itemdef_t *def = D_GetItemDef(tier, index);
-        statenum_t st = S_BON1; // fallback
-        if (def)
-        {
-            if (def->consumable)
-            {
-                // Potions: healing -> stimpack, mana -> armor bonus,
-                // blast -> rocket (explosive).
-                if (def->usekind == USE_HEAL)
-                    st = S_STIM;
-                else if (def->usekind == USE_MANA)
-                    st = S_BON2;
-                else
-                    st = S_ROCK;
-            }
-            else switch (def->slot)
-            {
-                case ESLOT_WEAPON:
-                    // Gun-appropriate pickup sprite per Doom base type.
-                    // (Doom has no pistol pickup; the clip reads closest.)
-                    switch (def->doomweapon)
-                    {
-                        case wp_pistol:   st = S_CLIP; break;
-                        case wp_shotgun:  st = S_SHOT; break;
-                        case wp_supershotgun: st = S_SHOT2; break;
-                        case wp_chaingun: st = S_MGUN; break;
-                        case wp_missile:  st = S_LAUN; break;
-                        case wp_plasma:   st = S_PLAS; break;
-                        case wp_bfg:      st = S_BFUG; break;
-                        case wp_chainsaw: st = S_CSAW; break;
-                        default:          st = S_SHOT; break;
-                    }
-                    break;
-                case ESLOT_ARMOR:  st = S_ARM1; break; // green armor
-                case ESLOT_SHIELD: st = S_ARM2; break; // blue armor
-                case ESLOT_HELM:   st = S_BON2; break;
-                case ESLOT_RING1:
-                case ESLOT_RING2:
-                case ESLOT_AMULET: st = S_BON1; break; // small shiny
-                case ESLOT_BELT:   st = S_BON2; break;
-                case ESLOT_BOOTS:
-                case ESLOT_GLOVES: st = S_BON1; break;
-                default: break;
-            }
-        }
-        P_SetMobjState(mo, st);
-    }
+    P_SpawnDiabloLootAt(target->x, target->y, D_MAKEITEM(tier, index));
 }
 
 // Give the player a random item of the given rarity tier (0-4).
