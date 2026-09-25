@@ -295,22 +295,22 @@ static const t_kitdef_t t_kits[NUMWEAPONS] = {
     // Base kits are deliberately weak: item stats are the real damage
     // source, so hunting better gear is the progression.
     // wp_pistol: balanced AD sidearm
-    { "SIDEARM",  2,  4,  4, 0,   0,  0, 1, false, 0,  0,  0, 0 },
+    { "SIDEARM",  2,  4,  4, 0,   0,  0, 1, false, 0,  0,  0, 0,  0 },
     // wp_shotgun: close-range burst, 4 pellets
-    { "SHOTGUN",  2,  3,  5, 0,   0,  0, 4, false, 0,  0,  0, 0 },
+    { "SHOTGUN",  2,  3,  5, 0,   0,  0, 4, false, 0,  0,  0, 0,  0 },
     // wp_chaingun: 3-round burst
-    { "CHAINGUN", 1,  3,  5, 0,   0,  0, 3, false, 0,  0,  0, 0 },
+    { "CHAINGUN", 1,  3,  5, 0,   0,  0, 3, false, 0,  0,  0, 0,  0 },
     // wp_missile: AP rockets, enemy-targeted splash, charge-gated
-    { "ROCKET",   5,  9,  6, 0, 128, 50, 1, true, 10,  0,  0, 2 },
+    { "ROCKET",   5,  9,  6, 0, 128, 50, 1, true, 10,  0,  0, 2,  0 },
     // wp_plasma: AP energy. Heat is inverse ammo: free to spam while
     // heat < 100, vents 40/round.
-    { "PULSE",    2,  4,  4, 0,   0,  0, 1, true,  0, 25, 40, 0 },
+    { "PULSE",    2,  4,  4, 0,   0,  0, 1, true,  0, 25, 40, 0,  0 },
     // wp_bfg: AP ultimate, cooldown + mana
-    { "BFG",     10, 18,  8, 3, 192, 60, 1, true, 20,  0,  0, 0 },
-    // wp_chainsaw: AD melee
-    { "SAW",      1,  2,  3, 0,   0,  0, 1, false, 0,  0,  0, 0 },
+    { "BFG",     10, 18,  8, 3, 192, 60, 1, true, 20,  0,  0, 0,  0 },
+    // wp_chainsaw: AD melee with inherent leech (sustain for close range)
+    { "SAW",      1,  2,  3, 0,   0,  0, 1, false, 0,  0,  0, 0, 30 },
     // wp_supershotgun: AP double-barrel, breach reload
-    { "SSG",      4,  8,  6, 2,   0,  0, 8, true,  8,  0,  0, 0 },
+    { "SSG",      4,  8,  6, 2,   0,  0, 8, true,  8,  0,  0, 0,  0 },
 };
 
 const t_kitdef_t *T_KitForWeapon(weapontype_t w)
@@ -723,6 +723,22 @@ boolean T_ResolveAttack(player_t *player, mobj_t *target)
         player->message = "HIT!";
 
     P_DamageMobj(target, player->mo, player->mo, total_dmg);
+    // Lifesteal: gear + kit leech (chainsaw). Heals % of damage dealt.
+    {
+        int ls = player->diablo_stats[DSTAT_LIFESTEAL] + kit->leech;
+        if (ls > 0 && total_dmg > 0 && player->health > 0)
+        {
+            int heal = total_dmg * ls / 100;
+            if (heal > 0)
+            {
+                int max = D_MaxHealth(player);
+                player->health += heal;
+                if (player->health > max)
+                    player->health = max;
+                player->mo->health = player->health;
+            }
+        }
+    }
     // Siege: direct hits shove living foes 1 tile away from you.
     if ((mech & MECH_SIEGE) && target->health > 0)
     {

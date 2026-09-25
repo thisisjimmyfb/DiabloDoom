@@ -82,6 +82,8 @@ static const diablo_itemdef_t diablo_magic[] =
        2,0,2,0,   0,0,0,0,   0,0,0,0,0,0,8,0, 0, 0, 0, 0, wp_shotgun, 0),
     IT("Vampiric Rocket Launcher", TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0,  8,16, 0,
        0,0,0,0,   0,0,0,0,   5,0,0,0,0,0,0,0, 0, 0, 0, 0, wp_missile, 0),
+    IT("Vampiric Chainsaw", TIER_MAGIC, ESLOT_WEAPON, 2,2, 0,0,0,  5,12, 0,
+       0,0,0,0,   0,0,0,0,  10,0,0,0,0,0,0,0, 0, 0, 0, 0, wp_chainsaw, 0),
     IT("Soldier's Plasma Rifle", TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0,  7,15, 0,
        3,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, wp_plasma, 0),
     IT("Swift Chainsaw",    TIER_MAGIC, ESLOT_WEAPON, 2,2, 0,0,0,  5,12, 0,
