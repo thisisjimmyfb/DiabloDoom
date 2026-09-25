@@ -1222,7 +1222,8 @@ static void ST_drawTurnKits(void)
     snprintf(cdbuf, sizeof(cdbuf), "CD %d", cd);
     // Weapon-specific gate: heat for plasma, charges for rocket.
     if (kit->heat_per_shot > 0)
-        snprintf(mechbuf, sizeof(mechbuf), "HEAT %d", T_KitHeat(plyr->readyweapon));
+        snprintf(mechbuf, sizeof(mechbuf), "HEAT %d/%d",
+                 T_KitHeat(plyr->readyweapon), T_KitHeatMax());
     else if (kit->max_charges > 0)
         snprintf(mechbuf, sizeof(mechbuf), "CHG %d/%d",
                  T_KitCharges(plyr->readyweapon), kit->max_charges);

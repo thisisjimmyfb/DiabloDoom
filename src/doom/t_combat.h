@@ -95,7 +95,8 @@ void T_KitResetCadence(void);           // new game: zero cd/heat, full
 void T_KitSaveCadence(int *cool, int *heat, int *charges, int *shots);
 void T_KitLoadCadence(const int *cool, const int *heat,
                       const int *charges, const int *shots);
-int T_KitHeat(weapontype_t w);              // current heat 0-100
+int T_KitHeat(weapontype_t w);              // current heat
+int T_KitHeatMax(void);                   // overheat threshold (100 + gear)
 int T_KitCharges(weapontype_t w);           // current charges
 int T_KitMaxCharges(weapontype_t w);        // charge capacity (+ affixes)
 int T_KitShots(weapontype_t w);             // shots fired (Lucky rhythm)

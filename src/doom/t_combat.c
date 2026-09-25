@@ -361,6 +361,12 @@ int T_KitHeat(weapontype_t w)
     return t_heat[w];
 }
 
+// Overheat threshold: base 100 + gear heat-capacity bonus.
+int T_KitHeatMax(void)
+{
+    return 100 + players[consoleplayer].diablo_stats[DSTAT_HEAT_MAX];
+}
+
 int T_KitCharges(weapontype_t w)
 {
     if (w < 0 || w >= NUMWEAPONS)
@@ -425,7 +431,7 @@ void T_KitLoadCadence(const int *cool, const int *heat,
     {
         int maxc = t_kits[w].max_charges;
         t_cooldowns[w] = cool[w] > 0 ? cool[w] : 0;
-        t_heat[w] = heat[w] < 0 ? 0 : (heat[w] > 100 ? 100 : heat[w]);
+        t_heat[w] = heat[w] < 0 ? 0 : heat[w]; // clamped at fire time
         t_charges[w] = charges[w] < 0 ? 0
                      : (charges[w] > maxc ? maxc : charges[w]);
         t_shots[w] = shots[w] > 0 ? shots[w] : 0;
@@ -470,7 +476,7 @@ boolean T_KitCanFire(weapontype_t w)
     if (kit->max_charges > 0 && T_KitCharges(w) <= 0)
         return false;
     // Heat is inverse ammo: usable while below the overheat threshold.
-    if (kit->heat_per_shot > 0 && T_KitHeat(w) >= 100)
+    if (kit->heat_per_shot > 0 && T_KitHeat(w) >= T_KitHeatMax())
         return false;
     return T_HasAmmoForKit(w);
 }
@@ -482,7 +488,7 @@ const char *T_KitDenyReason(weapontype_t w)
         return "ON COOLDOWN";
     if (kit->max_charges > 0 && T_KitCharges(w) <= 0)
         return "NO CHARGES";
-    if (kit->heat_per_shot > 0 && T_KitHeat(w) >= 100)
+    if (kit->heat_per_shot > 0 && T_KitHeat(w) >= T_KitHeatMax())
         return "OVERHEATED";
     if (!T_HasAmmoForKit(w))
         return "NO AMMO";
@@ -600,14 +606,24 @@ boolean T_ResolveAttack(player_t *player, mobj_t *target)
         weapontype_t w = player->readyweapon;
         if (kit->heat_per_shot > 0)
         {
+            int max = T_KitHeatMax();
             t_heat[w] += kit->heat_per_shot;
-            if (t_heat[w] > 100)
-                t_heat[w] = 100;
+            if (t_heat[w] > max)
+                t_heat[w] = max;
         }
         if (kit->max_charges > 0 && t_charges[w] > 0)
             t_charges[w]--;
         if (kit->cooldown > 0)
-            T_KitSetCooldown(w, kit->cooldown);
+        {
+            // Haste reduces cooldown rounds (min 1).
+            t_combatstats_t st;
+            int cd = kit->cooldown;
+            T_DeriveStats(player, &st);
+            cd -= cd * st.haste / 100;
+            if (cd < 1)
+                cd = 1;
+            T_KitSetCooldown(w, cd);
+        }
         t_shots[w]++; // Lucky rhythm counts shots fired, not hits
     }
 
@@ -807,7 +823,7 @@ boolean T_ResolveAttack(player_t *player, mobj_t *target)
     // Caldera: overheating from this shot becomes a fire nova around
     // you and vents to zero instead of locking the gun. (Heat was
     // already added at fire time above.)
-    if (kit->heat_per_shot > 0 && t_heat[player->readyweapon] >= 100
+    if (kit->heat_per_shot > 0 && t_heat[player->readyweapon] >= T_KitHeatMax()
         && (mech & MECH_CALDERA))
     {
         t_heat[player->readyweapon] = 0;
