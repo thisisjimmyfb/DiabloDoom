@@ -206,6 +206,14 @@ void D_LifeSteal(struct player_s *player, int damage);
 int D_MoveSpeed(struct player_s *player);             // percent
 int D_MagicFind(struct player_s *player);             // percent
 
+// NG+ loop: beating the game loops back to MAP01 with stronger enemies.
+// d_loop = 0 is the first playthrough, 1 = NG+, 2 = NG++, etc.
+extern int d_loop;
+int D_LoopHpMult(void);    // enemy HP multiplier in percent (100 = normal)
+int D_LoopDmgMult(void);   // enemy damage multiplier in percent
+int D_LoopMagicFind(void); // bonus magic find % from loop
+void D_BeatGame(void);     // called when the final map is cleared
+
 // Phase 4: dexterity/energy/resistance hooks.
 boolean D_DodgeRoll(struct player_s *player);   // true = avoided the hit
 int D_DodgeChance(struct player_s *player);     // percent, for UI

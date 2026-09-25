@@ -434,8 +434,10 @@ static void P_DropDiabloLoot(mobj_t *target, mobj_t *source)
         return;
 
     // Magic find from the killer (if a player) shifts the rarity roll.
+    // NG+ loop adds bonus magic find.
     if (source && source->player)
-        magic_find = source->player->diablo_stats[DSTAT_MAGICFIND];
+        magic_find = source->player->diablo_stats[DSTAT_MAGICFIND] +
+                     D_LoopMagicFind();
 
     // Rarity roll (generous odds), improved by magic find:
     //   unique ~6%, set ~9%, rare ~20%, magic ~40%, normal ~25%
@@ -983,6 +985,10 @@ P_DamageMobj
     player = target->player;
     if (player && gameskill == sk_baby)
 	damage >>= 1; 	// take half damage in trainer mode
+    // NG+ loop: enemies deal more damage each loop.
+    if (player && d_loop > 0 && source && source != target &&
+        !source->player)
+        damage = damage * D_LoopDmgMult() / 100;
 
     // Diablo equipment (mod): when a player hurts a monster, add the
     // equipped weapon's damage bonus.

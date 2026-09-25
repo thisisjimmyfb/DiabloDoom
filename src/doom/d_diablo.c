@@ -1118,6 +1118,33 @@ int D_MagicFind(struct player_s *pl)
     return D_Stat(pl, DSTAT_MAGICFIND);
 }
 
+// NG+ loop state. d_loop = 0 is the first playthrough.
+int d_loop = 0;
+
+// Enemy HP scales +50% per loop, damage +25% per loop.
+int D_LoopHpMult(void)
+{
+    return 100 + d_loop * 50;
+}
+
+int D_LoopDmgMult(void)
+{
+    return 100 + d_loop * 25;
+}
+
+// Higher loops get better loot: +10% magic find per loop.
+int D_LoopMagicFind(void)
+{
+    return d_loop * 10;
+}
+
+// Called when the final map is cleared. Increments the loop counter;
+// the caller warps back to MAP01 with the player's gear intact.
+void D_BeatGame(void)
+{
+    d_loop++;
+}
+
 // Phase 4: dexterity -> dodge and crit; energy -> potion power;
 // elemental resistances mapped from the damage source.
 

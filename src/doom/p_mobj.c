@@ -28,6 +28,7 @@
 
 #include "st_stuff.h"
 #include "hu_stuff.h"
+#include "d_diablo.h"
 
 #include "s_sound.h"
 
@@ -536,7 +537,11 @@ P_SpawnMobj
     mobj->radius = info->radius;
     mobj->height = info->height;
     mobj->flags = info->flags;
-    mobj->health = info->spawnhealth;
+    // NG+ loop: enemies get tougher each loop.
+    if (info->spawnhealth > 0 && (info->flags & MF_COUNTKILL))
+        mobj->health = info->spawnhealth * D_LoopHpMult() / 100;
+    else
+        mobj->health = info->spawnhealth;
 
     if (gameskill != sk_nightmare)
 	mobj->reactiontime = info->reactiontime;

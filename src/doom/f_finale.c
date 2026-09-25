@@ -29,6 +29,7 @@
 #include "v_video.h"
 #include "w_wad.h"
 #include "s_sound.h"
+#include "d_diablo.h"
 
 // Data.
 #include "d_main.h"
@@ -186,7 +187,13 @@ void F_Ticker (void)
       if (i < MAXPLAYERS)
       {	
 	if (gamemap == 30)
-	  F_StartCast ();
+	{
+	  // Game beaten: NG+ loop. Increment the loop counter, warp
+	  // back to MAP01 with stronger enemies. Gear is kept.
+	  D_BeatGame();
+	  d_loop_warp = true;
+	  gameaction = ga_worlddone;
+	}
 	else
 	  gameaction = ga_worlddone;
       }

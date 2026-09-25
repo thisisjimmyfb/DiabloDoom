@@ -154,6 +154,10 @@ int             testcontrols_mousespeed;
 
  
 wbstartstruct_t wminfo;               	// parms for world map / intermission 
+
+// NG+ loop: when true, G_DoWorldDone warps to MAP01 instead of the
+// next map. Set when the final map's finale completes.
+boolean d_loop_warp = false;
  
 byte		consistancy[MAXPLAYERS][BACKUPTICS]; 
  
@@ -1660,7 +1664,23 @@ void G_WorldDone (void)
 void G_DoWorldDone (void) 
 {        
     gamestate = GS_LEVEL; 
-    gamemap = wminfo.next+1; 
+    // NG+ loop: after beating the game, warp back to MAP01 with
+    // stronger enemies instead of advancing to the next map.
+    if (d_loop_warp)
+    {
+        d_loop_warp = false;
+        gamemap = 1;
+        gameepisode = 1;
+        // Announce the new loop to the player.
+        {
+            static char loopmsg[64];
+            M_snprintf(loopmsg, sizeof(loopmsg),
+                       "LOOP %d - enemies grow stronger!", d_loop + 1);
+            players[consoleplayer].message = loopmsg;
+        }
+    }
+    else
+        gamemap = wminfo.next+1; 
     G_DoLoadLevel (); 
     gameaction = ga_nothing; 
     viewactive = true; 
