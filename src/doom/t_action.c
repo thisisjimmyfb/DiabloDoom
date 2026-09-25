@@ -228,6 +228,273 @@ static boolean T_Enqueue(turnaction_t action, int cost, angle_t moveangle,
 // view turns later. Execution keeps the existing collision-aware
 // partial-progress behavior.
 // ------------------------------------------------------------------
+//
+// Queue model: the world-space step direction is snapshotted NOW (from
+// the facing at queue time), so the queue reads concretely even if the
+// view turns later. Execution keeps the existing collision-aware
+// partial-progress behavior.
+// ------------------------------------------------------------------
+
+// Auto-loot pathfinding: BFS over the 32-unit grid to find the nearest
+// Diablo loot and queue moves to reach it. Uses P_CheckPosition for
+// non-destructive walkability tests.
+// ------------------------------------------------------------------
+
+#define LOOT_GRID (32 * FRACUNIT)
+#define BFS_MAX 4096  // max grid cells to explore
+
+typedef struct {
+    int gx, gy;      // grid coords
+    int parent;      // index into bfs_nodes, -1 for start
+    int dir_from_parent; // 0=N,1=E,2=S,3=W (direction moved to get here)
+} bfs_node_t;
+
+static bfs_node_t bfs_nodes[BFS_MAX];
+static int bfs_visited[256][256]; // visited grid, offset by 128
+static int bfs_q[BFS_MAX];
+
+// Convert world coords to grid coords (centered at 0,0)
+static void T_WorldToGrid(fixed_t x, fixed_t y, int *gx, int *gy)
+{
+    *gx = (int)(x / LOOT_GRID);
+    *gy = (int)(y / LOOT_GRID);
+}
+
+// Check if a grid cell is walkable (using P_CheckPosition)
+static boolean T_GridWalkable(mobj_t *mo, int gx, int gy)
+{
+    fixed_t x = (fixed_t)gx * LOOT_GRID + LOOT_GRID / 2;
+    fixed_t y = (fixed_t)gy * LOOT_GRID + LOOT_GRID / 2;
+    return P_CheckPosition(mo, x, y);
+}
+
+// Find the nearest Diablo loot mobj to the player. Returns NULL if none.
+static mobj_t *T_FindNearestLoot(mobj_t *player_mo)
+{
+    mobj_t *mo;
+    mobj_t *best = NULL;
+    fixed_t best_dist = 0x7fffffff; // MAXINT
+    thinker_t *th;
+
+    for (th = thinkercap.next; th != &thinkercap; th = th->next)
+    {
+        if (th->function.acp1 != (actionf_p1)P_MobjThinker)
+            continue;
+        mo = (mobj_t *)th;
+        if (mo->type < MT_LOOT_NORMAL || mo->type > MT_LOOT_UNIQUE)
+            continue;
+        // Skip if already picked up (removed)
+        if (mo->health <= 0)
+            continue;
+        {
+            fixed_t dx = mo->x - player_mo->x;
+            fixed_t dy = mo->y - player_mo->y;
+            // Approximate distance squared (avoid sqrt)
+            fixed_t dist = (dx >> 16) * (dx >> 16) + (dy >> 16) * (dy >> 16);
+            if (dist < best_dist)
+            {
+                best_dist = dist;
+                best = mo;
+            }
+        }
+    }
+    return best;
+}
+
+// BFS from player to target. Returns number of steps in path, or -1 if
+// no path. Fills path_dirs with directions (0=N,1=E,2=S,3=W).
+static int T_FindPath(mobj_t *player_mo, mobj_t *target, int *path_dirs, int max_steps)
+{
+    int pgx, pgy, tgx, tgy;
+    int qhead = 0, qtail = 0;
+    int i, found = -1;
+    // Direction offsets: N=(0,1), E=(1,0), S=(0,-1), W=(-1,0) in grid coords
+    // Note: Doom Y increases north
+    static const int dx[4] = { 0, 1, 0, -1 };
+    static const int dy[4] = { 1, 0, -1, 0 };
+
+    T_WorldToGrid(player_mo->x, player_mo->y, &pgx, &pgy);
+    T_WorldToGrid(target->x, target->y, &tgx, &tgy);
+
+    // Clear visited (offset by 128 to handle negative coords)
+    memset(bfs_visited, 0, sizeof(bfs_visited));
+
+    // Start node
+    bfs_nodes[0].gx = pgx;
+    bfs_nodes[0].gy = pgy;
+    bfs_nodes[0].parent = -1;
+    bfs_nodes[0].dir_from_parent = -1;
+    bfs_q[qtail++] = 0;
+    bfs_visited[pgx + 128][pgy + 128] = 1;
+
+    while (qhead < qtail && qtail < BFS_MAX)
+    {
+        int cur_idx = bfs_q[qhead++];
+        bfs_node_t *cur = &bfs_nodes[cur_idx];
+
+        // Check if we're adjacent to target (within 1 grid cell)
+        // Pickup radius: allow stopping adjacent, not exactly on top
+        if (abs(cur->gx - tgx) <= 1 && abs(cur->gy - tgy) <= 1)
+        {
+            found = cur_idx;
+            break;
+        }
+
+        // Explore neighbors
+        for (i = 0; i < 4; i++)
+        {
+            int ngx = cur->gx + dx[i];
+            int ngy = cur->gy + dy[i];
+            int vix = ngx + 128, viy = ngy + 128;
+
+            if (vix < 0 || vix >= 256 || viy < 0 || viy >= 256)
+                continue;
+            if (bfs_visited[vix][viy])
+                continue;
+            if (!T_GridWalkable(player_mo, ngx, ngy))
+                continue;
+
+            bfs_visited[vix][viy] = 1;
+            bfs_nodes[qtail].gx = ngx;
+            bfs_nodes[qtail].gy = ngy;
+            bfs_nodes[qtail].parent = cur_idx;
+            bfs_nodes[qtail].dir_from_parent = i;
+            bfs_q[qtail] = qtail;
+            qtail++;
+        }
+    }
+
+    if (found < 0)
+        return -1;
+
+    // Reconstruct path (reverse from found to start)
+    {
+        int path_len = 0;
+        int cur = found;
+        int rev_dirs[BFS_MAX];
+
+        while (bfs_nodes[cur].parent >= 0 && path_len < BFS_MAX)
+        {
+            rev_dirs[path_len++] = bfs_nodes[cur].dir_from_parent;
+            cur = bfs_nodes[cur].parent;
+        }
+
+        // Reverse into path_dirs (and cap at max_steps)
+        {
+            int n = path_len < max_steps ? path_len : max_steps;
+            for (i = 0; i < n; i++)
+                path_dirs[i] = rev_dirs[path_len - 1 - i];
+            return n;
+        }
+    }
+}
+
+// Auto-collect: find nearest loot, path to it, queue the moves.
+// The pickup happens automatically via P_TouchSpecialThing when the
+// player moves onto/adjacent to the loot.
+void T_DoCollect(void)
+{
+    player_t *player = &players[consoleplayer];
+    mobj_t *mo = player->mo;
+    mobj_t *loot;
+    int path_dirs[64];
+    int steps, i;
+    // Facing-relative direction mapping: T_DoMove(dir) uses
+    // dir 0=N,1=E,2=S,3=W relative to facing. Our BFS gives world-space
+    // dirs. For simplicity, we convert to facing-relative.
+    // Actually, T_DoMove snapshots the world-space angle from facing+dir.
+    // We need to compute which dir gives us the world-space direction we want.
+
+    if (!T_Active() || mo == NULL)
+        return;
+    if (!T_ActorAlive())
+        return;
+    if (T_InPulse() || turnctrl.executing)
+        return;
+
+    loot = T_FindNearestLoot(mo);
+    if (loot == NULL)
+    {
+        player->message = "NO LOOT IN SIGHT.";
+        return;
+    }
+
+    steps = T_FindPath(mo, loot, path_dirs, 64);
+    if (steps < 0)
+    {
+        player->message = "CAN'T REACH LOOT.";
+        return;
+    }
+    if (steps == 0)
+    {
+        // Already there (or adjacent) - pickup will happen via touch
+        player->message = "LOOT COLLECTED.";
+        return;
+    }
+
+    // Queue moves along the path. Convert world-space BFS dirs to
+    // facing-relative T_DoMove dirs.
+    // BFS: 0=N(+y),1=E(+x),2=S(-y),3=W(-x) in world coords.
+    // T_DoMove: 0=forward,1=right,2=back,3=left relative to facing.
+    // We compute the world angle for each BFS dir and find the closest
+    // facing-relative dir.
+    for (i = 0; i < steps; i++)
+    {
+        int world_dir = path_dirs[i];
+        angle_t target_angle;
+        angle_t facing = mo->angle;
+        int best_dir = 0;
+        angle_t best_diff = 0xffffffffu;
+        int d;
+        static const angle_t world_angles[4] = {
+            ANG90,      // N = +y = 90 degrees
+            0,          // E = +x = 0 degrees
+            ANG270,     // S = -y = 270 degrees
+            ANG180      // W = -x = 180 degrees
+        };
+        static const angle_t dir_offsets[4] = {
+            0, (angle_t)-ANG90, ANG180, ANG90
+        };
+
+        target_angle = world_angles[world_dir];
+
+        // Find facing-relative dir whose world angle is closest to target
+        for (d = 0; d < 4; d++)
+        {
+            angle_t world = facing + dir_offsets[d];
+            angle_t diff = (world > target_angle) ?
+                (world - target_angle) : (target_angle - world);
+            if (diff > ANG180)
+                diff = 0xffffffffu - diff;
+            if (diff < best_diff)
+            {
+                best_diff = diff;
+                best_dir = d;
+            }
+        }
+
+        // Check TP before queueing each step
+        if (!T_CanAfford(TA_MOVE_N))
+        {
+            player->message = "NOT ENOUGH TP.";
+            break;
+        }
+        T_DoMove(best_dir);
+    }
+
+    {
+        const diablo_itemdef_t *def;
+        int item_id = loot->diablo_loot_id;
+        static char msg[64];
+        def = D_GetItemDef(D_ITEMTIER(item_id), D_ITEMIDX(item_id));
+        if (def)
+            snprintf(msg, sizeof(msg), "COLLECTING: %s", def->name);
+        else
+            snprintf(msg, sizeof(msg), "COLLECTING LOOT...");
+        player->message = msg;
+    }
+}
+
 void T_DoMove(int dir)
 {
     player_t *player = &players[consoleplayer];

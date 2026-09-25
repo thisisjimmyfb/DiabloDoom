@@ -42,6 +42,7 @@ static turnaction_t T_KeyAction(int key)
       case KEY_LEFTARROW:                      return TA_TURN_L;
       case KEY_RIGHTARROW:                     return TA_TURN_R;
       case ' ':                                return TA_USE;
+      case 'g': case 'G':                      return TA_COLLECT;
       case 't': case 'T':                      return TA_END_TURN;
       case KEY_BACKSPACE:                      return TA_UNDO;
       case 'z': case 'Z': case '.':             return TA_CLEAR_QUEUE;
@@ -72,6 +73,7 @@ static void T_ExecuteAction(turnaction_t action)
       case TA_TURN_L: T_DoTurn(-1); break;
       case TA_TURN_R: T_DoTurn(1); break;
       case TA_USE:    T_DoUse();   break;
+      case TA_COLLECT: T_DoCollect(); break;
       case TA_END_TURN: T_DoEndTurn(); break;
       case TA_UNDO: T_DoUndoQueue(); break;
       case TA_CLEAR_QUEUE: T_DoClearQueue(); break;
