@@ -32,7 +32,8 @@ title with `~/workspace/doom/wshot.py` — with `window_width 1280` /
 
 - `src/doom/d_diablo.c/.h` — item database, drop tables, player item state.
 - `src/doom/d_diablo_ui.c/.h` — character screen (paperdoll, backpack,
-  tooltips, drag-and-drop).
+  tooltips, drag-and-drop, POWERS panel below the backpack listing active
+  MECH_* special mechanics from equipped gear; stat boosts stay in STATS).
 - `src/doom/d_diablo_icons.c/.h` — item icon art.
 - `src/doom/st_stuff.c` — status bar. The classic 2–7 arms boxes were
   replaced with the equipped Diablo weapon panel (icon + damage range,

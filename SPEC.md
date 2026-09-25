@@ -274,6 +274,12 @@ one small hook; no new subsystems except where noted.
 **Loot rule:** common affixes bend numbers; rare/unique traits bend
 mechanics.
 
+**Visibility:** active mechanics from equipped gear are listed in the
+POWERS panel below the backpack on the character screen (C). Stat boosts
+stay in STATS; POWERS shows only special mechanics (and future granted
+skills). `D_ActiveMechs()` ORs the `MECH_*` bits across all equipped
+slots; `D_MechDesc()` provides the one-line display text.
+
 ---
 ## Selection combat
 
