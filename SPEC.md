@@ -199,10 +199,10 @@ equipped), not loot.
 | Pistol | AD | — (spammable) | Reliable fallback sidearm. |
 | Shotgun | AD | — (close burst) | Positioning reward, pellet spread. |
 | Chaingun | AD | — (sustained) | TP-hungry DPS hose. |
-| Chainsaw | AD | — (melee) | High risk, constant uptime. |
+| Chainsaw | AD | — (melee) + **30% inherent leech** | High risk, constant uptime; leech sustains close-range fighting. |
 | Plasma Rifle | AP | **Heat** (inverse ammo) | Free to spam while heat < 100: +25 heat per shot, −40 per round. |
 | Rocket Launcher | AP | **Charges** (2, +1/round) + 10 ammo | Punctuated splash; firing consumes 1 charge. |
-| Super Shotgun | AP | **Cooldown** (2-round breach reload) + 8 ammo | Heavy double-barrel blast, forced reload rhythm. |
+| Super Shotgun | AP | **Cooldown** (2-round breach reload) + 8 ammo + **knockback** | Breach tool: shoves target 1 tile, forced reload rhythm. |
 | BFG9000 | AP | **Cooldown** (3 rounds) + 20 ammo | Ultimate: highest damage, gated hardest. |
 
 **Base kits are deliberately weak.** Kit damage is ~1/3 of the original
@@ -298,6 +298,47 @@ mechanics.
 POWERS panel below the backpack on the character screen (C). Stat boosts
 stay in STATS; POWERS shows only special mechanics (and future granted
 skills). `D_ActiveMechs()` ORs the `MECH_*` bits across all equipped
+
+### Combat affix families (magic tier)
+
+Diablo-style prefixes (flat/constant boosts) and suffixes (percentage
+boosts) for the core combat stats. These spawn on magic weapons and can
+also appear on rings, amulets, gloves, and focus items.
+
+**Suffixes — percentage boosts:**
+
+| Suffix | Effect | Guns |
+|--------|--------|------|
+| of Slaying | +15% AD | Pistol, Shotgun, Chaingun, Chainsaw |
+| of the Magus | +15% AP | Plasma Rifle, Rocket Launcher, SSG, BFG9000 |
+| of Haste | +20% haste (cooldown reduction) | SSG, BFG9000 |
+| of the Furnace | +30 heat capacity | Plasma Rifle |
+
+**Prefixes — flat/constant boosts:**
+
+| Prefix | Effect | Guns |
+|--------|--------|------|
+| Soldier's | +4–5 flat AD | Pistol, Shotgun, Chaingun, Chainsaw |
+| Wizard's | +8–12 flat AP | Plasma Rifle, Rocket Launcher, SSG, BFG9000 |
+| Quick | −1 cooldown round | SSG, BFG9000 |
+| Vampiric | +5% lifesteal (10% on Chainsaw) | All 8 guns |
+
+Flat AD/AP are added *before* the percentage multiplier, so they scale
+with % boosts. Flat cooldown applies after haste % (min 1 round).
+
+**Non-weapon affixes:** combat stats also spawn on jewelry and gloves:
+Ring/Amulet of Slaying (+10% AD), of the Magus (+10% AP), of Haste (+10%
+haste), Vampiric Ring (+5% leech); Gloves of Slaying (+3 flat AD), Gloves
+of Haste; Cooling Rounds focus (+20 heat max).
+
+**Affix difficulty tiers.** Higher difficulties drop stronger affix
+variants (`diff_tier` field, filtered by `D_DifficultyTier()`):
+
+| Tier | Difficulty | Example upgrades |
+|------|-----------|------------------|
+| 0 | Normal | Base affixes (above) |
+| 1 | Nightmare / NG+1 | of Slaughter (+25% AD), of the Archmagus (+25% AP), of Speed (+30% haste), Veteran's (+8 flat AD), Sorcerer's (+14 flat AP), Bloodthirsty (+8% leech), of the Inferno (+50 heat) |
+| 2 | Hell / NG+2 | of Carnage (+40% AD), of the Godslayer (+40% AP), of Lightning (+45% haste), Champion's (+12 flat AD), Archmage's (+20 flat AP), Soulrender (+12% leech), of the Sun (+80 heat) |
 slots; `D_MechDesc()` provides the one-line display text.
 
 ---
@@ -379,6 +420,22 @@ magnitude, crosshair overlap, or a manually chosen world coordinate.
 ---
 
 ## Persistent progression
+
+### NG+ loop (New Game+)
+
+Beating the final map (MAP30) loops back to MAP01 with stronger enemies —
+the Diablo endgame. The player's gear, stats, and XP are kept; only the
+world resets.
+
+- `d_loop` counter: 0 = first playthrough, 1 = NG+, 2 = NG++, etc.
+- Enemy HP: +50% per loop (`D_LoopHpMult`). Enemy damage: +25% per loop
+  (`D_LoopDmgMult`).
+- Loot: +10% magic find per loop (`D_LoopMagicFind`).
+- Affix tiers: loop 1 unlocks Nightmare affixes, loop 2+ unlocks Hell
+  affixes (see Combat affix families).
+- Trigger: completing MAP30 sets `d_loop_warp`, warps to MAP01 via
+  `G_DoWorldDone`, increments `d_loop` via `D_BeatGame()`.
+- Message: "LOOP N - enemies grow stronger!" announces the new loop.
 
 ### Standalone character profile
 

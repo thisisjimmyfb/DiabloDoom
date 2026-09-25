@@ -80,6 +80,26 @@ title with `~/workspace/doom/wshot.py` — with `window_width 1280` /
 6. **IP contingency is a backup plan only.** Do not rename items or the
    repo unless Jimmy asks or a cease-and-desist arrives.
 
+## Combat affixes (magic tier)
+
+Prefixes (flat) and suffixes (%) for AD/AP/haste/heat/leech. See SPEC.md
+"Combat affix families" for the full table.
+
+- Suffixes: of Slaying (+15% AD), of the Magus (+15% AP), of Haste (+20%),
+  of the Furnace (+30 heat)
+- Prefixes: Soldier's (+flat AD), Wizard's (+flat AP), Quick (−1 round),
+  Vampiric (+lifesteal, all 8 guns)
+- Also on rings/amulets/gloves/focus (e.g. Ring of Slaying, Cooling Rounds)
+- Difficulty tiers: Nightmare and Hell drop stronger variants
+  (`diff_tier` field; `D_DifficultyTier()` from gameskill + `d_loop`)
+- Chainsaw: 30% inherent leech. SSG: natural 1-tile knockback.
+
+## NG+ loop
+
+Beating MAP30 warps to MAP01 keeping gear/XP. `d_loop` increments;
+enemies get +50% HP / +25% damage per loop; +10% magic find per loop.
+See SPEC.md "NG+ loop".
+
 ## Turn-based work
 
 The full design — pillars, Tempo economy, weapon kits, selection combat,
