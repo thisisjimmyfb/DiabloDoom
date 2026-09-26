@@ -40,8 +40,9 @@ title with `~/workspace/doom/wshot.py` — with `window_width 1280` /
   `FISTS` when empty). See `ST_drawDiabloWeapon`. In turn mode the right-side
   ammo counts are replaced by a LoL-style AD/AP stat block (gold sword icon
   + damage range, teal sparkle + ability power, cooldown below) — see
-  `ST_drawTurnKits`. The left-side AMMO readout becomes the unified mana
-  pool display (blue droplet + `MANA cur/max`) — see `ST_drawTurnMana`.
+  `ST_drawTurnKits`. The left-side AMMO readout shows the ready weapon's
+  current magazine (remaining heat capacity for plasma) — see
+  `ST_drawTurnMana`.
 - `src/doom/p_inter.c` — pickup/drop, including Diablo loot drops.
 - `DIABLO.md` — user-facing doc for the loot/equipment system (Phases 1–2
   era; update it when behavior changes).
@@ -65,14 +66,19 @@ title with `~/workspace/doom/wshot.py` — with `window_width 1280` /
    numbered selection only.
 3. **Phase 0 needs Jimmy's explicit approval.** Do not start implementing
    turn-based mode until he says go.
-4. **Mana is ammo, renamed.** The engine ammo system is the unified mana
-   pool (`player->ammo[am_clip]`): 100 max, starts at 50, backpack doubles
-   the max to 200. Every ammo pickup funnels into mana, keeping its own
-   `clipammo` amount (shard +10, crystal +50, ember +1, cache +5,
-   vial +20, flask +100, orbs +4, orb box +20); at full mana pickups are
-   left on the ground. The PULSE kit (`wp_plasma`) costs 5 mana per attack
-   on top of TP — validated when the attack is queued, deducted when it
-   executes. Mana Potions restore 50 mana (capped). "Ammo" also survives
+4. **Ammo is per-weapon magazines, auto-replenished by AD/AP type.**
+   Every weapon with a magazine requires ammo to fire (`T_KitCanFire`,
+   deny `NO AMMO`); costs validated when the attack is queued
+   (`NEED n AMMO (HAVE m).`), deducted when it executes (`T_KitSpendAmmo`).
+   Capacities/costs: pistol 10/1, shotgun 20/2, chaingun 10/1, chainsaw 6/1,
+   rocket 20/10, SSG 8/8, BFG 20/20. Plasma has no magazine — heat is its
+   ammo. AD weapons regen attack-speed attacks' worth of ammo per round
+   (`T_KitRegenAmmo`, called from `T_EndPulse`); AP weapons reload on
+   cooldown completion (SSG/BFG, `T_RefillOnCooldownReady`) or charge regen
+   (rocket). Ammo pickups half-fill every magazine and vent half the plasma
+   heat; at full magazines pickups stay on the ground. Mana Potions fully
+   refill magazines and vent all plasma heat. The HUD AMMO readout shows the
+   ready weapon's magazine (heat capacity for plasma). \"Ammo\" also survives
    as the passive, non-consumable FOCUS paperdoll slot: equippable focus
    items (Piercing Rounds, Incendiary Shells, …) that passively grant stat
    bonuses to the equipped weapon.

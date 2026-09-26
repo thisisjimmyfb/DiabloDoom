@@ -73,13 +73,18 @@ The UI uses click-to-pick-up / click-to-place (not hold-and-drag):
 - Original 2D art/icons for every loot item.
 - Convert and pack artwork into Doom-compatible assets.
 
-## Mana
+## Ammo
 
-Turn-based mode has a unified mana pool (the engine ammo system, renamed):
-100 max, starts at 50, backpack doubles the max to 200. Every ammo pickup
-funnels into mana — a **Mana Potion** quaffs for +50 mana (capped). The
-PULSE weapon kit spends 5 mana per attack. The status bar's left AMMO area
-shows the pool as blue `MANA cur/max`.
+Every weapon carries its own magazine and needs ammo to fire: pistol 10
+(1/shot), shotgun 20 (2/shot), chaingun 10 (1/shot), chainsaw 6 (1/shot),
+rocket 20 (10/shot), Super Shotgun 8 (8/shot), BFG 20 (20/shot). Plasma
+has no magazine — its heat *is* the ammo. Magazines refill automatically
+by weapon type: AD weapons feed off your **attack speed** each round, AP
+weapons reload when their **cooldown** finishes (rocket reloads as
+charges regenerate). Ammo pickups half-fill every magazine (and vent
+half the plasma heat); a **Mana Potion** fully refills every magazine
+and vents all plasma heat. The status bar's left AMMO area shows your
+ready weapon's current magazine (remaining heat capacity for plasma).
 
 ## Explore / combat
 

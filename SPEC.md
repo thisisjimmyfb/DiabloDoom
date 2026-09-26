@@ -229,14 +229,14 @@ equipped), not loot.
 
 | Gun | Type | LoL mechanic | Identity |
 |-----|------|--------------|----------|
-| Pistol | AD | — (spammable) | Reliable fallback sidearm. |
-| Shotgun | AD | — (close burst) | Positioning reward, pellet spread. |
-| Chaingun | AD | — (sustained) | TP-hungry DPS hose. |
-| Chainsaw | AD | — (melee) + **30% inherent leech** | High risk, constant uptime; leech sustains close-range fighting. |
+| Pistol | AD | **Magazine 10** (1/shot) | Reliable fallback sidearm. |
+| Shotgun | AD | **Magazine 20** (2/shot) | Positioning reward, pellet spread. |
+| Chaingun | AD | **Magazine 10** (1/shot) | TP-hungry DPS hose. |
+| Chainsaw | AD | **Magazine 6** (1/shot) + **30% inherent leech** | High risk, constant uptime; leech sustains close-range fighting. |
 | Plasma Rifle | AP | **Heat** (inverse ammo) | Free to spam while heat < 100: +25 heat per shot, −40 per round. |
-| Rocket Launcher | AP | **Charges** (2, +1/round) + 10 ammo | Punctuated splash; firing consumes 1 charge. |
-| Super Shotgun | AP | **Cooldown** (2-round breach reload) + 8 ammo + **knockback** | Breach tool: shoves target 1 tile, forced reload rhythm. |
-| BFG9000 | AP | **Cooldown** (3 rounds) + 20 ammo | Ultimate: highest damage, gated hardest. |
+| Rocket Launcher | AP | **Charges** (2, +1/round) + **Magazine 20** (10/shot) | Punctuated splash; firing consumes 1 charge. |
+| Super Shotgun | AP | **Cooldown** (2-round breach reload) + **Magazine 8** (8/shot) + **knockback** | Breach tool: shoves target 1 tile, forced reload rhythm. |
+| BFG9000 | AP | **Cooldown** (3 rounds) + **Magazine 20** (20/shot) | Ultimate: highest damage, gated hardest. |
 
 **Base kits are deliberately weak.** Kit damage is ~1/3 of the original
 values (e.g. BFG 10–18 instead of 30–50, Pistol 2–4 instead of 6–13), so
@@ -246,7 +246,7 @@ gear is the progression; a naked gun does chip damage.
 Damage model:
 
 - **AD gun:** `dmg = kit_base + gun_dmg_range + STR/2..STR`, then × (1 + AD%).
-  Always available; gated only by TP.
+  Gated by TP and its magazine (auto-replenished; see below).
 - **AP gun:** `dmg = kit_base + AP/4..AP/2`, then × (1 + AP%).
   STR does not scale AP guns; ENE does.
 - Kit damage **stacks with** the gun's Diablo stats instead of overwriting
@@ -264,13 +264,32 @@ Cadence plumbing:
 - Inventory tooltips show AD or AP typing and the mechanic
   (e.g. "AP weapon — Heat: +25/shot").
 
-**Ammo is a spam-gate, not a hard resource.** The engine ammo system is
-the unified pool (`player->ammo[am_clip]`): 100 max, +25 regen every
-round (`T_EndPulse`), so AP guns never run dry. Ammo costs gate burst,
-not sustained use: BFG 20, Rocket 10, SSG 8 per attack; Plasma is free
-(heat is its only gate); AD guns are free. Costs are validated when the
-attack is queued (`NEED n AMMO (HAVE m).` on failure), deducted when it
-executes. `T_HasAmmoForKit` is the affordability check.
+**Ammo: per-weapon magazines, auto-replenished by AD/AP type.** Every
+weapon with a magazine requires ammo to fire (`T_KitCanFire` checks it;
+`NO AMMO` deny). Costs are validated when the attack is queued
+(`NEED n AMMO (HAVE m).` on failure) and deducted when it executes
+(`T_KitSpendAmmo`); `T_HasAmmoForKit` is the affordability check.
+
+- **AD weapons** replenish from **attack speed**: each round the
+  magazine regenerates attack-speed attacks' worth of ammo
+  (`T_KitRegenAmmo`) — attacks-per-round at the weapon's effective
+  (DEX-reduced) TP cost, times ammo cost. Your attack speed feeds the
+  magazine, so sustained fire at your attack-speed pace never runs dry;
+  the magazine is a burst buffer for bonus attacks (e.g. Reaper TP
+  refunds).
+- **AP weapons** replenish from **cooldown**: SSG/BFG refill to full
+  the moment their cooldown completes (`T_RefillOnCooldownReady`,
+  hooked in `T_KitTickCooldowns`); the rocket loads one attack's worth
+  of ammo per regenerated charge. Plasma has no magazine — heat is its
+  ammo (inverse), venting 40/round.
+- Ammo pickups half-fill every magazine and vent half the plasma heat;
+  at full magazines pickups stay on the ground. **Mana Potions** fully
+  refill every magazine and vent all plasma heat.
+- The status bar's left AMMO readout shows the ready weapon's current
+  magazine (remaining heat capacity for plasma); the FOCUS paperdoll
+  slot (equippable ammo items granting passive weapon stats) is
+  unchanged.
+- Magazines persist in saves (TUR3 format; older saves load full).
 
 **FOCUS slot.** "Ammo" survives as a paperdoll inventory slot renamed
 FOCUS: equippable focus items (Piercing Rounds, Incendiary Shells, Swift
