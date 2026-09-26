@@ -23,6 +23,7 @@
 #include "m_random.h"
 
 #include "doomdef.h"
+#include "t_turn.h"
 #include "p_local.h"
 #include "sounds.h"
 
@@ -453,6 +454,12 @@ P_NightmareRespawn (mobj_t* mobj)
 //
 void P_MobjThinker (mobj_t* mobj)
 {
+    // Explore mode: enemies are frozen solid. The player, barrels, and
+    // other inert objects tick normally.
+    if (T_InExplore() && mobj->player == NULL
+     && (mobj->flags & MF_COUNTKILL))
+        return;
+
     // momentum movement
     if (mobj->momx
 	|| mobj->momy

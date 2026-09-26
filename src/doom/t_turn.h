@@ -32,6 +32,7 @@ typedef struct mobj_s mobj_t;
 typedef enum
 {
     TS_OFF,        // turn mode not active (real-time path)
+    TS_EXPLORE,    // free real-time movement; turn system idle, enemies frozen
     TS_PLANNING,   // world frozen; player queues discrete actions
     TS_TARGETING,  // a target is selected; preview shown
     TS_CONFIRM,    // attack previewed, awaiting enqueue
@@ -149,6 +150,12 @@ void T_OnLoad(void);
 void T_ScriptLoadFixup(void);
 // Per-tic hook called from G_Ticker instead of P_Ticker.
 void T_Ticker(void);
+
+// Explore/combat mode split: free real-time movement while exploring,
+// turn-based combat when a real enemy is visible.
+boolean T_InExplore(void);   // true while in TS_EXPLORE
+void T_EnterExplore(void);   // leave combat -> free movement
+void T_EnterCombat(void);    // spot enemy -> turn-based combat
 
 // Input adapter (t_input.c): translate a key event into a turn action
 // while planning/targeting. Returns true if the event was consumed.

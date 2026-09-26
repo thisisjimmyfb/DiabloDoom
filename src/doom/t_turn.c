@@ -18,6 +18,7 @@
 #include "d_think.h"
 #include "d_main.h"
 #include "m_argv.h"
+#include "p_tick.h"
 #include "i_swap.h"
 #include "g_game.h"
 #include "p_local.h"
@@ -35,6 +36,8 @@ static void T_DrawKillBanner(void);
 // T_IsCombatant is defined with the target-list API below; the HUD marker
 // loop and telegraph use it earlier.
 boolean T_IsCombatant(mobj_t *mo);
+// T_TelegraphEnemies is defined below; T_EnterCombat calls it.
+void T_TelegraphEnemies(void);
 
 turnctrl_t turnctrl;
 
@@ -84,7 +87,7 @@ void T_Init(void)
     }
     else
     {
-        turnctrl.state = TS_PLANNING;
+        turnctrl.state = TS_EXPLORE;
         t_script_path = NULL;
         {
             int p = M_CheckParmWithArgs("-tbscript", 1);
@@ -95,9 +98,8 @@ void T_Init(void)
             t_arena_done = false; // spawn on first level tick
         else
             t_arena_done = true;
-        printf("Turn-based mode: queue actions in planning (WASD move/strafe, "
-               "arrows turn view free, SPACE use, T end turn), "
-               "END TURN executes the queue FIFO.\n");
+        printf("DiabloDoom: explore freely (WASD); turn-based combat "
+               "starts when an enemy appears.\n");
         // Phase 8: load the standalone profile.
         T_ProfileLoad();
         // Gun cadence (cooldowns/heat/charges) starts fresh every game.
@@ -117,7 +119,7 @@ void T_NewGame(void)
     turnctrl.round = 1;
     turnctrl.selected_target = -1;
     turnctrl.rng_seed = 0xC0FFEEu;
-    turnctrl.state = TS_PLANNING;
+    turnctrl.state = TS_EXPLORE;
     t_arena_done = (M_CheckParm("-tbarena") <= 0);
     t_script_done = false;
     // Fresh gun cadence for the new run (loaded games restore theirs).
@@ -126,17 +128,51 @@ void T_NewGame(void)
 
 void T_OnLoad(void)
 {
-    // A save captures the map, not the controller. Land in PLANNING so
-    // the player can continue the round; round/TP persist in memory.
+    // A save captures the map, not the controller. Land in EXPLORE so
+    // the player can move freely; combat triggers on sight.
     if (!T_Active())
         return;
-    // Land in a plannable state; the queue is transient planning state
-    // (never saved) and starts empty.
-    turnctrl.state = TS_PLANNING;
+    turnctrl.state = TS_EXPLORE;
     turnctrl.pulse_left = 0;
     turnctrl.queue_len = 0;
     turnctrl.queue_tp = 0;
     turnctrl.executing = false;
+}
+
+// ------------------------------------------------------------------
+// Explore/combat mode split.
+// ------------------------------------------------------------------
+
+boolean T_InExplore(void)
+{
+    return T_Active() && turnctrl.state == TS_EXPLORE;
+}
+
+void T_EnterExplore(void)
+{
+    turnctrl.state = TS_EXPLORE;
+    turnctrl.queue_len = 0;
+    turnctrl.queue_tp = 0;
+    turnctrl.selected_target = -1;
+    turnctrl.executing = false;
+    turnctrl.pulse_left = 0;
+    players[consoleplayer].message = "Explore: WASD to move.";
+    T_DumpState("enter-explore");
+}
+
+void T_EnterCombat(void)
+{
+    turnctrl.state = TS_PLANNING;
+    turnctrl.round = 1;
+    turnctrl.tp = turnctrl.tp_max;
+    turnctrl.queue_len = 0;
+    turnctrl.queue_tp = 0;
+    turnctrl.selected_target = -1;
+    turnctrl.executing = false;
+    players[consoleplayer].message = "COMBAT! Round 1 - your move.";
+    // Fair warning: telegraph newly-seen enemies before they act.
+    T_TelegraphEnemies();
+    T_DumpState("enter-combat");
 }
 
 // Test harness: the script LOAD token runs G_DoLoadGame, which goes
@@ -370,6 +406,13 @@ static void T_EndPulse(void)
                 p->ammo[am_clip] = p->maxammo[am_clip];
         }
         turnctrl.state = TS_PLANNING;
+        // Combat exit: no visible combatants left -> back to explore.
+        T_RefreshTargets();
+        if (T_NumCombatants() == 0)
+        {
+            T_EnterExplore();
+        }
+        else
         {
             static char msg[96];
             if (T_LootAvailable())
@@ -404,12 +447,8 @@ void T_Ticker(void)
     // Kill banner counts down in real time, independent of turn state.
     T_TickKillBanner();
 
-    // Belt and braces: no real-time input may leak into pulses.
-    for (i = 0; i < MAXPLAYERS; i++)
-        if (playeringame[i])
-            memset(&players[i].cmd, 0, sizeof(ticcmd_t));
-
     // Deferred test-harness startup: arena + script on first level tick.
+    // Runs in both explore and combat modes.
     if (!t_arena_done)
     {
         t_arena_done = true;
@@ -420,6 +459,23 @@ void T_Ticker(void)
         t_script_done = true;
         T_RunScript(t_script_path);
     }
+
+    // EXPLORE mode: free real-time movement. The normal Doom ticker
+    // runs the world; P_MobjThinker freezes enemies while exploring.
+    // A visible combatant triggers turn-based combat.
+    if (turnctrl.state == TS_EXPLORE)
+    {
+        P_Ticker();
+        T_RefreshTargets();
+        if (T_NumCombatants() > 0)
+            T_EnterCombat();
+        return;
+    }
+
+    // Belt and braces: no real-time input may leak into pulses.
+    for (i = 0; i < MAXPLAYERS; i++)
+        if (playeringame[i])
+            memset(&players[i].cmd, 0, sizeof(ticcmd_t));
 
     if (paused)
         return;
@@ -913,6 +969,14 @@ void T_DrawHUD(void)
     if (!T_Active())
         return;
     T_TintFonts();
+
+    // EXPLORE mode: minimal header, no turn UI. Combat UI appears only
+    // once an enemy is spotted.
+    if (turnctrl.state == TS_EXPLORE)
+    {
+        T_DrawTextCentered(2, "EXPLORE - WASD MOVE - ARROWS TURN");
+        return;
+    }
 
     // TP readout shows reserved (queued) TP separately: "TP 4/10"
     // is spendable now, "(6 IN QUEUE)" is already committed.

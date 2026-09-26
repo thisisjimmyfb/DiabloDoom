@@ -104,6 +104,39 @@ boolean T_Responder(event_t *ev)
     // ahead of G_Responder in D_ProcessEvents).
     if (D_UIIsOpen())
         return false;
+
+    // EXPLORE mode: free real-time movement. WASD/arrows flow to the
+    // normal Doom input path (Chocolate Doom binds WASD by default).
+    // Only turn-specific keys are intercepted; everything else passes.
+    if (T_InExplore())
+    {
+        if (ev->type == ev_mouse || ev->type == ev_joystick)
+            return true; // keyboard-only, as in turn mode
+        if (ev->type != ev_keydown && ev->type != ev_keyup)
+            return false;
+        if (ev->type == ev_keydown)
+        {
+            switch (ev->data1)
+            {
+              case 'g': case 'G':
+                // Auto-loot queues turn moves; walk over loot instead.
+                players[consoleplayer].message =
+                    "Walk over loot to pick it up.";
+                return true;
+              case 't': case 'T':
+                // No turn to end outside combat.
+                return true;
+              case 'f': case 'F':
+              case KEY_TAB: case ']': case '[':
+                // Targeting/attack need combat; ignore in explore.
+                return true;
+              default:
+                return false; // movement, C/E/Q pass through
+            }
+        }
+        return false; // key releases pass through
+    }
+
     // No analog input in turn mode: swallow mouse and joystick gameplay
     // events so no angle/forward motion accumulates into ticcmds.
     // (Menus and the character screen already had first crack above.)
