@@ -32,6 +32,7 @@
 #include "doomstat.h"
 #include "m_random.h"
 #include "p_local.h"
+#include "t_combat.h"
 
 // Shorthand for the long positional initializers below.
 // Fields: name, tier, slot, grid_w, grid_h, consumable, usekind, heal,
@@ -883,12 +884,11 @@ static void D_UseConsumable(player_t *player, const diablo_itemdef_t *def)
         break;
 
       case USE_MANA:
-        // Mana pool: ammo[am_clip] is the unified mana pool (100 max).
-        player->ammo[am_clip] += amount;
-        if (player->ammo[am_clip] > player->maxammo[am_clip])
-            player->ammo[am_clip] = player->maxammo[am_clip];
-        D_Msg(player, "You quaff the %s. (+%d mana)",
-              def->name, amount);
+        // Mana potion: fully reload every weapon's magazine and vent
+        // all plasma heat.
+        T_KitRefillAllAmmo();
+        D_Msg(player, "You quaff the %s. (ammo restored)",
+              def->name);
         break;
 
       default: // USE_BLAST

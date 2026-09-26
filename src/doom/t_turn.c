@@ -246,12 +246,13 @@ static void T_MaintainView(void)
 
 static void T_EndPulse(void);
 
-// Ammo design: am_clip is the unified ammo pool. Every other ammo
-// pool stays maxed while planning so the underlying weapon state machine
-// can never fail or auto-switch for lack of ammo. The ammo pool itself
-// regens +25 each round (see T_EndPulse) so AP guns never run dry;
-// pickups and Mana Potions also restore it. Real-time mode never
-// reaches this code.
+// Ammo design: every weapon owns a magazine (see t_combat.c). The other
+// Doom ammo pools stay maxed while planning so the underlying weapon
+// state machine can never fail or auto-switch for lack of ammo.
+// Magazines replenish automatically by weapon type — AD from attack
+// speed, AP from cooldowns/charges (see T_KitRegenAmmo) — so guns never
+// run dry in sustained use; pickups and Mana Potions top magazines up.
+// Real-time mode never reaches this code.
 void T_TopUpAmmo(void)
 {
     player_t *p;
@@ -397,14 +398,10 @@ static void T_EndPulse(void)
         T_CountRound(); // Phase 8: lifetime rounds
         turnctrl.tp = turnctrl.tp_max; // TP economy lands in phase 2
         T_KitTickCooldowns();
-        // Ammo regen (LoL-style): the pool refills each round so AP guns
-        // never run dry; kit costs gate burst, not sustained use.
-        {
-            player_t *p = &players[consoleplayer];
-            p->ammo[am_clip] += 25;
-            if (p->ammo[am_clip] > p->maxammo[am_clip])
-                p->ammo[am_clip] = p->maxammo[am_clip];
-        }
+        // Ammo replenish (per-weapon magazines): AD weapons regenerate
+        // attack-speed attacks' worth of ammo; AP weapons refill on
+        // cooldown completion / charge regen (hooked in the tick above).
+        T_KitRegenAmmo();
         turnctrl.state = TS_PLANNING;
         // Combat exit: no visible combatants left -> back to explore.
         T_RefreshTargets();

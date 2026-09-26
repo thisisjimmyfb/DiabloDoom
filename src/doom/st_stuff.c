@@ -1309,10 +1309,17 @@ void ST_drawWidgets(boolean refresh)
 
     if (T_Active())
     {
-        // Turn mode: left AMMO area shows the unified ammo pool (classic
-        // Doom big-number style); right-side ammo counts become the kit
-        // status panel.
-        w_ready.num = &plyr->ammo[am_clip];
+        // Turn mode: left AMMO area shows the ready weapon's magazine
+        // (classic Doom big-number style); heat-gated plasma shows
+        // remaining heat capacity instead. Right-side ammo counts
+        // become the kit status panel.
+        const t_kitdef_t *turnkit = T_KitForWeapon(plyr->readyweapon);
+        static int st_turn_ammo;
+        if (turnkit->heat_per_shot > 0)
+            st_turn_ammo = T_KitHeatMax() - T_KitHeat(plyr->readyweapon);
+        else
+            st_turn_ammo = T_KitAmmo(plyr->readyweapon);
+        w_ready.num = &st_turn_ammo;
         STlib_updateNum(&w_ready, refresh);
         ST_drawTurnKits();
     }

@@ -27,6 +27,7 @@
 #include "deh_main.h"
 #include "deh_misc.h"
 #include "doomstat.h"
+#include "t_combat.h"
 
 #include "m_random.h"
 #include "i_system.h"
@@ -76,98 +77,35 @@ P_GiveAmmo
   ammotype_t	ammo,
   int		num )
 {
-    int		oldammo;
-	
+    int		w;
+    int		room = 0;
+
+    (void)player;
+    (void)num;
+
     if (ammo == am_noammo)
 	return false;
-		
+
     if (ammo >= NUMAMMO)
 	I_Error ("P_GiveAmmo: bad type %i", ammo);
-		
-    // Amount comes from the pickup's original ammo type: a shard and a
-    // crystal restore different amounts of mana.
-    if (num)
-	num *= clipammo[ammo];
-    else
-	num = clipammo[ammo]/2;
 
-    if (gameskill == sk_baby
-	|| gameskill == sk_nightmare)
+    // DiabloDoom: ammo pickups are caches — they half-fill every
+    // weapon's magazine and vent half the plasma heat. If every
+    // magazine is already full the pickup stays on the ground.
+    // (Per-type amounts and difficulty scaling no longer apply:
+    // magazines are the ammo economy now.)
+    for (w = 0; w < NUMWEAPONS; w++)
     {
-	// give double ammo in trainer mode,
-	// you'll need in nightmare
-	num <<= 1;
+        const t_kitdef_t *kit = T_KitForWeapon((weapontype_t)w);
+        if (kit->ammo_max > 0 && T_KitAmmo((weapontype_t)w) < kit->ammo_max)
+            room = 1;
     }
-
-    // DiabloDoom: unified mana pool. Every ammo pickup funnels into
-    // am_clip (mana).
-    ammo = am_clip;
-
-    // Full-pool check is against the mana pool, not the pickup's nominal
-    // type: at full mana the pickup is left on the ground.
-    if ( player->ammo[ammo] == player->maxammo[ammo]  )
+    if (T_KitHeat(wp_plasma) > 0)
+        room = 1;
+    if (!room)
 	return false;
+    T_KitPickupAmmo();
 
-    oldammo = player->ammo[ammo];
-    player->ammo[ammo] += num;
-
-    if (player->ammo[ammo] > player->maxammo[ammo])
-	player->ammo[ammo] = player->maxammo[ammo];
-
-    // If non zero ammo, 
-    // don't change up weapons,
-    // player was lower on purpose.
-    if (oldammo)
-	return true;
-
-    // DiabloDoom: in turn mode mana pickups never auto-switch weapons;
-    // the X swap action owns weapon changes.
-    if (T_Active())
-	return true;
-
-    // We were down to zero,
-    // so select a new weapon.
-    // Preferences are not user selectable.
-    switch (ammo)
-    {
-      case am_clip:
-	if (player->readyweapon == wp_fist)
-	{
-	    if (player->weaponowned[wp_chaingun])
-		player->pendingweapon = wp_chaingun;
-	    else
-		player->pendingweapon = wp_pistol;
-	}
-	break;
-	
-      case am_shell:
-	if (player->readyweapon == wp_fist
-	    || player->readyweapon == wp_pistol)
-	{
-	    if (player->weaponowned[wp_shotgun])
-		player->pendingweapon = wp_shotgun;
-	}
-	break;
-	
-      case am_cell:
-	if (player->readyweapon == wp_fist
-	    || player->readyweapon == wp_pistol)
-	{
-	    if (player->weaponowned[wp_plasma])
-		player->pendingweapon = wp_plasma;
-	}
-	break;
-	
-      case am_misl:
-	if (player->readyweapon == wp_fist)
-	{
-	    if (player->weaponowned[wp_missile])
-		player->pendingweapon = wp_missile;
-	}
-      default:
-	break;
-    }
-	
     return true;
 }
 

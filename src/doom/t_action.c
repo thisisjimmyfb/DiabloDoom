@@ -106,15 +106,15 @@ static void T_RefuseTP(turnaction_t action)
            action, need, turnctrl.tp);
 }
 
-// Refuse an attack the kit can't afford in mana: message, no state change,
-// no pulse. Mirrors T_RefuseTP — mana is validated at queue time against
-// the current pool, like TP.
+// Refuse an attack the weapon's magazine can't afford: message, no state
+// change, no pulse. Mirrors T_RefuseTP — ammo is validated at queue time
+// against the current magazine, like TP.
 static void T_RefuseMana(weapontype_t w)
 {
     static char msg[64];
-    int need = T_KitForWeapon(w)->mana_cost;
-    int have = players[consoleplayer].ammo[am_clip];
-    M_snprintf(msg, sizeof(msg), "NEED %d MANA (HAVE %d).", need, have);
+    int need = T_KitForWeapon(w)->ammo_cost;
+    int have = T_KitAmmo(w);
+    M_snprintf(msg, sizeof(msg), "NEED %d AMMO (HAVE %d).", need, have);
     players[consoleplayer].message = msg;
     printf("[TURN] refused attack: need %d ammo, have %d\n", need, have);
 }
@@ -997,23 +997,24 @@ static boolean T_ExecAttack(mobj_t *target, int cost)
         return false;
     }
 
-    // Mana is spent on firing: deducted at execution, not at queue time.
-    // An earlier queued action may have spent the pool since validation;
-    // skip gracefully with a TP refund like the other skip paths.
+    // Ammo is spent on firing: deducted at execution, not at queue time.
+    // An earlier queued action may have spent the magazine since
+    // validation; skip gracefully with a TP refund like the other
+    // skip paths.
     {
         const t_kitdef_t *kit = T_KitForWeapon(player->readyweapon);
-        if (kit->mana_cost > 0)
+        if (kit->ammo_cost > 0)
         {
-            if (player->ammo[am_clip] < kit->mana_cost)
+            if (T_KitAmmo(player->readyweapon) < kit->ammo_cost)
             {
                 players[consoleplayer].message = "Not enough ammo - skipped.";
                 printf("[TURN] queued attack skipped: need %d ammo, have %d (+%d TP)\n",
-                       kit->mana_cost, player->ammo[am_clip], cost);
+                       kit->ammo_cost, T_KitAmmo(player->readyweapon), cost);
                 turnctrl.tp += cost;
                 T_DumpState("exec-attack-skip");
                 return false;
             }
-            player->ammo[am_clip] -= kit->mana_cost;
+            T_KitSpendAmmo(player->readyweapon);
         }
     }
 

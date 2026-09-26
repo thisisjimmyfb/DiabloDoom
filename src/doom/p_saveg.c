@@ -2039,14 +2039,15 @@ boolean P_UnArchiveDiablo(void)
 // ------------------------------------------------------------------
 #define TURN_SAVE_MAGIC 0x5455524E  // 'TURN' (first byte 0x54 != 0x1d)
 #define TURN_SAVE_MAGIC2 0x54555232 // 'TUR2': + gun cadence state
+#define TURN_SAVE_MAGIC3 0x54555233 // 'TUR3': + per-weapon ammo magazines
 
 void P_ArchiveTurn(void)
 {
     int i, w;
     int cool[NUMWEAPONS], heat[NUMWEAPONS];
-    int charges[NUMWEAPONS], shots[NUMWEAPONS];
+    int charges[NUMWEAPONS], shots[NUMWEAPONS], ammo[NUMWEAPONS];
 
-    saveg_write32(TURN_SAVE_MAGIC2);
+    saveg_write32(TURN_SAVE_MAGIC3);
     saveg_write32(turnctrl.round);
     saveg_write32(turnctrl.tp);
     saveg_write32(turnctrl.tp_max);
@@ -2057,14 +2058,16 @@ void P_ArchiveTurn(void)
     for (i = 0; i < 8; i++)
         saveg_write32(turnctrl.cooldowns[i]);
     saveg_write32(0); // reserved (was headshot_mod)
-    // Gun cadence: per-weapon cooldowns, heat, charges, Lucky counters.
-    T_KitSaveCadence(cool, heat, charges, shots);
+    // Gun cadence: per-weapon cooldowns, heat, charges, Lucky counters,
+    // ammo magazines.
+    T_KitSaveCadence(cool, heat, charges, shots, ammo);
     for (w = 0; w < NUMWEAPONS; w++)
     {
         saveg_write32(cool[w]);
         saveg_write32(heat[w]);
         saveg_write32(charges[w]);
         saveg_write32(shots[w]);
+        saveg_write32(ammo[w]);
     }
 }
 
@@ -2072,7 +2075,7 @@ boolean P_UnArchiveTurn(void)
 {
     int c, magic, i, w;
     int cool[NUMWEAPONS], heat[NUMWEAPONS];
-    int charges[NUMWEAPONS], shots[NUMWEAPONS];
+    int charges[NUMWEAPONS], shots[NUMWEAPONS], ammo[NUMWEAPONS];
 
     c = saveg_read8();
     if (c == SAVEGAME_EOF)
@@ -2080,7 +2083,8 @@ boolean P_UnArchiveTurn(void)
 
     magic = c | (saveg_read8() << 8) | (saveg_read8() << 16)
               | (saveg_read8() << 24);
-    if (magic != TURN_SAVE_MAGIC && magic != TURN_SAVE_MAGIC2)
+    if (magic != TURN_SAVE_MAGIC && magic != TURN_SAVE_MAGIC2
+        && magic != TURN_SAVE_MAGIC3)
         I_Error("P_UnArchiveTurn: bad magic 0x%x", magic);
 
     turnctrl.round = saveg_read32();
@@ -2104,17 +2108,33 @@ boolean P_UnArchiveTurn(void)
         turnctrl.cooldowns[i] = saveg_read32();
     saveg_read32(); // reserved (was headshot_mod)
 
-    if (magic == TURN_SAVE_MAGIC2)
+    if (magic == TURN_SAVE_MAGIC3)
     {
-        // Gun cadence state (clamped inside T_KitLoadCadence).
+        // Gun cadence state incl. ammo magazines
+        // (clamped inside T_KitLoadCadence).
         for (w = 0; w < NUMWEAPONS; w++)
         {
             cool[w] = saveg_read32();
             heat[w] = saveg_read32();
             charges[w] = saveg_read32();
             shots[w] = saveg_read32();
+            ammo[w] = saveg_read32();
         }
-        T_KitLoadCadence(cool, heat, charges, shots);
+        T_KitLoadCadence(cool, heat, charges, shots, ammo);
+    }
+    else if (magic == TURN_SAVE_MAGIC2)
+    {
+        // Gun cadence state without magazines (clamped inside
+        // T_KitLoadCadence); magazines start full.
+        for (w = 0; w < NUMWEAPONS; w++)
+        {
+            cool[w] = saveg_read32();
+            heat[w] = saveg_read32();
+            charges[w] = saveg_read32();
+            shots[w] = saveg_read32();
+            ammo[w] = T_KitForWeapon((weapontype_t)w)->ammo_max;
+        }
+        T_KitLoadCadence(cool, heat, charges, shots, ammo);
     }
     else
     {

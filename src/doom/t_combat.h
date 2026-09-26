@@ -80,7 +80,9 @@ typedef struct
     int splash_pct;     // splash damage as % of primary (0 = none)
     int pellets;        // separate hit rolls (shotgun/chaingun)
     boolean ap_weapon;  // true: AP scaling (ENE); false: AD (STR + gun dmg)
-    int mana_cost;      // mana (ammo[am_clip]) spent per attack, 0 = none
+    int ammo_cost;      // ammo spent per attack from the weapon's magazine
+                        // (0 = no ammo needed: fists, heat-gated plasma)
+    int ammo_max;       // magazine size; 0 = no magazine (see above)
     int heat_per_shot;  // heat gained per shot (plasma); 0 = no heat system
     int heat_vent;      // heat dissipated per round
     int max_charges;    // charge capacity (rocket); 0 = no charge system
@@ -93,10 +95,23 @@ int T_KitFireSound(weapontype_t w);     // per-gun firing report sfx
 int T_KitCooldown(weapontype_t w);          // current cooldown rounds left
 void T_KitSetCooldown(weapontype_t w, int rounds);
 void T_KitResetCadence(void);           // new game: zero cd/heat, full
+                                        // charges and magazines
+// Per-weapon ammo magazines. Every weapon with ammo_max > 0 requires
+// ammo to fire; magazines replenish automatically by weapon type:
+// AD weapons regenerate attack-speed attacks' worth of ammo each round,
+// AP weapons refill when their cooldown completes (SSG/BFG) or a charge
+// regenerates (rocket). Plasma is heat-gated instead of ammo-gated.
+int T_KitAmmo(weapontype_t w);          // current magazine rounds
+void T_KitSpendAmmo(weapontype_t w);    // deduct one attack's ammo cost
+void T_KitRegenAmmo(void);              // round-boundary replenish
+void T_KitPickupAmmo(void);             // ammo pickup: half-fill all mags
+void T_KitRefillAllAmmo(void);          // mana potion: full mags, vent heat
                                         // charges, zero Lucky counters
-void T_KitSaveCadence(int *cool, int *heat, int *charges, int *shots);
+void T_KitSaveCadence(int *cool, int *heat, int *charges, int *shots,
+                      int *ammo);
 void T_KitLoadCadence(const int *cool, const int *heat,
-                      const int *charges, const int *shots);
+                      const int *charges, const int *shots,
+                      const int *ammo);
 int T_KitHeat(weapontype_t w);              // current heat
 int T_KitHeatMax(void);                   // overheat threshold (100 + gear)
 int T_KitCharges(weapontype_t w);           // current charges
@@ -105,7 +120,7 @@ int T_KitShots(weapontype_t w);             // shots fired (Lucky rhythm)
 void T_KitTickCooldowns(void);             // call on round start
 boolean T_KitCanFire(weapontype_t w);       // all gates pass
 const char *T_KitDenyReason(weapontype_t w);// "ON COOLDOWN"/"NO CHARGES"/
-                                           // "OVERHEATED"/"NO MANA"/NULL
+                                           // "OVERHEATED"/"NO AMMO"/NULL
 boolean T_HasAmmoForKit(weapontype_t w);    // consoleplayer can pay ammo cost
 boolean T_LastKill(void);                   // did the last attack kill?
 

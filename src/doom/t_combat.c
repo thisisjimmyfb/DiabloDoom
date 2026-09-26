@@ -291,26 +291,30 @@ static int T_MonsterArmor(mobjtype_t type)
 
 static const t_kitdef_t t_kits[NUMWEAPONS] = {
     // wp_fist (fallback; not a real kit)
-    { "FISTS",    1,  3,  3, 0,   0,  0, 1, false, 0,  0,  0, 0 },
+    { "FISTS",    1,  3,  3, 0,   0,  0, 1, false, 0,  0,  0,  0, 0 },
     // Base kits are deliberately weak: item stats are the real damage
     // source, so hunting better gear is the progression.
+    // Ammo: every weapon with a magazine requires ammo to fire.
+    // AD weapons regenerate attack-speed attacks' worth of ammo per
+    // round; AP weapons refill on cooldown completion (SSG/BFG) or
+    // charge regen (rocket). Plasma is heat-gated instead of ammo-gated.
     // wp_pistol: balanced AD sidearm
-    { "SIDEARM",  2,  4,  4, 0,   0,  0, 1, false, 0,  0,  0, 0,  0, 0 },
+    { "SIDEARM",  2,  4,  4, 0,   0,  0, 1, false, 1, 10,  0,  0, 0,  0, 0 },
     // wp_shotgun: close-range burst, 4 pellets
-    { "SHOTGUN",  2,  3,  5, 0,   0,  0, 4, false, 0,  0,  0, 0,  0, 0 },
+    { "SHOTGUN",  2,  3,  5, 0,   0,  0, 4, false, 2, 20,  0,  0, 0,  0, 0 },
     // wp_chaingun: 3-round burst
-    { "CHAINGUN", 1,  3,  5, 0,   0,  0, 3, false, 0,  0,  0, 0,  0, 0 },
+    { "CHAINGUN", 1,  3,  5, 0,   0,  0, 3, false, 1, 10,  0,  0, 0,  0, 0 },
     // wp_missile: AP rockets, enemy-targeted splash, charge-gated
-    { "ROCKET",   5,  9,  6, 0, 128, 50, 1, true, 10,  0,  0, 2,  0, 0 },
+    { "ROCKET",   5,  9,  6, 0, 128, 50, 1, true, 10, 20,  0,  0, 2,  0, 0 },
     // wp_plasma: AP energy. Heat is inverse ammo: free to spam while
     // heat < 100, vents 40/round.
-    { "PULSE",    2,  4,  4, 0,   0,  0, 1, true,  0, 25, 40, 0,  0, 0 },
-    // wp_bfg: AP ultimate, cooldown + mana
-    { "BFG",     10, 18,  8, 3, 192, 60, 1, true, 20,  0,  0, 0,  0, 0 },
+    { "PULSE",    2,  4,  4, 0,   0,  0, 1, true,  0,  0, 25, 40, 0,  0, 0 },
+    // wp_bfg: AP ultimate, cooldown + full-magazine reload on cooldown
+    { "BFG",     10, 18,  8, 3, 192, 60, 1, true, 20, 20,  0,  0, 0,  0, 0 },
     // wp_chainsaw: AD melee with inherent leech (sustain for close range)
-    { "SAW",      1,  2,  3, 0,   0,  0, 1, false, 0,  0,  0, 0, 30, 0 },
+    { "SAW",      1,  2,  3, 0,   0,  0, 1, false, 1,  6,  0,  0, 0, 30, 0 },
     // wp_supershotgun: AP double-barrel, breach reload, natural knockback
-    { "SSG",      4,  8,  6, 2,   0,  0, 8, true,  8,  0,  0, 0,  0, 1 },
+    { "SSG",      4,  8,  6, 2,   0,  0, 8, true,  8,  8,  0,  0, 0,  0, 1 },
 };
 
 const t_kitdef_t *T_KitForWeapon(weapontype_t w)
@@ -342,6 +346,7 @@ int T_KitFireSound(weapontype_t w)
 static int t_cooldowns[NUMWEAPONS];
 static int t_heat[NUMWEAPONS];      // 0-100 (plasma): inverse ammo
 static int t_charges[NUMWEAPONS];   // 0..max_charges (rocket)
+static int t_ammo[NUMWEAPONS];      // current magazine (per-weapon ammo)
 static boolean t_cadence_inited;
 
 int T_KitCooldown(weapontype_t w)
@@ -397,14 +402,16 @@ int T_KitMaxCharges(weapontype_t w)
 }
 
 // Reset all per-weapon cadence state: cooldowns and heat to zero,
-// charges to full, Lucky shot counters to zero. Called on new game;
-// loaded games restore their saved cadence instead (P_UnArchiveTurn).
+// charges and magazines to full, Lucky shot counters to zero.
+// Called on new game; loaded games restore their saved cadence
+// instead (P_UnArchiveTurn).
 void T_KitResetCadence(void)
 {
     int w;
     for (w = 0; w < NUMWEAPONS; w++)
     {
         t_cooldowns[w] = 0;
+        t_ammo[w] = t_kits[w].ammo_max;
         t_heat[w] = 0;
         t_charges[w] = t_kits[w].max_charges;
         t_shots[w] = 0;
@@ -413,9 +420,10 @@ void T_KitResetCadence(void)
 }
 
 // Snapshot/restore the whole per-weapon cadence state for save/load.
-// Each array holds NUMWEAPONS ints: cooldowns, heat, charges, shots.
-// Loads clamp garbage rather than trusting the file.
-void T_KitSaveCadence(int *cool, int *heat, int *charges, int *shots)
+// Each array holds NUMWEAPONS ints: cooldowns, heat, charges, shots,
+// ammo. Loads clamp garbage rather than trusting the file.
+void T_KitSaveCadence(int *cool, int *heat, int *charges, int *shots,
+                      int *ammo)
 {
     int w;
     for (w = 0; w < NUMWEAPONS; w++)
@@ -424,23 +432,35 @@ void T_KitSaveCadence(int *cool, int *heat, int *charges, int *shots)
         heat[w] = t_heat[w];
         charges[w] = t_charges[w];
         shots[w] = t_shots[w];
+        ammo[w] = t_ammo[w];
     }
 }
 
 void T_KitLoadCadence(const int *cool, const int *heat,
-                      const int *charges, const int *shots)
+                      const int *charges, const int *shots,
+                      const int *ammo)
 {
     int w;
     for (w = 0; w < NUMWEAPONS; w++)
     {
         int maxc = t_kits[w].max_charges;
+        int maxa = t_kits[w].ammo_max;
         t_cooldowns[w] = cool[w] > 0 ? cool[w] : 0;
         t_heat[w] = heat[w] < 0 ? 0 : heat[w]; // clamped at fire time
         t_charges[w] = charges[w] < 0 ? 0
                      : (charges[w] > maxc ? maxc : charges[w]);
         t_shots[w] = shots[w] > 0 ? shots[w] : 0;
+        t_ammo[w] = ammo[w] < 0 ? 0 : (ammo[w] > maxa ? maxa : ammo[w]);
     }
     t_cadence_inited = true;
+}
+
+// AP magazine refill when a cooldown-gated weapon (SSG/BFG) finishes
+// its cooldown: ammo replenishes based on CD.
+static void T_RefillOnCooldownReady(weapontype_t w)
+{
+    if (t_kits[w].cooldown > 0 && t_kits[w].ammo_max > 0)
+        t_ammo[w] = t_kits[w].ammo_max;
 }
 
 void T_KitTickCooldowns(void)
@@ -451,7 +471,11 @@ void T_KitTickCooldowns(void)
     for (w = 0; w < NUMWEAPONS; w++)
     {
         if (t_cooldowns[w] > 0)
+        {
             t_cooldowns[w]--;
+            if (t_cooldowns[w] == 0)
+                T_RefillOnCooldownReady((weapontype_t)w);
+        }
         if (t_heat[w] > 0)
         {
             int vent = t_kits[w].heat_vent;
@@ -465,7 +489,17 @@ void T_KitTickCooldowns(void)
         {
             int maxc = T_KitMaxCharges((weapontype_t)w);
             if (t_charges[w] < maxc)
+            {
                 t_charges[w]++;
+                // Rocket: each regenerated charge loads one attack's
+                // worth of ammo — AP ammo replenishes based on CD.
+                if (t_kits[w].ammo_max > 0 && t_kits[w].ammo_cost > 0)
+                {
+                    t_ammo[w] += t_kits[w].ammo_cost;
+                    if (t_ammo[w] > t_kits[w].ammo_max)
+                        t_ammo[w] = t_kits[w].ammo_max;
+                }
+            }
             else if (t_charges[w] > maxc)
                 t_charges[w] = maxc; // affix gun unequipped: clamp down
         }
@@ -499,16 +533,98 @@ const char *T_KitDenyReason(weapontype_t w)
     return NULL;
 }
 
-// Ammo affordability: AP kits spend mana_cost per attack from the
-// unified ammo pool (player->ammo[am_clip]). Kits with no ammo cost are
-// always affordable.
+// Ammo affordability: every weapon with a magazine spends ammo_cost
+// per attack from its own magazine. ammo_cost <= 0 means no ammo
+// needed (fists; plasma is heat-gated instead).
 boolean T_HasAmmoForKit(weapontype_t w)
 {
     const t_kitdef_t *kit = T_KitForWeapon(w);
-    player_t *player = &players[consoleplayer];
-    if (kit->mana_cost <= 0)
+    if (kit->ammo_cost <= 0)
         return true;
-    return player->ammo[am_clip] >= kit->mana_cost;
+    if (!t_cadence_inited)
+        T_KitResetCadence();
+    return t_ammo[w] >= kit->ammo_cost;
+}
+
+int T_KitAmmo(weapontype_t w)
+{
+    if (w < 0 || w >= NUMWEAPONS)
+        return 0;
+    if (!t_cadence_inited)
+        T_KitResetCadence();
+    return t_ammo[w];
+}
+
+void T_KitSpendAmmo(weapontype_t w)
+{
+    const t_kitdef_t *kit = T_KitForWeapon(w);
+    if (kit->ammo_cost <= 0)
+        return;
+    if (!t_cadence_inited)
+        T_KitResetCadence();
+    t_ammo[w] -= kit->ammo_cost;
+    if (t_ammo[w] < 0)
+        t_ammo[w] = 0;
+}
+
+// Round-boundary ammo replenish. AD weapons regenerate attack-speed
+// attacks' worth of ammo: attacks-per-round at the weapon's effective
+// (DEX-reduced, floored like T_AttackCost) TP cost, times ammo_cost.
+// Your attack speed feeds the magazine, so sustained fire at your
+// attack-speed pace never runs dry; the magazine is a burst buffer for
+// bonus attacks (Reaper TP refunds etc.). AP weapons are NOT touched
+// here — they refill on cooldown completion / charge regen instead.
+void T_KitRegenAmmo(void)
+{
+    player_t *player = &players[consoleplayer];
+    int w;
+    if (!t_cadence_inited)
+        T_KitResetCadence();
+    for (w = 0; w < NUMWEAPONS; w++)
+    {
+        const t_kitdef_t *kit = &t_kits[w];
+        int cost, apr;
+        if (kit->ap_weapon || kit->ammo_max <= 0 || kit->ammo_cost <= 0)
+            continue;
+        cost = kit->tp_cost - player->diablo_stats[DSTAT_DEX] / 20;
+        if (cost < 2)
+            cost = 2;
+        apr = turnctrl.tp_max / cost;
+        if (apr < 1)
+            apr = 1;
+        t_ammo[w] += apr * kit->ammo_cost;
+        if (t_ammo[w] > kit->ammo_max)
+            t_ammo[w] = kit->ammo_max;
+    }
+}
+
+// Ammo pickup: half-fill every magazine, vent half the plasma heat.
+void T_KitPickupAmmo(void)
+{
+    int w;
+    if (!t_cadence_inited)
+        T_KitResetCadence();
+    for (w = 0; w < NUMWEAPONS; w++)
+    {
+        if (t_kits[w].ammo_max > 0)
+        {
+            t_ammo[w] += t_kits[w].ammo_max / 2;
+            if (t_ammo[w] > t_kits[w].ammo_max)
+                t_ammo[w] = t_kits[w].ammo_max;
+        }
+    }
+    t_heat[wp_plasma] /= 2;
+}
+
+// Mana potion: full magazines, plasma heat fully vented.
+void T_KitRefillAllAmmo(void)
+{
+    int w;
+    if (!t_cadence_inited)
+        T_KitResetCadence();
+    for (w = 0; w < NUMWEAPONS; w++)
+        t_ammo[w] = t_kits[w].ammo_max;
+    t_heat[wp_plasma] = 0;
 }
 
 // Kill credit + kill-triggered affix mechanics for one victim.
@@ -536,8 +652,10 @@ static void T_ResolveKill(player_t *player, mobj_t *victim, int dmg,
     }
     if (mech & MECH_BREACHER)
     {
-        // Kills immediately refund the reload cooldown.
+        // Kills immediately refund the reload cooldown — and reload the
+        // magazine with it (AP ammo replenishes based on CD).
         t_cooldowns[player->readyweapon] = 0;
+        T_RefillOnCooldownReady(player->readyweapon);
     }
     if (mech & MECH_REAPER)
     {
