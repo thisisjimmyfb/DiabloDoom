@@ -81,6 +81,17 @@ funnels into mana — a **Mana Potion** quaffs for +50 mana (capped). The
 PULSE weapon kit spends 5 mana per attack. The status bar's left AMMO area
 shows the pool as blue `MANA cur/max`.
 
+## Explore / combat
+
+The game is not always turn-based. **Explore** freely with WASD + arrows
+(real-time movement); walking over loot picks it up. When an enemy
+appears, the game switches to **turn-based combat**: queue actions
+(W/S/A/D move, F attack, Space use), then press **T** to execute them
+in order, then enemies act. Clear all visible enemies to return to
+exploring. Barrels never start combat but can still be targeted with
+Tab. **G** auto-paths to the nearest loot during combat (walk to loot
+while exploring).
+
 ## Building
 
 ```sh

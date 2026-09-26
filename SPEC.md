@@ -91,6 +91,39 @@ has failed.
 
 ---
 
+## Explore / combat mode split
+
+The game is **not** always turn-based. Two modes:
+
+**EXPLORE** — free real-time movement (WASD + arrows, Chocolate Doom's
+default bindings). The normal Doom ticker runs; enemies are frozen solid
+(`P_MobjThinker` skips non-player `MF_COUNTKILL` mobjs). Barrels, loot,
+doors, and the world tick normally. Walking over loot picks it up via the
+standard touch path. The HUD shows a minimal `EXPLORE` header; no TP, no
+queue, no action list. G (auto-loot pathing) is disabled in explore —
+walk to the loot instead. F/Tab targeting is disabled: there is nothing
+to fight.
+
+**COMBAT** — turn-based mode, exactly as described in Core loop below.
+Triggered the moment a real combatant becomes visible
+(`T_NumCombatants() > 0` after `T_RefreshTargets()`): the HUD flips to
+`TURN MODE - ROUND 1`, the enemy telegraph fires as fair warning, and
+the player plans with 10 TP. When the enemy phase ends with no visible
+combatants left, the game returns to EXPLORE.
+
+**What counts as a combatant:** `T_IsCombatant()` — the mobj's type has a
+melee or missile attack state in `mobjinfo`. Barrels and other shootable
+props with no attack are **not** combatants: they never trigger combat,
+never get numbered markers, never telegraph. They remain in the Tab
+target list so the player can still shoot them deliberately.
+
+**Design intent:** the Diablo farm loop (walk room to room, grab loot,
+build the character) stays frictionless; the XCOM tactical layer appears
+only when there is something to fight. Combat entry is on sight, combat
+exit is on clear (no visible combatants at round end).
+
+---
+
 ## Core loop
 
 ### Tempo

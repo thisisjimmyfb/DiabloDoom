@@ -48,10 +48,14 @@ title with `~/workspace/doom/wshot.py` — with `window_width 1280` /
 
 ## Standing rules
 
-1. **The fork is turn-based by default.** There is no `-turnbased` flag
-   and no real-time mode; the turn controller is unconditional. Legacy
-   real-time tic paths are unreachable and slated for cleanup — don't
-   resurrect them.
+1. **Explore/combat mode split.** The fork is NOT always turn-based.
+   EXPLORE mode is free real-time movement (WASD + arrows via the normal
+   Doom input path, `P_Ticker`); enemies are frozen (`P_MobjThinker`
+   skips non-player `MF_COUNTKILL`). Spotting a real combatant
+   (`T_IsCombatant`: has melee/missile attack state) triggers COMBAT:
+   the turn controller takes over (queue/FIFO, 10 TP). No visible
+   combatants at round end returns to EXPLORE. Barrels never trigger
+   combat but stay in the Tab target list. There is no `-turnbased` flag.
 2. **No scalar input, ever** (Jimmy's words: *"We shouldn't have actions
    that require scalar input because that will be too difficult to aim."*).
    Turn-mode actions are discrete: directions and actor IDs only. No
@@ -125,7 +129,8 @@ Diablo inventory: C character screen · Tab backpack/paperdoll ·
 Enter/Space pick up/place · E equip · R/Backspace cancel/use held
 consumable · Q unequip all · Esc close.
 
-Turn mode (queued actions, FIFO): W/S step forward/back, A/D strafe
+Turn mode (queued actions, FIFO — combat only, triggered by spotting an
+enemy): W/S step forward/back, A/D strafe
 (1 TP, never change facing) · left/right arrows turn view 45° (free,
 immediate, never queued) · SPACE use (2 TP) ·
 F attack via preview-confirm (TP by attack speed) · T end turn (drains
