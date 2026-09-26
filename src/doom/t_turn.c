@@ -32,6 +32,9 @@
 // so T_Ticker and T_DrawHUD can use them before the definitions.
 static void T_TickKillBanner(void);
 static void T_DrawKillBanner(void);
+// T_IsCombatant is defined with the target-list API below; the HUD marker
+// loop and telegraph use it earlier.
+boolean T_IsCombatant(mobj_t *mo);
 
 turnctrl_t turnctrl;
 
@@ -681,13 +684,6 @@ void T_RefreshTargets(void)
             continue;
         if (mo->player != NULL)
             continue; // never target players
-        // Skip immobile props with no attack (barrels etc.): they are
-        // shootable but never act, so they must not trigger combat.
-        {
-            const mobjinfo_t *mi = &mobjinfo[mo->type];
-            if (mi->meleestate == S_NULL && mi->missilestate == S_NULL)
-                continue;
-        }
         if (!P_CheckSight(player->mo, mo))
             continue;
         // Full cover blockage (Phase 6): all three traces blocked means
@@ -714,6 +710,8 @@ void T_TelegraphEnemies(void)
         mobj_t *mo = t_targets[i];
         if (!mo || mo->health <= 0)
             continue;
+        if (!T_IsCombatant(mo))
+            continue; // barrels don't telegraph
         // Not yet alerted to the player: telegraph the state change.
         if (mo->target == NULL || mo->target != player->mo)
         {
@@ -950,12 +948,15 @@ void T_DrawHUD(void)
     // Target markers: stable numbers projected above each visible enemy.
     // The selected target is unmistakable: bright highlight gold with
     // chevron brackets, centered over the enemy. Non-selected targets
-    // are subdued dim gold numbers.
+    // are subdued dim gold numbers. Non-combatants (barrels) get no
+    // marker — they don't trigger combat presence.
     for (i = 0; i < t_numtargets; i++)
     {
         mobj_t *mo = t_targets[i];
         int sx, sy;
         if (mo == NULL || mo->health <= 0)
+            continue;
+        if (!T_IsCombatant(mo))
             continue;
         if (!T_ProjectTarget(mo, &sx, &sy))
             continue;
@@ -1052,6 +1053,28 @@ void T_DrawHUD(void)
 int T_NumTargets(void)
 {
     return t_numtargets;
+}
+
+// True if this mobj is a real combatant: has a melee or missile attack
+// state. Shootable props with no attack (barrels) return false — they
+// stay selectable as targets but never trigger combat markers/telegraphs.
+boolean T_IsCombatant(mobj_t *mo)
+{
+    const mobjinfo_t *mi;
+    if (mo == NULL)
+        return false;
+    mi = &mobjinfo[mo->type];
+    return mi->meleestate != S_NULL || mi->missilestate != S_NULL;
+}
+
+// Number of current targets that are real combatants (excludes barrels).
+int T_NumCombatants(void)
+{
+    int i, n = 0;
+    for (i = 0; i < t_numtargets; i++)
+        if (T_IsCombatant(t_targets[i]))
+            n++;
+    return n;
 }
 
 mobj_t *T_TargetMobj(int idx)

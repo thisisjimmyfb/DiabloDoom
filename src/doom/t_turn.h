@@ -110,6 +110,11 @@ extern turnctrl_t turnctrl;
 void T_RefreshTargets(void);
 // Number of current targets (0 = none).
 int T_NumTargets(void);
+// True if the mobj is a real combatant (has melee/missile attack).
+// Shootable props with no attack (barrels) return false.
+boolean T_IsCombatant(struct mobj_s *mo);
+// Number of current targets that are real combatants (excludes barrels).
+int T_NumCombatants(void);
 mobj_t *T_SelectedMobj(void);
 // Target mobj by 0-based index, or NULL.
 struct mobj_s *T_TargetMobj(int idx);
