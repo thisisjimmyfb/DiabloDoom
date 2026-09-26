@@ -462,13 +462,20 @@ void T_Ticker(void)
 
     // EXPLORE mode: free real-time movement. The normal Doom ticker
     // runs the world; P_MobjThinker freezes enemies while exploring.
-    // A visible combatant triggers turn-based combat.
+    // A visible combatant triggers turn-based combat. The sight check
+    // is throttled: T_RefreshTargets traces line-of-sight against every
+    // shootable mobj, far too expensive to run every tic.
     if (turnctrl.state == TS_EXPLORE)
     {
+        static int explore_sight_tic = 0;
         P_Ticker();
-        T_RefreshTargets();
-        if (T_NumCombatants() > 0)
-            T_EnterCombat();
+        if (++explore_sight_tic >= 7)
+        {
+            explore_sight_tic = 0;
+            T_RefreshTargets();
+            if (T_NumCombatants() > 0)
+                T_EnterCombat();
+        }
         return;
     }
 
