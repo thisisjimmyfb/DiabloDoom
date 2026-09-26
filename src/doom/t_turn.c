@@ -681,6 +681,13 @@ void T_RefreshTargets(void)
             continue;
         if (mo->player != NULL)
             continue; // never target players
+        // Skip immobile props with no attack (barrels etc.): they are
+        // shootable but never act, so they must not trigger combat.
+        {
+            const mobjinfo_t *mi = &mobjinfo[mo->type];
+            if (mi->meleestate == S_NULL && mi->missilestate == S_NULL)
+                continue;
+        }
         if (!P_CheckSight(player->mo, mo))
             continue;
         // Full cover blockage (Phase 6): all three traces blocked means
