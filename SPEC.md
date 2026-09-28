@@ -105,11 +105,19 @@ walk to the loot instead. F/Tab targeting is disabled: there is nothing
 to fight.
 
 **COMBAT** — turn-based mode, exactly as described in Core loop below.
-Triggered the moment a real combatant becomes visible
-(`T_NumCombatants() > 0` after `T_RefreshTargets()`): the HUD flips to
-`TURN MODE - ROUND 1`, the enemy telegraph fires as fair warning, and
-the player plans with 10 TP. When the enemy phase ends with no visible
-combatants left, the game returns to EXPLORE.
+Triggered the moment an enemy AI **acquires the player as its target**
+(`T_ExploreDetect()`): sight within the monster's front 180-degree arc,
+or hearing a shot for non-deaf monsters (mirroring vanilla `A_Look`
+detection, minus movement and attacks — monsters stay frozen until the
+fight starts). The player merely *seeing* an enemy only drives the HUD
+target markers; it never starts combat. The HUD flips to
+`TURN MODE - ROUND 1` with a "X spots you!" callout, and the player plans
+with 10 TP. Enemies that acquired the player but are not visible get an
+"X is hunting you!" telegraph before the first enemy phase. When the
+enemy phase ends with no visible combatants left, the game returns to
+EXPLORE — and every monster forgets the player (targets and stale
+gunshot noise are cleared), so the next encounter starts from a clean
+detection state.
 
 **What counts as a combatant:** `T_IsCombatant()` — the mobj's type has a
 melee or missile attack state in `mobjinfo`. Barrels and other shootable
@@ -119,8 +127,8 @@ target list so the player can still shoot them deliberately.
 
 **Design intent:** the Diablo farm loop (walk room to room, grab loot,
 build the character) stays frictionless; the XCOM tactical layer appears
-only when there is something to fight. Combat entry is on sight, combat
-exit is on clear (no visible combatants at round end).
+only when an enemy spots the player. Combat entry is on acquisition,
+combat exit is on clear (no visible combatants at round end).
 
 ---
 

@@ -152,10 +152,12 @@ void T_ScriptLoadFixup(void);
 void T_Ticker(void);
 
 // Explore/combat mode split: free real-time movement while exploring,
-// turn-based combat when a real enemy is visible.
+// turn-based combat when an enemy AI acquires the player as its target.
 boolean T_InExplore(void);   // true while in TS_EXPLORE
 void T_EnterExplore(void);   // leave combat -> free movement
-void T_EnterCombat(void);    // spot enemy -> turn-based combat
+void T_EnterCombat(mobj_t *spotter); // an enemy acquired the player
+// One explore-mode tick: world sim + throttled detection (test hooks).
+void T_ExploreTick(void);
 
 // Input adapter (t_input.c): translate a key event into a turn action
 // while planning/targeting. Returns true if the event was consumed.
@@ -187,7 +189,7 @@ void T_ExecuteNext(void);  // run the next queued entry (queue drain)
 void T_BeginEnemyPhase(void);
 void T_QueueEntryName(const t_queueentry_t *e, char *buf, size_t buflen);
 const char *T_TargetName(mobj_t *mo);
-void T_TelegraphEnemies(void);  // Phase 6: warn of newly alerted enemies
+void T_TelegraphEnemies(void);  // Phase 6: warn of acquired-but-unseen enemies
 
 // Phase 2: Tempo economy.
 int T_CostFor(turnaction_t action);   // TP cost; selection/cancel = 0

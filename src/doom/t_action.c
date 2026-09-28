@@ -1081,6 +1081,50 @@ void T_SpawnArena(void)
     T_DumpState("arena");
 }
 
+// Test: remove every monster (simulates killing them all).
+static void T_TestKillAll(void)
+{
+    thinker_t *th, *next;
+
+    for (th = thinkercap.next; th != &thinkercap; th = next)
+    {
+        mobj_t *mo;
+        next = th->next;
+        if (th->function.acp1 != (actionf_p1)P_MobjThinker)
+            continue;
+        mo = (mobj_t *)th;
+        if (mo->player != NULL)
+            continue;
+        if (!(mo->flags & MF_COUNTKILL))
+            continue;
+        P_RemoveMobj(mo);
+    }
+    printf("[TURN] test: all monsters removed\n");
+}
+
+// Test: stealth arena. Clears every monster, then spawns a single imp
+// 256 units north of the player FACING AWAY (north). The player stands
+// directly behind it: with the acquire==trigger rule, explore detection
+// must never fire no matter how many ticks pass.
+static void T_TestSneakArena(void)
+{
+    player_t *player = &players[consoleplayer];
+    mobj_t *mo;
+
+    if (!T_Active() || player->mo == NULL)
+        return;
+
+    T_TestKillAll();
+
+    mo = P_SpawnMobj(player->mo->x, player->mo->y + 256 * FRACUNIT,
+                     ONFLOORZ, MT_TROOP);
+    if (mo != NULL)
+        mo->angle = ANG90; // facing north, back to the player
+    players[consoleplayer].message = "Sneak arena: 1 imp, facing away.";
+    printf("[TURN] sneak arena spawned\n");
+    T_DumpState("sneak-arena");
+}
+
 // ------------------------------------------------------------------
 // Action replay (test harness): text scripts drive the controller with
 // no mouse events. One token per line:
@@ -1097,6 +1141,12 @@ void T_SpawnArena(void)
 //   GIVEWEAPON n                    (test: grant kit weapon n)
 //   GIVEITEM t i                    (test: grant Diablo item, equip it)
 //   SELECT_NEXT | SELECT_PREV | SELECT_NUM n | ATTACK | CANCEL
+//   ARENA_SNEAK                     (test: 1 imp facing away from player)
+//   KILLALL                         (test: remove every monster)
+//   ACQUIRE                         (test: force a stale player acquisition)
+//   FORCE_EXPLORE                   (test: leave combat, clearing targets)
+//   TICK_EXPLORE n                   (test: run n explore ticks synchronously)
+//   ASSERT_EXPLORE | ASSERT_COMBAT   (test: still exploring / in combat)
 //
 // Queue model: MOVE/USE/ATTACK enqueue; END drains the queue FIFO
 // then runs the enemy phase. Pulses run synchronously so scripts are
@@ -1415,6 +1465,64 @@ void T_RunScript(const char *path)
             else
                 printf("[TURN] ASSERT_THP_EQ %d %d: FAIL (hp=%d)\n",
                        n, m, hp);
+        }
+        else if (!strcmp(line, "ARENA_SNEAK")) T_TestSneakArena();
+        else if (!strcmp(line, "KILLALL")) T_TestKillAll();
+        else if (!strcmp(line, "FORCE_EXPLORE"))
+        {
+            // Test: leave combat directly (exercises the stand-down
+            // clearing: every monster forgets the player).
+            T_EnterExplore();
+            printf("[TURN] FORCE_EXPLORE done\n");
+        }
+        else if (!strcmp(line, "ACQUIRE"))
+        {
+            // Test: force the first living monster to hold the player
+            // as its target (a stale acquisition from an old fight).
+            thinker_t *th;
+            boolean done = false;
+            for (th = thinkercap.next; th != &thinkercap && !done;
+                 th = th->next)
+            {
+                mobj_t *mo;
+                if (th->function.acp1 != (actionf_p1)P_MobjThinker)
+                    continue;
+                mo = (mobj_t *)th;
+                if (mo->player != NULL || mo->health <= 0)
+                    continue;
+                if (!(mo->flags & MF_COUNTKILL))
+                    continue;
+                mo->target = players[consoleplayer].mo;
+                mo->threshold = 0;
+                printf("[TURN] ACQUIRE: forced acquisition\n");
+                done = true;
+            }
+            if (!done)
+                printf("[TURN] ACQUIRE: no living monster found\n");
+        }
+        else if (sscanf(line, "TICK_EXPLORE %d", &n) == 1)
+        {
+            // Test: run n explore ticks synchronously (world sim +
+            // throttled detection). Stops early if combat triggers.
+            int k;
+            for (k = 0; k < n && T_InExplore(); k++)
+                T_ExploreTick();
+            printf("[TURN] TICK_EXPLORE %d: ran %d ticks, %s\n", n, k,
+                   T_InExplore() ? "still exploring" : "combat triggered");
+        }
+        else if (!strcmp(line, "ASSERT_EXPLORE"))
+        {
+            if (T_InExplore())
+                printf("[TURN] ASSERT_EXPLORE: PASS\n");
+            else
+                printf("[TURN] ASSERT_EXPLORE: FAIL (in combat)\n");
+        }
+        else if (!strcmp(line, "ASSERT_COMBAT"))
+        {
+            if (!T_InExplore())
+                printf("[TURN] ASSERT_COMBAT: PASS\n");
+            else
+                printf("[TURN] ASSERT_COMBAT: FAIL (still exploring)\n");
         }
         else if (!strcmp(line, "QUIT"))   { fclose(f); turnctrl.sync = false; printf("[TURN] script done.\n"); fflush(stdout); T_ProfileSave(); exit(0); }
         else if (line[0] == 0 || line[0] == '#') continue;

@@ -90,7 +90,7 @@ ready weapon's current magazine (remaining heat capacity for plasma).
 
 The game is not always turn-based. **Explore** freely with WASD + arrows
 (real-time movement); walking over loot picks it up. When an enemy
-appears, the game switches to **turn-based combat**: queue actions
+**spots you**, the game switches to **turn-based combat**: queue actions
 (W/S/A/D move, F attack, Space use), then press **T** to execute them
 in order, then enemies act. Clear all visible enemies to return to
 exploring. Barrels never start combat but can still be targeted with

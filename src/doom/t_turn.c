@@ -25,6 +25,8 @@
 #include "r_main.h"
 #include "m_misc.h"
 #include "s_sound.h"
+#include "m_random.h"
+#include "r_state.h"
 #include "v_video.h"
 #include "w_wad.h"
 #include "z_zone.h"
@@ -36,8 +38,156 @@ static void T_DrawKillBanner(void);
 // T_IsCombatant is defined with the target-list API below; the HUD marker
 // loop and telegraph use it earlier.
 boolean T_IsCombatant(mobj_t *mo);
-// T_TelegraphEnemies is defined below; T_EnterCombat calls it.
+// T_TelegraphEnemies is defined below; T_BeginEnemyPhase calls it.
 void T_TelegraphEnemies(void);
+
+// ------------------------------------------------------------------
+// Explore-mode detection: combat triggers when an AI enemy acquires
+// the player as its target -- not when the player merely sees an
+// enemy. Monsters are frozen in explore mode (P_MobjThinker skips
+// them), so this pass mirrors what A_Look would do if it ran: sight
+// within the monster's front 180-degree arc, or hearing a shot for
+// non-deaf monsters. That enables limited stealth: approaching from
+// behind or outside line of sight never alerts them, while firing a
+// weapon (P_NoiseAlert) wakes everything in earshot.
+// ------------------------------------------------------------------
+
+// Short display names for the "X spots you!" / "X is hunting you!"
+// messages.
+static const char *T_MobjShortName(mobj_t *mo)
+{
+    if (mo == NULL)
+        return "Enemy";
+    switch (mo->type)
+    {
+      case MT_POSSESSED: return "Zombieman";
+      case MT_SHOTGUY:   return "Shotgunner";
+      case MT_CHAINGUY:  return "Chaingunner";
+      case MT_TROOP:     return "Imp";
+      case MT_SERGEANT:  return "Demon";
+      default:           return "Enemy";
+    }
+}
+
+// Mirror of A_Look's "seeyou" block for one monster: record the
+// acquisition, play the wake-up sound, and park the monster in its see
+// state. P_SetMobjState cannot be used here: it would invoke the chase
+// action immediately, but the explore world is frozen, so the state
+// fields are assigned directly and the action runs on the first
+// enemy-phase tick instead.
+static void T_SpotPlayer(mobj_t *mo)
+{
+    player_t *player = &players[consoleplayer];
+    int sound;
+
+    mo->target = player->mo;
+    mo->threshold = 0;
+
+    // Wake-up sound, with vanilla's randomization for zombie grunts.
+    sound = mo->info->seesound;
+    if (sound == sfx_posit1 || sound == sfx_posit2 || sound == sfx_posit3)
+        sound = sfx_posit1 + P_Random() % 3;
+    else if (sound == sfx_bgsit1 || sound == sfx_bgsit2)
+        sound = sfx_bgsit1 + P_Random() % 2;
+    if (sound != sfx_None)
+    {
+        if (mo->type == MT_SPIDER || mo->type == MT_CYBORG)
+            S_StartSound(NULL, sound); // full volume
+        else
+            S_StartSound(mo, sound);
+    }
+    printf("[TURN] detect: %s acquired the player\n", T_MobjShortName(mo));
+
+    mo->state = &states[mo->info->seestate];
+    mo->tics = mo->state->tics;
+    mo->sprite = mo->state->sprite;
+    mo->frame = mo->state->frame;
+}
+
+// Explore-mode detection pass. Returns the first monster that acquired
+// the player this tick (NULL if none); every detector records the
+// acquisition. A monster that already holds the player as its target
+// (shot, heard, or saw the player earlier) re-triggers: being acquired
+// IS the combat trigger.
+static mobj_t *T_ExploreDetect(void)
+{
+    player_t *player = &players[consoleplayer];
+    thinker_t *th;
+    mobj_t *spotter = NULL;
+
+    if (!T_Active() || player->mo == NULL || player->mo->health <= 0)
+        return NULL;
+
+    for (th = thinkercap.next; th != &thinkercap; th = th->next)
+    {
+        mobj_t *mo;
+        angle_t an;
+
+        if (th->function.acp1 != (actionf_p1)P_MobjThinker)
+            continue;
+        mo = (mobj_t *)th;
+        if (mo == player->mo || mo->player != NULL)
+            continue;
+        if (!(mo->flags & MF_SHOOTABLE) || mo->health <= 0)
+            continue;
+        if (!T_IsCombatant(mo)) // barrels etc. never trigger combat
+            continue;
+
+        // Already acquired (damaged, heard, or saw the player): the
+        // acquisition itself is the trigger.
+        if (mo->target == player->mo)
+        {
+            if (spotter == NULL)
+                spotter = mo;
+            continue;
+        }
+
+        // Hearing (vanilla A_Look): a shot in this sector wakes
+        // non-deaf monsters with no sight check.
+        if (!(mo->flags & MF_AMBUSH)
+            && mo->subsector != NULL
+            && mo->subsector->sector->soundtarget == player->mo)
+        {
+            T_SpotPlayer(mo);
+            if (spotter == NULL)
+                spotter = mo;
+            continue;
+        }
+
+        // Sight: front 180-degree arc + line of sight, exactly like
+        // P_LookForPlayers(actor, false). Behind the monster's back
+        // stays hidden.
+        an = R_PointToAngle2(mo->x, mo->y,
+                             player->mo->x, player->mo->y) - mo->angle;
+        if (an > ANG90 && an < ANG270)
+            continue;
+        if (!P_CheckSight(mo, player->mo))
+            continue;
+
+        T_SpotPlayer(mo);
+        if (spotter == NULL)
+            spotter = mo;
+    }
+    return spotter;
+}
+
+// One explore-mode tick: run the world, then run throttled detection.
+// Shared by T_Ticker and the test harness.
+void T_ExploreTick(void)
+{
+    static int explore_sight_tic = 0;
+    mobj_t *spotter;
+
+    P_Ticker();
+    if (++explore_sight_tic >= 7)
+    {
+        explore_sight_tic = 0;
+        T_RefreshTargets();      // HUD markers: what the PLAYER sees
+        spotter = T_ExploreDetect(); // what SEES the player
+        if (spotter != NULL)
+            T_EnterCombat(spotter);
+    }
+}
 
 turnctrl_t turnctrl;
 
@@ -99,7 +249,7 @@ void T_Init(void)
         else
             t_arena_done = true;
         printf("DiabloDoom: explore freely (WASD); turn-based combat "
-               "starts when an enemy appears.\n");
+               "starts when an enemy spots you.\n");
         // Phase 8: load the standalone profile.
         T_ProfileLoad();
         // Gun cadence (cooldowns/heat/charges) starts fresh every game.
@@ -150,18 +300,41 @@ boolean T_InExplore(void)
 
 void T_EnterExplore(void)
 {
+    thinker_t *th;
+    int i;
+
     turnctrl.state = TS_EXPLORE;
     turnctrl.queue_len = 0;
     turnctrl.queue_tp = 0;
     turnctrl.selected_target = -1;
     turnctrl.executing = false;
     turnctrl.pulse_left = 0;
+    // Stand down: the fight is over, so every monster forgets the
+    // player -- otherwise the acquire==trigger rule would instantly
+    // re-trigger combat on the next detection tick. Stale gunshot
+    // noise is cleared for the same reason.
+    for (th = thinkercap.next; th != &thinkercap; th = th->next)
+    {
+        mobj_t *mo;
+        if (th->function.acp1 != (actionf_p1)P_MobjThinker)
+            continue;
+        mo = (mobj_t *)th;
+        if (mo->player == NULL)
+        {
+            mo->target = NULL;
+            mo->threshold = 0;
+        }
+    }
+    for (i = 0; i < numsectors; i++)
+        sectors[i].soundtarget = NULL;
     players[consoleplayer].message = "Explore: WASD to move.";
     T_DumpState("enter-explore");
 }
 
-void T_EnterCombat(void)
+void T_EnterCombat(mobj_t *spotter)
 {
+    static char msg[96];
+
     turnctrl.state = TS_PLANNING;
     turnctrl.round = 1;
     turnctrl.tp = turnctrl.tp_max;
@@ -169,9 +342,14 @@ void T_EnterCombat(void)
     turnctrl.queue_tp = 0;
     turnctrl.selected_target = -1;
     turnctrl.executing = false;
-    players[consoleplayer].message = "COMBAT! Round 1 - your move.";
-    // Fair warning: telegraph newly-seen enemies before they act.
-    T_TelegraphEnemies();
+    // The surprise, named: whoever acquired the player gets the callout.
+    if (spotter != NULL)
+        M_snprintf(msg, sizeof(msg),
+                   "%s spots you! COMBAT! Round 1 - your move.",
+                   T_MobjShortName(spotter));
+    else
+        M_snprintf(msg, sizeof(msg), "COMBAT! Round 1 - your move.");
+    players[consoleplayer].message = msg;
     T_DumpState("enter-combat");
 }
 
@@ -459,20 +637,12 @@ void T_Ticker(void)
 
     // EXPLORE mode: free real-time movement. The normal Doom ticker
     // runs the world; P_MobjThinker freezes enemies while exploring.
-    // A visible combatant triggers turn-based combat. The sight check
-    // is throttled: T_RefreshTargets traces line-of-sight against every
-    // shootable mobj, far too expensive to run every tic.
+    // Combat triggers when an enemy AI acquires the player as its
+    // target (T_ExploreTick); the player seeing enemies only drives
+    // the HUD markers.
     if (turnctrl.state == TS_EXPLORE)
     {
-        static int explore_sight_tic = 0;
-        P_Ticker();
-        if (++explore_sight_tic >= 7)
-        {
-            explore_sight_tic = 0;
-            T_RefreshTargets();
-            if (T_NumCombatants() > 0)
-                T_EnterCombat();
-        }
+        T_ExploreTick();
         return;
     }
 
@@ -755,42 +925,41 @@ void T_RefreshTargets(void)
     }
 }
 
-// Phase 6: telegraph newly alerted enemies. An enemy that can see the
-// player but has not yet acquired them as a target shows a state change
-// (message) before it gets to act. This gives the player fair warning
-// and prevents unseen alpha strikes.
+// Phase 6: telegraph enemies that have acquired the player but are NOT
+// currently visible to them -- the true unseen threats -- before the
+// enemy phase lets them act.
 void T_TelegraphEnemies(void)
 {
     player_t *player = &players[consoleplayer];
-    int i;
-    if (!player->mo)
+    thinker_t *th;
+
+    if (!T_Active() || player->mo == NULL)
         return;
-    for (i = 0; i < t_numtargets; i++)
+
+    for (th = thinkercap.next; th != &thinkercap; th = th->next)
     {
-        mobj_t *mo = t_targets[i];
-        if (!mo || mo->health <= 0)
+        mobj_t *mo;
+        static char msg[64];
+
+        if (th->function.acp1 != (actionf_p1)P_MobjThinker)
+            continue;
+        mo = (mobj_t *)th;
+        if (mo == player->mo || mo->player != NULL)
+            continue;
+        if (!(mo->flags & MF_SHOOTABLE))
+            continue;
+        if (mo->health <= 0)
             continue;
         if (!T_IsCombatant(mo))
             continue; // barrels don't telegraph
-        // Not yet alerted to the player: telegraph the state change.
-        if (mo->target == NULL || mo->target != player->mo)
-        {
-            static char msg[64];
-            const char *name = "Enemy";
-            // Use the mobj type name if available.
-            if (mo->type == MT_POSSESSED)
-                name = "Zombieman";
-            else if (mo->type == MT_SHOTGUY)
-                name = "Shotgunner";
-            else if (mo->type == MT_CHAINGUY)
-                name = "Chaingunner";
-            else if (mo->type == MT_TROOP)
-                name = "Imp";
-            else if (mo->type == MT_SERGEANT)
-                name = "Demon";
-            M_snprintf(msg, sizeof(msg), "%s spots you!", name);
-            printf("[TURN] telegraph: %s\n", msg);
-        }
+        if (mo->target != player->mo)
+            continue; // hasn't acquired the player
+        if (P_CheckSight(player->mo, mo))
+            continue; // visible: no surprise to warn about
+        M_snprintf(msg, sizeof(msg), "%s is hunting you!",
+                   T_MobjShortName(mo));
+        players[consoleplayer].message = msg;
+        printf("[TURN] telegraph: %s\n", msg);
     }
 }
 
@@ -1184,7 +1353,7 @@ void T_DumpState(const char *why)
 {
     player_t *p = &players[consoleplayer];
     static const char *names[] = {
-        "OFF", "PLANNING", "TARGETING", "CONFIRM",
+        "OFF", "EXPLORE", "PLANNING", "TARGETING", "CONFIRM",
         "PULSE", "REACTION", "ROUND_END"
     };
     const char *st = (turnctrl.state >= 0 && turnctrl.state <= TS_ROUND_END)

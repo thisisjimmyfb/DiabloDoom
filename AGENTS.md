@@ -52,11 +52,17 @@ title with `~/workspace/doom/wshot.py` — with `window_width 1280` /
 1. **Explore/combat mode split.** The fork is NOT always turn-based.
    EXPLORE mode is free real-time movement (WASD + arrows via the normal
    Doom input path, `P_Ticker`); enemies are frozen (`P_MobjThinker`
-   skips non-player `MF_COUNTKILL`). Spotting a real combatant
-   (`T_IsCombatant`: has melee/missile attack state) triggers COMBAT:
-   the turn controller takes over (queue/FIFO, 10 TP). No visible
-   combatants at round end returns to EXPLORE. Barrels never trigger
-   combat but stay in the Tab target list. There is no `-turnbased` flag.
+   skips non-player `MF_COUNTKILL`). Combat triggers when an enemy AI
+   **acquires the player as its target** (`T_ExploreDetect()`, throttled
+   to every 7 explore tics): sight within the monster's front 180-degree
+   arc, or hearing a shot for non-deaf monsters — mirroring vanilla
+   `A_Look` minus movement/attacks. The player merely seeing an enemy
+   only drives the HUD markers. Unseen-but-acquired enemies telegraph
+   ("X is hunting you!") before the first enemy phase. Leaving combat
+   clears every monster's target and stale sector noise, so the next
+   encounter starts clean. No visible combatants at round end returns to
+   EXPLORE. Barrels never trigger combat but stay in the Tab target list.
+   There is no `-turnbased` flag.
 2. **No scalar input, ever** (Jimmy's words: *"We shouldn't have actions
    that require scalar input because that will be too difficult to aim."*).
    Turn-mode actions are discrete: directions and actor IDs only. No
