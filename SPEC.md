@@ -202,7 +202,7 @@ consuming an item does. Grid organization stays free.
 |--------|----------------------|---------------------------------------------------------|
 | AD     | Attack Damage        | Scales ballistic, explosive, melee. Strength feeds AD.  |
 | AP     | Ability Power        | Scales plasma, BFG, status, charged effects. Energy feeds AP. |
-| AS     | Attack Speed         | Reduces TP attack cost / shots per burst; hard floors prevent zero-cost attacks. |
+| AS     | Attack Speed         | Reduces melee TP attack cost; ranged attacks are TP-free (ammo-gated). |
 | Haste  | Cooldown recovery    | Shortens cooldowns by a displayed, rounded turn count.  |
 | Crit   | Chance + damage      | Gear-inherent (Diablo-style): weapons/items grant crit chance and bonus crit damage. Base crits deal x2; each crit-damage point adds 1%. Chance caps at 50%. Crit is rolled exactly once per attack inside `T_ResolveAttack` (deterministic turn RNG, once-per-attack pellet semantics); the legacy `P_DamageMobj` crit hook is bypassed in turn mode so crits can never double-roll. |
 | Armor  | Physical defense     | Diminishing-returns reduction of AD-tagged damage.      |
@@ -280,11 +280,10 @@ weapon with a magazine requires ammo to fire (`T_KitCanFire` checks it;
 
 - **AD weapons** replenish from **attack speed**: each round the
   magazine regenerates attack-speed attacks' worth of ammo
-  (`T_KitRegenAmmo`) — attacks-per-round at the weapon's effective
-  (DEX-reduced) TP cost, times ammo cost. Your attack speed feeds the
-  magazine, so sustained fire at your attack-speed pace never runs dry;
-  the magazine is a burst buffer for bonus attacks (e.g. Reaper TP
-  refunds).
+  (`T_KitRegenAmmo`). Ranged attacks cost 0 TP -- ammo is the limiter,
+  so a round can dump the whole magazine; the magazine is a burst
+  buffer (e.g. Reaper TP refunds). Melee (fists, chainsaw) still costs
+  TP per attack, reduced by attack speed.
 - **AP weapons** replenish from **cooldown**: SSG/BFG refill to full
   the moment their cooldown completes (`T_RefillOnCooldownReady`,
   hooked in `T_KitTickCooldowns`); the rocket loads one attack's worth

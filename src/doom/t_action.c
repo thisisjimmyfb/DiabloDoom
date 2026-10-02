@@ -40,6 +40,8 @@
 // ------------------------------------------------------------------
 
 // Derived attack cost (Phase 5): kit base TP, reduced by attack speed.
+// Ranged weapons cost 0 TP -- ammo (or heat) is the limiter, so a round
+// can dump the whole magazine. Melee weapons (fists, chainsaw) cost TP.
 int T_AttackCost(void)
 {
     const t_kitdef_t *kit;
@@ -48,6 +50,9 @@ int T_AttackCost(void)
     int cost;
     if (!T_Active() || player->mo == NULL)
         return 4;
+    // Ranged: TP-free, ammo-gated.
+    if (player->readyweapon != wp_fist && player->readyweapon != wp_chainsaw)
+        return 0;
     kit = T_KitForWeapon(player->readyweapon);
     T_DeriveStats(player, &st);
     // AS reduces the kit cost: -1 per 20 dex above 10, floor 2.

@@ -76,6 +76,8 @@ title with `~/workspace/doom/wshot.py` — with `window_width 1280` /
    Every weapon with a magazine requires ammo to fire (`T_KitCanFire`,
    deny `NO AMMO`); costs validated when the attack is queued
    (`NEED n AMMO (HAVE m).`), deducted when it executes (`T_KitSpendAmmo`).
+   Ranged attacks cost 0 TP -- ammo (or heat) is the limiter, so a round
+   can dump the whole magazine. Melee (fists, chainsaw) costs TP per attack.
    Capacities/costs: pistol 10/1, shotgun 20/2, chaingun 10/1, chainsaw 6/1,
    rocket 20/10, SSG 8/8, BFG 20/20. Plasma has no magazine — heat is its
    ammo. AD weapons regen attack-speed attacks' worth of ammo per round
@@ -145,7 +147,7 @@ Turn mode (queued actions, FIFO — combat only, triggered by spotting an
 enemy): W/S step forward/back, A/D strafe
 (1 TP, never change facing) · left/right arrows turn view 45° (free,
 immediate, never queued) · SPACE use (2 TP) ·
-F attack via preview-confirm (TP by attack speed) · T end turn (drains
+F attack via preview-confirm (0 TP ranged, TP by attack speed melee) · T end turn (drains
 queue FIFO, then enemy phase) · Backspace undo last queued action
 (free, refunds TP) · Z clear queue (free, refunds all TP) · C inventory
 (free, always available in rounds) · Tab / [
