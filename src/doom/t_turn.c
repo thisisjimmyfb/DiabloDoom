@@ -614,9 +614,10 @@ static void T_EndPulse(void)
     }
     else if (turnctrl.executing)
     {
-        // Queue drain: run the next entry; when the queue is fully
-        // drained T_ExecuteNext starts the enemy phase itself.
-        T_ExecuteNext();
+        // Queue drain: in replay mode the T_Ticker drives the 3-tic
+        // replay, so just return to planning state and let the ticker
+        // resume. (Legacy instant-drain via T_ExecuteNext is unused.)
+        turnctrl.state = TS_PLANNING;
     }
     else
     {
@@ -675,6 +676,23 @@ void T_Ticker(void)
     {
         T_MaintainView();
         T_TopUpAmmo();
+    }
+
+    // First-person replay: 3 tics per queued action. The camera teleported
+    // back to the turn start at END TURN; now step through the queue visibly.
+    // Pauses during settle pulses (T_ExecuteOne returns true).
+    if (turnctrl.executing && turnctrl.state != TS_PULSE
+        && turnctrl.state != TS_REACTION)
+    {
+        turnctrl.replay_tic++;
+        if (turnctrl.replay_tic % 3 == 1)
+        {
+            // T_ExecuteOne starts a pulse on moves/attacks; the pulse
+            // runs via the block below, then T_EndPulse resumes us.
+            T_ExecuteOne();
+        }
+        T_MaintainView();
+        return;
     }
 
     if (turnctrl.state == TS_PULSE || turnctrl.state == TS_REACTION)

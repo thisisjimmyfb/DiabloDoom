@@ -682,9 +682,24 @@ void T_DoEndTurn(void)
     }
     else
     {
+        player_t *player = &players[consoleplayer];
         turnctrl.executing = true;
-        players[consoleplayer].message = "Executing queued actions...";
-        T_ExecuteNext();
+        // First-person replay: teleport back to the turn start, then
+        // replay the queue at 3 tics per action (tick-driven).
+        if (player->mo != NULL)
+        {
+            turnctrl.replay_start_x = player->mo->x;
+            turnctrl.replay_start_y = player->mo->y;
+            turnctrl.replay_start_angle = player->mo->angle;
+            // Planning doesn't move the player, so we're already at
+            // the start; the assignment is belt and braces.
+            player->mo->x = turnctrl.replay_start_x;
+            player->mo->y = turnctrl.replay_start_y;
+            player->mo->angle = turnctrl.replay_start_angle;
+        }
+        turnctrl.replay_tic = 0;
+        players[consoleplayer].message = "Replaying queued actions...";
+        // Drain is tick-driven via T_Ticker (3 tics/action).
     }
     T_DumpState("end-turn");
 }
@@ -694,39 +709,54 @@ void T_DoEndTurn(void)
 // T_EndPulse; gracefully skipped entries return false and the drain
 // continues inline. When the queue is fully drained, the enemy phase
 // begins. Called from T_DoEndTurn and T_EndPulse.
+// Execute a single queue entry. Returns true if it started a settle
+// pulse (drain pauses until T_EndPulse), false otherwise. When the
+// queue is empty, ends the replay and begins the enemy phase.
+boolean T_ExecuteOne(void)
+{
+    t_queueentry_t e;
+    int i;
+    boolean pulsed;
+
+    if (turnctrl.queue_len == 0)
+    {
+        turnctrl.executing = false;
+        T_BeginEnemyPhase();
+        return false;
+    }
+
+    e = turnctrl.queue[0];
+    for (i = 1; i < turnctrl.queue_len; i++)
+        turnctrl.queue[i - 1] = turnctrl.queue[i];
+    turnctrl.queue_len--;
+    // TP was reserved at enqueue; the reservation now funds this
+    // execution. A skipped action refunds it (see executors).
+    turnctrl.queue_tp -= e.cost;
+
+    switch (e.action)
+    {
+      case TA_MOVE_N: case TA_MOVE_S:
+      case TA_MOVE_E: case TA_MOVE_W:
+        pulsed = T_ExecMove(e.moveangle);
+        break;
+      case TA_ATTACK:
+        pulsed = T_ExecAttack(e.target, e.cost);
+        break;
+      case TA_USE:
+        pulsed = T_ExecUse();
+        break;
+      default:
+        pulsed = false;
+        break;
+    }
+    return pulsed;
+}
+
 void T_ExecuteNext(void)
 {
     while (turnctrl.queue_len > 0)
     {
-        t_queueentry_t e;
-        int i;
-        boolean pulsed;
-
-        e = turnctrl.queue[0];
-        for (i = 1; i < turnctrl.queue_len; i++)
-            turnctrl.queue[i - 1] = turnctrl.queue[i];
-        turnctrl.queue_len--;
-        // TP was reserved at enqueue; the reservation now funds this
-        // execution. A skipped action refunds it (see executors).
-        turnctrl.queue_tp -= e.cost;
-
-        switch (e.action)
-        {
-          case TA_MOVE_N: case TA_MOVE_S:
-          case TA_MOVE_E: case TA_MOVE_W:
-            pulsed = T_ExecMove(e.moveangle);
-            break;
-          case TA_ATTACK:
-            pulsed = T_ExecAttack(e.target, e.cost);
-            break;
-          case TA_USE:
-            pulsed = T_ExecUse();
-            break;
-          default:
-            pulsed = false;
-            break;
-        }
-        if (pulsed)
+        if (T_ExecuteOne())
             return; // T_EndPulse resumes the drain
     }
     // Fully drained (skips included): the enemy phase runs as usual.

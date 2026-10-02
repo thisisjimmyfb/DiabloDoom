@@ -100,6 +100,12 @@ typedef struct
     // released. Prevents a held W (explore movement) from queueing a
     // full turn of steps the moment combat triggers.
     boolean stale_keys[256];
+    // First-person replay: after END TURN, the camera teleports back to
+    // the turn start and replays the queue at 3 tics per action.
+    int replay_tic;         // tics since replay started
+    fixed_t replay_start_x; // player x at turn start
+    fixed_t replay_start_y; // player y at turn start
+    angle_t replay_start_angle; // player angle at turn start
 } turnctrl_t;
 
 extern turnctrl_t turnctrl;
@@ -190,6 +196,7 @@ void T_DoEndTurn(void);
 void T_DoUndoQueue(void);  // Backspace: undo last queued action, refund TP
 void T_DoClearQueue(void); // Z: clear the whole queue, refund all TP
 void T_ExecuteNext(void);  // run the next queued entry (queue drain)
+boolean T_ExecuteOne(void); // run a single queued entry (3-tick replay)
 void T_BeginEnemyPhase(void);
 void T_QueueEntryName(const t_queueentry_t *e, char *buf, size_t buflen);
 const char *T_TargetName(mobj_t *mo);
