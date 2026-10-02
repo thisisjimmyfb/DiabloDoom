@@ -96,6 +96,10 @@ typedef struct
     boolean pulse_enemy;    // this pulse is the enemy phase
     boolean sync;           // run pulses synchronously (script harness)
     boolean firing;         // hold BT_ATTACK during the current pulse
+    // Keys held when combat started: ignore their keydown repeats until
+    // released. Prevents a held W (explore movement) from queueing a
+    // full turn of steps the moment combat triggers.
+    boolean stale_keys[256];
 } turnctrl_t;
 
 extern turnctrl_t turnctrl;

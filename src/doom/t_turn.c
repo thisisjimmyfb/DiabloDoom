@@ -14,6 +14,7 @@
 #include "d_diablo.h"
 #include "doomstat.h"
 #include "doomdef.h"
+#include "doomkeys.h"
 #include "d_player.h"
 #include "d_think.h"
 #include "d_main.h"
@@ -334,6 +335,13 @@ void T_EnterExplore(void)
 void T_EnterCombat(mobj_t *spotter)
 {
     static char msg[96];
+    // Movement keys that might be held from explore mode. Their key
+    // repeats are stale -- the player must release and re-press to act.
+    static const int move_keys[] = {
+        'w', 'a', 's', 'd', 'W', 'A', 'S', 'D',
+        KEY_UPARROW, KEY_DOWNARROW, KEY_LEFTARROW, KEY_RIGHTARROW
+    };
+    unsigned int i;
 
     turnctrl.state = TS_PLANNING;
     turnctrl.round = 1;
@@ -342,6 +350,11 @@ void T_EnterCombat(mobj_t *spotter)
     turnctrl.queue_tp = 0;
     turnctrl.selected_target = -1;
     turnctrl.executing = false;
+    // Stale-key guard: ignore held movement keys until released.
+    memset(turnctrl.stale_keys, 0, sizeof(turnctrl.stale_keys));
+    for (i = 0; i < sizeof(move_keys) / sizeof(move_keys[0]); i++)
+        if (move_keys[i] >= 0 && move_keys[i] < 256)
+            turnctrl.stale_keys[move_keys[i]] = true;
     // The surprise, named: whoever acquired the player gets the callout.
     if (spotter != NULL)
         M_snprintf(msg, sizeof(msg),

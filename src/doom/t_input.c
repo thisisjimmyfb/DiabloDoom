@@ -150,6 +150,17 @@ boolean T_Responder(event_t *ev)
     if (T_InPulse())
         return T_KeyMapped(ev->data1);
 
+    // Stale-key guard: a key held when combat started must be released
+    // before it can act. Clear the stale flag on keyup; swallow keydown
+    // repeats while stale.
+    if (ev->data1 >= 0 && ev->data1 < 256)
+    {
+        if (ev->type == ev_keyup)
+            turnctrl.stale_keys[ev->data1] = false;
+        else if (turnctrl.stale_keys[ev->data1])
+            return true; // swallow stale held-key repeat
+    }
+
     if (ev->type == ev_keyup)
         return T_KeyMapped(ev->data1); // swallow key releases of our keys
 
