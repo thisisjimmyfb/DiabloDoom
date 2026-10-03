@@ -48,7 +48,7 @@ static turnaction_t T_KeyAction(int key)
       case 'z': case 'Z': case '.':             return TA_CLEAR_QUEUE;
       case KEY_TAB: case ']':                   return TA_SELECT_NEXT;
       case '[':                                return TA_SELECT_PREV;
-      case 'f': case 'F': case KEY_ENTER:       return TA_ATTACK;
+      case KEY_RCTRL: case KEY_ENTER:           return TA_ATTACK;
       case KEY_ESCAPE:                         return TA_CANCEL;
       case '1': case '2': case '3':
       case '4': case '5': case '6':
@@ -126,7 +126,7 @@ boolean T_Responder(event_t *ev)
               case 't': case 'T':
                 // No turn to end outside combat.
                 return true;
-              case 'f': case 'F':
+              case KEY_RCTRL:
               case KEY_TAB: case ']': case '[':
                 // Targeting/attack need combat; ignore in explore.
                 return true;

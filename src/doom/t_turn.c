@@ -1101,12 +1101,12 @@ static void T_DrawActionList(void)
             else if (!strcmp(reason, "NO MANA"))
                 shortr = "MANA";
         }
-        T_DrawActionRow(x, &y, "F", "ATTACK", TA_ATTACK, shortr);
+        T_DrawActionRow(x, &y, "CTRL", "ATTACK", TA_ATTACK, shortr);
     }
     else
     {
         M_snprintf(cost, sizeof(cost), "%dTP", T_CostFor(TA_ATTACK));
-        T_DrawActionRow(x, &y, "F", "ATTACK", TA_ATTACK, cost);
+        T_DrawActionRow(x, &y, "CTRL", "ATTACK", TA_ATTACK, cost);
     }
     T_DrawActionRow(x, &y, "BKSP", "UNDO", TA_UNDO, "FREE");
     T_DrawActionRow(x, &y, "Z", "CLEARQ", TA_CLEAR_QUEUE, "FREE");
