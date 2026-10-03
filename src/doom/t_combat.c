@@ -460,7 +460,18 @@ void T_KitLoadCadence(const int *cool, const int *heat,
 static void T_RefillOnCooldownReady(weapontype_t w)
 {
     if (t_kits[w].cooldown > 0 && t_kits[w].ammo_max > 0)
+    {
         t_ammo[w] = t_kits[w].ammo_max;
+        // Announce when a cooldown weapon refills, so the BFG doesn't
+        // feel broken during its long recharge.
+        if (w == players[consoleplayer].readyweapon)
+        {
+            static char msg[64];
+            M_snprintf(msg, sizeof(msg), "%s READY!",
+                       T_KitForWeapon(w)->name);
+            players[consoleplayer].message = msg;
+        }
+    }
 }
 
 void T_KitTickCooldowns(void)
@@ -522,8 +533,14 @@ boolean T_KitCanFire(weapontype_t w)
 const char *T_KitDenyReason(weapontype_t w)
 {
     const t_kitdef_t *kit = T_KitForWeapon(w);
+    static char cooldown_msg[32];
     if (T_KitCooldown(w) > 0)
-        return "ON COOLDOWN";
+    {
+        // Show rounds remaining so slow weapons (BFG) don't feel broken.
+        M_snprintf(cooldown_msg, sizeof(cooldown_msg),
+                   "COOLDOWN (%d)", T_KitCooldown(w));
+        return cooldown_msg;
+    }
     if (kit->max_charges > 0 && T_KitCharges(w) <= 0)
         return "NO CHARGES";
     if (kit->heat_per_shot > 0 && T_KitHeat(w) >= T_KitHeatMax())
