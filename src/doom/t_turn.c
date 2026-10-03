@@ -699,12 +699,21 @@ void T_Ticker(void)
     if (turnctrl.executing && turnctrl.state != TS_PULSE
         && turnctrl.state != TS_REACTION)
     {
-        turnctrl.replay_tic++;
-        if (turnctrl.replay_tic % 3 == 1)
+        // Countdown: 3 tics per action. When it hits 0, execute one entry
+        // and reset. This is simpler and more robust than modulo arithmetic.
+        if (turnctrl.replay_tic <= 0)
         {
             // T_ExecuteOne starts a pulse on moves/attacks; the pulse
             // runs via the block below, then T_EndPulse resumes us.
             T_ExecuteOne();
+            // Only reset the delay if we're still executing (queue not empty).
+            // If the queue drained, T_ExecuteOne started the enemy phase.
+            if (turnctrl.executing)
+                turnctrl.replay_tic = 3;
+        }
+        else
+        {
+            turnctrl.replay_tic--;
         }
         T_MaintainView();
         return;
