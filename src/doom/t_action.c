@@ -718,12 +718,15 @@ void T_DoEndTurn(void)
         player_t *player = &players[consoleplayer];
         turnctrl.executing = true;
         // First-person replay: teleport back to the turn start, then
-        // replay the queue at 3 tics per action (tick-driven).
+        // replay the queue. Unlink/relink the mobj so the sector link
+        // stays valid for P_TryMove during the replay.
         if (player->mo != NULL)
         {
+            P_UnsetThingPosition(player->mo);
             player->mo->x = turnctrl.turn_start_x;
             player->mo->y = turnctrl.turn_start_y;
             player->mo->angle = turnctrl.turn_start_angle;
+            P_SetThingPosition(player->mo);
             turnctrl.replay_start_x = turnctrl.turn_start_x;
             turnctrl.replay_start_y = turnctrl.turn_start_y;
             turnctrl.replay_start_angle = turnctrl.turn_start_angle;
@@ -864,11 +867,15 @@ void T_DoClearQueue(void)
     turnctrl.queue_tp = 0;
     turnctrl.queue_len = 0;
     // Preview: teleport the camera back to the turn start.
+    // Unlink/relink so the sector link stays valid.
     if (players[consoleplayer].mo != NULL)
     {
-        players[consoleplayer].mo->x = turnctrl.turn_start_x;
-        players[consoleplayer].mo->y = turnctrl.turn_start_y;
-        players[consoleplayer].mo->angle = turnctrl.turn_start_angle;
+        mobj_t *mo = players[consoleplayer].mo;
+        P_UnsetThingPosition(mo);
+        mo->x = turnctrl.turn_start_x;
+        mo->y = turnctrl.turn_start_y;
+        mo->angle = turnctrl.turn_start_angle;
+        P_SetThingPosition(mo);
     }
     M_snprintf(msg, sizeof(msg), "Queue cleared (+%d TP).", refund);
     players[consoleplayer].message = msg;
