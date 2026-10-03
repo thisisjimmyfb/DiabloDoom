@@ -631,7 +631,11 @@ static void T_EndPulse(void)
     {
         // Queue drain: run the next entry; when the queue is fully
         // drained T_ExecuteNext starts the enemy phase itself.
+        printf("[TURN] EndPulse: resuming drain (qlen=%d exec=%d)\n",
+               turnctrl.queue_len, turnctrl.executing);
         T_ExecuteNext();
+        printf("[TURN] EndPulse: drain returned (qlen=%d exec=%d state=%d)\n",
+               turnctrl.queue_len, turnctrl.executing, turnctrl.state);
     }
     else
     {

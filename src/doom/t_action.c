@@ -787,11 +787,18 @@ boolean T_ExecuteOne(void)
 
 void T_ExecuteNext(void)
 {
+    printf("[TURN] ExecuteNext enter: qlen=%d exec=%d state=%d\n",
+           turnctrl.queue_len, turnctrl.executing, turnctrl.state);
     while (turnctrl.queue_len > 0)
     {
         if (T_ExecuteOne())
+        {
+            printf("[TURN] ExecuteNext: pulsed, returning (qlen=%d)\n",
+                   turnctrl.queue_len);
             return; // T_EndPulse resumes the drain
+        }
     }
+    printf("[TURN] ExecuteNext: drained, qlen=%d\n", turnctrl.queue_len);
     // Fully drained (skips included): the enemy phase runs as usual.
     turnctrl.executing = false;
     T_BeginEnemyPhase();
