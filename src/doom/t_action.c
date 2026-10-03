@@ -730,7 +730,9 @@ void T_DoEndTurn(void)
         }
         turnctrl.replay_tic = 0;
         players[consoleplayer].message = "Replaying queued actions...";
-        // Drain is tick-driven via T_Ticker (3 tics/action).
+        // Drain via the original pulse mechanism: T_ExecuteNext processes
+        // one entry, settle pulses (3 tics) make each step visible.
+        T_ExecuteNext();
     }
     T_DumpState("end-turn");
 }
