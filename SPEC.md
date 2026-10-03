@@ -167,9 +167,15 @@ pulse.
    the total reserved TP. Unaffordable actions are dimmed and cannot be
    queued. Backspace removes the last entry (refunds TP); Z clears the
    whole queue (refunds all TP).
-4. **Execute** — END TURN drains the queue FIFO: each entry runs with its
-   normal settle behavior, then the enemy phase runs. An empty queue
-   skips straight to the enemy phase.
+4. **Execute** — END TURN teleports the camera back to the turn start,
+   then replays the queue FIFO in first-person at 3 tics per action
+   (tick-driven, not instant): each entry runs with its normal settle
+   behavior, then the enemy phase runs. An empty queue skips straight
+   to the enemy phase.
+5. **Preview** — during planning, the first-person camera follows queued
+   moves (no game logic, just the view), so the player sees where the
+   queue goes before committing. UNDO steps the camera back; Z clears
+   the queue and resets the camera to the turn start.
 
 **Queue rules:**
 - Movement entries snapshot their world-space direction at queue time
