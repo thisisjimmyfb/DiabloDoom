@@ -759,6 +759,8 @@ boolean T_ExecuteOne(void)
     }
 
     e = turnctrl.queue[0];
+    printf("[TURN] ExecuteOne: action=%d cost=%d moveangle=%u qlen=%d\n",
+           e.action, e.cost, (unsigned)e.moveangle, turnctrl.queue_len);
     for (i = 1; i < turnctrl.queue_len; i++)
         turnctrl.queue[i - 1] = turnctrl.queue[i];
     turnctrl.queue_len--;
@@ -770,7 +772,10 @@ boolean T_ExecuteOne(void)
     {
       case TA_MOVE_N: case TA_MOVE_S:
       case TA_MOVE_E: case TA_MOVE_W:
+        printf("[TURN] ExecuteOne: calling T_ExecMove(angle=%u)\n",
+               (unsigned)e.moveangle);
         pulsed = T_ExecMove(e.moveangle);
+        printf("[TURN] ExecuteOne: T_ExecMove returned %d\n", pulsed);
         break;
       case TA_ATTACK:
         pulsed = T_ExecAttack(e.target, e.cost);
@@ -779,6 +784,7 @@ boolean T_ExecuteOne(void)
         pulsed = T_ExecUse();
         break;
       default:
+        printf("[TURN] ExecuteOne: unknown action %d, skipping\n", e.action);
         pulsed = false;
         break;
     }
