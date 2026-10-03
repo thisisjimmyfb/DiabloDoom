@@ -762,8 +762,6 @@ boolean T_ExecuteOne(void)
     }
 
     e = turnctrl.queue[0];
-    printf("[TURN] ExecuteOne: action=%d cost=%d moveangle=%u qlen=%d\n",
-           e.action, e.cost, (unsigned)e.moveangle, turnctrl.queue_len);
     for (i = 1; i < turnctrl.queue_len; i++)
         turnctrl.queue[i - 1] = turnctrl.queue[i];
     turnctrl.queue_len--;
@@ -775,10 +773,7 @@ boolean T_ExecuteOne(void)
     {
       case TA_MOVE_N: case TA_MOVE_S:
       case TA_MOVE_E: case TA_MOVE_W:
-        printf("[TURN] ExecuteOne: calling T_ExecMove(angle=%u)\n",
-               (unsigned)e.moveangle);
         pulsed = T_ExecMove(e.moveangle);
-        printf("[TURN] ExecuteOne: T_ExecMove returned %d\n", pulsed);
         break;
       case TA_ATTACK:
         pulsed = T_ExecAttack(e.target, e.cost);
@@ -787,7 +782,6 @@ boolean T_ExecuteOne(void)
         pulsed = T_ExecUse();
         break;
       default:
-        printf("[TURN] ExecuteOne: unknown action %d, skipping\n", e.action);
         pulsed = false;
         break;
     }
@@ -796,18 +790,11 @@ boolean T_ExecuteOne(void)
 
 void T_ExecuteNext(void)
 {
-    printf("[TURN] ExecuteNext enter: qlen=%d exec=%d state=%d\n",
-           turnctrl.queue_len, turnctrl.executing, turnctrl.state);
     while (turnctrl.queue_len > 0)
     {
         if (T_ExecuteOne())
-        {
-            printf("[TURN] ExecuteNext: pulsed, returning (qlen=%d)\n",
-                   turnctrl.queue_len);
             return; // T_EndPulse resumes the drain
-        }
     }
-    printf("[TURN] ExecuteNext: drained, qlen=%d\n", turnctrl.queue_len);
     // Fully drained (skips included): the enemy phase runs as usual.
     turnctrl.executing = false;
     T_BeginEnemyPhase();
