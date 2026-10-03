@@ -350,6 +350,13 @@ void T_EnterCombat(mobj_t *spotter)
     turnctrl.queue_tp = 0;
     turnctrl.selected_target = -1;
     turnctrl.executing = false;
+    // Anchor the preview at combat entry.
+    if (players[consoleplayer].mo != NULL)
+    {
+        turnctrl.turn_start_x = players[consoleplayer].mo->x;
+        turnctrl.turn_start_y = players[consoleplayer].mo->y;
+        turnctrl.turn_start_angle = players[consoleplayer].mo->angle;
+    }
     // Stale-key guard: ignore held movement keys until released.
     memset(turnctrl.stale_keys, 0, sizeof(turnctrl.stale_keys));
     for (i = 0; i < sizeof(move_keys) / sizeof(move_keys[0]); i++)
@@ -594,6 +601,14 @@ static void T_EndPulse(void)
         // cooldown completion / charge regen (hooked in the tick above).
         T_KitRegenAmmo();
         turnctrl.state = TS_PLANNING;
+        // Anchor the preview: turn start is the camera home for queue
+        // previews, UNDO/CLEAR resets, and the END TURN teleport-back.
+        if (players[consoleplayer].mo != NULL)
+        {
+            turnctrl.turn_start_x = players[consoleplayer].mo->x;
+            turnctrl.turn_start_y = players[consoleplayer].mo->y;
+            turnctrl.turn_start_angle = players[consoleplayer].mo->angle;
+        }
         // Combat exit: no visible combatants left -> back to explore.
         T_RefreshTargets();
         if (T_NumCombatants() == 0)

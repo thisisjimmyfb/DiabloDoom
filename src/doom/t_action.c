@@ -230,6 +230,11 @@ static boolean T_Enqueue(turnaction_t action, int cost, angle_t moveangle,
     printf("[TURN] enqueued %s cost=%d tp_left=%d qlen=%d\n",
            name, cost, turnctrl.tp, turnctrl.queue_len);
     T_DumpState("enqueue");
+    // Preview: reflect queued moves in the first-person camera immediately,
+    // so the player sees where the queue goes before END TURN commits.
+    if (action == TA_MOVE_N || action == TA_MOVE_S
+        || action == TA_MOVE_E || action == TA_MOVE_W)
+        T_PreviewMove(moveangle);
     return true;
 }
 
@@ -551,6 +556,29 @@ void T_DoMove(int dir)
     T_Enqueue(kinds[dir], T_CostFor(TA_MOVE_N), moveangle, NULL);
 }
 
+// Preview: move the player mobj along a world-space angle without any
+// game logic (no pulse, no TP). Used during planning so the first-person
+// camera reflects queued moves before END TURN commits them.
+static void T_PreviewMove(angle_t moveangle)
+{
+    player_t *player = &players[consoleplayer];
+    mobj_t *mo = player->mo;
+    fixed_t dx, dy;
+    int k;
+
+    if (mo == NULL)
+        return;
+    dx = FixedMul(STEP_LEN, finecosine[moveangle >> ANGLETOFINESHIFT]);
+    dy = FixedMul(STEP_LEN, finesine[moveangle >> ANGLETOFINESHIFT]);
+    for (k = 0; k < STEP_SUB; k++)
+    {
+        if (!P_TryMove(mo, mo->x + dx, mo->y + dy))
+            break;
+    }
+    mo->momx = mo->momy = 0;
+    mo->momz = 0;
+}
+
 // Executor: step along a snapshotted world-space angle. Collision-
 // aware with partial progress (sub-steps avoid tunneling through thin
 // lines). Returns true: a settle pulse was begun.
@@ -688,14 +716,12 @@ void T_DoEndTurn(void)
         // replay the queue at 3 tics per action (tick-driven).
         if (player->mo != NULL)
         {
-            turnctrl.replay_start_x = player->mo->x;
-            turnctrl.replay_start_y = player->mo->y;
-            turnctrl.replay_start_angle = player->mo->angle;
-            // Planning doesn't move the player, so we're already at
-            // the start; the assignment is belt and braces.
-            player->mo->x = turnctrl.replay_start_x;
-            player->mo->y = turnctrl.replay_start_y;
-            player->mo->angle = turnctrl.replay_start_angle;
+            player->mo->x = turnctrl.turn_start_x;
+            player->mo->y = turnctrl.turn_start_y;
+            player->mo->angle = turnctrl.turn_start_angle;
+            turnctrl.replay_start_x = turnctrl.turn_start_x;
+            turnctrl.replay_start_y = turnctrl.turn_start_y;
+            turnctrl.replay_start_angle = turnctrl.turn_start_angle;
         }
         turnctrl.replay_tic = 0;
         players[consoleplayer].message = "Replaying queued actions...";
@@ -792,6 +818,10 @@ void T_DoUndoQueue(void)
     players[consoleplayer].message = msg;
     printf("[TURN] undo %s refund=%d tp=%d qlen=%d\n",
            name, e->cost, turnctrl.tp, turnctrl.queue_len);
+    // Preview: reverse the undone move so the camera steps back.
+    if (e->action == TA_MOVE_N || e->action == TA_MOVE_S
+        || e->action == TA_MOVE_E || e->action == TA_MOVE_W)
+        T_PreviewMove(e->moveangle + ANG180);
     T_DumpState("undo");
 }
 
@@ -813,6 +843,13 @@ void T_DoClearQueue(void)
     turnctrl.tp += refund;
     turnctrl.queue_tp = 0;
     turnctrl.queue_len = 0;
+    // Preview: teleport the camera back to the turn start.
+    if (players[consoleplayer].mo != NULL)
+    {
+        players[consoleplayer].mo->x = turnctrl.turn_start_x;
+        players[consoleplayer].mo->y = turnctrl.turn_start_y;
+        players[consoleplayer].mo->angle = turnctrl.turn_start_angle;
+    }
     M_snprintf(msg, sizeof(msg), "Queue cleared (+%d TP).", refund);
     players[consoleplayer].message = msg;
     printf("[TURN] clear queue refund=%d tp=%d\n", refund, turnctrl.tp);

@@ -106,6 +106,11 @@ typedef struct
     fixed_t replay_start_x; // player x at turn start
     fixed_t replay_start_y; // player y at turn start
     angle_t replay_start_angle; // player angle at turn start
+    // Preview: during planning, the camera follows queued moves so the
+    // player sees where the queue goes. Turn start is the anchor.
+    fixed_t turn_start_x;
+    fixed_t turn_start_y;
+    angle_t turn_start_angle;
 } turnctrl_t;
 
 extern turnctrl_t turnctrl;
