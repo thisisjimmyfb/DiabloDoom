@@ -188,6 +188,11 @@ void T_QueueEntryName(const t_queueentry_t *e, char *buf, size_t buflen)
     }
 }
 
+// Preview: move the player mobj along a world-space angle without any
+// game logic (no pulse, no TP). Used during planning so the first-person
+// camera reflects queued moves before END TURN commits them.
+static void T_PreviewMove(angle_t moveangle);
+
 // Append an action to the queue, reserving its TP. Snapshots (world-
 // space move angle, target actor) are taken by the caller at queue time.
 static boolean T_Enqueue(turnaction_t action, int cost, angle_t moveangle,
