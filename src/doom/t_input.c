@@ -161,6 +161,12 @@ boolean T_Responder(event_t *ev)
             return true; // swallow stale held-key repeat
     }
 
+    // Debug: log Ctrl key events.
+    if (ev->data1 == KEY_RCTRL)
+        printf("[TURN] Ctrl %s: state=%d executing=%d targeting=%d\n",
+               ev->type == ev_keydown ? "down" : "up",
+               turnctrl.state, turnctrl.executing, turnctrl.ctrl_targeting);
+
     if (ev->type == ev_keyup)
     {
         // Hold-Ctrl targeting: release confirms the selection.
