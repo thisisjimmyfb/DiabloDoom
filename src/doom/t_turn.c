@@ -165,6 +165,20 @@ static mobj_t *T_ExploreDetect(void)
         if (!P_CheckSight(mo, player->mo))
             continue;
 
+        // Don't start combat until the player can see the spotter.
+        // Prevents entering turn based combat mode through a half-open
+        // door when the enemy isn't in view. The player must be facing
+        // roughly toward the monster (within ±60 degrees).
+        an = R_PointToAngle2(player->mo->x, player->mo->y,
+                             mo->x, mo->y) - player->mo->angle;
+        // an is unsigned: 0 = ahead. Get the absolute angular distance
+        // via wraparound. ANG60 = ANG90 * 2 / 3.
+        {
+            angle_t diff = an > ANG180 ? (0 - an) : an;
+            if (diff > ANG90 * 2 / 3)
+                continue;
+        }
+
         T_SpotPlayer(mo);
         if (spotter == NULL)
             spotter = mo;
