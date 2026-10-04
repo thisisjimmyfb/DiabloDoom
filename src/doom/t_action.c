@@ -952,19 +952,18 @@ void T_StartCtrlTargeting(void)
         return;
     }
     T_RefreshTargets();
-    if (T_NumTargets() == 0)
-    {
-        // If mini-combat found nothing, bail back to explore.
-        if (turnctrl.mini_combat)
-        {
-            turnctrl.mini_combat = false;
-            turnctrl.state = TS_EXPLORE;
-        }
-        players[consoleplayer].message = "No visible targets.";
-        return;
-    }
+    // Allow entering targeting mode even with no targets — the player
+    // can hold Ctrl to look for targets, arrows do nothing until one
+    // appears.
     turnctrl.ctrl_held = true;
     turnctrl.ctrl_targeting = true;
+    if (T_NumTargets() == 0)
+    {
+        players[consoleplayer].message = "No visible targets. (holding CTRL)";
+        // Don't enter TS_TARGETING, stay in current state, but allow
+        // arrows to check for new targets.
+        return;
+    }
     T_EnterTargeting(0);
     // Snap camera to the first target.
     target = T_TargetMobj(turnctrl.selected_target);
