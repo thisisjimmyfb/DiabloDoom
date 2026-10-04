@@ -880,7 +880,12 @@ static void T_EnterTargeting(int idx)
     T_RefreshTargets();
     if (T_NumTargets() == 0)
     {
-        players[consoleplayer].message = "No visible targets.";
+        // Enter targeting mode even with no targets — the player can
+        // hold Ctrl and navigate as targets appear.
+        turnctrl.selected_target = -1;
+        turnctrl.state = TS_TARGETING;
+        players[consoleplayer].message = "No visible targets. (arrows to scan)";
+        T_DumpState("select-empty");
         return;
     }
     if (idx < 0)
@@ -952,24 +957,19 @@ void T_StartCtrlTargeting(void)
         return;
     }
     T_RefreshTargets();
-    // Allow entering targeting mode even with no targets — the player
-    // can hold Ctrl to look for targets, arrows do nothing until one
-    // appears.
+    // Enter targeting mode even with no targets — the player can hold
+    // Ctrl to look for targets, arrows scan as they appear.
     turnctrl.ctrl_held = true;
     turnctrl.ctrl_targeting = true;
-    if (T_NumTargets() == 0)
-    {
-        players[consoleplayer].message = "No visible targets. (holding CTRL)";
-        // Don't enter TS_TARGETING, stay in current state, but allow
-        // arrows to check for new targets.
-        return;
-    }
     T_EnterTargeting(0);
-    // Snap camera to the first target.
+    // Snap camera to the first target (if any).
     target = T_TargetMobj(turnctrl.selected_target);
     if (target != NULL)
         T_FaceTarget(target);
-    players[consoleplayer].message = "Targeting... (arrows navigate, release CTRL to fire)";
+    if (turnctrl.selected_target < 0)
+        players[consoleplayer].message = "Targeting... (no targets, arrows to scan, release CTRL to cancel)";
+    else
+        players[consoleplayer].message = "Targeting... (arrows navigate, release CTRL to fire)";
 }
 
 void T_CtrlTargetNavigate(int dir)
