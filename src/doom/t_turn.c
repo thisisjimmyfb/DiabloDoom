@@ -1185,13 +1185,7 @@ void T_DrawHUD(void)
 
     // TP readout shows reserved (queued) TP separately: "TP 4/10"
     // is spendable now, "(6 IN QUEUE)" is already committed.
-    // Voluntary targeting mode (mini-combat) gets its own header to
-    // distinguish it from full turn based combat mode.
-    if (turnctrl.mini_combat)
-    {
-        M_snprintf(line, sizeof(line), "TARGETING MODE");
-    }
-    else if (turnctrl.queue_len > 0)
+    if (turnctrl.queue_len > 0)
         M_snprintf(line, sizeof(line),
                    "TURN MODE - ROUND %d - TP %d/%d (%d IN QUEUE)",
                    turnctrl.round, turnctrl.tp, turnctrl.tp_max,
