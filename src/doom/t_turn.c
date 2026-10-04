@@ -135,9 +135,13 @@ static mobj_t *T_ExploreDetect(void)
             continue;
 
         // Already acquired (damaged, heard, or saw the player): the
-        // acquisition itself is the trigger.
+        // acquisition itself is the trigger, but only if there's
+        // current line of sight. Prevents entering combat through a
+        // closed/half-open door when the monster can't actually see you.
         if (mo->target == player->mo)
         {
+            if (!P_CheckSight(mo, player->mo))
+                continue;
             if (spotter == NULL)
                 spotter = mo;
             continue;
@@ -164,20 +168,6 @@ static mobj_t *T_ExploreDetect(void)
             continue;
         if (!P_CheckSight(mo, player->mo))
             continue;
-
-        // Don't start combat until the player can see the spotter.
-        // Prevents entering turn based combat mode through a half-open
-        // door when the enemy isn't in view. The player must be facing
-        // roughly toward the monster (within ±60 degrees).
-        an = R_PointToAngle2(player->mo->x, player->mo->y,
-                             mo->x, mo->y) - player->mo->angle;
-        // an is unsigned: 0 = ahead. Get the absolute angular distance
-        // via wraparound. ANG60 = ANG90 * 2 / 3.
-        {
-            angle_t diff = an > ANG180 ? (0 - an) : an;
-            if (diff > ANG90 * 2 / 3)
-                continue;
-        }
 
         T_SpotPlayer(mo);
         if (spotter == NULL)
