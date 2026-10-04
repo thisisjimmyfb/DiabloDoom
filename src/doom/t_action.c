@@ -547,6 +547,13 @@ void T_DoMove(int dir)
         return;
     if (T_InPulse() || turnctrl.executing)
         return;
+    // Voluntary targeting mode (mini-combat): no movement allowed.
+    // You're aiming, not repositioning.
+    if (turnctrl.mini_combat)
+    {
+        player->message = "Can't move while targeting.";
+        return;
+    }
     if (dir < 0 || dir > 3)
         return;
     if (!T_CanAfford(TA_MOVE_N))
@@ -950,7 +957,7 @@ void T_StartCtrlTargeting(void)
             turnctrl.turn_start_y = players[consoleplayer].mo->y;
             turnctrl.turn_start_angle = players[consoleplayer].mo->angle;
         }
-        players[consoleplayer].message = "Mini-combat: targeting...";
+        players[consoleplayer].message = "TARGETING MODE";
     }
     else if (turnctrl.state != TS_PLANNING)
     {
