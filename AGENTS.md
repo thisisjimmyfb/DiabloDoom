@@ -147,7 +147,7 @@ Turn mode (queued actions, FIFO — combat only, triggered by spotting an
 enemy): W/S step forward/back, A/D strafe
 (1 TP, never change facing) · left/right arrows turn view 45° (free,
 immediate, never queued) · SPACE use (2 TP) ·
-CTRL attack via preview-confirm (0 TP ranged, TP by attack speed melee) · T end turn (drains
+Hold CTRL to target (arrows navigate, camera snaps to target, release to fire; 0 TP ranged, TP by attack speed melee) · T end turn (drains
 queue FIFO, then enemy phase) · Backspace undo last queued action
 (free, refunds TP) · Z clear queue (free, refunds all TP) · C inventory
 (free, always available in rounds) · Tab / [
