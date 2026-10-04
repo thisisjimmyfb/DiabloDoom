@@ -48,7 +48,7 @@ static turnaction_t T_KeyAction(int key)
       case 'z': case 'Z': case '.':             return TA_CLEAR_QUEUE;
       case KEY_TAB: case ']':                   return TA_SELECT_NEXT;
       case '[':                                return TA_SELECT_PREV;
-      case KEY_RCTRL: case KEY_ENTER:           return TA_ATTACK;
+      case KEY_ENTER:                          return TA_ATTACK;
       case KEY_ESCAPE:                         return TA_CANCEL;
       case '1': case '2': case '3':
       case '4': case '5': case '6':
@@ -162,7 +162,50 @@ boolean T_Responder(event_t *ev)
     }
 
     if (ev->type == ev_keyup)
+    {
+        // Hold-Ctrl targeting: release confirms the selection.
+        if (ev->data1 == KEY_RCTRL && turnctrl.ctrl_targeting)
+        {
+            T_ConfirmCtrlTarget();
+            return true;
+        }
         return T_KeyMapped(ev->data1); // swallow key releases of our keys
+    }
+
+    // Hold-Ctrl targeting: press enters targeting mode (don't trigger
+    // the normal TA_ATTACK flow).
+    if (ev->data1 == KEY_RCTRL && T_Active()
+        && !T_InPulse() && !turnctrl.executing)
+    {
+        T_StartCtrlTargeting();
+        return true;
+    }
+
+    // Hold-Ctrl targeting: arrows navigate targets (camera snaps),
+    // instead of turning the view.
+    if (turnctrl.ctrl_targeting && T_Active() && !T_InPulse())
+    {
+        if (ev->data1 == KEY_LEFTARROW || ev->data1 == KEY_UPARROW)
+        {
+            T_CtrlTargetNavigate(-1);
+            return true;
+        }
+        if (ev->data1 == KEY_RIGHTARROW || ev->data1 == KEY_DOWNARROW)
+        {
+            T_CtrlTargetNavigate(1);
+            return true;
+        }
+        // Esc cancels targeting.
+        if (ev->data1 == KEY_ESCAPE)
+        {
+            turnctrl.ctrl_targeting = false;
+            turnctrl.ctrl_held = false;
+            turnctrl.selected_target = -1;
+            turnctrl.state = TS_PLANNING;
+            players[consoleplayer].message = "Targeting cancelled.";
+            return true;
+        }
+    }
 
     action = T_KeyAction(ev->data1);
     if (action == TA_NONE)

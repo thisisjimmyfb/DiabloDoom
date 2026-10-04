@@ -111,6 +111,10 @@ typedef struct
     fixed_t turn_start_x;
     fixed_t turn_start_y;
     angle_t turn_start_angle;
+    // Hold-Ctrl targeting: hold Ctrl to enter targeting mode, arrows
+    // navigate, release Ctrl to confirm. Camera snaps to each target.
+    boolean ctrl_held;
+    boolean ctrl_targeting;
 } turnctrl_t;
 
 extern turnctrl_t turnctrl;
@@ -139,6 +143,9 @@ void T_ValidateSelection(void);
 
 // Target selection (free, reversible).
 void T_DoSelectNext(void);
+void T_StartCtrlTargeting(void);
+void T_CtrlTargetNavigate(int dir);
+void T_ConfirmCtrlTarget(void);
 void T_DoSelectPrev(void);
 void T_DoSelectNum(int num);
 void T_DoCancel(void);

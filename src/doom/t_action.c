@@ -914,6 +914,108 @@ void T_DoSelectNext(void)
         T_EnterTargeting((turnctrl.selected_target + 1) % n);
 }
 
+// ------------------------------------------------------------------
+// Hold-Ctrl targeting: hold Ctrl to enter targeting mode, arrows
+// navigate (camera snaps to each target), release Ctrl to confirm.
+// ------------------------------------------------------------------
+static void T_FaceTarget(mobj_t *target);
+
+void T_StartCtrlTargeting(void)
+{
+    mobj_t *target;
+    if (!T_Active() || players[consoleplayer].mo == NULL)
+        return;
+    if (!T_ActorAlive())
+        return;
+    if (turnctrl.state != TS_PLANNING)
+        return;
+    T_RefreshTargets();
+    if (T_NumTargets() == 0)
+    {
+        players[consoleplayer].message = "No visible targets.";
+        return;
+    }
+    turnctrl.ctrl_held = true;
+    turnctrl.ctrl_targeting = true;
+    T_EnterTargeting(0);
+    // Snap camera to the first target.
+    target = T_TargetMobj(turnctrl.selected_target);
+    if (target != NULL)
+        T_FaceTarget(target);
+    players[consoleplayer].message = "Targeting... (arrows navigate, release CTRL to fire)";
+}
+
+void T_CtrlTargetNavigate(int dir)
+{
+    mobj_t *target;
+    int n;
+    if (!turnctrl.ctrl_targeting)
+        return;
+    T_RefreshTargets();
+    n = T_NumTargets();
+    if (n == 0)
+        return;
+    if (dir > 0)
+        T_EnterTargeting((turnctrl.selected_target + 1) % n);
+    else
+        T_EnterTargeting((turnctrl.selected_target - 1 + n) % n);
+    // Snap camera to the new target.
+    target = T_TargetMobj(turnctrl.selected_target);
+    if (target != NULL)
+        T_FaceTarget(target);
+}
+
+void T_ConfirmCtrlTarget(void)
+{
+    mobj_t *target;
+    player_t *player = &players[consoleplayer];
+    turnctrl.ctrl_held = false;
+    if (!turnctrl.ctrl_targeting)
+        return;
+    turnctrl.ctrl_targeting = false;
+    if (!T_Active() || player->mo == NULL)
+        return;
+    if (!T_ActorAlive())
+        return;
+    // Validate and queue directly, skipping the CONFIRM state.
+    // The camera snap was the preview.
+    T_ValidateSelection();
+    if (turnctrl.selected_target < 0)
+    {
+        turnctrl.state = TS_PLANNING;
+        return;
+    }
+    target = T_TargetMobj(turnctrl.selected_target);
+    if (target == NULL)
+    {
+        player->message = "Target lost.";
+        turnctrl.state = TS_PLANNING;
+        return;
+    }
+    if (!T_KitCanFire(player->readyweapon))
+    {
+        player->message = T_KitDenyReason(player->readyweapon);
+        turnctrl.state = TS_PLANNING;
+        return;
+    }
+    if (!T_CanAfford(TA_ATTACK))
+    {
+        T_RefuseTP(TA_ATTACK);
+        turnctrl.state = TS_PLANNING;
+        return;
+    }
+    if (!T_HasAmmoForKit(player->readyweapon))
+    {
+        T_RefuseMana(player->readyweapon);
+        turnctrl.state = TS_PLANNING;
+        return;
+    }
+    // Commit: enqueue the attack.
+    T_Enqueue(TA_ATTACK, T_CostFor(TA_ATTACK), 0, target);
+    turnctrl.selected_target = -1;
+    turnctrl.state = TS_PLANNING;
+}
+
 void T_DoSelectPrev(void)
 {
     int n;
