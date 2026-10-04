@@ -1,4 +1,4 @@
-# DiabloDoom — Turn-Based Mode Spec
+# DiabloDoom — Turn Based Combat Mode Spec
 
 > Distilled from the September 2026 build plan. This is the source of truth
 > for turn-based design; `AGENTS.md` points here. Iterate on this file
@@ -91,20 +91,20 @@ has failed.
 
 ---
 
-## Explore / combat mode split
+## Explore mode / turn based combat mode split
 
 The game is **not** always turn-based. Two modes:
 
-**EXPLORE** — free real-time movement (WASD + arrows, Chocolate Doom's
+**explore mode** — free real-time movement (WASD + arrows, Chocolate Doom's
 default bindings). The normal Doom ticker runs; enemies are frozen solid
 (`P_MobjThinker` skips non-player `MF_COUNTKILL` mobjs). Barrels, loot,
 doors, and the world tick normally. Walking over loot picks it up via the
 standard touch path. The HUD shows a minimal `EXPLORE` header; no TP, no
-queue, no action list. G (auto-loot pathing) is disabled in explore —
+queue, no action list. G (auto-loot pathing) is disabled in explore mode —
 walk to the loot instead. F/Tab targeting is disabled: there is nothing
 to fight.
 
-**COMBAT** — turn-based mode, exactly as described in Core loop below.
+**turn based combat mode** — exactly as described in Core loop below.
 Triggered the moment an enemy AI **acquires the player as its target**
 (`T_ExploreDetect()`): sight within the monster's front 180-degree arc,
 or hearing a shot for non-deaf monsters (mirroring vanilla `A_Look`
