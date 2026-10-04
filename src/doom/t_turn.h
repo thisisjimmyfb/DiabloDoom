@@ -115,6 +115,9 @@ typedef struct
     // navigate, release Ctrl to confirm. Camera snaps to each target.
     boolean ctrl_held;
     boolean ctrl_targeting;
+    // Mini-combat: hold-Ctrl in explore mode enters a single-turn combat
+    // for barrels/props. No enemy phase if no AI enemies.
+    boolean mini_combat;
 } turnctrl_t;
 
 extern turnctrl_t turnctrl;

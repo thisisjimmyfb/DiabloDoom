@@ -927,11 +927,39 @@ void T_StartCtrlTargeting(void)
         return;
     if (!T_ActorAlive())
         return;
-    if (turnctrl.state != TS_PLANNING)
+    // Mini-combat: allow hold-Ctrl in explore mode for barrels/props.
+    if (turnctrl.state == TS_EXPLORE)
+    {
+        // Initialize a single-turn combat. No spotter, no telegraph.
+        turnctrl.state = TS_PLANNING;
+        turnctrl.round = 1;
+        turnctrl.tp = turnctrl.tp_max;
+        turnctrl.queue_len = 0;
+        turnctrl.queue_tp = 0;
+        turnctrl.selected_target = -1;
+        turnctrl.executing = false;
+        turnctrl.mini_combat = true;
+        if (players[consoleplayer].mo != NULL)
+        {
+            turnctrl.turn_start_x = players[consoleplayer].mo->x;
+            turnctrl.turn_start_y = players[consoleplayer].mo->y;
+            turnctrl.turn_start_angle = players[consoleplayer].mo->angle;
+        }
+        players[consoleplayer].message = "Mini-combat: targeting...";
+    }
+    else if (turnctrl.state != TS_PLANNING)
+    {
         return;
+    }
     T_RefreshTargets();
     if (T_NumTargets() == 0)
     {
+        // If mini-combat found nothing, bail back to explore.
+        if (turnctrl.mini_combat)
+        {
+            turnctrl.mini_combat = false;
+            turnctrl.state = TS_EXPLORE;
+        }
         players[consoleplayer].message = "No visible targets.";
         return;
     }
@@ -969,51 +997,71 @@ void T_ConfirmCtrlTarget(void)
 {
     mobj_t *target;
     player_t *player = &players[consoleplayer];
+    boolean was_mini;
     turnctrl.ctrl_held = false;
     if (!turnctrl.ctrl_targeting)
         return;
     turnctrl.ctrl_targeting = false;
+    was_mini = turnctrl.mini_combat;
     if (!T_Active() || player->mo == NULL)
+    {
+        if (was_mini) { turnctrl.mini_combat = false; turnctrl.state = TS_EXPLORE; }
         return;
+    }
     if (!T_ActorAlive())
+    {
+        if (was_mini) { turnctrl.mini_combat = false; turnctrl.state = TS_EXPLORE; }
         return;
+    }
     // Validate and queue directly, skipping the CONFIRM state.
     // The camera snap was the preview.
     T_ValidateSelection();
     if (turnctrl.selected_target < 0)
     {
-        turnctrl.state = TS_PLANNING;
+        if (was_mini) { turnctrl.mini_combat = false; turnctrl.state = TS_EXPLORE; }
+        else turnctrl.state = TS_PLANNING;
         return;
     }
     target = T_TargetMobj(turnctrl.selected_target);
     if (target == NULL)
     {
         player->message = "Target lost.";
-        turnctrl.state = TS_PLANNING;
+        if (was_mini) { turnctrl.mini_combat = false; turnctrl.state = TS_EXPLORE; }
+        else turnctrl.state = TS_PLANNING;
         return;
     }
     if (!T_KitCanFire(player->readyweapon))
     {
         player->message = T_KitDenyReason(player->readyweapon);
-        turnctrl.state = TS_PLANNING;
+        if (was_mini) { turnctrl.mini_combat = false; turnctrl.state = TS_EXPLORE; }
+        else turnctrl.state = TS_PLANNING;
         return;
     }
     if (!T_CanAfford(TA_ATTACK))
     {
         T_RefuseTP(TA_ATTACK);
-        turnctrl.state = TS_PLANNING;
+        if (was_mini) { turnctrl.mini_combat = false; turnctrl.state = TS_EXPLORE; }
+        else turnctrl.state = TS_PLANNING;
         return;
     }
     if (!T_HasAmmoForKit(player->readyweapon))
     {
         T_RefuseMana(player->readyweapon);
-        turnctrl.state = TS_PLANNING;
+        if (was_mini) { turnctrl.mini_combat = false; turnctrl.state = TS_EXPLORE; }
+        else turnctrl.state = TS_PLANNING;
         return;
     }
     // Commit: enqueue the attack.
     T_Enqueue(TA_ATTACK, T_CostFor(TA_ATTACK), 0, target);
     turnctrl.selected_target = -1;
     turnctrl.state = TS_PLANNING;
+    // Mini-combat: auto-end the turn immediately. If no AI enemies,
+    // T_EndPulse will return to explore mode.
+    if (turnctrl.mini_combat)
+    {
+        turnctrl.mini_combat = false;
+        T_DoEndTurn();
+    }
 }
 
 void T_DoSelectPrev(void)

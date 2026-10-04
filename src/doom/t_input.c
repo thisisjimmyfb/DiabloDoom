@@ -201,7 +201,16 @@ boolean T_Responder(event_t *ev)
             turnctrl.ctrl_targeting = false;
             turnctrl.ctrl_held = false;
             turnctrl.selected_target = -1;
-            turnctrl.state = TS_PLANNING;
+            // Mini-combat: bail back to explore.
+            if (turnctrl.mini_combat)
+            {
+                turnctrl.mini_combat = false;
+                turnctrl.state = TS_EXPLORE;
+            }
+            else
+            {
+                turnctrl.state = TS_PLANNING;
+            }
             players[consoleplayer].message = "Targeting cancelled.";
             return true;
         }
