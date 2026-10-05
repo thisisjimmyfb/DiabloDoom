@@ -686,6 +686,7 @@ static boolean T_ExecUse(void)
 // (drain continues inline, TP refunded). T_ExecMove/T_ExecUse are
 // defined above.
 static boolean T_ExecAttack(mobj_t *target, int cost);
+static void T_NativeFire(player_t *player);
 
 // ------------------------------------------------------------------
 // END TURN: drain the queued actions FIFO — each entry executes through
@@ -1224,6 +1225,8 @@ void T_DoAttack(void)
 static boolean T_ExecAttack(mobj_t *target, int cost)
 {
     player_t *player = &players[consoleplayer];
+    int damage = 0, crit = 0;
+    boolean hit;
 
     if (target == NULL || target->health <= 0
         || !(target->flags & MF_SHOOTABLE))
@@ -1266,8 +1269,47 @@ static boolean T_ExecAttack(mobj_t *target, int cost)
         }
     }
 
+    // Roll Diablo damage (no apply yet). The native weapon fire below
+    // uses this via the P_DamageMobj override.
+    hit = T_RollDiabloDamage(player, target, &damage, &crit);
+    t_last_hit = hit ? 1 : 0;
+    t_last_damage = hit ? damage : 0;
+    t_last_crit = crit;
+
+    // Face the target (instant for aiming; the smooth visual turn is
+    // a follow-up).
     T_FaceTarget(target);
-    T_ResolveAttack(player, target);
+
+    // Trigger native weapon fire for visuals (muzzle flash, sound,
+    // projectiles). The damage is overridden to use the Diablo roll.
+    t_damage_override = true;
+    t_damage_override_value = hit ? damage : 0;
+    T_NativeFire(player);
+    t_damage_override = false;
+    t_damage_override_value = 0;
+
+    if (!hit)
+    {
+        player->message = "MISS!";
+        printf("[TURN] attack resolved: MISS\n");
+    }
+    else
+    {
+        const t_kitdef_t *kit = T_KitForWeapon(player->readyweapon);
+        printf("[TURN] attack resolved: hits=1 dmg=%d crit=%d\n",
+               damage, crit);
+        if (crit)
+            player->message = "CRITICAL HIT!";
+        else
+            player->message = "HIT!";
+        // Kill credit: if the native fire (with Diablo damage override)
+        // killed the target, run kill-triggered affixes.
+        if (target->health <= 0)
+        {
+            T_ResolveKill(player, target, damage, kit->name);
+        }
+    }
+
     // The world changed; rebuild targets for the HUD.
     T_RefreshTargets();
     // Kill moment: a death beat freezes living monsters for ~2s (their AI
@@ -1282,6 +1324,39 @@ static boolean T_ExecAttack(mobj_t *target, int cost)
     }
     T_DumpState("exec-attack");
     return false;
+}
+
+// Trigger the native Doom weapon fire function for visuals.
+// The damage is overridden via t_damage_override (see P_DamageMobj).
+// This spawns real projectiles / hitscan, plays sound and muzzle flash.
+static void T_NativeFire(player_t *player)
+{
+    // Declarations for the native fire functions (from p_pspr.c).
+    // They take (player, pspdef) but psp is unused for the core fire
+    // logic; we pass NULL and handle the flash separately if needed.
+    extern void A_Punch(player_t *, pspdef_t *);
+    extern void A_FirePistol(player_t *, pspdef_t *);
+    extern void A_FireShotgun(player_t *, pspdef_t *);
+    extern void A_FireCGun(player_t *, pspdef_t *);
+    extern void A_FireMissile(player_t *, pspdef_t *);
+    extern void A_FirePlasma(player_t *, pspdef_t *);
+    extern void A_FireBFG(player_t *, pspdef_t *);
+    extern void A_Saw(player_t *, pspdef_t *);
+    extern void A_FireShotgun2(player_t *, pspdef_t *);
+
+    switch (player->readyweapon)
+    {
+        case wp_fist:        A_Punch(player, NULL); break;
+        case wp_pistol:      A_FirePistol(player, NULL); break;
+        case wp_shotgun:     A_FireShotgun(player, NULL); break;
+        case wp_chaingun:    A_FireCGun(player, NULL); break;
+        case wp_missile:     A_FireMissile(player, NULL); break;
+        case wp_plasma:      A_FirePlasma(player, NULL); break;
+        case wp_bfg:         A_FireBFG(player, NULL); break;
+        case wp_chainsaw:    A_Saw(player, NULL); break;
+        case wp_supershotgun: A_FireShotgun2(player, NULL); break;
+        default:             A_FirePistol(player, NULL); break;
+    }
 }
 
 // ------------------------------------------------------------------

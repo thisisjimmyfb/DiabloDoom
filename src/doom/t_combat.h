@@ -55,10 +55,28 @@ void T_DamageRange(player_t *player, mobj_t *target,
 // Applies damage via P_DamageMobj and records the outcome for tests.
 boolean T_ResolveAttack(player_t *player, mobj_t *target);
 
+// Roll Diablo damage without applying it. Returns true on hit.
+// Used for native weapon fire: pre-roll, then P_DamageMobj applies via override.
+boolean T_RollDiabloDamage(player_t *player, mobj_t *target,
+                           int *damage, int *crit);
+
+// Kill credit + kill-triggered affixes. Called after P_DamageMobj confirms a kill.
+void T_ResolveKill(player_t *player, mobj_t *victim, int dmg,
+                   const char *kitname);
+
 // Last resolution outcome (for test assertions).
 extern int t_last_hit;      // 1 hit, 0 miss, -1 none yet
 extern int t_last_damage;   // damage dealt (0 on miss)
 extern int t_last_crit;     // 1 if the hit crit
+
+// Diablo damage override for native weapon fire (Phase 8).
+// When t_damage_override is true, P_DamageMobj replaces Doom's damage
+// with t_damage_override_value for player-sourced hits. Used when the
+// turn system triggers native A_Fire* functions: the visuals (muzzle
+// flash, projectiles) are real, but the damage uses the Diablo formula.
+// Set before calling A_Fire*, cleared after the attack resolves.
+extern boolean t_damage_override;
+extern int t_damage_override_value;
 
 // Fixed-seed combat RNG.
 void T_SetCombatSeed(unsigned int seed);

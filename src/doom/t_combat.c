@@ -15,6 +15,10 @@ int t_last_crit = 0;
 static int t_last_kill = 0; // set when the resolved attack killed anything
 static int t_shots[NUMWEAPONS]; // shots fired per weapon (Lucky rhythm)
 
+// Diablo damage override for native weapon fire. See t_combat.h.
+boolean t_damage_override = false;
+int t_damage_override_value = 0;
+
 boolean T_LastKill(void)
 {
     return t_last_kill != 0;
@@ -645,7 +649,7 @@ void T_KitRefillAllAmmo(void)
 }
 
 // Kill credit + kill-triggered affix mechanics for one victim.
-static void T_ResolveKill(player_t *player, mobj_t *victim, int dmg,
+void T_ResolveKill(player_t *player, mobj_t *victim, int dmg,
                           const char *kitname)
 {
     int mech;
@@ -713,6 +717,103 @@ static void T_CalderaNova(player_t *player, int total_dmg)
         if (mo->health <= 0)
             T_ResolveKill(player, mo, total_dmg, "CALDERA");
     }
+}
+
+boolean T_ResolveAttack(player_t *player, mobj_t *target);
+
+// Roll Diablo damage for an attack without applying it.
+// Returns true on hit, false on miss. Sets *damage to the total Diablo
+// damage (0 on miss), *crit to 1 if the hit crit.
+// Used when the turn system triggers native A_Fire* visuals: the damage
+// is pre-rolled, then P_DamageMobj applies it via the override.
+boolean T_RollDiabloDamage(player_t *player, mobj_t *target,
+                           int *damage, int *crit)
+{
+    t_combatstats_t st;
+    const t_kitdef_t *kit;
+    int chance, roll, dmg, range, p, pellets;
+    int mech;
+    boolean lucky;
+    int total_dmg = 0;
+    int hits = 0;
+    int last_crit = 0;
+
+    *damage = 0;
+    *crit = 0;
+
+    if (!player->mo || !target || target->health <= 0)
+        return false;
+
+    kit = T_KitForWeapon(player->readyweapon);
+    mech = D_EquippedWeaponMech(player);
+    T_DeriveStats(player, &st);
+
+    // Lucky rhythm counts shots fired, not hits. Increment before the
+    // roll so the 3rd shot (t_shots % 3 == 0) is the guaranteed crit.
+    t_shots[player->readyweapon]++;
+
+    // Gun damage, approved formula. AD: kit_base + gun_dmg_range +
+    // STR/2..STR, then AD%. AP: kit_base + AP/4..AP/2, then AP%.
+    if (kit->ap_weapon)
+    {
+        int kmin = kit->dmg_min + st.ap / 4;
+        int kmax = kit->dmg_max + st.ap / 2;
+        if (kmax < kmin)
+            kmax = kmin;
+        st.ad_min = T_ApplyApPct(player, kmin);
+        st.ad_max = T_ApplyApPct(player, kmax);
+    }
+    else
+    {
+        st.ad_min = T_ApplyAdPct(player, st.ad_min + kit->dmg_min);
+        st.ad_max = T_ApplyAdPct(player, st.ad_max + kit->dmg_max);
+        if (st.ad_max < st.ad_min)
+            st.ad_max = st.ad_min;
+    }
+
+    chance = T_HitChance(player, target, &st);
+
+    // Pellets: each rolls hit and damage separately (shotgun/chaingun).
+    // Splitting affix: +2 pellets.
+    pellets = kit->pellets + ((mech & MECH_SPLITTING) ? 2 : 0);
+    for (p = 0; p < pellets; p++)
+    {
+        roll = T_Roll100();
+        if (roll > chance)
+            continue; // pellet misses
+        hits++;
+
+        range = st.ad_max - st.ad_min + 1;
+        dmg = st.ad_min + (range > 1 ? T_Roll(range) : 0);
+
+        // Crit (once per attack, not per pellet). Lucky: every 3rd
+        // pistol shot fired is a guaranteed crit.
+        lucky = (mech & MECH_LUCKY) && player->readyweapon == wp_pistol
+                && (t_shots[wp_pistol] % 3 == 0);
+        if (p == 0 && (lucky || T_Roll100() <= st.crit_chance))
+        {
+            dmg = dmg * st.crit_mult / 100;
+            last_crit = 1;
+        }
+        else if (last_crit)
+        {
+            dmg = dmg * st.crit_mult / 100;
+        }
+
+        // Target armor mitigation.
+        dmg -= T_MonsterArmor(target->type);
+        if (dmg < 1)
+            dmg = 1;
+
+        total_dmg += dmg;
+    }
+
+    if (hits == 0)
+        return false;
+
+    *damage = total_dmg;
+    *crit = last_crit;
+    return true;
 }
 
 boolean T_ResolveAttack(player_t *player, mobj_t *target)

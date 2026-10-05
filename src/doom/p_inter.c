@@ -947,9 +947,20 @@ P_DamageMobj
     // legacy D_CritRoll here must be skipped or crits double-roll.
     if (source && source->player && target->player == NULL)
     {
-	damage += D_WeaponBonus(source->player);
-	if (!T_Active())
-	    damage = D_CritRoll(source->player, damage);
+        // Native weapon fire override (turn-based): when the turn system
+        // triggers A_Fire* for visuals, replace Doom's damage with the
+        // pre-rolled Diablo value. The override is set before the fire
+        // and cleared after the attack resolves.
+        if (t_damage_override)
+        {
+            damage = t_damage_override_value;
+        }
+        else
+        {
+            damage += D_WeaponBonus(source->player);
+            if (!T_Active())
+                damage = D_CritRoll(source->player, damage);
+        }
     }
 		
 
