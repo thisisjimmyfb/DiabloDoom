@@ -1065,7 +1065,7 @@ P_DamageMobj
 	// Diablo equipment (mod): armor reduces incoming damage before
 	// the vanilla armor absorption below.
 	if (player)
-	    damage -= D_ArmorReduce(player, damage);
+	    damage = D_ArmorReduce(player, damage);
 
 	if (player->armortype)
 	{
