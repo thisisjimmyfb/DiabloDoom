@@ -334,11 +334,13 @@ void P_SpawnDiabloLootAt(fixed_t x, fixed_t y, int item_id)
                     case wp_pistol:   st = S_CLIP; break;
                     case wp_shotgun:  st = S_SHOT; break;
                     case wp_supershotgun:
-                        // Freedoom Phase 1 / Doom 1 IWADs have no SGN2
+                        // Doom 1 IWADs have no SHT2 (super shotgun pickup)
                         // sprite lumps, so S_SHOT2 would render an invalid
-                        // sprite frame (and wedge the renderer). Fall back
+                        // sprite frame (and crash the renderer). Fall back
                         // to the regular shotgun sprite there.
-                        st = (sprites[SPR_SGN2].numframes > 0) ? S_SHOT2
+                        // NOTE: Check SPR_SHT2 (the pickup sprite used by
+                        // S_SHOT2), not SPR_SGN2 (the weapon sprite).
+                        st = (sprites[SPR_SHT2].numframes > 0) ? S_SHOT2
                                                              : S_SHOT;
                         break;
                     case wp_chaingun: st = S_MGUN; break;
