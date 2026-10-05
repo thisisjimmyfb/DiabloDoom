@@ -933,6 +933,36 @@ P_DamageMobj
     }
 	
     player = target->player;
+    // Debug: log when the player takes damage (turn-based investigation).
+    if (player != NULL && damage > 0)
+    {
+        const char *srcname = "unknown";
+        if (source != NULL)
+        {
+            if (source->player != NULL)
+                srcname = "player";
+            else if (source->type == MT_POSSESSED)
+                srcname = "Zombieman";
+            else if (source->type == MT_SHOTGUY)
+                srcname = "ShotgunGuy";
+            else if (source->type == MT_TROOP)
+                srcname = "Imp";
+            else if (source->type == MT_HEAD)
+                srcname = "Cacodemon";
+            else if (source->type == MT_BRUISER)
+                srcname = "Baron";
+            else if (source->type == MT_KNIGHT)
+                srcname = "Knight";
+            else if (source->type == MT_SKULL)
+                srcname = "LostSoul";
+            else if (source->type == MT_SPIDER)
+                srcname = "Spiderdemon";
+            else if (source->type == MT_CYBORG)
+                srcname = "Cyberdemon";
+        }
+        printf("[TURN] player damaged: %d from %s (hp %d -> %d)\n",
+               damage, srcname, target->health, target->health - damage);
+    }
     if (player && gameskill == sk_baby)
 	damage >>= 1; 	// take half damage in trainer mode
     // NG+ loop: enemies deal more damage each loop.

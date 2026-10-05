@@ -800,6 +800,9 @@ void A_PosAttack (mobj_t* actor)
     if (!actor->target)
 	return;
 		
+    // Debug: log monster attacks on the player (turn-based investigation).
+    if (actor->target->player != NULL)
+        printf("[TURN] Zombieman attacks player\n");
     A_FaceTarget (actor);
     angle = actor->angle;
     slope = P_AimLineAttack (actor, angle, MISSILERANGE);
@@ -821,6 +824,9 @@ void A_SPosAttack (mobj_t* actor)
     if (!actor->target)
 	return;
 
+    // Debug: log monster attacks on the player (turn-based investigation).
+    if (actor->target->player != NULL)
+        printf("[TURN] ShotgunGuy attacks player\n");
     S_StartSound (actor, sfx_shotgn);
     A_FaceTarget (actor);
     bangle = actor->angle;
@@ -909,6 +915,9 @@ void A_TroopAttack (mobj_t* actor)
     if (!actor->target)
 	return;
 		
+    // Debug: log monster attacks on the player (turn-based investigation).
+    if (actor->target->player != NULL)
+        printf("[TURN] Imp attacks player\n");
     A_FaceTarget (actor);
     if (P_CheckMeleeRange (actor))
     {
