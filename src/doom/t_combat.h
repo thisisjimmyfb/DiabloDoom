@@ -67,6 +67,9 @@ void T_ResolveKill(player_t *player, mobj_t *victim, int dmg,
 // Time-based cadence (called every tic from T_Ticker).
 void T_TickCadence(void);
 
+// Called when a weapon fires: heat, charges, cooldown (with Haste/CDR).
+void T_KitOnFire(player_t *player);
+
 // Last resolution outcome (for test assertions).
 extern int t_last_hit;      // 1 hit, 0 miss, -1 none yet
 extern int t_last_damage;   // damage dealt (0 on miss)

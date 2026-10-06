@@ -377,6 +377,37 @@ void T_KitSetCooldown(weapontype_t w, int rounds)
     t_cooldowns[w] = rounds;
 }
 
+// Called when a weapon fires (native fire path): applies heat buildup,
+// consumes a charge, and sets cooldown (with Haste and flat CDR).
+// Mirrors the kit setup that T_ResolveAttack used to do.
+void T_KitOnFire(player_t *player)
+{
+    weapontype_t w = player->readyweapon;
+    const t_kitdef_t *kit = T_KitForWeapon(w);
+
+    if (kit->heat_per_shot > 0)
+    {
+        int max = T_KitHeatMax();
+        t_heat[w] += kit->heat_per_shot;
+        if (t_heat[w] > max)
+            t_heat[w] = max;
+    }
+    if (kit->max_charges > 0 && t_charges[w] > 0)
+        t_charges[w]--;
+    if (kit->cooldown > 0)
+    {
+        // Haste (%) then flat reduction (min 1 round).
+        t_combatstats_t st;
+        int cd = kit->cooldown;
+        T_DeriveStats(player, &st);
+        cd -= cd * st.haste / 100;
+        cd -= player->diablo_stats[DSTAT_CD_FLAT];
+        if (cd < 1)
+            cd = 1;
+        T_KitSetCooldown(w, cd);
+    }
+}
+
 int T_KitHeat(weapontype_t w)
 {
     if (w < 0 || w >= NUMWEAPONS)

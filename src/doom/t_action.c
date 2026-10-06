@@ -1276,6 +1276,10 @@ static boolean T_ExecAttack(mobj_t *target, int cost)
     t_last_damage = hit ? damage : 0;
     t_last_crit = crit;
 
+    // Kit setup: heat buildup, charge consumption, cooldown (with Haste
+    // and flat CDR). Must happen on fire, not on hit.
+    T_KitOnFire(player);
+
     // Face the target (instant for aiming; the smooth visual turn is
     // a follow-up).
     T_FaceTarget(target);
