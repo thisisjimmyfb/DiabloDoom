@@ -351,7 +351,12 @@ static int t_cooldowns[NUMWEAPONS];
 static int t_heat[NUMWEAPONS];      // 0-100 (plasma): inverse ammo
 static int t_charges[NUMWEAPONS];   // 0..max_charges (rocket)
 static int t_ammo[NUMWEAPONS];      // current magazine (per-weapon ammo)
+static int t_charge_tics[NUMWEAPONS]; // tics since last charge regen
 static boolean t_cadence_inited;
+
+// Rocket charge regen: 1 charge per 3 seconds (105 tics at 35 tics/sec).
+// Time-based, not round-based.
+#define ROCKET_REGEN_TICS 105
 
 int T_KitCooldown(weapontype_t w)
 {
@@ -418,9 +423,44 @@ void T_KitResetCadence(void)
         t_ammo[w] = t_kits[w].ammo_max;
         t_heat[w] = 0;
         t_charges[w] = t_kits[w].max_charges;
+        t_charge_tics[w] = 0;
         t_shots[w] = 0;
     }
     t_cadence_inited = true;
+}
+
+// Time-based charge regen: called every game tic from T_Ticker.
+// Rocket charges regenerate 1 per ROCKET_REGEN_TICS (3 seconds),
+// independent of rounds.
+void T_TickCharges(void)
+{
+    int w;
+    for (w = 0; w < NUMWEAPONS; w++)
+    {
+        if (t_kits[w].max_charges <= 0)
+            continue;
+        {
+            int maxc = T_KitMaxCharges((weapontype_t)w);
+            if (t_charges[w] >= maxc)
+            {
+                t_charge_tics[w] = 0;
+                continue;
+            }
+            t_charge_tics[w]++;
+            if (t_charge_tics[w] >= ROCKET_REGEN_TICS)
+            {
+                t_charge_tics[w] = 0;
+                t_charges[w]++;
+                // Each regenerated charge loads one attack's worth of ammo.
+                if (t_kits[w].ammo_max > 0 && t_kits[w].ammo_cost > 0)
+                {
+                    t_ammo[w] += t_kits[w].ammo_cost;
+                    if (t_ammo[w] > t_kits[w].ammo_max)
+                        t_ammo[w] = t_kits[w].ammo_max;
+                }
+            }
+        }
+    }
 }
 
 // Snapshot/restore the whole per-weapon cadence state for save/load.
@@ -503,20 +543,10 @@ void T_KitTickCooldowns(void)
         }
         {
             int maxc = T_KitMaxCharges((weapontype_t)w);
-            if (t_charges[w] < maxc)
-            {
-                t_charges[w]++;
-                // Rocket: each regenerated charge loads one attack's
-                // worth of ammo — AP ammo replenishes based on CD.
-                if (t_kits[w].ammo_max > 0 && t_kits[w].ammo_cost > 0)
-                {
-                    t_ammo[w] += t_kits[w].ammo_cost;
-                    if (t_ammo[w] > t_kits[w].ammo_max)
-                        t_ammo[w] = t_kits[w].ammo_max;
-                }
-            }
-            else if (t_charges[w] > maxc)
-                t_charges[w] = maxc; // affix gun unequipped: clamp down
+            // Time-based regen is handled in T_TickCharges (every tic).
+            // Here we only clamp down if over max (e.g., affix unequipped).
+            if (t_charges[w] > maxc)
+                t_charges[w] = maxc;
         }
     }
 }

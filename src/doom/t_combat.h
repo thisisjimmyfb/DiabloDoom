@@ -64,6 +64,9 @@ boolean T_RollDiabloDamage(player_t *player, mobj_t *target,
 void T_ResolveKill(player_t *player, mobj_t *victim, int dmg,
                    const char *kitname);
 
+// Time-based charge regen (called every tic from T_Ticker).
+void T_TickCharges(void);
+
 // Last resolution outcome (for test assertions).
 extern int t_last_hit;      // 1 hit, 0 miss, -1 none yet
 extern int t_last_damage;   // damage dealt (0 on miss)
