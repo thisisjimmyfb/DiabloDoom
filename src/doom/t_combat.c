@@ -309,7 +309,7 @@ static const t_kitdef_t t_kits[NUMWEAPONS] = {
     // wp_chaingun: 3-round burst
     { "CHAINGUN", 1,  3,  5, 0,   0,  0, 3, false, 1, 10,  0,  0, 0,  0, 0 },
     // wp_missile: AP rockets, enemy-targeted splash, charge-gated
-    { "ROCKET",   5,  9,  6, 0, 128, 50, 1, true, 10, 20,  0,  0, 2,  0, 0 },
+    { "ROCKET",   5,  9,  6, 0, 128, 50, 1, true, 10, 20,  0,  0, 3,  0, 0 },
     // wp_plasma: AP energy. Heat is inverse ammo: free to spam while
     // heat < 100, vents 40/round.
     { "PULSE",    2,  4,  4, 0,   0,  0, 1, true,  0,  0, 25, 40, 0,  0, 0 },
