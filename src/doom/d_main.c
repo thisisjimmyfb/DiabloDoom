@@ -1309,11 +1309,44 @@ static void G_CheckDemoStatusAtExit (void)
 //
 // D_DoomMain
 //
+#include <signal.h>
+#ifdef __linux__
+#include <execinfo.h>
+#include <unistd.h>
+#endif
+
+// Crash handler: print a backtrace on segfault, then re-raise.
+static void D_CrashHandler(int sig)
+{
+    fprintf(stderr, "\n[FATAL] Caught signal %d (%s)\n", sig,
+            sig == SIGSEGV ? "SIGSEGV" :
+            sig == SIGABRT ? "SIGABRT" :
+            sig == SIGFPE ? "SIGFPE" : "unknown");
+#ifdef __linux__
+    {
+        void *frames[32];
+        int n = backtrace(frames, 32);
+        backtrace_symbols_fd(frames, n, STDERR_FILENO);
+    }
+#else
+    fprintf(stderr, "[FATAL] backtrace not available on this platform\n");
+#endif
+    fflush(stderr);
+    // Restore default and re-raise so the OS dumps core as usual.
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
 void D_DoomMain (void)
 {
     int p;
     char file[256];
     char demolumpname[9];
+
+    // Install crash handler for segfaults/aborts.
+    signal(SIGSEGV, D_CrashHandler);
+    signal(SIGABRT, D_CrashHandler);
+    signal(SIGFPE, D_CrashHandler);
 
     I_AtExit(D_Endoom, false);
 
