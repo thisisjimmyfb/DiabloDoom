@@ -535,6 +535,9 @@ void D_SyncDoomWeapon(struct player_s *pl)
     player->weaponowned[w] = true;
     if (player->readyweapon == w)
         return;
+    // Defensive: validate weapon index before touching psprites.
+    if (w < 0 || w >= NUMWEAPONS)
+        return;
     player->readyweapon = w;
     player->pendingweapon = wp_nochange;
     // Snap the first-person sprite immediately. Turn mode is frozen
