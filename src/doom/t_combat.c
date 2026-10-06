@@ -352,11 +352,16 @@ static int t_heat[NUMWEAPONS];      // 0-100 (plasma): inverse ammo
 static int t_charges[NUMWEAPONS];   // 0..max_charges (rocket)
 static int t_ammo[NUMWEAPONS];      // current magazine (per-weapon ammo)
 static int t_charge_tics[NUMWEAPONS]; // tics since last charge regen
+static int t_cooldown_tics[NUMWEAPONS]; // tics since last cooldown tick
+static int t_heat_tics[NUMWEAPONS];   // tics since last heat vent
 static boolean t_cadence_inited;
 
-// Rocket charge regen: 1 charge per 3 seconds (105 tics at 35 tics/sec).
-// Time-based, not round-based.
+// Time-based cadence: 1 "round" = 10 seconds = 350 tics.
+// Rocket charges: 1 per 3 seconds (105 tics).
+// Cooldowns (BFG/SSG): tick down 1 round per 350 tics.
+// Plasma heat: vents continuously (heat_vent per 350 tics).
 #define ROCKET_REGEN_TICS 105
+#define TICS_PER_ROUND 350
 
 int T_KitCooldown(weapontype_t w)
 {
@@ -424,41 +429,90 @@ void T_KitResetCadence(void)
         t_heat[w] = 0;
         t_charges[w] = t_kits[w].max_charges;
         t_charge_tics[w] = 0;
+        t_cooldown_tics[w] = 0;
+        t_heat_tics[w] = 0;
         t_shots[w] = 0;
     }
     t_cadence_inited = true;
 }
 
-// Time-based charge regen: called every game tic from T_Ticker.
-// Rocket charges regenerate 1 per ROCKET_REGEN_TICS (3 seconds),
-// independent of rounds.
-void T_TickCharges(void)
+// Time-based cadence: called every game tic from T_Ticker.
+// - Rocket charges: 1 per ROCKET_REGEN_TICS (3 seconds)
+// - Cooldowns (BFG/SSG): 1 round per TICS_PER_ROUND (10 seconds)
+// - Plasma heat: vents heat_vent per TICS_PER_ROUND, continuously
+// All independent of round boundaries.
+static void T_RefillOnCooldownReady(weapontype_t w);
+void T_TickCadence(void)
 {
     int w;
     for (w = 0; w < NUMWEAPONS; w++)
     {
-        if (t_kits[w].max_charges <= 0)
-            continue;
+        // Charges (rocket)
+        if (t_kits[w].max_charges > 0)
         {
             int maxc = T_KitMaxCharges((weapontype_t)w);
-            if (t_charges[w] >= maxc)
+            if (t_charges[w] < maxc)
             {
-                t_charge_tics[w] = 0;
-                continue;
-            }
-            t_charge_tics[w]++;
-            if (t_charge_tics[w] >= ROCKET_REGEN_TICS)
-            {
-                t_charge_tics[w] = 0;
-                t_charges[w]++;
-                // Each regenerated charge loads one attack's worth of ammo.
-                if (t_kits[w].ammo_max > 0 && t_kits[w].ammo_cost > 0)
+                t_charge_tics[w]++;
+                if (t_charge_tics[w] >= ROCKET_REGEN_TICS)
                 {
-                    t_ammo[w] += t_kits[w].ammo_cost;
-                    if (t_ammo[w] > t_kits[w].ammo_max)
-                        t_ammo[w] = t_kits[w].ammo_max;
+                    t_charge_tics[w] = 0;
+                    t_charges[w]++;
+                    if (t_kits[w].ammo_max > 0 && t_kits[w].ammo_cost > 0)
+                    {
+                        t_ammo[w] += t_kits[w].ammo_cost;
+                        if (t_ammo[w] > t_kits[w].ammo_max)
+                            t_ammo[w] = t_kits[w].ammo_max;
+                    }
                 }
             }
+            else
+            {
+                t_charge_tics[w] = 0;
+                if (t_charges[w] > maxc)
+                    t_charges[w] = maxc;
+            }
+        }
+
+        // Cooldowns (BFG/SSG)
+        if (t_cooldowns[w] > 0)
+        {
+            t_cooldown_tics[w]++;
+            if (t_cooldown_tics[w] >= TICS_PER_ROUND)
+            {
+                t_cooldown_tics[w] = 0;
+                t_cooldowns[w]--;
+                if (t_cooldowns[w] == 0)
+                    T_RefillOnCooldownReady((weapontype_t)w);
+            }
+        }
+        else
+        {
+            t_cooldown_tics[w] = 0;
+        }
+
+        // Heat (plasma)
+        if (t_heat[w] > 0)
+        {
+            int vent = t_kits[w].heat_vent;
+            // Overclocked affix: +25 dissipation while equipped.
+            if (D_EquippedWeaponMech(&players[consoleplayer]) & MECH_OVERCLOCK)
+                vent += 25;
+            // Vent proportionally: vent per TICS_PER_ROUND, spread across tics.
+            // Accumulate fractional vent to avoid integer truncation.
+            t_heat_tics[w] += vent;
+            if (t_heat_tics[w] >= TICS_PER_ROUND)
+            {
+                int dv = t_heat_tics[w] / TICS_PER_ROUND;
+                t_heat_tics[w] %= TICS_PER_ROUND;
+                t_heat[w] -= dv;
+                if (t_heat[w] < 0)
+                    t_heat[w] = 0;
+            }
+        }
+        else
+        {
+            t_heat_tics[w] = 0;
         }
     }
 }
@@ -523,28 +577,14 @@ void T_KitTickCooldowns(void)
     int w;
     if (!t_cadence_inited)
         T_KitResetCadence();
+    // Time-based cadence (cooldowns, heat, charges) is handled in
+    // T_TickCharges() every game tic. This round-based hook is now a
+    // no-op for cadence, kept for save/load compatibility.
     for (w = 0; w < NUMWEAPONS; w++)
     {
-        if (t_cooldowns[w] > 0)
-        {
-            t_cooldowns[w]--;
-            if (t_cooldowns[w] == 0)
-                T_RefillOnCooldownReady((weapontype_t)w);
-        }
-        if (t_heat[w] > 0)
-        {
-            int vent = t_kits[w].heat_vent;
-            // Overclocked affix: +25 dissipation while equipped.
-            if (D_EquippedWeaponMech(&players[consoleplayer]) & MECH_OVERCLOCK)
-                vent += 25;
-            t_heat[w] -= vent;
-            if (t_heat[w] < 0)
-                t_heat[w] = 0;
-        }
+        // Clamp charges if over max (e.g., affix unequipped).
         {
             int maxc = T_KitMaxCharges((weapontype_t)w);
-            // Time-based regen is handled in T_TickCharges (every tic).
-            // Here we only clamp down if over max (e.g., affix unequipped).
             if (t_charges[w] > maxc)
                 t_charges[w] = maxc;
         }

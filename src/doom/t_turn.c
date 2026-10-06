@@ -654,9 +654,8 @@ void T_Ticker(void)
     // Kill banner counts down in real time, independent of turn state.
     T_TickKillBanner();
 
-    // Time-based charge regen (rocket launcher): 1 charge per 3 seconds,
-    // independent of rounds.
-    T_TickCharges();
+    // Time-based cadence (charges, cooldowns, heat): independent of rounds.
+    T_TickCadence();
 
     // Deferred test-harness startup: arena + script on first level tick.
     // Runs in both explore and combat modes.
