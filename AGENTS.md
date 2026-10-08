@@ -85,7 +85,11 @@ title with `~/workspace/doom/wshot.py` — with `window_width 1280` /
    cooldown completion (SSG/BFG, `T_RefillOnCooldownReady`) or charge regen
    (rocket). Ammo pickups half-fill every magazine and vent half the plasma
    heat; at full magazines pickups stay on the ground. Mana Potions fully
-   refill magazines and vent all plasma heat. The HUD AMMO readout shows the
+   refill magazines and vent all plasma heat. Weapon cadence is wall-clock,
+   not round-bound: cooldowns tick down 1 round per 10 s (BFG = 30 s, SSG =
+   20 s), rocket charges regen 1 per 3 s (max 3), plasma heat vents 40 per
+   10 s continuously — all via `T_TickCadence` every game tic. Haste is a
+   cooldown-reduction percent (cap 50%, then flat CDR, min 1 round). The HUD AMMO readout shows the
    ready weapon's magazine (heat capacity for plasma). \"Ammo\" also survives
    as the passive, non-consumable FOCUS paperdoll slot: equippable focus
    items (Piercing Rounds, Incendiary Shells, …) that passively grant stat

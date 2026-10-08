@@ -138,9 +138,11 @@ combat exit is on clear (no visible combatants at round end).
 
 Each round begins with **10 Tempo Points (TP)**. ("Tempo" avoids colliding
 with the League-style AP stat.) The player commits actions until TP is
-exhausted or chooses End Turn. Cooldowns and status effects advance once
-per round; each committed action resolves through a bounded simulation
-pulse.
+exhausted or chooses End Turn. Status effects advance once per round;
+weapon cooldowns, charges, and heat tick on wall-clock time instead —
+every game tic via `T_TickCadence`, independent of round boundaries
+(1 round = 10 seconds = 350 tics). Each committed action resolves
+through a bounded simulation pulse.
 
 ### Baseline action costs
 
@@ -209,7 +211,7 @@ consuming an item does. Grid organization stays free.
 | AD     | Attack Damage        | Scales ballistic, explosive, melee. Strength feeds AD.  |
 | AP     | Ability Power        | Scales plasma, BFG, status, charged effects. Energy feeds AP. |
 | AS     | Attack Speed         | Reduces melee TP attack cost; ranged attacks are TP-free (ammo-gated). |
-| Haste  | Cooldown recovery    | Shortens cooldowns by a displayed, rounded turn count.  |
+| Haste  | Cooldown recovery    | Cooldown-reduction percent (cap 50%): applied when a cooldown is set, then flat reduction, minimum 1 round (1 round = 10 s). |
 | Crit   | Chance + damage      | Gear-inherent (Diablo-style): weapons/items grant crit chance and bonus crit damage. Base crits deal x2; each crit-damage point adds 1%. Chance caps at 50%. Crit is rolled exactly once per attack inside `T_ResolveAttack` (deterministic turn RNG, once-per-attack pellet semantics); the legacy `P_DamageMobj` crit hook is bypassed in turn mode so crits can never double-roll. |
 | Armor  | Physical defense     | Diminishing-returns reduction of AD-tagged damage.      |
 | MR     | Magic resistance     | Reduces AP-tagged plasma, occult, status damage.        |
@@ -247,10 +249,10 @@ equipped), not loot.
 | Shotgun | AD | **Magazine 20** (2/shot) | Positioning reward, pellet spread. |
 | Chaingun | AD | **Magazine 10** (1/shot) | TP-hungry DPS hose. |
 | Chainsaw | AD | **Magazine 6** (1/shot) + **30% inherent leech** | High risk, constant uptime; leech sustains close-range fighting. |
-| Plasma Rifle | AP | **Heat** (inverse ammo) | Free to spam while heat < 100: +25 heat per shot, −40 per round. |
-| Rocket Launcher | AP | **Charges** (2, +1/round) + **Magazine 20** (10/shot) | Punctuated splash; firing consumes 1 charge. |
-| Super Shotgun | AP | **Cooldown** (2-round breach reload) + **Magazine 8** (8/shot) + **knockback** | Breach tool: shoves target 1 tile, forced reload rhythm. |
-| BFG9000 | AP | **Cooldown** (3 rounds) + **Magazine 20** (20/shot) | Ultimate: highest damage, gated hardest. |
+| Plasma Rifle | AP | **Heat** (inverse ammo) | Free to spam while heat < 100: +25 heat per shot, vents 40 per 10 s continuously (fractional accumulation). |
+| Rocket Launcher | AP | **Charges** (3, +1 per 3 s) + **Magazine 20** (10/shot) | Punctuated splash; firing consumes 1 charge. Each regenerated charge also loads one attack's worth of ammo. |
+| Super Shotgun | AP | **Cooldown** (20 s breach reload) + **Magazine 8** (8/shot) + **knockback** | Breach tool: shoves target 1 tile, forced reload rhythm. |
+| BFG9000 | AP | **Cooldown** (30 s) + **Magazine 20** (20/shot) | Ultimate: highest damage, gated hardest. |
 
 **Base kits are deliberately weak.** Kit damage is ~1/3 of the original
 values (e.g. BFG 10–18 instead of 30–50, Pistol 2–4 instead of 6–13), so
@@ -268,7 +270,12 @@ Damage model:
 
 Cadence plumbing:
 
-- Cooldowns, charges, and heat tick at round start (`T_KitTickCooldowns`).
+- Cooldowns, charges, and heat tick on wall-clock time, every game tic
+  (`T_TickCadence`, called from `T_Ticker`): cooldowns count down 1 round
+  per 10 seconds (350 tics), rocket charges regenerate 1 per 3 seconds
+  (105 tics), plasma heat vents `heat_vent` per 10 seconds with
+  fractional accumulation — all independent of round boundaries.
+  `T_KitTickCooldowns` is kept as a no-op for save compatibility.
 - `T_KitCanFire` covers every gate: cooldown == 0 **and** charges > 0
   **and** heat < 100 **and** ammo affordable.
 - Fire-denied messages name the gate:
@@ -292,9 +299,9 @@ weapon with a magazine requires ammo to fire (`T_KitCanFire` checks it;
   TP per attack, reduced by attack speed.
 - **AP weapons** replenish from **cooldown**: SSG/BFG refill to full
   the moment their cooldown completes (`T_RefillOnCooldownReady`,
-  hooked in `T_KitTickCooldowns`); the rocket loads one attack's worth
-  of ammo per regenerated charge. Plasma has no magazine — heat is its
-  ammo (inverse), venting 40/round.
+  hooked in the wall-clock `T_TickCadence`); the rocket loads one attack's
+  worth of ammo per regenerated charge. Plasma has no magazine — heat is its
+  ammo (inverse), venting 40 per 10 seconds continuously.
 - Ammo pickups half-fill every magazine and vent half the plasma heat;
   at full magazines pickups stay on the ground. **Mana Potions** fully
   refill every magazine and vent all plasma heat.
@@ -322,7 +329,7 @@ one small hook; no new subsystems except where noted.
 | Affix | Effect |
 |-------|--------|
 | of the Phoenix | Kills vent 50 heat (kill-reset). |
-| Overclocked | +25 heat dissipation per round. |
+| Overclocked | +25 heat dissipation per 10 seconds. |
 | Caldera | Overheating detonates a fire nova around you instead of locking the weapon, then vents to 0. |
 
 **Rocket Launcher (Charges)**
@@ -330,7 +337,7 @@ one small hook; no new subsystems except where noted.
 | Affix | Effect |
 |-------|--------|
 | Voltaic | Explosions chain 50% damage to a nearby enemy. |
-| Bandolier | +1 max charge (3 total). |
+| Bandolier | +1 max charge (4 total). |
 | Siege | Direct hits knock enemies back 1 tile. |
 
 **BFG9000 (Cooldown + Mana)**
@@ -427,6 +434,11 @@ screens, item rarity accents, and Diablo stat readouts. Actions the player
 cannot afford render **dimmed gold** with their TP cost shown and cannot be
 selected. END TURN is always the final action-list row, visually separated
 as the exit (`>>T END TURN 0TP<<`).
+
+**Kill moment:** a kill triggers a ~2 s death beat — living monsters freeze
+while the corpse's death animation plays out under a screenshot-able kill
+banner (title + sub, drawn last over everything, ~2.5 s real time),
+plus a brief kill flash. The queue drain resumes when the beat ends.
 
 ### Select → preview → confirm (enqueues)
 
@@ -662,7 +674,7 @@ maps, then expanded command grammar and public-session cadence.
 |----------|----------------------|
 | Pulse boundary | Define exactly which weapon, projectile, monster, and world thinkers advance per action pulse. |
 | Movement unit | Short fixed-distance, collision-aware step. WASD is facing-relative at commit (W/S step, A/D strafe); the view never auto-faces. |
-| Round timing | Cooldowns tick at round end (recommended) for clarity. |
+| Round timing | **Decided Oct 6:** weapon cooldowns, charges, and heat tick on wall-clock time (1 round = 10 s = 350 tics, via `T_TickCadence`, independent of round boundaries); status effects still advance once per round. |
 | Target identity | Display numbers stable while planning state is unchanged; resolve through actor IDs; rebuild + visibly renumber only after world state changes. |
 | Failure handling | Action invalid after commitment → refund TP, return to planning, unless world state already changed. |
 | Profile authority | Standalone profile owns identity, progression, loadout, backpack, counters; Doom saves own map + turn state. |
