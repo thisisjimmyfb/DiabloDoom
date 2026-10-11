@@ -657,6 +657,12 @@ void T_Ticker(void)
     // Time-based cadence (charges, cooldowns, heat): independent of rounds.
     T_TickCadence();
 
+    // VM progress persistence: write the save every 120 tics.
+    {
+        extern void D_ProgressTick(void);
+        D_ProgressTick();
+    }
+
     // Deferred test-harness startup: arena + script on first level tick.
     // Runs in both explore and combat modes.
     if (!t_arena_done)

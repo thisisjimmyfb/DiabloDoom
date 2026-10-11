@@ -14,6 +14,7 @@ add_library(doom STATIC
             d_diablo.c      d_diablo.h
             d_diablo_ui.c   d_diablo_ui.h
             d_diablo_icons.c d_diablo_icons.h
+            d_progress.c    d_progress.h
             d_items.c       d_items.h
             d_main.c        d_main.h
             d_net.c

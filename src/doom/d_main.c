@@ -2059,6 +2059,26 @@ void D_DoomMain (void)
 	    D_StartTitle ();                // start up intro loop
     }
 
+    // VM progress persistence: mmap the progress file; auto-load if valid.
+    // On Muse VMs only; skipped on local machines. If a save was loaded,
+    // gameaction is ga_loadgame and the loop will handle it, so we skip
+    // the normal new-game/title startup.
+    {
+        extern boolean D_ProgressInit(void);
+        boolean resumed = D_ProgressInit();
+        if (!resumed)
+        {
+            if (autostart || netgame)
+                G_InitNew (startskill, startepisode, startmap);
+            else
+                D_StartTitle ();                // start up intro loop
+        }
+        else
+        {
+            printf("[PROGRESS] resuming from saved progress, skipping title\n");
+        }
+    }
+
     T_Init ();  // turn-based controller; always active in this fork
 
     D_DoomLoop ();  // never returns
