@@ -466,11 +466,63 @@ void T_DoCollect(void)
         return;
     }
 
-    steps = T_FindPath(mo, loot, path_dirs, 64);
-    if (steps < 0)
+    // Try loot targets in order of distance; if the nearest is blocked,
+    // move on to the next one.
     {
-        player->message = "CAN'T REACH LOOT.";
-        return;
+        // Collect all loot, sorted by distance (simple insertion sort,
+        // max 32 items).
+        mobj_t *loot_list[32];
+        fixed_t loot_dist[32];
+        int loot_count = 0;
+        thinker_t *th;
+        mobj_t *lmo;
+        int li, lj;
+
+        for (th = thinkercap.next; th != &thinkercap; th = th->next)
+        {
+            if (th->function.acp1 != (actionf_p1)P_MobjThinker)
+                continue;
+            lmo = (mobj_t *)th;
+            if (lmo->type < MT_LOOT_NORMAL || lmo->type > MT_LOOT_UNIQUE)
+                continue;
+            if (lmo->health <= 0)
+                continue;
+            if (loot_count >= 32)
+                break;
+            {
+                fixed_t dx = lmo->x - mo->x;
+                fixed_t dy = lmo->y - mo->y;
+                fixed_t dist = (dx >> 16) * (dx >> 16) + (dy >> 16) * (dy >> 16);
+                // Insertion sort by distance
+                for (li = loot_count; li > 0 && loot_dist[li-1] > dist; li--)
+                {
+                    loot_list[li] = loot_list[li-1];
+                    loot_dist[li] = loot_dist[li-1];
+                }
+                loot_list[li] = lmo;
+                loot_dist[li] = dist;
+                loot_count++;
+            }
+        }
+
+        // Try each loot in order until we find a reachable one.
+        loot = NULL;
+        steps = -1;
+        for (li = 0; li < loot_count; li++)
+        {
+            steps = T_FindPath(mo, loot_list[li], path_dirs, 64);
+            if (steps >= 0)
+            {
+                loot = loot_list[li];
+                break;
+            }
+            printf("[COLLECT] loot %d unreachable, trying next\n", li);
+        }
+        if (loot == NULL)
+        {
+            player->message = "CAN'T REACH LOOT.";
+            return;
+        }
     }
     if (steps == 0)
     {
