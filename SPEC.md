@@ -200,6 +200,14 @@ state.
 **Inventory rule:** opening the character screen costs no TP. Equipping or
 consuming an item does. Grid organization stays free.
 
+**Auto-loot rule:** in turn based combat mode, G auto-paths to loot
+(`TA_COLLECT`); the HUD shows "press G to loot" when loot is in reach.
+`T_DoCollect` gathers up to 32 loot targets, sorts them by distance
+squared, and tries `T_FindPath` on each in nearest order — an unreachable
+target is skipped ("[COLLECT] loot N unreachable, trying next") and the
+collect only gives up ("CAN'T REACH LOOT") when nothing is reachable.
+G is disabled in explore mode ("Walk over loot to pick it up.").
+
 ---
 
 ## Combat language
@@ -412,6 +420,26 @@ variants (`diff_tier` field, filtered by `D_DifficultyTier()`):
 | 1 | Nightmare / NG+1 | of Slaughter (+25% AD), of the Archmagus (+25% AP), of Speed (+30% haste), Veteran's (+8 flat AD), Sorcerer's (+14 flat AP), Bloodthirsty (+8% leech), of the Inferno (+50 heat) |
 | 2 | Hell / NG+2 | of Carnage (+40% AD), of the Godslayer (+40% AP), of Lightning (+45% haste), Champion's (+12 flat AD), Archmage's (+20 flat AP), Soulrender (+12% leech), of the Sun (+80 heat) |
 slots; `D_MechDesc()` provides the one-line display text.
+
+### Essence: salvage and reroll
+
+Junk loot feeds a Diablo 3-style crafting loop instead of cluttering the
+backpack. Essence is a per-player currency (`diablo_essence` on
+`player_t`, persisted in savegames), shown in the inventory header
+("Essence: N" next to BACKPACK; SOUL_CAGE icon art is the planned
+display, text for now).
+
+- **S (salvage):** destroys the held item — or the keyboard-selected
+  backpack item — and grants Essence by tier: Normal 1, Magic 3, Rare 8,
+  Set 15, Unique 25.
+- **R (reroll/reforge):** replaces the held (or keyboard-selected) item
+  with a new random item of the same tier (`D_TierItemCount`). Costs
+  Essence: Magic 5, Rare 15, Set 25, Unique 40. Normal items cannot be
+  rerolled. R previously meant "use held consumable / cancel hold" in
+  the inventory — that is now Backspace (or right-click) only.
+
+**Design intent:** every drop is either an upgrade, reroll fuel, or
+salvage — the farm loop never dead-ends in a full backpack.
 
 ---
 ## Selection combat

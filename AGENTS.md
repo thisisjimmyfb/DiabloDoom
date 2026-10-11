@@ -116,6 +116,21 @@ Prefixes (flat) and suffixes (%) for AD/AP/haste/heat/leech. See SPEC.md
   (`diff_tier` field; `D_DifficultyTier()` from gameskill + `d_loop`)
 - Chainsaw: 30% inherent leech. SSG: natural 1-tile knockback.
 
+## Essence (salvage / reroll)
+
+Diablo 3-style crafting loop on junk loot — see SPEC.md "Essence:
+salvage and reroll". Per-player currency `diablo_essence` on
+`player_t`, persisted in savegames; the count shows in the inventory
+header ("Essence: N" next to BACKPACK — SOUL_CAGE icon art is planned,
+text display for now).
+
+- **S**: salvage the held (or keyboard-selected backpack) item →
+  Essence. Normal 1, Magic 3, Rare 8, Set 15, Unique 25.
+- **R**: reroll the held (or keyboard-selected) item → a new random
+  item of the same tier. Costs: Magic 5, Rare 15, Set 25, Unique 40.
+  Normal items can't be rerolled. (R used to mean
+  use-held-consumable/cancel — that's Backspace or right-click now.)
+
 ## NG+ loop
 
 Beating MAP30 warps to MAP01 keeping gear/XP. `d_loop` increments;
@@ -144,8 +159,9 @@ network.
 ## Controls (current, keyboard-first)
 
 Diablo inventory: C character screen · Tab backpack/paperdoll ·
-Enter/Space pick up/place · E equip · R/Backspace cancel/use held
-consumable · Q unequip all · Esc close.
+Enter/Space pick up/place · E equip · S salvage item into Essence ·
+R reroll item (Essence cost) · Backspace use held consumable / cancel
+hold · Q unequip all · Esc close.
 
 turn based combat mode (queued actions, FIFO — combat only, triggered by an enemy
 AI acquiring the player): W/S step forward/back, A/D strafe
@@ -155,6 +171,7 @@ Hold CTRL to target (arrows navigate, camera snaps to target, release to fire; 0
 queue FIFO, then enemy phase) · Backspace undo last queued action
 (free, refunds TP) · Z clear queue (free, refunds all TP) · C inventory
 (free, always available in rounds) · Tab / [
-/ ] / 1-9 target selection (free) · Esc cancel. Planning actions
+/ ] / 1-9 target selection (free) · G auto-loot nearest (turn mode only;
+disabled in explore) · Esc cancel. Planning actions
 enqueue and reserve TP; END TURN executes. There is no WAIT and no
 HEADSHOT; crits come from gear, not dexterity.

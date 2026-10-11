@@ -97,6 +97,15 @@ exploring. Barrels never start combat but can still be targeted with
 Tab. **G** auto-paths to the nearest loot during combat (walk to loot
 while exploring).
 
+## Essence (salvage / reroll)
+
+Junk loot is reroll fuel. **S** in the character screen salvages the
+held (or selected backpack) item into **Essence** — Normal 1, Magic 3,
+Rare 8, Set 15, Unique 25. **R** rerolls a Magic-or-better item into a
+new random item of the same tier: Magic 5, Rare 15, Set 25, Unique 40
+Essence (Normal items can't be rerolled). Your Essence total shows in
+the inventory header and is saved with your game.
+
 ## Building
 
 ```sh
