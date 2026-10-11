@@ -1363,3 +1363,11 @@ int D_ResistReduce(struct player_s *pl, struct mobj_s *inflictor, int damage)
         resist = 75;
     return damage - damage * resist / 100;
 }
+
+// Accessors for the reroll system (d_diablo_ui.c)
+int D_TierItemCount(int tier)
+{
+    if (tier < 0 || tier >= NUM_TIERS)
+        return 0;
+    return diablo_tiercounts[tier];
+}

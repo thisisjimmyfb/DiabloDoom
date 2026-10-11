@@ -174,6 +174,7 @@ typedef struct player_s
     int			diablo_bp_count;
     int			diablo_recent;	// backpack idx of latest pickup
     int			diablo_stats[NUM_DSTATS];
+    int			diablo_essence;	// salvage currency from junking loot
 
 } player_t;
 

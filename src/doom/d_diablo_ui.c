@@ -781,6 +781,144 @@ static void UIKbDrop(player_t *player)
     }
 }
 
+// S: salvage the held item (or kb-selected backpack item) into Essence.
+// Essence by tier: Normal=1, Magic=3, Rare=8, Set=15, Unique=25.
+static void UIKbSalvage(player_t *player)
+{
+    int id = D_NOITEM;
+    int bpi;
+    int tier;
+    int essence = 0;
+    char msg[64];
+
+    ui_kb_active = true;
+    if (ui_held != D_NOITEM)
+    {
+        id = ui_held;
+        ui_held = D_NOITEM;
+        ui_held_from = -1;
+    }
+    else
+    {
+        if (ui_kb_pane != 0)
+        {
+            UIMsg("Select a backpack item.");
+            return;
+        }
+        bpi = UIBackpackAt(player, ui_kb_gx, ui_kb_gy);
+        if (bpi < 0)
+        {
+            UIMsg("Nothing there.");
+            return;
+        }
+        id = player->diablo_backpack[bpi];
+        D_BackpackRemoveAt((struct player_s *)player, bpi);
+    }
+
+    if (id == D_NOITEM)
+        return;
+
+    tier = D_ITEMTIER(id);
+    switch (tier)
+    {
+      case TIER_NORMAL: essence = 1; break;
+      case TIER_MAGIC:  essence = 3; break;
+      case TIER_RARE:   essence = 8; break;
+      case TIER_SET:    essence = 15; break;
+      case TIER_UNIQUE: essence = 25; break;
+      default:          essence = 1; break;
+    }
+
+    player->diablo_essence += essence;
+    M_snprintf(msg, sizeof(msg), "Salvaged +%d Essence.", essence);
+    UIMsg(msg);
+    printf("[ESSENCE] salvaged tier %d -> +%d (total %d)\n",
+           tier, essence, player->diablo_essence);
+}
+
+// R: reroll (reforge) the held item (or kb-selected backpack item) into a
+// new random item of the same tier. Costs Essence: Magic=5, Rare=15,
+// Set=25, Unique=40. Normal items can't be rerolled.
+static void UIKbReroll(player_t *player)
+{
+    int id = D_NOITEM;
+    int bpi = -1;
+    int tier;
+    int cost = 0;
+    int new_idx;
+    int new_id;
+    char msg[64];
+    extern int D_TierItemCount(int tier);
+
+    ui_kb_active = true;
+    if (ui_held != D_NOITEM)
+    {
+        id = ui_held;
+        // We'll replace ui_held directly
+    }
+    else
+    {
+        if (ui_kb_pane != 0)
+        {
+            UIMsg("Select a backpack item.");
+            return;
+        }
+        bpi = UIBackpackAt(player, ui_kb_gx, ui_kb_gy);
+        if (bpi < 0)
+        {
+            UIMsg("Nothing there.");
+            return;
+        }
+        id = player->diablo_backpack[bpi];
+    }
+
+    if (id == D_NOITEM)
+        return;
+
+    tier = D_ITEMTIER(id);
+    switch (tier)
+    {
+      case TIER_MAGIC:  cost = 5; break;
+      case TIER_RARE:   cost = 15; break;
+      case TIER_SET:    cost = 25; break;
+      case TIER_UNIQUE: cost = 40; break;
+      default:
+        UIMsg("Only Magic+ can be rerolled.");
+        return;
+    }
+
+    if (player->diablo_essence < cost)
+    {
+        M_snprintf(msg, sizeof(msg), "Need %d Essence (have %d).",
+                   cost, player->diablo_essence);
+        UIMsg(msg);
+        return;
+    }
+
+    // Pick a new random item from the same tier
+    {
+        int count = D_TierItemCount(tier);
+        if (count <= 0)
+        {
+            UIMsg("No items in tier.");
+            return;
+        }
+        new_idx = M_Random() % count;
+    }
+    new_id = D_MAKEITEM(tier, new_idx);
+
+    player->diablo_essence -= cost;
+    if (ui_held != D_NOITEM)
+        ui_held = new_id;
+    else
+        player->diablo_backpack[bpi] = new_id;
+
+    M_snprintf(msg, sizeof(msg), "Rerolled (-%d Essence).", cost);
+    UIMsg(msg);
+    printf("[ESSENCE] rerolled tier %d -> -%d (total %d)\n",
+           tier, cost, player->diablo_essence);
+}
+
 // ---------------------------------------------------------------------------
 // Input responder.
 // ---------------------------------------------------------------------------
@@ -886,6 +1024,10 @@ boolean D_UIResponder(event_t *ev)
         }
         else if (k == 'x' || k == 'X')
             UIKbDrop(player);
+        else if (k == 's' || k == 'S')
+            UIKbSalvage(player);
+        else if (k == 'r' || k == 'R')
+            UIKbReroll(player);
         // Eat all other keys too: no game input while the screen is up.
         return true;
     }
@@ -1209,6 +1351,12 @@ void D_UIDrawer(void)
 
     // Backpack.
     UIDrawText(UI_BP_X, 26, "BACKPACK");
+    // Essence display (salvage currency)
+    {
+        char essbuf[32];
+        M_snprintf(essbuf, sizeof(essbuf), "Essence: %d", player->diablo_essence);
+        UIDrawText(UI_BP_X + 120, 26, essbuf);
+    }
     V_DrawFilledBox(UI_BP_X - 2, UI_BP_Y - 2, UI_BP_W + 4, UI_BP_H + 4,
                     c_panel);
     for (gy = 0; gy <= D_BP_GRID_H; gy++)
