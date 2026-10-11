@@ -443,11 +443,21 @@ void T_DoCollect(void)
     // We need to compute which dir gives us the world-space direction we want.
 
     if (!T_Active() || mo == NULL)
+    {
+        printf("[COLLECT] blocked: T_Active=%d mo=%p\n", T_Active(), (void*)mo);
         return;
+    }
     if (!T_ActorAlive())
+    {
+        printf("[COLLECT] blocked: actor not alive\n");
         return;
+    }
     if (T_InPulse() || turnctrl.executing)
+    {
+        printf("[COLLECT] blocked: in_pulse=%d executing=%d\n",
+               T_InPulse(), turnctrl.executing);
         return;
+    }
 
     loot = T_FindNearestLoot(mo);
     if (loot == NULL)
