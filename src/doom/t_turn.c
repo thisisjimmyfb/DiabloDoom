@@ -333,6 +333,11 @@ void T_EnterExplore(void)
     for (i = 0; i < numsectors; i++)
         sectors[i].soundtarget = NULL;
     players[consoleplayer].message = "Explore: WASD to move.";
+    // Clear stale movement keys so we don't drift on combat exit.
+    {
+        extern void G_ClearMovementKeys(void);
+        G_ClearMovementKeys();
+    }
     T_DumpState("enter-explore");
 }
 
@@ -366,6 +371,11 @@ void T_EnterCombat(mobj_t *spotter)
     for (i = 0; i < sizeof(move_keys) / sizeof(move_keys[0]); i++)
         if (move_keys[i] >= 0 && move_keys[i] < 256)
             turnctrl.stale_keys[move_keys[i]] = true;
+    // Clear Doom-level key states to prevent stuck movement.
+    {
+        extern void G_ClearMovementKeys(void);
+        G_ClearMovementKeys();
+    }
     // The surprise, named: whoever acquired the player gets the callout.
     if (spotter != NULL)
         M_snprintf(msg, sizeof(msg),

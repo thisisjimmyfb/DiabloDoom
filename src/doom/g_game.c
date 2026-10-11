@@ -337,6 +337,25 @@ static int G_NextWeapon(int direction)
 // or reads it from the demo buffer. 
 // If recording a demo, write it out 
 // 
+// Clear stale movement key states. Called on turn-mode transitions
+// (enter/exit combat) to prevent stuck keys when the mode changes
+// while keys are held.
+void G_ClearMovementKeys(void)
+{
+    int i;
+    // Clear WASD and arrow keys
+    static const int move_keys[] = {
+        'w', 'a', 's', 'd', 'W', 'A', 'S', 'D',
+        KEY_UPARROW, KEY_DOWNARROW, KEY_LEFTARROW, KEY_RIGHTARROW
+    };
+    for (i = 0; i < (int)(sizeof(move_keys) / sizeof(move_keys[0])); i++)
+    {
+        int k = move_keys[i];
+        if (k >= 0 && k < NUMKEYS)
+            gamekeydown[k] = false;
+    }
+}
+
 void G_BuildTiccmd (ticcmd_t* cmd, int maketic) 
 { 
     int		i; 

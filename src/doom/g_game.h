@@ -69,6 +69,9 @@ void G_WorldDone (void);
 
 void G_BuildTiccmd (ticcmd_t *cmd, int maketic); 
 
+// Clear stale movement key states on turn-mode transitions.
+void G_ClearMovementKeys(void);
+
 void G_Ticker (void);
 boolean G_Responder (event_t*	ev);
 
