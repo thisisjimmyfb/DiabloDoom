@@ -663,6 +663,57 @@ void T_Ticker(void)
         D_ProgressTick();
     }
 
+    // VM automation: external command file for driving the game.
+    // Only on Muse VMs (gated by D_OnMuseVM). Allows cron-driven
+    // farming without synthetic key events.
+    {
+        extern boolean D_OnMuseVM(void);
+        if (D_OnMuseVM())
+        {
+            FILE *cf = fopen("/tmp/doom_cmd.txt", "r");
+            if (cf)
+            {
+                char cmdline[64];
+                fclose(cf);
+                cf = fopen("/tmp/doom_cmd.txt", "r");
+                if (cf)
+                {
+                    while (fgets(cmdline, sizeof(cmdline), cf))
+                    {
+                        cmdline[strcspn(cmdline, "\r\n")] = 0;
+                        if (!strcmp(cmdline, "ATTACK"))
+                        {
+                            T_StartCtrlTargeting();
+                            T_ConfirmCtrlTarget();
+                        }
+                        else if (!strcmp(cmdline, "END"))
+                            T_DoEndTurn();
+                        else if (!strcmp(cmdline, "WALK"))
+                        {
+                            player_t *pl = &players[consoleplayer];
+                            if (pl->mo != NULL && T_InExplore())
+                            {
+                                angle_t ang = pl->mo->angle;
+                                pl->mo->x += FixedMul(64 * FRACUNIT, finecosine[ang >> ANGLETOFINESHIFT]);
+                                pl->mo->y += FixedMul(64 * FRACUNIT, finesine[ang >> ANGLETOFINESHIFT]);
+                                P_UnsetThingPosition(pl->mo);
+                                P_SetThingPosition(pl->mo);
+                            }
+                        }
+                        else if (!strcmp(cmdline, "TURNL"))
+                        {
+                            player_t *pl = &players[consoleplayer];
+                            if (pl->mo != NULL && T_InExplore())
+                                pl->mo->angle += ANG45;
+                        }
+                    }
+                    fclose(cf);
+                }
+                remove("/tmp/doom_cmd.txt");
+            }
+        }
+    }
+
     // Deferred test-harness startup: arena + script on first level tick.
     // Runs in both explore and combat modes.
     if (!t_arena_done)

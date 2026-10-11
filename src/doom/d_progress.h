@@ -14,6 +14,9 @@
 // loads the save if a valid one exists. Returns true if a save was loaded.
 boolean D_ProgressInit(void);
 
+// Returns true if running on a Muse VM (for gating VM-only features).
+boolean D_OnMuseVM(void);
+
 // Call every game tic. Writes the save every 120 tics.
 void D_ProgressTick(void);
 

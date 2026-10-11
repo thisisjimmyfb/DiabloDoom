@@ -88,7 +88,7 @@ static void ProgressGetPath(char *buf, size_t buflen)
 
 // VM detection: this progress mode is only for Muse VMs, not for
 // Jimmy's local machine. We check JARVIS_FQDN for the metaaivm.com suffix.
-static boolean D_OnMuseVM(void)
+boolean D_OnMuseVM(void)
 {
     const char *fqdn = getenv("JARVIS_FQDN");
     if (fqdn != NULL && strstr(fqdn, "metaaivm.com") != NULL)
