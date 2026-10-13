@@ -26,12 +26,9 @@ SCREEN_DIR="${SCREEN_DIR:-~/workspace/screenshots}"
 SHOTDIR="${SHOTDIR:-~/workspace/doomshots}"
 # Driver command file (game polls this when D_OnMuseVM() is true)
 CMDFILE="${CMDFILE:-/tmp/doom_cmd.txt}"
-# Display settings. On headless VMs, Xvfb provides :96.
-# On a local machine with a real display, set DISPLAY_USE_XVFB=0 and
-# DISPLAY to your screen (usually :0).
-DISPLAY_NUM="${DISPLAY_NUM:-96}"
-DISPLAY_USE_XVFB="${DISPLAY_USE_XVFB:-1}"
-export DISPLAY=":${DISPLAY_NUM}"
+# Display settings. Uses whatever DISPLAY is already set in the environment.
+# On a local machine this is your real screen (usually :0).
+# (Xvfb support removed per Jimmy — never start it from this script.)
 # Farm duration in seconds
 FARM_SECONDS="${FARM_SECONDS:-300}"
 # Warp target (episode map)
@@ -62,14 +59,6 @@ launch_game() {
   disown
   sleep 15
 }
-
-# 4. Start Xvfb if needed and not running
-if [ "$DISPLAY_USE_XVFB" = "1" ]; then
-  if ! pgrep -x Xvfb > /dev/null; then
-    Xvfb ":${DISPLAY_NUM}" -screen 0 1280x800x24 > /tmp/xvfb.log 2>&1 &
-    sleep 3
-  fi
-fi
 
 # 5. Kill old game, start fresh (but KEEP progress.dat for continuous progress)
 pkill -9 -f "chocolate-doom" 2>/dev/null || true
