@@ -38,7 +38,6 @@ Play for ~4 minutes (~20 iterations). Keep it tight — you have a 10-minute tot
 
 ## Decision Guidance
 
-- Prefer exploring new areas over revisiting. If two consecutive screenshots look identical, you're stuck — turn 90° and walk.
 - In combat, always END your turn after queueing attacks (else you stall).
 - Don't waste time on empty rooms; head toward doorways and corridors.
 - If health is low (<30%) and no enemy nearby, keep exploring.
