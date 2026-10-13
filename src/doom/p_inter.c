@@ -870,6 +870,12 @@ P_KillMobj
 	    player_t *p = &players[pnum];
 	    int i;
 	    printf("[FARM] PLAYER_DIED - dropping inventory on corpse\n");
+	    // Auto-screenshot at death (0% HP frame) for the farm.
+	    // Uses a distinct prefix so workers can find it.
+	    {
+		extern void V_ScreenShot(const char *format);
+		V_ScreenShot("DEATH%02i.%s");
+	    }
 	    // Store inventory on the corpse mobj
 	    target->is_player_corpse = true;
 	    for (i = 0; i < 10; i++)
