@@ -410,6 +410,8 @@ static void P_DropDiabloLoot(mobj_t *target, mobj_t *source)
         return; // no valid items for this difficulty (shouldn't happen)
 
     P_SpawnDiabloLootAt(target->x, target->y, D_MAKEITEM(tier, index));
+    printf("[LOOT] dropped tier=%d idx=%d at (%d,%d)\n", tier, index,
+           target->x >> 16, target->y >> 16);
 }
 
 // Give the player a random item of the given rarity tier (0-4).
