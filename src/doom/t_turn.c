@@ -721,6 +721,12 @@ void T_Ticker(void)
                             if (pl->mo != NULL && T_InExplore())
                                 pl->mo->angle += ANG45;
                         }
+                        else if (!strcmp(cmdline, "TURNR"))
+                        {
+                            player_t *pl = &players[consoleplayer];
+                            if (pl->mo != NULL && T_InExplore())
+                                pl->mo->angle -= ANG45;
+                        }
                         else if (!strcmp(cmdline, "COLLECT"))
                         {
                             extern void T_DoCollect(void);
