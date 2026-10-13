@@ -10,9 +10,9 @@ Play the game well — explore the level, engage enemies in turn-based combat, p
 
 ## Setup
 
-1. Ensure Xvfb :96 is running (1280x800). If not: `Xvfb :96 -screen 0 1280x800x24 &` then sleep 2.
+1. Use whatever DISPLAY is already set in the environment (no Xvfb — never start it).
 2. Kill any stale game: `pkill -9 -f "chocolate-doo[m]"` (bracket trick avoids suicide).
-3. Launch: `DISPLAY=:96 SDL_VIDEODRIVER=x11 nohup ~/workspace/DiabloDoom/build/src/chocolate-doom -iwad ~/workspace/doom/freedoom1.wad -width 960 -height 600 -warp 1 1 > /tmp/doom_hourly.log 2>&1 &` then sleep 15.
+3. Launch: `SDL_VIDEODRIVER=x11 nohup ~/workspace/DiabloDoom/build/src/chocolate-doom -iwad ~/workspace/doom/freedoom1.wad -width 960 -height 600 -warp 1 1 > /tmp/doom_hourly.log 2>&1 &` then sleep 15.
    - NEVER pull from git, NEVER rebuild. Use the existing binary only.
 4. Screenshot: use the game's built-in SCREENSHOT driver command. Write `SCREENSHOT\n` to /tmp/doom_cmd.txt, sleep 4, then find the newest `DOOM*.png` in the game's working dir (`~/workspace/doomshots/`) and copy it to /tmp/farm_view.png. Move the DOOM*.png files out afterward so the game's DOOM00..DOOM99 cycle never fills up.
 
@@ -53,4 +53,4 @@ After ~4 min of play:
 
 ## Failure Handling
 
-If the game won't start (crash on boot), report the last 20 lines of /tmp/doom_hourly.log plainly. Do not retry more than once per run. If Xvfb or libs are broken after a VM recycle, restore via `~/workspace/goals/diablodoom-bfg-hunt/hidden_files/restore_game_libs.sh` before giving up.
+If the game won't start (crash on boot), report the last 20 lines of /tmp/doom_hourly.log plainly. Do not retry more than once per run. If libs are broken after a VM recycle, restore via `~/workspace/goals/diablodoom-bfg-hunt/hidden_files/restore_game_libs.sh` before giving up.
