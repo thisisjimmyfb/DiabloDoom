@@ -685,8 +685,9 @@ void R_ExecuteSetViewSize (void)
 	// Standard Doom leaves 16px borders on each side at 9 blocks;
 	// we want the 3D view to cover the full width (hiding edge UI text)
 	// while keeping the status bar at the bottom.
+	// viewheight fills the space above the 32px status bar (200-32=168).
 	scaledviewwidth = SCREENWIDTH;
-	viewheight = (setblocks*168/10)&~7;
+	viewheight = SCREENHEIGHT - 32;
     }
     else
     {
