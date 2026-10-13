@@ -164,6 +164,7 @@ P_GiveWeapon
 	gaveweapon = true;
 	player->weaponowned[weapon] = true;
 	player->pendingweapon = weapon;
+	printf("[LOOT] picked up weapon=%d\n", weapon);
     }
 	
     return (gaveweapon || gaveammo);
@@ -485,6 +486,7 @@ P_TouchSpecialThing
         if (D_BackpackAdd(player, tier, idx))
         {
             P_RemoveMobj(special);
+            printf("[LOOT] picked up tier=%d idx=%d\n", tier, idx);
             // Auto-save after loot pickup: don't lose the new item.
             {
                 extern void D_ProgressSaveNow(void);
