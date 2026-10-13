@@ -25,12 +25,12 @@ Play for ~4 minutes (~20 iterations). Keep it tight — you have a 10-minute tot
    - HUD: health %, ammo, current state (EXPLORE banner vs COMBAT/planning UI)
    - 3D view: are you facing a wall? Open area? Doorway? Enemy visible?
    - If COMBAT (turn-based UI visible): queue attacks — write `ATTACK\nATTACK\nATTACK\nEND\n` to /tmp/doom_cmd.txt, sleep 8, continue.
-   - If EXPLORE: decide movement:
+   - If EXPLORE: decide movement (PRIORITY ORDER):
+     * Loot prompt "press G to loot" visible → write `COLLECT\n` IMMEDIATELY. Do not walk past loot. This is your top priority.
+     * Vanilla pickup visible on ground (weapon, ammo box, health pack, armor) → WALK toward it to walk over and pick up. These are walk-over pickups, no key needed. Do not ignore pickups.
+     * Enemy visible in distance → WALK toward it
      * Facing wall/door up close → TURNL or TURNR (alternate to avoid spinning)
      * Open area → WALK
-     * Enemy visible in distance → WALK toward it
-     * Loot prompt "press G to loot" visible → write `COLLECT\n`
-     * Vanilla pickup visible on ground (weapon, ammo box, health pack, armor) → WALK toward it to walk over and pick up. These are walk-over pickups, no key needed.
    - Write your chosen command(s) to /tmp/doom_cmd.txt (one per line). The game's driver consumes the file each tick.
    - If you pick up interesting loot (Magic/Rare/Set/Unique tier, or a weapon upgrade): press C to open the character/inventory screen, screenshot it, then close with Esc. Upload the inventory screenshot alongside the regular one so the loot is visible.
 3. Sleep 5-8 seconds between iterations to let the game act.
