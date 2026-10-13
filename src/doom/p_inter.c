@@ -37,6 +37,41 @@
 // code and g_game.c ticker.
 int death_screenshot_tics = 0;
 
+// Manual respawn: corpse waiting for RESPAWN command confirmation.
+mobj_t *pending_corpse = NULL;
+int pending_corpse_player = -1;
+
+// Completes the corpse-run respawn after RESPAWN command.
+// Called from driver (t_turn.c). Returns true if respawned.
+boolean P_DoCorpseRespawn(void)
+{
+    extern void G_PlayerReborn(int player);
+    extern void P_SpawnPlayer(mapthing_t *mthing);
+    int pnum;
+    int i;
+    if (pending_corpse == NULL || pending_corpse_player < 0)
+        return false;
+    pnum = pending_corpse_player;
+    // G_PlayerReborn clears inventory (already saved to corpse)
+    G_PlayerReborn(pnum);
+    // Clear the preserved gear - it lives on the corpse now
+    for (i = 0; i < 10; i++)
+        players[pnum].diablo_equipped[i] = -1; // D_NOITEM
+    for (i = 0; i < 40; i++) {
+        players[pnum].diablo_backpack[i] = -1;
+        players[pnum].diablo_bp_gx[i] = -1;
+        players[pnum].diablo_bp_gy[i] = -1;
+    }
+    players[pnum].diablo_bp_count = 0;
+    players[pnum].diablo_essence = 0;
+    players[pnum].playerstate = PST_LIVE;
+    P_SpawnPlayer(&playerstarts[pnum]);
+    players[pnum].message = "Retrieve your corpse!";
+    pending_corpse = NULL;
+    pending_corpse_player = -1;
+    return true;
+}
+
 #include "am_map.h"
 
 #include "p_local.h"
@@ -896,23 +931,16 @@ P_KillMobj
 	    // Detach corpse from player so new spawn doesn't conflict.
 	    // Leave it solid=false but touchable for inventory recovery.
 	    target->player = NULL;
-	    // G_PlayerReborn clears inventory (we already saved it to corpse)
-	    // Note: G_PlayerReborn currently preserves Diablo gear - we need
-	    // to clear it manually after.
-	    G_PlayerReborn(pnum);
-	    // Clear the preserved gear - it lives on the corpse now
-	    for (i = 0; i < 10; i++)
-		players[pnum].diablo_equipped[i] = -1; // D_NOITEM
-	    for (i = 0; i < 40; i++) {
-		players[pnum].diablo_backpack[i] = -1;
-		players[pnum].diablo_bp_gx[i] = -1;
-		players[pnum].diablo_bp_gy[i] = -1;
+	    // Manual respawn: player stays dead at 0% until RESPAWN command.
+	    // Store corpse for later respawn (driver command will complete it).
+	    {
+		extern mobj_t *pending_corpse;
+		extern int pending_corpse_player;
+		pending_corpse = target;
+		pending_corpse_player = pnum;
 	    }
-	    players[pnum].diablo_bp_count = 0;
-	    players[pnum].diablo_essence = 0;
-	    players[pnum].playerstate = PST_LIVE;
-	    P_SpawnPlayer(&playerstarts[pnum]);
-	    players[pnum].message = "Retrieve your corpse!";
+	    // NOTE: G_PlayerReborn / P_SpawnPlayer moved to RESPAWN command.
+	    // Player remains PST_DEAD at 0% until confirmed.
 	    return;
 	}
 

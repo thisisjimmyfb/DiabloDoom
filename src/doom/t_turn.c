@@ -772,6 +772,14 @@ void T_Ticker(void)
                             extern void T_DoCollect(void);
                             T_DoCollect();
                         }
+                        else if (!strcmp(cmdline, "RESPAWN"))
+                        {
+                            // Manual respawn after death (requires confirmation).
+                            // Player stays dead at 0% until this is sent.
+                            extern boolean P_DoCorpseRespawn(void);
+                            if (P_DoCorpseRespawn())
+                                printf("[FARM] RESPAWN confirmed - player reborn\n");
+                        }
                         else if (!strcmp(cmdline, "SCREENSHOT"))
                         {
                             extern void G_ScreenShot(void);
