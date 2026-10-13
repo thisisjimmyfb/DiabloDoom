@@ -836,6 +836,7 @@ P_KillMobj
 			
 	target->flags &= ~MF_SOLID;
 	target->player->playerstate = PST_DEAD;
+	printf("[FARM] PLAYER_DEAD - farm should restart\n");
 	P_DropWeapon (target->player);
 
 	if (target->player == &players[consoleplayer]
