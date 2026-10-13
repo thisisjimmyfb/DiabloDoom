@@ -280,6 +280,17 @@ typedef struct mobj_s
     // Diablo loot system (mod): packed item id ((tier << 8) | index)
     // for MT_LOOT_* drops; D_NOITEM (-1) if not a specific item.
     int			diablo_loot_id;
+
+    // Diablo corpse system (mod): when a player dies, their inventory
+    // is stored on the corpse mobj. Touching the corpse restores it.
+    // Sizes match player_t diablo_* fields (see d_diablo.h).
+    boolean		is_player_corpse;
+    int			corpse_equipped[10];  // NUM_ESLOTS
+    int			corpse_backpack[40];  // D_BACKPACK_SIZE
+    int			corpse_bp_gx[40];
+    int			corpse_bp_gy[40];
+    int			corpse_bp_count;
+    int			corpse_essence;
     
 } mobj_t;
 

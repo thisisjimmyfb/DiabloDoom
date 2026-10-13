@@ -445,6 +445,28 @@ P_TouchSpecialThing
     if (toucher->health <= 0)
 	return;
 
+    // Diablo corpse system: touching your corpse recovers inventory.
+    if (special->is_player_corpse)
+    {
+	int i;
+	player = toucher->player;
+	if (!player) return;
+	// Restore inventory from corpse
+	for (i = 0; i < 10; i++)
+	    player->diablo_equipped[i] = special->corpse_equipped[i];
+	for (i = 0; i < 40; i++) {
+	    player->diablo_backpack[i] = special->corpse_backpack[i];
+	    player->diablo_bp_gx[i] = special->corpse_bp_gx[i];
+	    player->diablo_bp_gy[i] = special->corpse_bp_gy[i];
+	}
+	player->diablo_bp_count = special->corpse_bp_count;
+	player->diablo_essence = special->corpse_essence;
+	player->message = "Corpse recovered!";
+	printf("[FARM] CORPSE_RECOVERED - inventory restored\n");
+	P_RemoveMobj(special);
+	return;
+    }
+
     // Diablo loot system: loot reuses stock sprites, so identify
     // it by mobj type before the sprite-based switch below.
     if (special->type >= MT_LOOT_NORMAL && special->type <= MT_LOOT_UNIQUE)
@@ -835,20 +857,46 @@ P_KillMobj
 	    target->player->frags[target->player-players]++;
 			
 	target->flags &= ~MF_SOLID;
-	// Diablo-style respawn: back to level start, inventory intact.
-	// (G_PlayerReborn preserves Diablo gear; P_SpawnPlayer puts us
-	// at the player start without reloading the level.)
+	// Diablo-style death: drop inventory on corpse, respawn at level start.
+	// Player must run back to corpse to recover gear.
 	{
 	    extern void G_PlayerReborn(int player);
 	    extern void P_SpawnPlayer(mapthing_t *mthing);
 	    int pnum = target->player - players;
-	    printf("[FARM] PLAYER_DIED - respawning at level start (Diablo-style)\n");
-	    // Leave the corpse where it fell - nice touch. Just detach it
-	    // from the player so the new spawn doesn't conflict.
+	    player_t *p = &players[pnum];
+	    int i;
+	    printf("[FARM] PLAYER_DIED - dropping inventory on corpse\n");
+	    // Store inventory on the corpse mobj
+	    target->is_player_corpse = true;
+	    for (i = 0; i < 10; i++)
+		target->corpse_equipped[i] = p->diablo_equipped[i];
+	    for (i = 0; i < 40; i++) {
+		target->corpse_backpack[i] = p->diablo_backpack[i];
+		target->corpse_bp_gx[i] = p->diablo_bp_gx[i];
+		target->corpse_bp_gy[i] = p->diablo_bp_gy[i];
+	    }
+	    target->corpse_bp_count = p->diablo_bp_count;
+	    target->corpse_essence = p->diablo_essence;
+	    // Detach corpse from player so new spawn doesn't conflict.
+	    // Leave it solid=false but touchable for inventory recovery.
 	    target->player = NULL;
+	    // G_PlayerReborn clears inventory (we already saved it to corpse)
+	    // Note: G_PlayerReborn currently preserves Diablo gear - we need
+	    // to clear it manually after.
 	    G_PlayerReborn(pnum);
+	    // Clear the preserved gear - it lives on the corpse now
+	    for (i = 0; i < 10; i++)
+		players[pnum].diablo_equipped[i] = -1; // D_NOITEM
+	    for (i = 0; i < 40; i++) {
+		players[pnum].diablo_backpack[i] = -1;
+		players[pnum].diablo_bp_gx[i] = -1;
+		players[pnum].diablo_bp_gy[i] = -1;
+	    }
+	    players[pnum].diablo_bp_count = 0;
+	    players[pnum].diablo_essence = 0;
 	    players[pnum].playerstate = PST_LIVE;
 	    P_SpawnPlayer(&playerstarts[pnum]);
+	    players[pnum].message = "Retrieve your corpse!";
 	    return;
 	}
 
