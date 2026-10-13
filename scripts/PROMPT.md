@@ -35,7 +35,7 @@ Play for ~4 minutes (~20 iterations). Keep it tight — you have a 10-minute tot
    - If you pick up interesting loot (Magic/Rare/Set/Unique tier, or a weapon upgrade): press C to open the character/inventory screen, screenshot it, then close with Esc. Upload the inventory screenshot alongside the regular one so the loot is visible.
 3. Sleep 5-8 seconds between iterations to let the game act.
 4. Check /tmp/doom_hourly.log periodically for: kills, PLAYER_DIED (corpse-run respawn is automatic, no action needed), errors.
-   - If you see PLAYER_DIED: dying is an interesting event — take a screenshot immediately (the death cam / corpse view) and upload it with your report. Mention what killed you and where your corpse is.
+   - If you see PLAYER_DIED: the game auto-captures DEATH*.png at 0% HP. Find the newest DEATH*.png in ~/workspace/doomshots/, upload it with your report (this is the death moment, not the corpse). Mention what killed you and where your corpse is.
 
 ## Decision Guidance
 
