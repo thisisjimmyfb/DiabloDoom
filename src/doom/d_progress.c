@@ -317,14 +317,9 @@ static boolean D_ProgressLoadFromSlot(int slot)
 
 void D_ProgressTick(void)
 {
-    if (!progress_initialized)
-        return;
-
-    progress_tic_count++;
-    if (progress_tic_count >= PROGRESS_WRITE_INTERVAL)
-    {
-        progress_tic_count = 0;
-        printf("[PROGRESS] tick: attempting save (gamestate=%d)\n", gamestate);
-        D_ProgressSaveNow();
-    }
+    // Periodic auto-save disabled: saves are event-driven only
+    // (before combat via T_EnterCombat, after loot pickup via p_inter.c).
+    // Keeping the tick hook as a no-op in case we want timed saves back.
+    (void)progress_initialized;
+    (void)progress_tic_count;
 }

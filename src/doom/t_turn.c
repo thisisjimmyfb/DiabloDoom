@@ -344,6 +344,11 @@ void T_EnterExplore(void)
 void T_EnterCombat(mobj_t *spotter)
 {
     static char msg[96];
+    // Auto-save progress before combat: don't lose the pre-fight state.
+    {
+        extern void D_ProgressSaveNow(void);
+        D_ProgressSaveNow();
+    }
     // Movement keys that might be held from explore mode. Their key
     // repeats are stale -- the player must release and re-press to act.
     static const int move_keys[] = {

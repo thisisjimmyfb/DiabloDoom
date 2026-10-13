@@ -461,7 +461,14 @@ P_TouchSpecialThing
         idx = D_ITEMIDX(item_id);
         // Stash it in the backpack; a full backpack leaves it on the ground.
         if (D_BackpackAdd(player, tier, idx))
+        {
             P_RemoveMobj(special);
+            // Auto-save after loot pickup: don't lose the new item.
+            {
+                extern void D_ProgressSaveNow(void);
+                D_ProgressSaveNow();
+            }
+        }
         else
             D_BackpackFullMsg(player);
         player->bonuscount += BONUSADD;
