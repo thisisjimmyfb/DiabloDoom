@@ -843,7 +843,9 @@ P_KillMobj
 	    extern void P_SpawnPlayer(mapthing_t *mthing);
 	    int pnum = target->player - players;
 	    printf("[FARM] PLAYER_DIED - respawning at level start (Diablo-style)\n");
-	    P_RemoveMobj(target);
+	    // Leave the corpse where it fell - nice touch. Just detach it
+	    // from the player so the new spawn doesn't conflict.
+	    target->player = NULL;
 	    G_PlayerReborn(pnum);
 	    players[pnum].playerstate = PST_LIVE;
 	    P_SpawnPlayer(&playerstarts[pnum]);
