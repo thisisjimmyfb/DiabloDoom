@@ -1091,8 +1091,14 @@ P_DamageMobj
 	    damage -= saved;
 	}
 	player->health -= damage; 	// mirror mobj health here for Dave
-	if (player->health < 0)
+	if (player->health <= 0)
+	{
 	    player->health = 0;
+	    // Ensure the mobj also reflects death so P_KillMobj fires below.
+	    // Without this, the HUD shows 0% but the player never actually dies.
+	    if (target)
+		target->health = 0;
+	}
 	
 	player->attacker = source;
 	player->damagecount += damage;	// add damage after armor / invuln
