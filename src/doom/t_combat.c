@@ -1060,6 +1060,8 @@ boolean T_ResolveAttack(player_t *player, mobj_t *target)
         player->message = "HIT!";
 
     P_DamageMobj(target, player->mo, player->mo, total_dmg);
+    printf("[TURN] DEBUG: target=%p type=%d hp_after=%d (dmg=%d)\n",
+           (void*)target, target->type, target->health, total_dmg);
     // Lifesteal: gear + kit leech (chainsaw). Heals % of damage dealt.
     {
         int ls = player->diablo_stats[DSTAT_LIFESTEAL] + kit->leech;
