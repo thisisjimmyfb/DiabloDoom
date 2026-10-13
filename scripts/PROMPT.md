@@ -14,13 +14,13 @@ Play the game well — explore the level, engage enemies in turn-based combat, p
 2. Kill any stale game: `pkill -9 -f "chocolate-doo[m]"` (bracket trick avoids suicide).
 3. Launch: `DISPLAY=:96 SDL_VIDEODRIVER=x11 nohup ~/workspace/DiabloDoom/build/src/chocolate-doom -iwad ~/workspace/doom/freedoom1.wad -width 960 -height 600 -warp 1 1 > /tmp/doom_hourly.log 2>&1 &` then sleep 15.
    - NEVER pull from git, NEVER rebuild. Use the existing binary only.
-4. Screenshot helper: `python3 ~/workspace/doom/wshot.py /tmp/farm_view.png` (needs DISPLAY=:96).
+4. Screenshot: use the game's built-in capture, not wshot.py. Write `SCREENSHOT\n` to /tmp/doom_cmd.txt, sleep 4, then find the newest `DOOM*.png` in the game's working dir (`~/workspace/doomshots/`) and copy it to /tmp/farm_view.png. Move the DOOM*.png files out afterward so the game's DOOM00..DOOM99 cycle never fills up.
 
 ## Game Loop
 
 Play for ~4 minutes (~20 iterations). Keep it tight — you have a 10-minute total budget including setup and reporting. The game persists between runs — you are continuing a continuous play session, not starting fresh each time.
 
-1. Take screenshot: `DISPLAY=:96 python3 ~/workspace/doom/wshot.py /tmp/farm_view.png`
+1. Take screenshot: write `SCREENSHOT\n` to /tmp/doom_cmd.txt, sleep 4, then copy the newest `DOOM*.png` from `~/workspace/doomshots/` to /tmp/farm_view.png (and clear the DOOM*.png files so the game's name cycle doesn't fill up).
 2. Read `/tmp/farm_view.png` with your vision. Assess:
    - HUD: health %, ammo, current state (EXPLORE banner vs COMBAT/planning UI)
    - 3D view: are you facing a wall? Open area? Doorway? Enemy visible?
