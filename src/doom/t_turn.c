@@ -737,6 +737,16 @@ void T_Ticker(void)
                             extern void G_ScreenShot(void);
                             G_ScreenShot();
                         }
+                        else if (!strcmp(cmdline, "INVENTORY"))
+                        {
+                            extern void D_UIOpen(void);
+                            extern void D_UIClose(void);
+                            extern boolean D_UIIsOpen(void);
+                            if (D_UIIsOpen())
+                                D_UIClose();
+                            else
+                                D_UIOpen();
+                        }
                     }
                     fclose(cf);
                 }
