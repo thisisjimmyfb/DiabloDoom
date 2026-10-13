@@ -418,6 +418,23 @@ static void saveg_read_mobj_t(mobj_t *str)
 
     // struct mobj_s* tracer;
     str->tracer = saveg_readp();
+
+    // Diablo corpse system (mod): player corpse inventory
+    str->is_player_corpse = saveg_read32();
+    {
+        int i;
+        for (i = 0; i < 10; i++)
+            str->corpse_equipped[i] = saveg_read32();
+        for (i = 0; i < 40; i++) {
+            str->corpse_backpack[i] = saveg_read32();
+            str->corpse_bp_gx[i] = saveg_read32();
+            str->corpse_bp_gy[i] = saveg_read32();
+        }
+        str->corpse_bp_count = saveg_read32();
+        str->corpse_essence = saveg_read32();
+    }
+    // Diablo loot id (mod)
+    str->diablo_loot_id = saveg_read32();
 }
 
 static void saveg_write_mobj_t(mobj_t *str)
@@ -533,6 +550,23 @@ static void saveg_write_mobj_t(mobj_t *str)
 
     // struct mobj_s* tracer;
     saveg_writep(str->tracer);
+
+    // Diablo corpse system (mod): player corpse inventory
+    saveg_write32(str->is_player_corpse);
+    {
+        int i;
+        for (i = 0; i < 10; i++)
+            saveg_write32(str->corpse_equipped[i]);
+        for (i = 0; i < 40; i++) {
+            saveg_write32(str->corpse_backpack[i]);
+            saveg_write32(str->corpse_bp_gx[i]);
+            saveg_write32(str->corpse_bp_gy[i]);
+        }
+        saveg_write32(str->corpse_bp_count);
+        saveg_write32(str->corpse_essence);
+    }
+    // Diablo loot id (mod)
+    saveg_write32(str->diablo_loot_id);
 }
 
 
