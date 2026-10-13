@@ -32,7 +32,12 @@ Play for ~4 minutes (~20 iterations). Keep it tight — you have a 10-minute tot
      * Facing wall/door up close → TURNL or TURNR (alternate to avoid spinning)
      * Open area → WALK
    - Write your chosen command(s) to /tmp/doom_cmd.txt (one per line). The game's driver consumes the file each tick.
-   - If you pick up interesting loot (Magic/Rare/Set/Unique tier, or a weapon upgrade): press C to open the character/inventory screen, screenshot it, then close with Esc. Upload the inventory screenshot alongside the regular one so the loot is visible.
+   - If you pick up loot: press C to open the character/inventory screen. EQUIP upgrades immediately to maximize survival and kill speed:
+     * Weapon: equip if it has higher damage than current (check the AD/AP damage range). Prioritize kill speed.
+     * Armor/Helm/Boots/Gloves/Shield: equip if it has higher armor or resistances. Prioritize survival.
+     * Rings/Amulet/Belt: equip if the stats (dexterity, energy, resistances) are better than what's equipped or if the slot is empty.
+     * Compare the item stats shown — if it's strictly better than what's equipped in that slot, equip it. Don't hoard upgrades in the backpack.
+     * Screenshot the inventory screen after equipping, then close with Esc. Upload the inventory screenshot alongside the regular one.
 3. Sleep 5-8 seconds between iterations to let the game act.
 4. Check /tmp/doom_hourly.log periodically for: kills, PLAYER_DIED (corpse-run respawn is automatic, no action needed), errors.
    - If you see PLAYER_DIED: the game auto-captures DEATH*.png at 0% HP. Find the newest DEATH*.png in ~/workspace/doomshots/, upload it with your report (this is the death moment, not the corpse). Mention what killed you and where your corpse is.
