@@ -721,6 +721,11 @@ void T_Ticker(void)
                             extern void T_DoCollect(void);
                             T_DoCollect();
                         }
+                        else if (!strcmp(cmdline, "SCREENSHOT"))
+                        {
+                            extern void G_ScreenShot(void);
+                            G_ScreenShot();
+                        }
                     }
                     fclose(cf);
                 }

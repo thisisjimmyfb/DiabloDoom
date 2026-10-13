@@ -28,6 +28,20 @@ title with `~/workspace/doom/wshot.py` — with `window_width 1280` /
 (aspect-corrected). Do **not** use the old `xshot.py` root capture: it grabs a fixed
 640x400 region and will crop the status bar out of frame.
 
+## VM automation driver
+
+On Muse VMs (`D_OnMuseVM()` — `JARVIS_FQDN` contains `metaaivm.com`),
+`T_Ticker()` polls `/tmp/doom_cmd.txt` every tick, executes one command per
+line, then deletes the file. Commands: `WALK`, `TURNL`, `ATTACK`, `END`,
+`COLLECT`, `SCREENSHOT`. `SCREENSHOT` calls `G_ScreenShot()` — captured from
+the game's own 320x200 framebuffer, so no tearing (unlike Xlib window grabs,
+which race `SDL_RenderPresent` under Xvfb's vsync-less output). Files land as
+`DOOM00.png`…`DOOM99.png` in the working directory (PNG is the default;
+`png_screenshots` in `src/i_video.c`). The farm (`~/workspace/doom_loop.sh`)
+sends `SCREENSHOT`, collects the PNG, and upscales 3x nearest-neighbor to
+960x600. Move the `DOOM*.png` files out after each capture — the game
+`I_Error`s once all 100 names are taken.
+
 ## Repo map
 
 - `src/doom/d_diablo.c/.h` — item database, drop tables, player item state.
