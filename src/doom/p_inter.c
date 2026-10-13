@@ -835,9 +835,20 @@ P_KillMobj
 	    target->player->frags[target->player-players]++;
 			
 	target->flags &= ~MF_SOLID;
-	target->player->playerstate = PST_DEAD;
-	printf("[FARM] PLAYER_DEAD - farm should restart\n");
-	P_DropWeapon (target->player);
+	// Diablo-style respawn: back to level start, inventory intact.
+	// (G_PlayerReborn preserves Diablo gear; P_SpawnPlayer puts us
+	// at the player start without reloading the level.)
+	{
+	    extern void G_PlayerReborn(int player);
+	    extern void P_SpawnPlayer(mapthing_t *mthing);
+	    int pnum = target->player - players;
+	    printf("[FARM] PLAYER_DIED - respawning at level start (Diablo-style)\n");
+	    P_RemoveMobj(target);
+	    G_PlayerReborn(pnum);
+	    players[pnum].playerstate = PST_LIVE;
+	    P_SpawnPlayer(&playerstarts[pnum]);
+	    return;
+	}
 
 	if (target->player == &players[consoleplayer]
 	    && automapactive)
