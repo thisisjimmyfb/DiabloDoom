@@ -772,6 +772,31 @@ void T_Ticker(void)
                             extern void T_DoCollect(void);
                             T_DoCollect();
                         }
+                        else if (!strcmp(cmdline, "MOVE_FWD"))
+                        {
+                            // Combat movement: step forward (1 TP). Works in combat.
+                            extern void T_DoMove(int dir);
+                            T_DoMove(0);
+                        }
+                        else if (!strcmp(cmdline, "MOVE_BACK"))
+                        {
+                            // Combat movement: step back (1 TP). Works in combat.
+                            // Kiting: back away from melee attackers.
+                            extern void T_DoMove(int dir);
+                            T_DoMove(2);
+                        }
+                        else if (!strcmp(cmdline, "STRAFE_L"))
+                        {
+                            // Combat movement: strafe left (1 TP). Works in combat.
+                            extern void T_DoMove(int dir);
+                            T_DoMove(3);
+                        }
+                        else if (!strcmp(cmdline, "STRAFE_R"))
+                        {
+                            // Combat movement: strafe right (1 TP). Works in combat.
+                            extern void T_DoMove(int dir);
+                            T_DoMove(1);
+                        }
                         else if (!strcmp(cmdline, "RESPAWN"))
                         {
                             // Manual respawn after death (requires confirmation).
