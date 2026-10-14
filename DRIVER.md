@@ -1,6 +1,8 @@
 # Driver Command System
 
-DiabloDoom on Muse VMs (`D_OnMuseVM()` — `JARVIS_FQDN` contains `metaaivm.com`) polls `/tmp/doom_cmd.txt` every tick. Write one command per line; the game executes them and deletes the file.
+DiabloDoom on Muse VMs (`D_OnMuseVM()` — `JARVIS_FQDN` contains `metaaivm.com`) uses a persistent FIFO (named pipe) at `/tmp/doom_cmd.txt` for automation. The game creates the FIFO at startup via `mkfifo()` (only on Muse VMs), opens it `O_RDWR|O_NONBLOCK`, and keeps the fd open for its lifetime. Workers write commands with e.g. `echo "WALK" > /tmp/doom_cmd.txt`; each tick the game drains available bytes without blocking, splits on newlines, and executes each command.
+
+No polling, no file creation/deletion per tick — just a pipe.
 
 ## Commands
 
@@ -69,8 +71,8 @@ RESPAWN
 
 ## Implementation
 
-- Driver polling: `src/doom/t_turn.c` — `T_Ticker()` reads `/tmp/doom_cmd.txt`.
-- Explore movement: `WALK` teleports + manual `P_TouchSpecialThing` check (see `t_turn.c` WALK handler).
+- Driver FIFO: `src/doom/t_turn.c` — `cmd_init()` creates `/tmp/doom_cmd.txt` via `mkfifo()` (Muse VM only), opens `O_RDWR|O_NONBLOCK`; `cmd_drain()` reads available bytes each tick without blocking; `cmd_dispatch()` executes each line.
+- Explore movement: `WALK` teleports + manual `P_TouchSpecialThing` check (see `cmd_dispatch` WALK handler).
 - Combat movement: `T_DoMove(dir)` in `src/doom/t_action.c` — queues `TA_MOVE_*` actions.
 - Combat attacks: `T_DoAttack()` in `src/doom/t_action.c`.
 - Loot: `T_DoCollect()` in `src/doom/t_action.c`.

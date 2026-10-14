@@ -7,6 +7,10 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
 
 #include "hu_stuff.h"
 #include "t_turn.h"
@@ -659,6 +663,214 @@ static void T_EndPulse(void)
     T_DumpState("pulse-end");
 }
 
+// VM automation driver: persistent FIFO at /tmp/doom_cmd.txt.
+// Only on Muse VMs (gated by D_OnMuseVM). The FIFO is created once,
+// opened O_RDWR|O_NONBLOCK (never blocks, never EOF since we hold
+// both ends), and kept open for the game's lifetime. Workers write
+// commands with e.g. `echo "WALK" > /tmp/doom_cmd.txt`. Each tick we
+// drain whatever's available without blocking.
+static int cmdfd = -2;  // -2 = uninitialized, -1 = failed/disabled
+static char cmdbuf[4096];
+static int cmdlen = 0;
+
+static void cmd_init(void)
+{
+    extern boolean D_OnMuseVM(void);
+    struct stat st;
+
+    if (!D_OnMuseVM())
+    {
+        cmdfd = -1;
+        return;
+    }
+    // Remove a stale regular file from the old polling implementation.
+    if (stat("/tmp/doom_cmd.txt", &st) == 0 && !S_ISFIFO(st.st_mode))
+        unlink("/tmp/doom_cmd.txt");
+    if (mkfifo("/tmp/doom_cmd.txt", 0666) != 0 && errno != EEXIST)
+    {
+        cmdfd = -1;
+        return;
+    }
+    // O_RDWR: open never blocks and we never see EOF (we hold a write
+    // end ourselves). O_NONBLOCK: reads never stall the game tick.
+    cmdfd = open("/tmp/doom_cmd.txt", O_RDWR | O_NONBLOCK);
+    if (cmdfd < 0)
+        cmdfd = -1;
+}
+
+// Drain available bytes from the FIFO, split on newlines, dispatch
+// each complete command line. Partial lines stay buffered.
+static void cmd_drain(void (*dispatch)(const char *))
+{
+    char tmp[1024];
+    ssize_t r;
+
+    if (cmdfd == -2)
+        cmd_init();
+    if (cmdfd < 0)
+        return;
+
+    while ((r = read(cmdfd, tmp, sizeof(tmp))) > 0)
+    {
+        if (cmdlen + r >= (int)sizeof(cmdbuf))
+        {
+            // Buffer full without a newline: drop it, resync.
+            cmdlen = 0;
+        }
+        memcpy(cmdbuf + cmdlen, tmp, r);
+        cmdlen += r;
+
+        // Extract complete lines.
+        int start = 0;
+        for (int i = 0; i < cmdlen; i++)
+        {
+            if (cmdbuf[i] == '\n' || cmdbuf[i] == '\r')
+            {
+                cmdbuf[i] = 0;
+                if (i > start)
+                    dispatch(cmdbuf + start);
+                start = i + 1;
+            }
+        }
+        if (start > 0)
+        {
+            memmove(cmdbuf, cmdbuf + start, cmdlen - start);
+            cmdlen -= start;
+        }
+    }
+    // r == 0: EOF (can't happen with O_RDWR, we hold a writer).
+    // r < 0: EAGAIN = no data, or a real error (leave fd open).
+}
+
+// Dispatch a single driver command line from the FIFO.
+static void cmd_dispatch(const char *cmd)
+{
+    if (!strcmp(cmd, "ATTACK"))
+    {
+        T_StartCtrlTargeting();
+        T_ConfirmCtrlTarget();
+    }
+    else if (!strcmp(cmd, "END"))
+        T_DoEndTurn();
+    else if (!strcmp(cmd, "WALK"))
+    {
+        player_t *pl = &players[consoleplayer];
+        if (pl->mo != NULL && T_InExplore())
+        {
+            angle_t ang = pl->mo->angle;
+            pl->mo->x += FixedMul(64 * FRACUNIT, finecosine[ang >> ANGLETOFINESHIFT]);
+            pl->mo->y += FixedMul(64 * FRACUNIT, finesine[ang >> ANGLETOFINESHIFT]);
+            P_UnsetThingPosition(pl->mo);
+            P_SetThingPosition(pl->mo);
+            // WALK bypasses P_TryMove, so item pickup
+            // (P_TouchSpecialThing) never fires. Check
+            // for overlapping special things manually.
+            {
+                mobj_t *mo = pl->mo;
+                int bx = (mo->x - bmaporgx) >> MAPBLOCKSHIFT;
+                int by = (mo->y - bmaporgy) >> MAPBLOCKSHIFT;
+                int bx0 = bx - 1, bx1 = bx + 1;
+                int by0 = by - 1, by1 = by + 1;
+                int x, y;
+                extern void P_TouchSpecialThing(mobj_t *, mobj_t *);
+                if (bx0 < 0) bx0 = 0;
+                if (by0 < 0) by0 = 0;
+                if (bx1 >= bmapwidth) bx1 = bmapwidth - 1;
+                if (by1 >= bmapheight) by1 = bmapheight - 1;
+                for (y = by0; y <= by1; y++)
+                    for (x = bx0; x <= bx1; x++)
+                    {
+                        mobj_t *th;
+                        for (th = blocklinks[y * bmapwidth + x];
+                             th != NULL; th = th->bnext)
+                        {
+                            if (th == mo)
+                                continue;
+                            if (!(th->flags & MF_SPECIAL))
+                                continue;
+                            // Rough overlap check
+                            {
+                                fixed_t dx = th->x - mo->x;
+                                fixed_t dy = th->y - mo->y;
+                                fixed_t r = mo->radius + th->radius;
+                                if (dx > -r && dx < r &&
+                                    dy > -r && dy < r)
+                                {
+                                    P_TouchSpecialThing(th, mo);
+                                }
+                            }
+                        }
+                    }
+            }
+        }
+    }
+    else if (!strcmp(cmd, "TURNL"))
+    {
+        player_t *pl = &players[consoleplayer];
+        if (pl->mo != NULL && T_InExplore())
+            pl->mo->angle += ANG45;
+    }
+    else if (!strcmp(cmd, "TURNR"))
+    {
+        player_t *pl = &players[consoleplayer];
+        if (pl->mo != NULL && T_InExplore())
+            pl->mo->angle -= ANG45;
+    }
+    else if (!strcmp(cmd, "COLLECT"))
+    {
+        extern void T_DoCollect(void);
+        T_DoCollect();
+    }
+    else if (!strcmp(cmd, "MOVE_FWD"))
+    {
+        // Combat movement: step forward (1 TP). Works in combat.
+        extern void T_DoMove(int dir);
+        T_DoMove(0);
+    }
+    else if (!strcmp(cmd, "MOVE_BACK"))
+    {
+        // Combat movement: step back (1 TP). Works in combat.
+        // Kiting: back away from melee attackers.
+        extern void T_DoMove(int dir);
+        T_DoMove(2);
+    }
+    else if (!strcmp(cmd, "STRAFE_L"))
+    {
+        // Combat movement: strafe left (1 TP). Works in combat.
+        extern void T_DoMove(int dir);
+        T_DoMove(3);
+    }
+    else if (!strcmp(cmd, "STRAFE_R"))
+    {
+        // Combat movement: strafe right (1 TP). Works in combat.
+        extern void T_DoMove(int dir);
+        T_DoMove(1);
+    }
+    else if (!strcmp(cmd, "RESPAWN"))
+    {
+        // Manual respawn after death (requires confirmation).
+        // Player stays dead at 0% until this is sent.
+        extern boolean P_DoCorpseRespawn(void);
+        if (P_DoCorpseRespawn())
+            printf("[FARM] RESPAWN confirmed - player reborn\n");
+    }
+    else if (!strcmp(cmd, "SCREENSHOT"))
+    {
+        extern void G_ScreenShot(void);
+        G_ScreenShot();
+    }
+    else if (!strcmp(cmd, "INVENTORY"))
+    {
+        extern void D_UIOpen(void);
+        extern void D_UIClose(void);
+        extern boolean D_UIIsOpen(void);
+        if (D_UIIsOpen())
+            D_UIClose();
+        else
+            D_UIOpen();
+    }
+}
+
 void T_Ticker(void)
 {
     int i, n;
@@ -678,155 +890,8 @@ void T_Ticker(void)
         D_ProgressTick();
     }
 
-    // VM automation: external command file for driving the game.
-    // Only on Muse VMs (gated by D_OnMuseVM). Allows cron-driven
-    // farming without synthetic key events.
-    {
-        extern boolean D_OnMuseVM(void);
-        if (D_OnMuseVM())
-        {
-            FILE *cf = fopen("/tmp/doom_cmd.txt", "r");
-            if (cf)
-            {
-                char cmdline[64];
-                fclose(cf);
-                cf = fopen("/tmp/doom_cmd.txt", "r");
-                if (cf)
-                {
-                    while (fgets(cmdline, sizeof(cmdline), cf))
-                    {
-                        cmdline[strcspn(cmdline, "\r\n")] = 0;
-                        if (!strcmp(cmdline, "ATTACK"))
-                        {
-                            T_StartCtrlTargeting();
-                            T_ConfirmCtrlTarget();
-                        }
-                        else if (!strcmp(cmdline, "END"))
-                            T_DoEndTurn();
-                        else if (!strcmp(cmdline, "WALK"))
-                        {
-                            player_t *pl = &players[consoleplayer];
-                            if (pl->mo != NULL && T_InExplore())
-                            {
-                                angle_t ang = pl->mo->angle;
-                                pl->mo->x += FixedMul(64 * FRACUNIT, finecosine[ang >> ANGLETOFINESHIFT]);
-                                pl->mo->y += FixedMul(64 * FRACUNIT, finesine[ang >> ANGLETOFINESHIFT]);
-                                P_UnsetThingPosition(pl->mo);
-                                P_SetThingPosition(pl->mo);
-                                // WALK bypasses P_TryMove, so item pickup
-                                // (P_TouchSpecialThing) never fires. Check
-                                // for overlapping special things manually.
-                                {
-                                    mobj_t *mo = pl->mo;
-                                    int bx = (mo->x - bmaporgx) >> MAPBLOCKSHIFT;
-                                    int by = (mo->y - bmaporgy) >> MAPBLOCKSHIFT;
-                                    int bx0 = bx - 1, bx1 = bx + 1;
-                                    int by0 = by - 1, by1 = by + 1;
-                                    int x, y;
-                                    extern void P_TouchSpecialThing(mobj_t *, mobj_t *);
-                                    if (bx0 < 0) bx0 = 0;
-                                    if (by0 < 0) by0 = 0;
-                                    if (bx1 >= bmapwidth) bx1 = bmapwidth - 1;
-                                    if (by1 >= bmapheight) by1 = bmapheight - 1;
-                                    for (y = by0; y <= by1; y++)
-                                        for (x = bx0; x <= bx1; x++)
-                                        {
-                                            mobj_t *th;
-                                            for (th = blocklinks[y * bmapwidth + x];
-                                                 th != NULL; th = th->bnext)
-                                            {
-                                                if (th == mo)
-                                                    continue;
-                                                if (!(th->flags & MF_SPECIAL))
-                                                    continue;
-                                                // Rough overlap check
-                                                {
-                                                    fixed_t dx = th->x - mo->x;
-                                                    fixed_t dy = th->y - mo->y;
-                                                    fixed_t r = mo->radius + th->radius;
-                                                    if (dx > -r && dx < r &&
-                                                        dy > -r && dy < r)
-                                                    {
-                                                        P_TouchSpecialThing(th, mo);
-                                                    }
-                                                }
-                                            }
-                                        }
-                                }
-                            }
-                        }
-                        else if (!strcmp(cmdline, "TURNL"))
-                        {
-                            player_t *pl = &players[consoleplayer];
-                            if (pl->mo != NULL && T_InExplore())
-                                pl->mo->angle += ANG45;
-                        }
-                        else if (!strcmp(cmdline, "TURNR"))
-                        {
-                            player_t *pl = &players[consoleplayer];
-                            if (pl->mo != NULL && T_InExplore())
-                                pl->mo->angle -= ANG45;
-                        }
-                        else if (!strcmp(cmdline, "COLLECT"))
-                        {
-                            extern void T_DoCollect(void);
-                            T_DoCollect();
-                        }
-                        else if (!strcmp(cmdline, "MOVE_FWD"))
-                        {
-                            // Combat movement: step forward (1 TP). Works in combat.
-                            extern void T_DoMove(int dir);
-                            T_DoMove(0);
-                        }
-                        else if (!strcmp(cmdline, "MOVE_BACK"))
-                        {
-                            // Combat movement: step back (1 TP). Works in combat.
-                            // Kiting: back away from melee attackers.
-                            extern void T_DoMove(int dir);
-                            T_DoMove(2);
-                        }
-                        else if (!strcmp(cmdline, "STRAFE_L"))
-                        {
-                            // Combat movement: strafe left (1 TP). Works in combat.
-                            extern void T_DoMove(int dir);
-                            T_DoMove(3);
-                        }
-                        else if (!strcmp(cmdline, "STRAFE_R"))
-                        {
-                            // Combat movement: strafe right (1 TP). Works in combat.
-                            extern void T_DoMove(int dir);
-                            T_DoMove(1);
-                        }
-                        else if (!strcmp(cmdline, "RESPAWN"))
-                        {
-                            // Manual respawn after death (requires confirmation).
-                            // Player stays dead at 0% until this is sent.
-                            extern boolean P_DoCorpseRespawn(void);
-                            if (P_DoCorpseRespawn())
-                                printf("[FARM] RESPAWN confirmed - player reborn\n");
-                        }
-                        else if (!strcmp(cmdline, "SCREENSHOT"))
-                        {
-                            extern void G_ScreenShot(void);
-                            G_ScreenShot();
-                        }
-                        else if (!strcmp(cmdline, "INVENTORY"))
-                        {
-                            extern void D_UIOpen(void);
-                            extern void D_UIClose(void);
-                            extern boolean D_UIIsOpen(void);
-                            if (D_UIIsOpen())
-                                D_UIClose();
-                            else
-                                D_UIOpen();
-                        }
-                    }
-                    fclose(cf);
-                }
-                remove("/tmp/doom_cmd.txt");
-            }
-        }
-    }
+    // VM automation driver: drain the FIFO (see cmd_drain above).
+    cmd_drain(cmd_dispatch);
 
     // Deferred test-harness startup: arena + script on first level tick.
     // Runs in both explore and combat modes.
