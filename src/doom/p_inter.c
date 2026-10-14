@@ -909,6 +909,8 @@ P_KillMobj
 	    // Worker takes a regular SCREENSHOT for the death moment.
 	    // Store inventory on the corpse mobj
 	    target->is_player_corpse = true;
+	    // Make corpse touchable for inventory recovery via P_TouchSpecialThing.
+	    target->flags |= MF_SPECIAL;
 	    for (i = 0; i < 10; i++)
 		target->corpse_equipped[i] = p->diablo_equipped[i];
 	    for (i = 0; i < 40; i++) {
