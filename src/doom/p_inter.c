@@ -32,11 +32,6 @@
 #include "m_random.h"
 #include "i_system.h"
 
-// Delayed death screenshot counter for the farm (set at death, counts down
-// in G_Ticker, screenshots at 0). Defined here, externed in p_inter.c death
-// code and g_game.c ticker.
-int death_screenshot_tics = 0;
-
 // Manual respawn: corpse waiting for RESPAWN command confirmation.
 mobj_t *pending_corpse = NULL;
 int pending_corpse_player = -1;
@@ -910,13 +905,8 @@ P_KillMobj
 	    player_t *p = &players[pnum];
 	    int i;
 	    printf("[FARM] PLAYER_DIED - dropping inventory on corpse\n");
-	    // Auto-screenshot at death for the farm. Delay by ~1 sec (35 tics)
-	    // so the HUD shows 0% and the death frame is visible.
-	    // Uses a distinct prefix so workers can find it.
-	    {
-		extern int death_screenshot_tics;
-		death_screenshot_tics = 35;
-	    }
+	    // Manual respawn: player stays dead at 0% until RESPAWN command.
+	    // Worker takes a regular SCREENSHOT for the death moment.
 	    // Store inventory on the corpse mobj
 	    target->is_player_corpse = true;
 	    for (i = 0; i < 10; i++)

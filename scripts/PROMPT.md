@@ -40,7 +40,7 @@ Play for ~4 minutes (~20 iterations). Keep it tight — you have a 10-minute tot
      * Screenshot the inventory screen after equipping, then close with Esc. Upload the inventory screenshot alongside the regular one.
 3. Sleep 5-8 seconds between iterations to let the game act.
 4. Check /tmp/doom_hourly.log periodically for: kills, PLAYER_DIED, errors.
-   - If you see PLAYER_DIED: the game auto-captures DEATH*.png at 0% HP. Find the newest DEATH*.png in ~/workspace/doomshots/, upload it with your report (this is the death moment). Mention what killed you and where your corpse is. Then send RESPAWN to confirm respawn: write `RESPAWN\n` to /tmp/doom_cmd.txt. The player stays dead at 0% until you confirm — do not send RESPAWN until you've uploaded the death screenshot.
+   - If you see PLAYER_DIED: the player stays dead at 0% until you confirm. Take a regular SCREENSHOT (write `SCREENSHOT\n` to /tmp/doom_cmd.txt, grab the newest DOOM*.png) for the death moment, upload it with your report. Mention what killed you and where your corpse is. Then send RESPAWN to confirm respawn: write `RESPAWN\n` to /tmp/doom_cmd.txt. Do not send RESPAWN until you've uploaded the death screenshot.
 
 ## Decision Guidance
 

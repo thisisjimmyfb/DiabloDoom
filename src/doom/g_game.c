@@ -971,21 +971,6 @@ void G_Ticker (void)
     int		buf; 
     ticcmd_t*	cmd;
     
-    // Delayed death screenshot for the farm: counts down after player death,
-    // captures at 0% HP frame once the HUD has updated.
-    {
-	extern int death_screenshot_tics;
-	if (death_screenshot_tics > 0)
-	{
-	    death_screenshot_tics--;
-	    if (death_screenshot_tics == 0)
-	    {
-		extern void V_ScreenShot(const char *format);
-		V_ScreenShot("DEATH%02i.%s");
-	    }
-	}
-    }
-    
     // do player reborns if needed
     for (i=0 ; i<MAXPLAYERS ; i++) 
 	if (playeringame[i] && players[i].playerstate == PST_REBORN) 
