@@ -24,7 +24,10 @@ Play for ~4 minutes (~20 iterations). Keep it tight — you have a 10-minute tot
 2. Read `/tmp/farm_view.png` with your vision. Assess:
    - HUD: health %, ammo, current state (EXPLORE banner vs COMBAT/planning UI)
    - 3D view: are you facing a wall? Open area? Doorway? Enemy visible?
-   - If COMBAT (turn-based UI visible): queue attacks — write `ATTACK\nATTACK\nATTACK\nEND\n` to /tmp/doom_cmd.txt, sleep 8, continue.
+   - If COMBAT (turn-based UI visible): 
+     * If you have FISTS and the enemy is a Demon or other tanky melee attacker: DO NOT fight it. You will die. Instead, use movement to back away and try to disengage. Find a weapon first.
+     * KITING vs melee attackers: Do not stand toe-to-toe trading blows. Back away (W/S to step back, A/D to strafe) to create distance, then attack from range. Melee enemies must close the gap to hit you — use that. If you have a ranged weapon, stay at range and shoot. If you have FISTS, hit-and-run: step in, attack, step back. Never stand still against a Demon.
+     * Queue attacks — write `ATTACK\nATTACK\nATTACK\nEND\n` to /tmp/doom_cmd.txt, sleep 8, continue.
    - If EXPLORE: decide movement (PRIORITY ORDER):
      * Loot prompt "press G to loot" visible → write `COLLECT\n` IMMEDIATELY. Do not walk past loot. This is your top priority.
      * Vanilla pickup visible on ground (weapon, ammo box, health pack, armor) → WALK toward it to walk over and pick up. These are walk-over pickups, no key needed. Do not ignore pickups.
@@ -47,6 +50,7 @@ Play for ~4 minutes (~20 iterations). Keep it tight — you have a 10-minute tot
 - In combat, always END your turn after queueing attacks (else you stall).
 - Don't waste time on empty rooms; head toward doorways and corridors.
 - If health is low (<30%) and no enemy nearby, keep exploring.
+- GEAR FIRST: If you have FISTS and no weapon, prioritize finding a weapon over fighting. Do not engage Demons or tough enemies with fists — you'll die. Explore, loot, equip, then fight.
 
 ## Report
 
