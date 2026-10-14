@@ -1282,7 +1282,7 @@ static void ST_drawDiabloWeapon(void)
     def = (id != D_NOITEM) ? D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id)) : NULL;
     if (def == NULL)
     {
-        STWepDrawText(ST_WEPCX - STWepTextWidth("FISTS") / 2, 178, "FISTS");
+        // No Diablo weapon equipped: leave ARMS panel blank.
         return;
     }
 
