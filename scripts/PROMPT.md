@@ -10,9 +10,9 @@ Play the game well — explore the level, engage enemies in turn-based combat, p
 
 ## Setup
 
-1. Use whatever DISPLAY is already set in the environment (no Xvfb — never start it).
+1. No X display exists on this VM — launch the game with the dummy video driver (no Xvfb — never start it).
 2. Kill any stale game: `pkill -9 -f "chocolate-doo[m]"` (bracket trick avoids suicide).
-3. Launch: `SDL_VIDEODRIVER=x11 nohup ~/workspace/DiabloDoom/build/src/chocolate-doom -iwad ~/workspace/doom/freedoom1.wad -width 960 -height 600 -warp 1 1 > /tmp/doom_hourly.log 2>&1 &` then sleep 15.
+3. Launch: `SDL_VIDEODRIVER=dummy nohup ~/workspace/DiabloDoom/build/src/chocolate-doom -iwad ~/workspace/doom/freedoom1.wad -width 960 -height 600 -warp 1 1 > /tmp/doom_hourly.log 2>&1 &` then sleep 15. Verify with `pgrep -a -f "chocolate-doo[m]"` (bracket trick avoids suicide).
    - NEVER pull from git, NEVER rebuild. Use the existing binary only.
 4. Screenshot: use the game's built-in SCREENSHOT driver command. Write `SCREENSHOT\n` to /tmp/doom_cmd.txt, sleep 4, then find the newest `DOOM*.png` in the game's working dir (`~/workspace/doomshots/`) and copy it to /tmp/farm_view.png. Move the DOOM*.png files out afterward so the game's DOOM00..DOOM99 cycle never fills up.
 
