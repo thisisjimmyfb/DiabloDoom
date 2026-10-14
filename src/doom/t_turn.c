@@ -807,13 +807,13 @@ static void cmd_dispatch(const char *cmd)
     else if (!strcmp(cmd, "TURNL"))
     {
         player_t *pl = &players[consoleplayer];
-        if (pl->mo != NULL && T_InExplore())
+        if (pl->mo != NULL && T_Active())
             pl->mo->angle += ANG45;
     }
     else if (!strcmp(cmd, "TURNR"))
     {
         player_t *pl = &players[consoleplayer];
-        if (pl->mo != NULL && T_InExplore())
+        if (pl->mo != NULL && T_Active())
             pl->mo->angle -= ANG45;
     }
     else if (!strcmp(cmd, "COLLECT"))
