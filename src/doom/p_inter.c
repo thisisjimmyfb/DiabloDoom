@@ -44,9 +44,22 @@ boolean P_DoCorpseRespawn(void)
     extern void P_SpawnPlayer(mapthing_t *mthing);
     int pnum;
     int i;
+    // If no pending corpse (e.g. loaded a save with a dead player),
+    // still allow respawn if the player is actually dead.
     if (pending_corpse == NULL || pending_corpse_player < 0)
-        return false;
-    pnum = pending_corpse_player;
+    {
+        for (pnum = 0; pnum < MAXPLAYERS; pnum++)
+            if (playeringame[pnum] && players[pnum].playerstate == PST_DEAD)
+                break;
+        if (pnum >= MAXPLAYERS)
+            return false;
+        // Fall through with pnum set, corpse pointer stays NULL.
+        // The corpse mobj (if any) remains in the world for recovery.
+    }
+    else
+    {
+        pnum = pending_corpse_player;
+    }
     // G_PlayerReborn clears inventory (already saved to corpse)
     G_PlayerReborn(pnum);
     // Clear the preserved gear - it lives on the corpse now
