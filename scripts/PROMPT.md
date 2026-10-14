@@ -26,7 +26,7 @@ Play for ~4 minutes (~20 iterations). Keep it tight — you have a 10-minute tot
    - 3D view: are you facing a wall? Open area? Doorway? Enemy visible?
    - If COMBAT (turn-based UI visible): 
      * If you have FISTS and the enemy is a Demon or other tanky melee attacker: DO NOT fight it. You will die. Instead, use movement to back away and try to disengage. Find a weapon first.
-     * KITING vs melee attackers: Do not stand toe-to-toe trading blows. Back away (W/S to step back, A/D to strafe) to create distance, then attack from range. Melee enemies must close the gap to hit you — use that. If you have a ranged weapon, stay at range and shoot. If you have FISTS, hit-and-run: step in, attack, step back. Never stand still against a Demon.
+     * KITING (guns only): With a ranged weapon, do not stand toe-to-toe with melee attackers. Back away (W/S to step back, A/D to strafe) to create distance, then shoot. Melee enemies must close the gap to hit you — use that. Keep shooting from range, keep moving away. Never let a Demon get into melee range.
      * Queue attacks — write `ATTACK\nATTACK\nATTACK\nEND\n` to /tmp/doom_cmd.txt, sleep 8, continue.
    - If EXPLORE: decide movement (PRIORITY ORDER):
      * Loot prompt "press G to loot" visible → write `COLLECT\n` IMMEDIATELY. Do not walk past loot. This is your top priority.
