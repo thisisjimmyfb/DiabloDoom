@@ -1193,6 +1193,24 @@ static void T_FaceTarget(mobj_t *target)
     player->mo->angle = ang;
 }
 
+// Invalidate queued attack targets pointing to a removed mobj.
+// Called from P_RemoveMobj to prevent dangling-pointer SIGSEGV when
+// the queued attack later executes.
+void T_InvalidateTarget(mobj_t *mo)
+{
+    int i;
+    if (mo == NULL || !T_Active())
+        return;
+    for (i = 0; i < turnctrl.queue_len; i++)
+    {
+        if (turnctrl.queue[i].target == mo)
+        {
+            turnctrl.queue[i].target = NULL;
+            printf("[TURN] queued target invalidated (mobj removed)\n");
+        }
+    }
+}
+
 void T_DoAttack(void)
 {
     player_t *player = &players[consoleplayer];

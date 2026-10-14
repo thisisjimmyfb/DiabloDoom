@@ -595,6 +595,12 @@ int		iquetail;
 
 void P_RemoveMobj (mobj_t* mobj)
 {
+    // Invalidate any queued turn-based attack targets pointing to this mobj
+    // to prevent dangling-pointer SIGSEGV.
+    {
+        extern void T_InvalidateTarget(mobj_t *mo);
+        T_InvalidateTarget(mobj);
+    }
     if ((mobj->flags & MF_SPECIAL)
 	&& !(mobj->flags & MF_DROPPED)
 	&& (mobj->type != MT_INV)

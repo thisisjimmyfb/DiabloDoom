@@ -214,6 +214,7 @@ void T_ExecuteNext(void);  // run the next queued entry (queue drain)
 boolean T_ExecuteOne(void); // run a single queued entry (3-tick replay)
 void T_BeginEnemyPhase(void);
 void T_QueueEntryName(const t_queueentry_t *e, char *buf, size_t buflen);
+void T_InvalidateTarget(mobj_t *mo);
 const char *T_TargetName(mobj_t *mo);
 void T_TelegraphEnemies(void);  // Phase 6: warn of acquired-but-unseen enemies
 
