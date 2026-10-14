@@ -34,7 +34,7 @@ Play for ~4 minutes (~20 iterations). Keep it tight — you have a 10-minute tot
      * Enemy visible in distance → WALK toward it
      * Facing wall/door up close → TURNL or TURNR (alternate to avoid spinning)
      * Open area → WALK
-   - Write your chosen command(s) to /tmp/doom_cmd.txt (one per line). The game's driver consumes the file each tick.
+   - Write your chosen command(s) to /tmp/doom_cmd.txt (one per line) using e.g. `printf "WALK\n" > /tmp/doom_cmd.txt`. IMPORTANT: /tmp/doom_cmd.txt is a FIFO (named pipe) created by the game — DO NOT delete it. If you see it as a pipe (not a regular file), that is correct. Just write to it; the game drains it every tick.
    - If you pick up loot: press C to open the character/inventory screen. EQUIP upgrades immediately to maximize survival and kill speed:
      * Weapon: equip if it has higher damage than current (check the AD/AP damage range). Prioritize kill speed.
      * Armor/Helm/Boots/Gloves/Shield: equip if it has higher armor or resistances. Prioritize survival.
