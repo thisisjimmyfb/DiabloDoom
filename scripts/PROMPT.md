@@ -44,6 +44,7 @@ Play for ~4 minutes (~20 iterations). Keep it tight — you have a 10-minute tot
 3. Sleep 5-8 seconds between iterations to let the game act.
 4. Check /tmp/doom_hourly.log periodically for: kills, PLAYER_DIED, errors.
    - If you see PLAYER_DIED: the player stays dead at 0% until you confirm. Take a regular SCREENSHOT (write `SCREENSHOT\n` to /tmp/doom_cmd.txt, grab the newest DOOM*.png) for the death moment, upload it with your report. Mention what killed you and where your corpse is. Then send RESPAWN to confirm respawn: write `RESPAWN\n` to /tmp/doom_cmd.txt. Do not send RESPAWN until you've uploaded the death screenshot.
+   - CORPSE RUN PRIORITY: After RESPAWN, your #1 priority is recovering your corpse. Your inventory and equipment are on the corpse at the death location. Walk back to it immediately (use WALK/TURNL/TURNR to navigate, SCREENSHOT to verify). Do NOT engage in new combat or explore for loot until you've recovered your corpse. A naked respawn fighting with no gear is how you die twice.
 
 ## Decision Guidance
 
