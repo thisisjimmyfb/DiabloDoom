@@ -57,18 +57,18 @@ Play for ~4 minutes (~20 iterations). Keep it tight — you have a 10-minute tot
 
 ## Freedoom Monster Appearances
 
-This game uses Freedoom sprites, NOT classic Doom sprites. Describe enemies by what they look like:
+This game uses Freedoom sprites, NOT classic Doom sprites. Use these names in reports:
 
-- **Imp** (TROO): dark insectoid alien — near-black chitin, red head-horns, yellow eyes, segmented abdomen with gold markings. Looks like a cockroach alien. NEVER call it an "imp" in reports.
-- **Demon** (SARG): pinkish-red fleshy blob with a gaping toothed maw on top. Carnivorous flesh-mound, not a bull.
-- **Spectre**: same as Demon but translucent/ghostly.
-- **Zombieman** (POSS): humanoid soldier, gray-olive skin, blue visor, red shoulder pads, pistol.
-- **Shotgun Guy** (SPOS): dark-armored trooper, red-orange head, glowing blue chest strip, shotgun.
-- **Cacodemon** (HEAD): giant floating armored head, tan plated dome, blue glowing side patches, red tentacles below.
-- **Lost Soul** (SKUL): flaming horned skull with pink-red trails.
-- **Baron of Hell** (BOSS): tall knight in gray plate armor with green glowing accents. Dark knight, not a minotaur.
-- **Cyberdemon**: towering green/camo-armored giant, exposed fleshy midsection, glowing red chest-mouth.
-- **Spider Mastermind**: huge gun-spider mech, gray hull, orange-rust plating, green eyes, chaingun.
+- **"Cockroach"** (TROO, engine calls it Imp): dark insectoid alien — near-black chitin, red head-horns, yellow eyes, segmented abdomen with gold markings. NEVER call it an "imp" — it's a bug.
+- **"Fleshmound"** (SARG, engine calls it Demon): pinkish-red fleshy blob with a gaping toothed maw on top. Not a bull.
+- **"Ghost Fleshmound"** (Spectre): same as Fleshmound but translucent/ghostly.
+- **"Trooper"** (POSS, engine calls it Zombieman): humanoid soldier, gray-olive skin, blue visor, red shoulder pads, pistol.
+- **"Heavy Trooper"** (SPOS, engine calls it Shotgun Guy): dark-armored trooper, red-orange head, glowing blue chest strip, shotgun.
+- **"Floathead"** (HEAD, engine calls it Cacodemon): giant floating armored head, tan plated dome, blue glowing side patches, red tentacles below.
+- **"Fireskull"** (SKUL, engine calls it Lost Soul): flaming horned skull with pink-red trails.
+- **"Dark Knight"** (BOSS, engine calls it Baron of Hell): tall knight in gray plate armor with green glowing accents. Not a minotaur.
+- **"War Titan"** (engine calls it Cyberdemon): towering green/camo-armored giant, exposed fleshy midsection, glowing red chest-mouth.
+- **"Gunspider"** (engine calls it Spider Mastermind): huge gun-spider mech, gray hull, orange-rust plating, green eyes, chaingun.
 
 ## Report
 
