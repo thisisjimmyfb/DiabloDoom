@@ -869,6 +869,127 @@ static void cmd_dispatch(const char *cmd)
         else
             D_UIOpen();
     }
+    else if (!strncmp(cmd, "EQUIP ", 6))
+    {
+        // EQUIP <backpack_index> <slot>: equip item from backpack to paperdoll.
+        // Slot: 0=HELM,1=ARMOR,2=WEAPON,3=SHIELD,4=RING1,5=RING2,6=AMULET,7=BOOTS,8=GLOVES,9=BELT,10=FOCUS
+        int bpi, slot;
+        player_t *pl = &players[consoleplayer];
+        if (sscanf(cmd + 6, "%d %d", &bpi, &slot) == 2
+            && bpi >= 0 && bpi < 40 && slot >= 0 && slot <= 10)
+        {
+            int id = pl->diablo_backpack[bpi];
+            if (id != -1)
+            {
+                extern void D_BackpackRemoveAt(struct player_s *pl, int bpi);
+                extern void D_RecalcStats(struct player_s *player);
+                extern boolean D_BackpackAdd(struct player_s *pl, int tier, int idx);
+                int old = pl->diablo_equipped[slot];
+                // Simple validation: check item's slot matches (or allow swap)
+                pl->diablo_equipped[slot] = id;
+                D_BackpackRemoveAt((struct player_s *)pl, bpi);
+                // If there was an old item, put it back in backpack
+                if (old != -1)
+                {
+                    // D_BackpackAdd needs tier/idx; use direct placement instead
+                    int i;
+                    for (i = 0; i < 40; i++)
+                    {
+                        if (pl->diablo_backpack[i] == -1)
+                        {
+                            pl->diablo_backpack[i] = old;
+                            break;
+                        }
+                    }
+                }
+                D_RecalcStats((struct player_s *)pl);
+                printf("[FARM] EQUIPPED backpack[%d] -> slot[%d]\n", bpi, slot);
+            }
+        }
+    }
+    else if (!strncmp(cmd, "UNEQUIP ", 8))
+    {
+        // UNEQUIP <slot>: move equipped item back to backpack.
+        int slot;
+        player_t *pl = &players[consoleplayer];
+        if (sscanf(cmd + 8, "%d", &slot) == 1 && slot >= 0 && slot <= 10)
+        {
+            int id = pl->diablo_equipped[slot];
+            if (id != -1)
+            {
+                extern void D_RecalcStats(struct player_s *player);
+                int i;
+                for (i = 0; i < 40; i++)
+                {
+                    if (pl->diablo_backpack[i] == -1)
+                    {
+                        pl->diablo_backpack[i] = id;
+                        pl->diablo_equipped[slot] = -1;
+                        D_RecalcStats((struct player_s *)pl);
+                        printf("[FARM] UNEQUIPPED slot[%d] -> backpack[%d]\n", slot, i);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    else if (!strncmp(cmd, "SALVAGE ", 8))
+    {
+        // SALVAGE <backpack_index>: turn backpack item into essence.
+        int bpi;
+        player_t *pl = &players[consoleplayer];
+        if (sscanf(cmd + 8, "%d", &bpi) == 1 && bpi >= 0 && bpi < 40)
+        {
+            int id = pl->diablo_backpack[bpi];
+            if (id != -1)
+            {
+                extern void D_BackpackRemoveAt(struct player_s *pl, int bpi);
+                int tier = ((id >> 8) & 0xff); // D_ITEMTIER macro
+                int essence = 1;
+                switch (tier)
+                {
+                  case 1: essence = 1; break;  // TIER_NORMAL
+                  case 2: essence = 3; break;  // TIER_MAGIC
+                  case 3: essence = 8; break;  // TIER_RARE
+                  case 4: essence = 15; break; // TIER_SET
+                  case 5: essence = 25; break; // TIER_UNIQUE
+                }
+                D_BackpackRemoveAt((struct player_s *)pl, bpi);
+                pl->diablo_essence += essence;
+                printf("[ESSENCE] salvaged backpack[%d] tier %d -> +%d (total %d)\n",
+                       bpi, tier, essence, pl->diablo_essence);
+            }
+        }
+    }
+    else if (!strncmp(cmd, "SALVAGE_EQUIPPED ", 17))
+    {
+        // SALVAGE_EQUIPPED <slot>: turn equipped item into essence.
+        int slot;
+        player_t *pl = &players[consoleplayer];
+        if (sscanf(cmd + 17, "%d", &slot) == 1 && slot >= 0 && slot <= 10)
+        {
+            int id = pl->diablo_equipped[slot];
+            if (id != -1)
+            {
+                extern void D_RecalcStats(struct player_s *player);
+                int tier = ((id >> 8) & 0xff); // D_ITEMTIER macro
+                int essence = 1;
+                switch (tier)
+                {
+                  case 1: essence = 1; break;
+                  case 2: essence = 3; break;
+                  case 3: essence = 8; break;
+                  case 4: essence = 15; break;
+                  case 5: essence = 25; break;
+                }
+                pl->diablo_equipped[slot] = -1;
+                D_RecalcStats((struct player_s *)pl);
+                pl->diablo_essence += essence;
+                printf("[ESSENCE] salvaged slot[%d] tier %d -> +%d (total %d)\n",
+                       slot, tier, essence, pl->diablo_essence);
+            }
+        }
+    }
 }
 
 void T_Ticker(void)

@@ -333,9 +333,22 @@ static mobj_t *T_FindNearestLoot(mobj_t *player_mo)
 boolean T_LootAvailable(void)
 {
     player_t *player = &players[consoleplayer];
+    thinker_t *th;
+    mobj_t *mo;
     if (player->mo == NULL)
         return false;
-    return T_FindNearestLoot(player->mo) != NULL;
+    if (T_FindNearestLoot(player->mo) != NULL)
+        return true;
+    // Also show prompt for player corpses (recover via G/COLLECT or walk-over).
+    for (th = thinkercap.next; th != &thinkercap; th = th->next)
+    {
+        if (th->function.acp1 != (actionf_p1)P_MobjThinker)
+            continue;
+        mo = (mobj_t *)th;
+        if (mo->is_player_corpse)
+            return true;
+    }
+    return false;
 }
 
 // BFS from player to target. Returns number of steps in path, or -1 if
@@ -483,9 +496,10 @@ void T_DoCollect(void)
             if (th->function.acp1 != (actionf_p1)P_MobjThinker)
                 continue;
             lmo = (mobj_t *)th;
-            if (lmo->type < MT_LOOT_NORMAL || lmo->type > MT_LOOT_UNIQUE)
+            // Include Diablo loot drops AND player corpses (both recoverable via G/COLLECT).
+            if (!((lmo->type >= MT_LOOT_NORMAL && lmo->type <= MT_LOOT_UNIQUE) || lmo->is_player_corpse))
                 continue;
-            if (lmo->health <= 0)
+            if (lmo->health <= 0 && !lmo->is_player_corpse)
                 continue;
             if (loot_count >= 32)
                 break;
