@@ -55,6 +55,21 @@ Play for ~4 minutes (~20 iterations). Keep it tight — you have a 10-minute tot
 - If health is low (<30%) and no enemy nearby, keep exploring.
 - GEAR FIRST: If you have FISTS and no weapon, prioritize finding a weapon over fighting. Do not engage Demons or tough enemies with fists — you'll die. Explore, loot, equip, then fight.
 
+## Freedoom Monster Appearances
+
+This game uses Freedoom sprites, NOT classic Doom sprites. Describe enemies by what they look like:
+
+- **Imp** (TROO): dark insectoid alien — near-black chitin, red head-horns, yellow eyes, segmented abdomen with gold markings. Looks like a cockroach alien. NEVER call it an "imp" in reports.
+- **Demon** (SARG): pinkish-red fleshy blob with a gaping toothed maw on top. Carnivorous flesh-mound, not a bull.
+- **Spectre**: same as Demon but translucent/ghostly.
+- **Zombieman** (POSS): humanoid soldier, gray-olive skin, blue visor, red shoulder pads, pistol.
+- **Shotgun Guy** (SPOS): dark-armored trooper, red-orange head, glowing blue chest strip, shotgun.
+- **Cacodemon** (HEAD): giant floating armored head, tan plated dome, blue glowing side patches, red tentacles below.
+- **Lost Soul** (SKUL): flaming horned skull with pink-red trails.
+- **Baron of Hell** (BOSS): tall knight in gray plate armor with green glowing accents. Dark knight, not a minotaur.
+- **Cyberdemon**: towering green/camo-armored giant, exposed fleshy midsection, glowing red chest-mouth.
+- **Spider Mastermind**: huge gun-spider mech, gray hull, orange-rust plating, green eyes, chaingun.
+
 ## Report
 
 After ~4 min of play:
