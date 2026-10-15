@@ -76,7 +76,19 @@ add_library(doom STATIC
             t_turn.c        t_turn.h
             wi_stuff.c      wi_stuff.h)
 
-target_include_directories(doom PRIVATE "../" "${CMAKE_CURRENT_BINARY_DIR}/../../" "$ENV{HOME}/workspace/x264/include")
+target_include_directories(doom PRIVATE "../" "${CMAKE_CURRENT_BINARY_DIR}/../../")
+# x264 for H.264 replay encoding: prefer system via pkg-config, fall back to ~/workspace/x264
+find_package(PkgConfig QUIET)
+if(PKG_CONFIG_FOUND)
+    pkg_check_modules(X264 QUIET x264)
+endif()
+if(X264_FOUND)
+    target_include_directories(doom PRIVATE ${X264_INCLUDE_DIRS})
+    set(X264_LIBS ${X264_LIBRARIES})
+else()
+    target_include_directories(doom PRIVATE "$ENV{HOME}/workspace/x264/include")
+    set(X264_LIBS "$ENV{HOME}/workspace/x264/lib/libx264.a")
+endif()
 
 if (DEFINED EMSCRIPTEN)
     set(SDL_FLAGS "-s USE_SDL=2")
@@ -95,6 +107,6 @@ else()
         list(APPEND SDL_LINK_LIBS SDL2_net::SDL2_net)
     endif()
 endif()
-target_link_libraries(doom ${SDL_LINK_LIBS} "$ENV{HOME}/workspace/x264/lib/libx264.a")
+target_link_libraries(doom ${SDL_LINK_LIBS} ${X264_LIBS})
 set_target_properties(doom PROPERTIES COMPILE_FLAGS "${SDL_FLAGS}")
 set_target_properties(doom PROPERTIES LINK_FLAGS "${SDL_FLAGS}")
