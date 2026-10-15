@@ -45,7 +45,7 @@ Play for ~4 minutes (~20 iterations). Keep it tight — you have a 10-minute tot
      * Screenshot the inventory screen after equipping, then close with Esc. Upload the inventory screenshot alongside the regular one.
 3. Sleep 5-8 seconds between iterations to let the game act.
 4. Check /tmp/doom_hourly.log periodically for: kills, PLAYER_DIED, errors.
-   - If you see PLAYER_DIED: the player stays dead at 0% until you confirm. Take a regular SCREENSHOT (write `SCREENSHOT\n` to /tmp/doom_cmd.txt, grab the newest diablodoom_*.png) for the death moment, upload it with your report. Mention what killed you and where your corpse is. Then send RESPAWN to confirm respawn: write `RESPAWN\n` to /tmp/doom_cmd.txt. Do not send RESPAWN until you've uploaded the death screenshot.
+   - If you see PLAYER_DIED: the player stays dead at 0% until you confirm. Capture a REPLAY video (write `REPLAY\n` to /tmp/doom_cmd.txt, sleep 20, grab the newest diablodoom_*.mp4) for the death moment, upload it with your report. Mention what killed you and where your corpse is. Then send RESPAWN to confirm respawn: write `RESPAWN\n` to /tmp/doom_cmd.txt. Do not send RESPAWN until you've uploaded the death video.
    - CORPSE RUN PRIORITY: After RESPAWN, your #1 priority is recovering your corpse. Your inventory and equipment are on the corpse at the death location. Walk back to it immediately (use WALK/TURNL/TURNR to navigate, SCREENSHOT to verify). Do NOT engage in new combat or explore for loot until you've recovered your corpse. A naked respawn fighting with no gear is how you die twice.
 
 ## Decision Guidance
@@ -81,8 +81,8 @@ This game uses Freedoom sprites, NOT classic Doom. Use these OFFICIAL Freedoom n
 
 After ~4 min of play:
 1. Kill count: grep the log for kill messages, or count from game output.
-2. Upload the latest screenshot: copy to workspace first (`cp /tmp/farm_view.png ~/workspace/farm_view_latest.png`), then `/opt/hatch/bin/remote-storage upload-file --path ~/workspace/farm_view_latest.png`
-3. Report to user: kills this run and screenshot link.
+2. Capture a replay video: write `REPLAY\n` to /tmp/doom_cmd.txt, sleep 20 (encoding 525 frames takes a while), then find the newest `diablodoom_*.mp4` in `~/workspace/diablodoom/doomshots/`. Copy to workspace (`cp <newest.mp4> ~/workspace/farm_replay_latest.mp4`), then `/opt/hatch/bin/remote-storage upload-file --path ~/workspace/farm_replay_latest.mp4`
+3. Report to user: kills this run and replay video link.
 4. Leave the game running — the next session continues from where you left off.
 
 ## Failure Handling
