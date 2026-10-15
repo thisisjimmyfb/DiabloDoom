@@ -9,6 +9,9 @@
 #define REPLAY_WIDTH 320
 #define REPLAY_HEIGHT 200
 #define REPLAY_FRAME_SIZE (REPLAY_WIDTH * REPLAY_HEIGHT)  // paletted, 64KB
+// Output is 2x upscaled for better perceived quality
+#define REPLAY_OUT_WIDTH 640
+#define REPLAY_OUT_HEIGHT 400
 
 // Initialize the replay buffer. Call once at startup.
 void D_ReplayInit(void);

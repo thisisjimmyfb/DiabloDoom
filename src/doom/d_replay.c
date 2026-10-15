@@ -96,7 +96,7 @@ int D_ReplaySaveMP4(const char *filename)
     }
     printf("[REPLAY] encoding %d frames to MP4...\n", n);
 
-    rgb = malloc(REPLAY_FRAME_SIZE * 3);
+    rgb = malloc(REPLAY_OUT_WIDTH * REPLAY_OUT_HEIGHT * 3);
     jpegs = calloc(n, sizeof(mem_buf_t));
     frame_sizes = malloc(n * sizeof(int));
     chunk_offsets = malloc(n * sizeof(unsigned long long));
@@ -106,17 +106,29 @@ int D_ReplaySaveMP4(const char *filename)
     for (i = 0; i < n; i++) {
         idx = (replay_head - n + i + REPLAY_MAXFRAMES*2) % REPLAY_MAXFRAMES;
         byte *src = replay_buffer + idx * REPLAY_FRAME_SIZE;
-        int p;
-        for (p = 0; p < REPLAY_FRAME_SIZE; p++) {
-            rgb[p*3+0] = palette[src[p]*3+0];
-            rgb[p*3+1] = palette[src[p]*3+1];
-            rgb[p*3+2] = palette[src[p]*3+2];
+        int x, y;
+        // 2x nearest-neighbor upscale with palette conversion
+        for (y = 0; y < REPLAY_HEIGHT; y++) {
+            for (x = 0; x < REPLAY_WIDTH; x++) {
+                byte p = src[y * REPLAY_WIDTH + x];
+                byte r = palette[p*3+0], g = palette[p*3+1], b = palette[p*3+2];
+                int ox = x * 2, oy = y * 2;
+                int o;
+                o = (oy * REPLAY_OUT_WIDTH + ox) * 3;
+                rgb[o+0]=r; rgb[o+1]=g; rgb[o+2]=b;
+                o = (oy * REPLAY_OUT_WIDTH + ox + 1) * 3;
+                rgb[o+0]=r; rgb[o+1]=g; rgb[o+2]=b;
+                o = ((oy+1) * REPLAY_OUT_WIDTH + ox) * 3;
+                rgb[o+0]=r; rgb[o+1]=g; rgb[o+2]=b;
+                o = ((oy+1) * REPLAY_OUT_WIDTH + ox + 1) * 3;
+                rgb[o+0]=r; rgb[o+1]=g; rgb[o+2]=b;
+            }
         }
         jpegs[i].cap = 65536;
         jpegs[i].data = malloc(jpegs[i].cap);
         jpegs[i].len = 0;
         stbi_write_jpg_to_func(mem_write, &jpegs[i],
-                               REPLAY_WIDTH, REPLAY_HEIGHT, 3, rgb, 98);
+                               REPLAY_OUT_WIDTH, REPLAY_OUT_HEIGHT, 3, rgb, 95);
         frame_sizes[i] = jpegs[i].len;
         if ((i % 100) == 0) printf("[REPLAY] %d/%d\n", i, n);
     }
@@ -183,8 +195,8 @@ int D_ReplaySaveMP4(const char *filename)
                 mp4_w32(f,0x00010000); mp4_w32(f,0); mp4_w32(f,0);
                 mp4_w32(f,0); mp4_w32(f,0x00010000); mp4_w32(f,0);
                 mp4_w32(f,0); mp4_w32(f,0); mp4_w32(f,0x40000000);
-                mp4_w32(f,(unsigned int)(REPLAY_WIDTH<<16));
-                mp4_w32(f,(unsigned int)(REPLAY_HEIGHT<<16));
+                mp4_w32(f,(unsigned int)(REPLAY_OUT_WIDTH<<16));
+                mp4_w32(f,(unsigned int)(REPLAY_OUT_HEIGHT<<16));
                 long end = ftell(f); fseek(f,pos,SEEK_SET);
                 mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
             }
@@ -261,7 +273,7 @@ int D_ReplaySaveMP4(const char *filename)
                                 mp4_w16(f,1);
                                 mp4_w16(f,0); mp4_w16(f,0);
                                 mp4_w32(f,0); mp4_w32(f,0); mp4_w32(f,0);
-                                mp4_w16(f,REPLAY_WIDTH); mp4_w16(f,REPLAY_HEIGHT);
+                                mp4_w16(f,REPLAY_OUT_WIDTH); mp4_w16(f,REPLAY_OUT_HEIGHT);
                                 mp4_w32(f,0x00480000); mp4_w32(f,0x00480000);
                                 mp4_w32(f,0); mp4_w16(f,1);
                                 fputc(9,f); fwrite("PhotoJPEG",1,9,f);
