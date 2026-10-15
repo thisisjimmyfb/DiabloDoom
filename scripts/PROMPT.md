@@ -29,7 +29,8 @@ Play for ~4 minutes (~20 iterations). Keep it tight — you have a 10-minute tot
      * KITING (guns only): With a ranged weapon, do not stand toe-to-toe with melee attackers. Use `MOVE_BACK` to create distance, then `ATTACK`. Melee enemies must close the gap to hit you — use that. Keep shooting from range, keep moving away. Never let a Demon get into melee range. Queue: `MOVE_BACK\nATTACK\nATTACK\nEND\n`.
      * Queue attacks — write `ATTACK\nATTACK\nATTACK\nEND\n` to /tmp/doom_cmd.txt, sleep 8, continue.
    - If EXPLORE: decide movement (PRIORITY ORDER):
-     * Loot prompt "press G to loot" visible → write `COLLECT\n` IMMEDIATELY. Do not walk past loot. This is your top priority.
+     * Loot prompt "press G to loot" visible → write `COLLECT\n` IMMEDIATELY. Do not walk past loot. This is your top priority. The prompt appears for Diablo loot drops AND player corpses — COLLECT walks to the nearest one.
+     * After picking up loot: use `INVENTORY` to check what you got, then `EQUIP <backpack_idx> <slot>` to equip upgrades. Slots: 0=HELM,1=ARMOR,2=WEAPON,3=SHIELD,4=RING1,5=RING2,6=AMULET,7=BOOTS,8=GLOVES,9=BELT,10=FOCUS. Use `SALVAGE <backpack_idx>` to turn junk into essence, `UNEQUIP <slot>` to remove gear.
      * Vanilla pickup visible on ground (weapon, ammo box, health pack, armor) → WALK toward it to walk over and pick up. These are walk-over pickups, no key needed. Do not ignore pickups.
      * Enemy visible in distance → WALK toward it
      * Facing wall/door up close → TURNL or TURNR (alternate to avoid spinning)
