@@ -76,7 +76,7 @@ add_library(doom STATIC
             t_turn.c        t_turn.h
             wi_stuff.c      wi_stuff.h)
 
-target_include_directories(doom PRIVATE "../" "${CMAKE_CURRENT_BINARY_DIR}/../../")
+target_include_directories(doom PRIVATE "../" "${CMAKE_CURRENT_BINARY_DIR}/../../" "$ENV{HOME}/workspace/x264/include")
 
 if (DEFINED EMSCRIPTEN)
     set(SDL_FLAGS "-s USE_SDL=2")
@@ -95,6 +95,6 @@ else()
         list(APPEND SDL_LINK_LIBS SDL2_net::SDL2_net)
     endif()
 endif()
-target_link_libraries(doom ${SDL_LINK_LIBS})
+target_link_libraries(doom ${SDL_LINK_LIBS} "$ENV{HOME}/workspace/x264/lib/libx264.a")
 set_target_properties(doom PROPERTIES COMPILE_FLAGS "${SDL_FLAGS}")
 set_target_properties(doom PROPERTIES LINK_FLAGS "${SDL_FLAGS}")

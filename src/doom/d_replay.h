@@ -19,7 +19,7 @@ void D_ReplayInit(void);
 // Capture the current framebuffer. Call once per tick.
 void D_ReplayTick(void);
 
-// Dump the buffer to an MP4 file (MJPEG). Returns 0 on success.
+// Dump the buffer to an MP4 file (H.264). Returns 0 on success.
 int D_ReplaySaveMP4(const char *filename);
 
 // Ensure the doomshots/ output directory exists.
