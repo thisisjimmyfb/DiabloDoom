@@ -15,13 +15,13 @@ Play the game well — explore the level, engage enemies in turn-based combat, p
 3. Launch from ~/workspace/diablodoom: `cd ~/workspace/diablodoom && SDL_VIDEODRIVER=dummy nohup ~/workspace/DiabloDoom/build/src/chocolate-doom -iwad ~/workspace/doom/freedoom1.wad -width 960 -height 600 -warp 1 1 > /tmp/doom_hourly.log 2>&1 &` then sleep 15. Verify with `pgrep -a -f "chocolate-doo[m]"` (bracket trick avoids suicide).
    - NEVER pull from git, NEVER rebuild. Use the existing binary only.
    - Stale binary check: send `VERSION\n` to /tmp/doom_cmd.txt, then check /tmp/doom_hourly.log for `[VERSION] <hash>`. Compare with `git -C ~/workspace/DiabloDoom rev-parse --short HEAD`. If they differ, the binary is stale — report it to the main agent, do not try to rebuild.
-4. Screenshot: use the game's built-in SCREENSHOT driver command. Write `SCREENSHOT\n` to /tmp/doom_cmd.txt, sleep 4, then find the newest `DOOM*.png` in `~/workspace/diablodoom/doomshots/` and copy it to /tmp/farm_view.png. Move the DOOM*.png files out afterward so the game's DOOM00..DOOM99 cycle never fills up.
+4. Screenshot: use the game's built-in SCREENSHOT driver command. Write `SCREENSHOT\n` to /tmp/doom_cmd.txt, sleep 4, then find the newest `diablodoom_*.png` in `~/workspace/diablodoom/doomshots/` and copy it to /tmp/farm_view.png. Move the diablodoom_*.png files out afterward so the game's timestamped name cycle never fills up.
 
 ## Game Loop
 
 Play for ~4 minutes (~20 iterations). Keep it tight — you have a 10-minute total budget including setup and reporting. The game persists between runs — you are continuing a continuous play session, not starting fresh each time.
 
-1. Take screenshot: write `SCREENSHOT\n` to /tmp/doom_cmd.txt, sleep 4, then copy the newest `DOOM*.png` from `~/workspace/diablodoom/doomshots/` to /tmp/farm_view.png (and clear the DOOM*.png files so the game's name cycle doesn't fill up).
+1. Take screenshot: write `SCREENSHOT\n` to /tmp/doom_cmd.txt, sleep 4, then copy the newest `diablodoom_*.png` from `~/workspace/diablodoom/doomshots/` to /tmp/farm_view.png (and clear the diablodoom_*.png files so the game's name cycle doesn't fill up).
 2. Read `/tmp/farm_view.png` with your vision. Assess:
    - HUD: health %, ammo, current state (EXPLORE banner vs COMBAT/planning UI)
    - 3D view: are you facing a wall? Open area? Doorway? Enemy visible?
@@ -45,7 +45,7 @@ Play for ~4 minutes (~20 iterations). Keep it tight — you have a 10-minute tot
      * Screenshot the inventory screen after equipping, then close with Esc. Upload the inventory screenshot alongside the regular one.
 3. Sleep 5-8 seconds between iterations to let the game act.
 4. Check /tmp/doom_hourly.log periodically for: kills, PLAYER_DIED, errors.
-   - If you see PLAYER_DIED: the player stays dead at 0% until you confirm. Take a regular SCREENSHOT (write `SCREENSHOT\n` to /tmp/doom_cmd.txt, grab the newest DOOM*.png) for the death moment, upload it with your report. Mention what killed you and where your corpse is. Then send RESPAWN to confirm respawn: write `RESPAWN\n` to /tmp/doom_cmd.txt. Do not send RESPAWN until you've uploaded the death screenshot.
+   - If you see PLAYER_DIED: the player stays dead at 0% until you confirm. Take a regular SCREENSHOT (write `SCREENSHOT\n` to /tmp/doom_cmd.txt, grab the newest diablodoom_*.png) for the death moment, upload it with your report. Mention what killed you and where your corpse is. Then send RESPAWN to confirm respawn: write `RESPAWN\n` to /tmp/doom_cmd.txt. Do not send RESPAWN until you've uploaded the death screenshot.
    - CORPSE RUN PRIORITY: After RESPAWN, your #1 priority is recovering your corpse. Your inventory and equipment are on the corpse at the death location. Walk back to it immediately (use WALK/TURNL/TURNR to navigate, SCREENSHOT to verify). Do NOT engage in new combat or explore for loot until you've recovered your corpse. A naked respawn fighting with no gear is how you die twice.
 
 ## Decision Guidance
