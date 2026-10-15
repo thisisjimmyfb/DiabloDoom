@@ -1398,6 +1398,12 @@ boolean M_Responder (event_t* ev)
         boolean is_screenshot_key = (key_menu_screenshot != 0 && ev->data1 == key_menu_screenshot)
                                     || ev->data1 == KEY_F12;
 
+        // DEBUG: log F12 key events
+        if (ev->data1 == KEY_F12)
+            printf("[KEYDBG] F12 %s (screenshot key=%d)\n",
+                   ev->type == ev_keydown ? "down" : ev->type == ev_keyup ? "up" : "?",
+                   key_menu_screenshot);
+
         if (ev->type == ev_keydown && is_screenshot_key)
         {
             if (!screenshot_holding)
