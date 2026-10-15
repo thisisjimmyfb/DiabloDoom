@@ -1387,10 +1387,51 @@ boolean M_Responder (event_t* ev)
         return false;
     }
 
+    // Screenshot key hold detection: tap = screenshot, hold 2+ sec = replay video.
+    // Intercepted here so we see both keydown and keyup.
+    {
+        static int screenshot_hold_start = 0;
+        static boolean screenshot_holding = false;
+        extern int D_ReplaySaveAVI(const char *filename);
+        extern int D_ReplayFrameCount(void);
+
+        if (ev->type == ev_keydown && ev->data1 == key_menu_screenshot && key_menu_screenshot != 0)
+        {
+            if (!screenshot_holding)
+            {
+                screenshot_holding = true;
+                screenshot_hold_start = I_GetTime();
+            }
+            return true;
+        }
+        if (ev->type == ev_keyup && ev->data1 == key_menu_screenshot && key_menu_screenshot != 0)
+        {
+            if (screenshot_holding)
+            {
+                int held_tics = I_GetTime() - screenshot_hold_start;
+                screenshot_holding = false;
+                if (held_tics >= 70)  // 2 seconds at 35 tics/sec
+                {
+                    char filename[256];
+                    static int replay_num = 0;
+                    snprintf(filename, sizeof(filename), "REPLAY%02d.avi", replay_num % 100);
+                    replay_num++;
+                    printf("[REPLAY] hold capture: %d frames (%d tics held)...\n",
+                           D_ReplayFrameCount(), held_tics);
+                    D_ReplaySaveAVI(filename);
+                }
+                else
+                {
+                    G_ScreenShot();
+                }
+            }
+            return true;
+        }
+    }
+
     // "close" button pressed on window?
     if (ev->type == ev_quit)
-    {
-        // First click on close button = bring up quit confirm message.
+    {        // First click on close button = bring up quit confirm message.
         // Second click on close button = confirm quit
 
         if (menuactive && messageToPrint && messageRoutine == M_QuitResponse)
@@ -1654,29 +1695,8 @@ boolean M_Responder (event_t* ev)
     if ((devparm && key == key_menu_help) ||
         (key != 0 && key == key_menu_screenshot))
     {
-        // Double-tap screenshot key = instant replay video capture.
-        // Single tap = screenshot (existing behavior).
-        static int last_screenshot_time = 0;
-        int now = I_GetTime();
-        extern int D_ReplaySaveAVI(const char *filename);
-        extern int D_ReplayFrameCount(void);
-        if (now - last_screenshot_time < 18)  // ~500ms at 35 tics/sec
-        {
-            // Double tap: save replay video
-            char filename[256];
-            static int replay_num = 0;
-            snprintf(filename, sizeof(filename), "REPLAY%02d.avi", replay_num % 100);
-            replay_num++;
-            printf("[REPLAY] double-tap capture: %d frames...\n", D_ReplayFrameCount());
-            D_ReplaySaveAVI(filename);
-            last_screenshot_time = 0;  // reset so triple-tap doesn't trigger again
-        }
-        else
-        {
-            G_ScreenShot ();
-            last_screenshot_time = now;
-        }
-        return true;
+	G_ScreenShot ();
+	return true;
     }
 
     // F-Keys
