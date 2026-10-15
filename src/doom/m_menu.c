@@ -1395,6 +1395,10 @@ boolean M_Responder (event_t* ev)
         extern int D_ReplaySaveAVI(const char *filename);
         extern int D_ReplayFrameCount(void);
 
+        // DEBUG: log all keydown keycodes
+        if (ev->type == ev_keydown)
+            printf("[KEYDBG] keydown data1=%d (screenshot key=%d)\n", ev->data1, key_menu_screenshot);
+
         if (ev->type == ev_keydown && ev->data1 == key_menu_screenshot && key_menu_screenshot != 0)
         {
             if (!screenshot_holding)
