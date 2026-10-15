@@ -1412,7 +1412,7 @@ boolean M_Responder (event_t* ev)
             {
                 int held_tics = I_GetTime() - screenshot_hold_start;
                 screenshot_holding = false;
-                if (held_tics >= 70)  // 2 seconds at 35 tics/sec
+                if (held_tics >= 35)  // 1 second at 35 tics/sec
                 {
                     char filename[256];
                     printf("[REPLAY] hold capture: %d frames (%d tics held)...\n",
