@@ -1415,13 +1415,12 @@ boolean M_Responder (event_t* ev)
                 if (held_tics >= 70)  // 2 seconds at 35 tics/sec
                 {
                     char filename[256];
-                    static int replay_num = 0;
-                    snprintf(filename, sizeof(filename), "doomshots/REPLAY%02d.mp4", replay_num % 100);
-                    replay_num++;
                     printf("[REPLAY] hold capture: %d frames (%d tics held)...\n",
                            D_ReplayFrameCount(), held_tics);
                     {
                         extern int D_ReplaySaveMP4(const char *filename);
+                        extern void D_ReplayNextFilename(char *buf, size_t bufsz);
+                        D_ReplayNextFilename(filename, sizeof(filename));
                         D_ReplaySaveMP4(filename);
                     }
                 }

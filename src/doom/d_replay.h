@@ -25,6 +25,10 @@ int D_ReplaySaveMP4(const char *filename);
 // Ensure the doomshots/ output directory exists.
 void D_EnsureDoomshotsDir(void);
 
+// Find an unused replay filename: doomshots/REPLAY00.mp4 .. REPLAY99.mp4,
+// falling back to a timestamped name if all 100 are taken.
+void D_ReplayNextFilename(char *buf, size_t bufsz);
+
 // Number of frames currently in the buffer.
 int D_ReplayFrameCount(void);
 

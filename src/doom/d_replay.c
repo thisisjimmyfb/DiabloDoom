@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <errno.h>
@@ -19,6 +20,28 @@ void D_EnsureDoomshotsDir(void)
     {
         if (mkdir("doomshots", 0755) != 0 && errno != EEXIST)
             printf("[REPLAY] warning: cannot create doomshots/\n");
+    }
+}
+
+// Find an unused replay filename: doomshots/REPLAY00.mp4 .. REPLAY99.mp4,
+// falling back to a timestamped name if all 100 are taken.
+void D_ReplayNextFilename(char *buf, size_t bufsz)
+{
+    struct stat st;
+    int i;
+    for (i = 0; i < 100; i++)
+    {
+        snprintf(buf, bufsz, "doomshots/REPLAY%02d.mp4", i);
+        if (stat(buf, &st) != 0)
+            return;  // not taken
+    }
+    // All 100 taken: use timestamp
+    {
+        time_t now = time(NULL);
+        struct tm *tm = localtime(&now);
+        snprintf(buf, bufsz, "doomshots/REPLAY_%04d%02d%02d_%02d%02d%02d.mp4",
+                 tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
+                 tm->tm_hour, tm->tm_min, tm->tm_sec);
     }
 }
 
