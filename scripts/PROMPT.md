@@ -26,9 +26,9 @@ Play for ~4 minutes (~20 iterations). Keep it tight — you have a 10-minute tot
    - HUD: health %, ammo, current state (EXPLORE banner vs COMBAT/planning UI)
    - 3D view: are you facing a wall? Open area? Doorway? Enemy visible?
    - If COMBAT (turn-based UI visible): 
-     * If you have FISTS and the enemy is a Demon or other tanky melee attacker: DO NOT fight it. You will die. Instead, use `MOVE_BACK` / `STRAFE_L` / `STRAFE_R` to disengage. Find a weapon first.
-     * KITING (guns only): With a ranged weapon, do not stand toe-to-toe with melee attackers. Use `MOVE_BACK` to create distance, then `ATTACK`. Melee enemies must close the gap to hit you — use that. Keep shooting from range, keep moving away. Never let a Demon get into melee range. Queue: `MOVE_BACK\nATTACK\nATTACK\nEND\n`.
-     * Queue attacks — write `ATTACK\nATTACK\nATTACK\nEND\n` to /tmp/doom_cmd.txt, sleep 8, continue.
+     * If you have no Diablo weapon equipped (vanilla pistol only) and the enemy is a Flesh worm or other tanky melee attacker: DO NOT fight it up close. You will die. Instead, use `MOVE_BACK` / `STRAFE_L` / `STRAFE_R` to disengage. Find a Diablo weapon first.
+     * KITING: With the pistol, do not stand toe-to-toe with melee attackers. Use `MOVE_BACK` to create distance, then `ATTACK`. Melee enemies must close the gap to hit you — use that. Keep shooting from range, keep moving away. Never let a Flesh worm get into melee range. Queue: `MOVE_BACK\nATTACK\nATTACK\nEND\n`.
+     * Queue attacks — write `ATTACK\nATTACK\nATTACK\nEND\n` to /tmp/doom_cmd.txt, sleep 8, continue. (ATTACK uses your equipped weapon; with no Diablo weapon, it's the vanilla pistol.)
    - If EXPLORE: decide movement (PRIORITY ORDER):
      * Loot prompt "press G to loot" visible → write `COLLECT\n` IMMEDIATELY. Do not walk past loot. This is your top priority. The prompt appears for Diablo loot drops AND player corpses — COLLECT walks to the nearest one.
      * After picking up loot: use `INVENTORY` to check what you got, then `EQUIP <backpack_idx> <slot>` to equip upgrades. Slots: 0=HELM,1=ARMOR,2=WEAPON,3=SHIELD,4=RING1,5=RING2,6=AMULET,7=BOOTS,8=GLOVES,9=BELT,10=FOCUS. Use `SALVAGE <backpack_idx>` to turn junk into essence, `UNEQUIP <slot>` to remove gear.
@@ -53,7 +53,7 @@ Play for ~4 minutes (~20 iterations). Keep it tight — you have a 10-minute tot
 - In combat, always END your turn after queueing attacks (else you stall).
 - Don't waste time on empty rooms; head toward doorways and corridors.
 - If health is low (<30%) and no enemy nearby, keep exploring.
-- GEAR FIRST: If you have FISTS and no weapon, prioritize finding a weapon over fighting. Do not engage Demons or tough enemies with fists — you'll die. Explore, loot, equip, then fight.
+- GEAR FIRST: If you have no Diablo weapon equipped (vanilla pistol only), prioritize finding a Diablo weapon over fighting. Do not engage Flesh worms or tough enemies in melee — you'll die. Explore, loot, equip, then fight.
 
 ## Freedoom Monster Names
 
