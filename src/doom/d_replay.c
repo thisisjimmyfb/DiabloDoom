@@ -73,6 +73,8 @@ int D_ReplaySaveAVI(const char *filename)
     int i, idx, n;
     long movi_pos, riff_pos, hdrl_pos, strl_pos;
 
+    D_EnsureDoomshotsDir();
+
     n = replay_count;
     if (!replay_buffer || n == 0) {
         printf("[REPLAY] buffer empty\n");
