@@ -77,17 +77,25 @@ add_library(doom STATIC
             wi_stuff.c      wi_stuff.h)
 
 target_include_directories(doom PRIVATE "../" "${CMAKE_CURRENT_BINARY_DIR}/../../")
-# x264 for H.264 replay encoding: prefer system via pkg-config, fall back to ~/workspace/x264
+# x264 for H.264 replay encoding: prefer system via pkg-config, fall back to in-repo third_party/x264.
+# If neither is available, build without replay support (NO_X264).
 find_package(PkgConfig QUIET)
 if(PKG_CONFIG_FOUND)
     pkg_check_modules(X264 QUIET x264)
 endif()
+set(X264_IN_REPO "${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/x264")
 if(X264_FOUND)
     target_include_directories(doom PRIVATE ${X264_INCLUDE_DIRS})
     set(X264_LIBS ${X264_LIBRARIES})
+    message(STATUS "x264: using system library")
+elseif(EXISTS "${X264_IN_REPO}/lib/libx264.a")
+    target_include_directories(doom PRIVATE "${X264_IN_REPO}/include")
+    set(X264_LIBS "${X264_IN_REPO}/lib/libx264.a")
+    message(STATUS "x264: using in-repo third_party/x264")
 else()
-    target_include_directories(doom PRIVATE "$ENV{HOME}/workspace/x264/include")
-    set(X264_LIBS "$ENV{HOME}/workspace/x264/lib/libx264.a")
+    message(STATUS "x264: not found - building without replay support")
+    target_compile_definitions(doom PRIVATE NO_X264)
+    set(X264_LIBS "")
 endif()
 
 if (DEFINED EMSCRIPTEN)

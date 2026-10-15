@@ -9,7 +9,11 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <errno.h>
+#ifdef NO_X264
+// No H.264 support: D_ReplaySaveMP4 will report unavailability.
+#else
 #include <x264.h>
+#endif
 #include "doomdef.h"
 #include "d_replay.h"
 #include "i_video.h"
@@ -103,6 +107,7 @@ static void mp4_w64(FILE *f, unsigned long long v) {
     mp4_w32(f, (unsigned int)(v&0xffffffff));
 }
 
+#ifndef NO_X264
 // RGB (packed, 24-bit) -> YUV420P into x264 picture planes (BT.601).
 static void rgb_to_yuv420p(byte *rgb, x264_picture_t *pic, int w, int h)
 {
@@ -139,9 +144,14 @@ static void rgb_to_yuv420p(byte *rgb, x264_picture_t *pic, int w, int h)
         }
     }
 }
+#endif
 
 int D_ReplaySaveMP4(const char *filename)
 {
+#ifdef NO_X264
+    printf("[REPLAY] H.264 support not compiled in (no x264)\n");
+    return 1;
+#else
     extern byte *W_CacheLumpName(const char *name, int tag);
     FILE *f = NULL;
     byte *rgb = NULL, *palette;
@@ -585,4 +595,5 @@ fail:
     free(frame_sizes);
     free(chunk_offsets);
     return 1;
+#endif
 }

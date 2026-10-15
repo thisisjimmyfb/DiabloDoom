@@ -68,3 +68,8 @@ compile_commands.json
 
 # WADs
 /wad/
+
+# x264 build intermediates (prebuilt lib in third_party/x264/lib is checked in)
+third_party/x264/*.o
+third_party/x264/config.*
+third_party/x264/x264
