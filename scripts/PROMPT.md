@@ -81,7 +81,7 @@ This game uses Freedoom sprites, NOT classic Doom. Use these OFFICIAL Freedoom n
 
 After ~4 min of play:
 1. Kill count: grep the log for kill messages, or count from game output.
-2. Capture a replay video: write `REPLAY\n` to /tmp/doom_cmd.txt, sleep 20 (encoding 525 frames takes a while), then find the newest `diablodoom_*.mp4` in `~/workspace/diablodoom/doomshots/`. Copy to workspace (`cp <newest.mp4> ~/workspace/farm_replay_latest.mp4`), then `/opt/hatch/bin/remote-storage upload-file --path ~/workspace/farm_replay_latest.mp4`
+2. Capture a replay video: write `REPLAY\n` to /tmp/doom_cmd.txt, sleep 20 (encoding 525 frames takes a while), then find the newest `diablodoom_*.mp4` in `~/workspace/diablodoom/doomshots/`. Copy to workspace (`cp <newest.mp4> ~/workspace/farm_replay_latest.mp4`), then `/opt/hatch/bin/remote-storage upload-file --path ~/workspace/farm_replay_latest.mp4 --content-type video/mp4`
 3. Report to user: kills this run and replay video link.
 4. Leave the game running — the next session continues from where you left off.
 
