@@ -1556,8 +1556,12 @@ void T_DrawHUD(void)
 {
     char line[96];
     int i;
+    player_t *player = &players[consoleplayer];
 
     if (!T_Active())
+        return;
+    // Hide turn UI when the player is dead.
+    if (player->mo == NULL || player->mo->health <= 0)
         return;
     T_TintFonts();
 
