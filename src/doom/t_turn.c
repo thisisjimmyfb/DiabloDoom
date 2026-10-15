@@ -851,8 +851,12 @@ static void cmd_dispatch(const char *cmd)
         // Manual respawn after death (requires confirmation).
         // Player stays dead at 0% until this is sent.
         extern boolean P_DoCorpseRespawn(void);
+        extern void *pending_corpse;
         if (P_DoCorpseRespawn())
             printf("[FARM] RESPAWN confirmed - player reborn\n");
+        else
+            printf("[FARM] RESPAWN failed - no dead player found (pending_corpse=%p, playerstate=%d)\n",
+                   pending_corpse, players[consoleplayer].playerstate);
     }
     else if (!strcmp(cmd, "SCREENSHOT"))
     {
