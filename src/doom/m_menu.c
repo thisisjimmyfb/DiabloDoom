@@ -1395,9 +1395,7 @@ boolean M_Responder (event_t* ev)
         static boolean screenshot_holding = false;
         extern int D_ReplaySaveMP4(const char *filename);
         extern int D_ReplayFrameCount(void);
-        boolean is_screenshot_key = (key_menu_screenshot != 0 && ev->data1 == key_menu_screenshot)
-                                    || ev->data1 == KEY_F12
-                                    || ev->data1 == KEY_PRTSCR;
+        boolean is_screenshot_key = (key_menu_screenshot != 0 && ev->data1 == key_menu_screenshot);
 
         if (ev->type == ev_keydown && is_screenshot_key)
         {
