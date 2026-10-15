@@ -1654,8 +1654,29 @@ boolean M_Responder (event_t* ev)
     if ((devparm && key == key_menu_help) ||
         (key != 0 && key == key_menu_screenshot))
     {
-	G_ScreenShot ();
-	return true;
+        // Double-tap screenshot key = instant replay video capture.
+        // Single tap = screenshot (existing behavior).
+        static int last_screenshot_time = 0;
+        int now = I_GetTime();
+        extern int D_ReplaySaveAVI(const char *filename);
+        extern int D_ReplayFrameCount(void);
+        if (now - last_screenshot_time < 18)  // ~500ms at 35 tics/sec
+        {
+            // Double tap: save replay video
+            char filename[256];
+            static int replay_num = 0;
+            snprintf(filename, sizeof(filename), "REPLAY%02d.avi", replay_num % 100);
+            replay_num++;
+            printf("[REPLAY] double-tap capture: %d frames...\n", D_ReplayFrameCount());
+            D_ReplaySaveAVI(filename);
+            last_screenshot_time = 0;  // reset so triple-tap doesn't trigger again
+        }
+        else
+        {
+            G_ScreenShot ();
+            last_screenshot_time = now;
+        }
+        return true;
     }
 
     // F-Keys
