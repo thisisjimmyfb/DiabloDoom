@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <errno.h>
@@ -23,26 +24,31 @@ void D_EnsureDoomshotsDir(void)
     }
 }
 
-// Find an unused replay filename: doomshots/REPLAY00.mp4 .. REPLAY99.mp4,
-// falling back to a timestamped name if all 100 are taken.
+// Find an unused replay filename: doomshots/diablodoom_YYYYMMDD_HHMMSS.mp4,
+// with a numeric suffix if the timestamp is taken.
 void D_ReplayNextFilename(char *buf, size_t bufsz)
 {
     struct stat st;
+    time_t now = time(NULL);
+    struct tm *tm = localtime(&now);
     int i;
     for (i = 0; i < 100; i++)
     {
-        snprintf(buf, bufsz, "doomshots/REPLAY%02d.mp4", i);
+        if (i == 0)
+            snprintf(buf, bufsz, "doomshots/diablodoom_%04d%02d%02d_%02d%02d%02d.mp4",
+                     tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
+                     tm->tm_hour, tm->tm_min, tm->tm_sec);
+        else
+            snprintf(buf, bufsz, "doomshots/diablodoom_%04d%02d%02d_%02d%02d%02d_%02d.mp4",
+                     tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
+                     tm->tm_hour, tm->tm_min, tm->tm_sec, i);
         if (stat(buf, &st) != 0)
             return;  // not taken
     }
-    // All 100 taken: use timestamp
-    {
-        time_t now = time(NULL);
-        struct tm *tm = localtime(&now);
-        snprintf(buf, bufsz, "doomshots/REPLAY_%04d%02d%02d_%02d%02d%02d.mp4",
-                 tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
-                 tm->tm_hour, tm->tm_min, tm->tm_sec);
-    }
+    // Extremely unlikely: fall back to pid-suffixed name
+    snprintf(buf, bufsz, "doomshots/diablodoom_%04d%02d%02d_%02d%02d%02d_%d.mp4",
+             tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
+             tm->tm_hour, tm->tm_min, tm->tm_sec, (int)getpid());
 }
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
