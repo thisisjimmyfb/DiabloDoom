@@ -468,6 +468,10 @@ void D_RunFrame()
         } else {
             // normal update
             I_FinishUpdate ();              // page flip or blit buffer
+            {
+                extern void D_ReplayTick(void);
+                D_ReplayTick();  // capture frame for instant replay buffer
+            }
         }
     }
 }
@@ -496,6 +500,10 @@ void D_DoomLoop (void)
     I_SetGrabMouseCallback(D_GrabMouseCallback);
     I_RegisterWindowIcon(doom_icon_data, doom_icon_w, doom_icon_h);
     I_InitGraphics();
+    {
+        extern void D_ReplayInit(void);
+        D_ReplayInit();
+    }
     EnableLoadingDisk();
 
     TryRunTics();

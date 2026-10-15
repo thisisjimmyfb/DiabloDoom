@@ -1000,6 +1000,22 @@ static void cmd_dispatch(const char *cmd)
         // Workers compare with `git rev-parse HEAD` to detect stale binaries.
         printf("[VERSION] " GIT_COMMIT_HASH "\n");
     }
+    else if (!strcmp(cmd, "REPLAY"))
+    {
+        // Dump the last 15 seconds of gameplay to MJPEG AVI.
+        extern int D_ReplaySaveAVI(const char *filename);
+        extern int D_ReplayFrameCount(void);
+        char filename[256];
+        static int replay_num = 0;
+        // Save to the current working directory (doomshots/)
+        snprintf(filename, sizeof(filename), "REPLAY%02d.avi", replay_num % 100);
+        replay_num++;
+        printf("[REPLAY] capturing %d frames...\n", D_ReplayFrameCount());
+        if (D_ReplaySaveAVI(filename) == 0)
+            printf("[REPLAY] saved to %s\n", filename);
+        else
+            printf("[REPLAY] failed\n");
+    }
 }
 
 void T_Ticker(void)
