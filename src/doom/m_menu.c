@@ -1414,7 +1414,7 @@ boolean M_Responder (event_t* ev)
                 {
                     char filename[256];
                     static int replay_num = 0;
-                    snprintf(filename, sizeof(filename), "REPLAY%02d.avi", replay_num % 100);
+                    snprintf(filename, sizeof(filename), "doomshots/REPLAY%02d.avi", replay_num % 100);
                     replay_num++;
                     printf("[REPLAY] hold capture: %d frames (%d tics held)...\n",
                            D_ReplayFrameCount(), held_tics);

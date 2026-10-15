@@ -2,10 +2,24 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <errno.h>
 #include "doomdef.h"
 #include "d_replay.h"
 #include "i_video.h"
 #include "v_video.h"
+
+// Ensure the doomshots/ output directory exists.
+void D_EnsureDoomshotsDir(void)
+{
+    struct stat st;
+    if (stat("doomshots", &st) != 0)
+    {
+        if (mkdir("doomshots", 0755) != 0 && errno != EEXIST)
+            printf("[REPLAY] warning: cannot create doomshots/\n");
+    }
+}
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
@@ -16,6 +30,8 @@ static int replay_count = 0;
 
 void D_ReplayInit(void)
 {
+    extern void D_EnsureDoomshotsDir(void);
+    D_EnsureDoomshotsDir();
     if (replay_buffer) return;
     replay_buffer = malloc(REPLAY_MAXFRAMES * REPLAY_FRAME_SIZE);
     if (replay_buffer) {

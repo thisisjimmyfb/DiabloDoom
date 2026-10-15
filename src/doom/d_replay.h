@@ -19,6 +19,9 @@ void D_ReplayTick(void);
 // Dump the buffer to an MJPEG AVI file. Returns 0 on success.
 int D_ReplaySaveAVI(const char *filename);
 
+// Ensure the doomshots/ output directory exists.
+void D_EnsureDoomshotsDir(void);
+
 // Number of frames currently in the buffer.
 int D_ReplayFrameCount(void);
 

@@ -12,16 +12,16 @@ Play the game well — explore the level, engage enemies in turn-based combat, p
 
 1. No X display exists on this VM — launch the game with the dummy video driver (no Xvfb — never start it).
 2. Kill any stale game: `pkill -9 -f "chocolate-doo[m]"` (bracket trick avoids suicide).
-3. Launch: `SDL_VIDEODRIVER=dummy nohup ~/workspace/DiabloDoom/build/src/chocolate-doom -iwad ~/workspace/doom/freedoom1.wad -width 960 -height 600 -warp 1 1 > /tmp/doom_hourly.log 2>&1 &` then sleep 15. Verify with `pgrep -a -f "chocolate-doo[m]"` (bracket trick avoids suicide).
+3. Launch from ~/workspace/diablodoom: `cd ~/workspace/diablodoom && SDL_VIDEODRIVER=dummy nohup ~/workspace/DiabloDoom/build/src/chocolate-doom -iwad ~/workspace/doom/freedoom1.wad -width 960 -height 600 -warp 1 1 > /tmp/doom_hourly.log 2>&1 &` then sleep 15. Verify with `pgrep -a -f "chocolate-doo[m]"` (bracket trick avoids suicide).
    - NEVER pull from git, NEVER rebuild. Use the existing binary only.
    - Stale binary check: send `VERSION\n` to /tmp/doom_cmd.txt, then check /tmp/doom_hourly.log for `[VERSION] <hash>`. Compare with `git -C ~/workspace/DiabloDoom rev-parse --short HEAD`. If they differ, the binary is stale — report it to the main agent, do not try to rebuild.
-4. Screenshot: use the game's built-in SCREENSHOT driver command. Write `SCREENSHOT\n` to /tmp/doom_cmd.txt, sleep 4, then find the newest `DOOM*.png` in the game's working dir (`~/workspace/doomshots/`) and copy it to /tmp/farm_view.png. Move the DOOM*.png files out afterward so the game's DOOM00..DOOM99 cycle never fills up.
+4. Screenshot: use the game's built-in SCREENSHOT driver command. Write `SCREENSHOT\n` to /tmp/doom_cmd.txt, sleep 4, then find the newest `DOOM*.png` in `~/workspace/diablodoom/doomshots/` and copy it to /tmp/farm_view.png. Move the DOOM*.png files out afterward so the game's DOOM00..DOOM99 cycle never fills up.
 
 ## Game Loop
 
 Play for ~4 minutes (~20 iterations). Keep it tight — you have a 10-minute total budget including setup and reporting. The game persists between runs — you are continuing a continuous play session, not starting fresh each time.
 
-1. Take screenshot: write `SCREENSHOT\n` to /tmp/doom_cmd.txt, sleep 4, then copy the newest `DOOM*.png` from `~/workspace/doomshots/` to /tmp/farm_view.png (and clear the DOOM*.png files so the game's name cycle doesn't fill up).
+1. Take screenshot: write `SCREENSHOT\n` to /tmp/doom_cmd.txt, sleep 4, then copy the newest `DOOM*.png` from `~/workspace/diablodoom/doomshots/` to /tmp/farm_view.png (and clear the DOOM*.png files so the game's name cycle doesn't fill up).
 2. Read `/tmp/farm_view.png` with your vision. Assess:
    - HUD: health %, ammo, current state (EXPLORE banner vs COMBAT/planning UI)
    - 3D view: are you facing a wall? Open area? Doorway? Enemy visible?

@@ -1008,7 +1008,7 @@ static void cmd_dispatch(const char *cmd)
         char filename[256];
         static int replay_num = 0;
         // Save to the current working directory (doomshots/)
-        snprintf(filename, sizeof(filename), "REPLAY%02d.avi", replay_num % 100);
+        snprintf(filename, sizeof(filename), "doomshots/REPLAY%02d.avi", replay_num % 100);
         replay_num++;
         printf("[REPLAY] capturing %d frames...\n", D_ReplayFrameCount());
         if (D_ReplaySaveAVI(filename) == 0)
