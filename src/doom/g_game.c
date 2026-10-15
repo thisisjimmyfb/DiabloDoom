@@ -1009,6 +1009,7 @@ void G_Ticker (void)
 	  case ga_screenshot: 
 	    {
 	        extern void D_EnsureDoomshotsDir(void);
+	        extern char last_screenshot_name[128];
 	        char fmt[64];
 	        time_t now = time(NULL);
 	        struct tm *tm = localtime(&now);
@@ -1017,9 +1018,14 @@ void G_Ticker (void)
 	        snprintf(fmt, sizeof(fmt), "doomshots/diablodoom_%04d%02d%02d_%02d%02d%02d_%%02i.%%s",
 	                 tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
 	                 tm->tm_hour, tm->tm_min, tm->tm_sec);
-	        V_ScreenShot(fmt); 
+	        V_ScreenShot(fmt);
+	        // Show the saved filename in the HUD message
+	        {
+	            static char msg[160];
+	            snprintf(msg, sizeof(msg), "Screenshot: %s", last_screenshot_name);
+	            players[consoleplayer].message = msg;
+	        }
 	    }
-            players[consoleplayer].message = DEH_String("screen shot");
 	    gameaction = ga_nothing; 
 	    break; 
 	  case ga_nothing: 

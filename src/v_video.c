@@ -832,10 +832,12 @@ void WritePNGfile(char *filename, pixel_t *data,
 // V_ScreenShot
 //
 
+char last_screenshot_name[128] = "";
+
 void V_ScreenShot(const char *format)
 {
     int i;
-    char lbmname[16]; // haleyjd 20110213: BUG FIX - 12 is too small!
+    char lbmname[128];
     const char *ext;
     
     // find a file name to save it to
@@ -890,6 +892,8 @@ void V_ScreenShot(const char *format)
                  SCREENWIDTH, SCREENHEIGHT,
                  W_CacheLumpName (DEH_String("PLAYPAL"), PU_CACHE));
     }
+    // Remember the filename for the HUD message
+    M_StringCopy(last_screenshot_name, lbmname, sizeof(last_screenshot_name));
 }
 
 #define MOUSE_SPEED_BOX_WIDTH  120

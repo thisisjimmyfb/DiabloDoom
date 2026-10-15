@@ -1421,7 +1421,13 @@ boolean M_Responder (event_t* ev)
                         extern int D_ReplaySaveMP4(const char *filename);
                         extern void D_ReplayNextFilename(char *buf, size_t bufsz);
                         D_ReplayNextFilename(filename, sizeof(filename));
-                        D_ReplaySaveMP4(filename);
+                        if (D_ReplaySaveMP4(filename) == 0)
+                        {
+                            // Show the saved filename in the HUD message
+                            static char msg[300];
+                            snprintf(msg, sizeof(msg), "Video: %s", filename);
+                            players[consoleplayer].message = msg;
+                        }
                     }
                 }
                 else
