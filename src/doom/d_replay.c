@@ -10,6 +10,7 @@
 #include "d_replay.h"
 #include "i_video.h"
 #include "v_video.h"
+#include "../tables.h"
 
 void D_EnsureDoomshotsDir(void)
 {
@@ -102,6 +103,21 @@ int D_ReplaySaveMP4(const char *filename)
     chunk_offsets = malloc(n * sizeof(unsigned long long));
     palette = W_CacheLumpName("PLAYPAL", 1);
     if (!rgb || !jpegs || !frame_sizes || !chunk_offsets || !palette) return 1;
+
+    // Apply the same gamma correction the game uses for display
+    {
+        extern int usegamma;
+        static byte gpal[256*3];
+        int g = usegamma;
+        if (g < 0) g = 0; if (g > 4) g = 4;
+        // Match I_SetPalette: gammatable + clear bottom 2 bits
+        for (i = 0; i < 256; i++) {
+            gpal[i*3+0] = gammatable[g][palette[i*3+0]] & ~3;
+            gpal[i*3+1] = gammatable[g][palette[i*3+1]] & ~3;
+            gpal[i*3+2] = gammatable[g][palette[i*3+2]] & ~3;
+        }
+        palette = gpal;  // use gamma-corrected palette from here on
+    }
 
     for (i = 0; i < n; i++) {
         idx = (replay_head - n + i + REPLAY_MAXFRAMES*2) % REPLAY_MAXFRAMES;
