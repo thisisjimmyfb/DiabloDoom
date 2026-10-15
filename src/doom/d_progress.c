@@ -265,8 +265,9 @@ void D_ProgressSaveNow(void)
     progress_hdr->active_slot = inactive;
     progress_hdr->timestamp = time(NULL);
 
-    // Ensure the header is flushed (mmap will handle the data pages)
-    msync(progress_hdr, PROGRESS_HEADER_SIZE, MS_ASYNC);
+    // Ensure the header AND data are flushed synchronously.
+    // MS_ASYNC was losing saves on kill -9 / VM recycle.
+    msync(progress_map, PROGRESS_FILE_SIZE, MS_SYNC);
 
     free(buf);
 }
