@@ -946,6 +946,7 @@ P_KillMobj
 	    }
 	    // NOTE: G_PlayerReborn / P_SpawnPlayer moved to RESPAWN command.
 	    // Player remains PST_DEAD at 0% until confirmed.
+	    p->playerstate = PST_DEAD;
 	    return;
 	}
 
