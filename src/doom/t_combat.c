@@ -295,7 +295,7 @@ static int T_MonsterArmor(mobjtype_t type)
 
 static const t_kitdef_t t_kits[NUMWEAPONS] = {
     // wp_fist (fallback; not a real kit)
-    { "FISTS",    1,  3,  3, 0,   0,  0, 1, false, 0,  0,  0,  0, 0 },
+    { "PISTOL",   1,  3,  3, 0,   0,  0, 1, false, 0,  0,  0,  0, 0 },
     // Base kits are deliberately weak: item stats are the real damage
     // source, so hunting better gear is the progression.
     // Ammo: every weapon with a magazine requires ammo to fire.

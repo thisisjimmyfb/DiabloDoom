@@ -41,7 +41,7 @@
 
 // Derived attack cost (Phase 5): kit base TP, reduced by attack speed.
 // Ranged weapons cost 0 TP -- ammo (or heat) is the limiter, so a round
-// can dump the whole magazine. Melee (fists = no Diablo weapon, or
+// can dump the whole magazine. Melee (pistol-whip = no Diablo weapon, or
 // chainsaw) costs TP.
 int T_AttackCost(void)
 {
@@ -52,10 +52,10 @@ int T_AttackCost(void)
     int id;
     if (!T_Active() || player->mo == NULL)
         return 4;
-    // Melee check via the Diablo paperdoll: no weapon = fists.
+    // Melee check via the Diablo paperdoll: no Diablo weapon = pistol-whip.
     id = player->diablo_equipped[ESLOT_WEAPON];
     if (id == D_NOITEM)
-        goto melee_cost; // fists
+        goto melee_cost; // pistol-whip
     {
         const diablo_itemdef_t *def =
             D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
