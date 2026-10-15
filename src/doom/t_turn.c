@@ -990,6 +990,12 @@ static void cmd_dispatch(const char *cmd)
             }
         }
     }
+    else if (!strcmp(cmd, "VERSION"))
+    {
+        // Print the git commit hash this binary was built from.
+        // Workers compare with `git rev-parse HEAD` to detect stale binaries.
+        printf("[VERSION] " GIT_COMMIT_HASH "\n");
+    }
 }
 
 void T_Ticker(void)

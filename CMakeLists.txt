@@ -3,6 +3,19 @@ set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 cmake_minimum_required(VERSION 3.7.2)
 project("Chocolate Doom" VERSION 3.1.1 LANGUAGES C)
 
+# Embed git commit hash for VERSION driver command (stale binary detection).
+execute_process(
+    COMMAND git rev-parse --short HEAD
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    OUTPUT_VARIABLE GIT_COMMIT_HASH
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if(NOT GIT_COMMIT_HASH)
+    set(GIT_COMMIT_HASH "unknown")
+endif()
+add_definitions(-DGIT_COMMIT_HASH="${GIT_COMMIT_HASH}")
+
 set(CMAKE_C_STANDARD 99)
 
 # Autotools variables
