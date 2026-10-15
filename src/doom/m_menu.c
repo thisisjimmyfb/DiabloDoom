@@ -1389,13 +1389,16 @@ boolean M_Responder (event_t* ev)
 
     // Screenshot key hold detection: tap = screenshot, hold 2+ sec = replay video.
     // Intercepted here so we see both keydown and keyup.
+    // Accepts either the configured key or raw F12 (fallback if config is stale).
     {
         static int screenshot_hold_start = 0;
         static boolean screenshot_holding = false;
         extern int D_ReplaySaveAVI(const char *filename);
         extern int D_ReplayFrameCount(void);
+        boolean is_screenshot_key = (key_menu_screenshot != 0 && ev->data1 == key_menu_screenshot)
+                                    || ev->data1 == KEY_F12;
 
-        if (ev->type == ev_keydown && ev->data1 == key_menu_screenshot && key_menu_screenshot != 0)
+        if (ev->type == ev_keydown && is_screenshot_key)
         {
             if (!screenshot_holding)
             {
@@ -1404,7 +1407,7 @@ boolean M_Responder (event_t* ev)
             }
             return true;
         }
-        if (ev->type == ev_keyup && ev->data1 == key_menu_screenshot && key_menu_screenshot != 0)
+        if (ev->type == ev_keyup && is_screenshot_key)
         {
             if (screenshot_holding)
             {
