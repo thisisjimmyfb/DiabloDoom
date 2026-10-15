@@ -100,7 +100,7 @@ int D_ReplaySaveAVI(const char *filename)
         jpegs[i].data = malloc(jpegs[i].cap);
         jpegs[i].len = 0;
         stbi_write_jpg_to_func(mem_write, &jpegs[i],
-                               REPLAY_WIDTH, REPLAY_HEIGHT, 3, rgb, 75);
+                               REPLAY_WIDTH, REPLAY_HEIGHT, 3, rgb, 90);
         if ((i % 100) == 0) printf("[REPLAY] %d/%d\n", i, n);
     }
     free(rgb);

@@ -1396,7 +1396,8 @@ boolean M_Responder (event_t* ev)
         extern int D_ReplaySaveAVI(const char *filename);
         extern int D_ReplayFrameCount(void);
         boolean is_screenshot_key = (key_menu_screenshot != 0 && ev->data1 == key_menu_screenshot)
-                                    || ev->data1 == KEY_F12;
+                                    || ev->data1 == KEY_F12
+                                    || ev->data1 == KEY_PRTSCR;
 
         if (ev->type == ev_keydown && is_screenshot_key)
         {
