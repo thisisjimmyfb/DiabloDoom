@@ -20,6 +20,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
+#include <time.h>
 
 #include "doomdef.h" 
 #include "doomkeys.h"
@@ -1008,8 +1009,15 @@ void G_Ticker (void)
 	  case ga_screenshot: 
 	    {
 	        extern void D_EnsureDoomshotsDir(void);
+	        char fmt[64];
+	        time_t now = time(NULL);
+	        struct tm *tm = localtime(&now);
 	        D_EnsureDoomshotsDir();
-	        V_ScreenShot("doomshots/DOOM%02i.%s"); 
+	        // Timestamped: doomshots/DOOM_20261015_113042_00.png
+	        snprintf(fmt, sizeof(fmt), "doomshots/DOOM_%04d%02d%02d_%02d%02d%02d_%%02i.%%s",
+	                 tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
+	                 tm->tm_hour, tm->tm_min, tm->tm_sec);
+	        V_ScreenShot(fmt); 
 	    }
             players[consoleplayer].message = DEH_String("screen shot");
 	    gameaction = ga_nothing; 
