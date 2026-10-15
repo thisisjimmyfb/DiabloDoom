@@ -1013,8 +1013,8 @@ void G_Ticker (void)
 	        time_t now = time(NULL);
 	        struct tm *tm = localtime(&now);
 	        D_EnsureDoomshotsDir();
-	        // Timestamped: doomshots/DOOM_20261015_113042_00.png
-	        snprintf(fmt, sizeof(fmt), "doomshots/DOOM_%04d%02d%02d_%02d%02d%02d_%%02i.%%s",
+	        // Timestamped: doomshots/diablodoom_20261015_113042_00.png
+	        snprintf(fmt, sizeof(fmt), "doomshots/diablodoom_%04d%02d%02d_%02d%02d%02d_%%02i.%%s",
 	                 tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
 	                 tm->tm_hour, tm->tm_min, tm->tm_sec);
 	        V_ScreenShot(fmt); 
