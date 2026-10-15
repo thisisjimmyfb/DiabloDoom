@@ -1002,16 +1002,16 @@ static void cmd_dispatch(const char *cmd)
     }
     else if (!strcmp(cmd, "REPLAY"))
     {
-        // Dump the last 15 seconds of gameplay to MJPEG AVI.
-        extern int D_ReplaySaveAVI(const char *filename);
+        // Dump the last 15 seconds of gameplay to MP4 (MJPEG).
+        extern int D_ReplaySaveMP4(const char *filename);
         extern int D_ReplayFrameCount(void);
         char filename[256];
         static int replay_num = 0;
         // Save to the current working directory (doomshots/)
-        snprintf(filename, sizeof(filename), "doomshots/REPLAY%02d.avi", replay_num % 100);
+        snprintf(filename, sizeof(filename), "doomshots/REPLAY%02d.mp4", replay_num % 100);
         replay_num++;
         printf("[REPLAY] capturing %d frames...\n", D_ReplayFrameCount());
-        if (D_ReplaySaveAVI(filename) == 0)
+        if (D_ReplaySaveMP4(filename) == 0)
             printf("[REPLAY] saved to %s\n", filename);
         else
             printf("[REPLAY] failed\n");

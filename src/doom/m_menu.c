@@ -1393,7 +1393,7 @@ boolean M_Responder (event_t* ev)
     {
         static int screenshot_hold_start = 0;
         static boolean screenshot_holding = false;
-        extern int D_ReplaySaveAVI(const char *filename);
+        extern int D_ReplaySaveMP4(const char *filename);
         extern int D_ReplayFrameCount(void);
         boolean is_screenshot_key = (key_menu_screenshot != 0 && ev->data1 == key_menu_screenshot)
                                     || ev->data1 == KEY_F12
@@ -1418,11 +1418,14 @@ boolean M_Responder (event_t* ev)
                 {
                     char filename[256];
                     static int replay_num = 0;
-                    snprintf(filename, sizeof(filename), "doomshots/REPLAY%02d.avi", replay_num % 100);
+                    snprintf(filename, sizeof(filename), "doomshots/REPLAY%02d.mp4", replay_num % 100);
                     replay_num++;
                     printf("[REPLAY] hold capture: %d frames (%d tics held)...\n",
                            D_ReplayFrameCount(), held_tics);
-                    D_ReplaySaveAVI(filename);
+                    {
+                        extern int D_ReplaySaveMP4(const char *filename);
+                        D_ReplaySaveMP4(filename);
+                    }
                 }
                 else
                 {

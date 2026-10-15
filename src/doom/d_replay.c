@@ -1,4 +1,5 @@
 // d_replay.c - Instant replay: circular buffer of last 15 seconds.
+// Outputs MP4 (MJPEG) for Threads compatibility.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,7 +11,6 @@
 #include "i_video.h"
 #include "v_video.h"
 
-// Ensure the doomshots/ output directory exists.
 void D_EnsureDoomshotsDir(void)
 {
     struct stat st;
@@ -30,7 +30,6 @@ static int replay_count = 0;
 
 void D_ReplayInit(void)
 {
-    extern void D_EnsureDoomshotsDir(void);
     D_EnsureDoomshotsDir();
     if (replay_buffer) return;
     replay_buffer = malloc(REPLAY_MAXFRAMES * REPLAY_FRAME_SIZE);
@@ -52,7 +51,6 @@ void D_ReplayTick(void)
 
 int D_ReplayFrameCount(void) { return replay_count; }
 
-// JPEG encode to memory using stb
 typedef struct { byte *data; int len; int cap; } mem_buf_t;
 static void mem_write(void *ctx, void *data, int size) {
     mem_buf_t *m = (mem_buf_t*)ctx;
@@ -64,14 +62,30 @@ static void mem_write(void *ctx, void *data, int size) {
     m->len += size;
 }
 
-int D_ReplaySaveAVI(const char *filename)
+// Big-endian writers for MP4
+static void mp4_w32(FILE *f, unsigned int v) {
+    fputc((v>>24)&0xff,f); fputc((v>>16)&0xff,f);
+    fputc((v>>8)&0xff,f); fputc(v&0xff,f);
+}
+static void mp4_w16(FILE *f, unsigned int v) {
+    fputc((v>>8)&0xff,f); fputc(v&0xff,f);
+}
+static void mp4_w64(FILE *f, unsigned long long v) {
+    mp4_w32(f, (unsigned int)((v>>32)&0xffffffff));
+    mp4_w32(f, (unsigned int)(v&0xffffffff));
+}
+
+int D_ReplaySaveMP4(const char *filename)
 {
     extern byte *W_CacheLumpName(const char *name, int tag);
     FILE *f;
     byte *rgb, *palette;
     mem_buf_t *jpegs;
+    int *frame_sizes;
+    unsigned long long *chunk_offsets;
     int i, idx, n;
-    long movi_pos, riff_pos, hdrl_pos, strl_pos;
+    int timescale = 90000;
+    int frame_duration = timescale / REPLAY_FPS;
 
     D_EnsureDoomshotsDir();
 
@@ -80,12 +94,14 @@ int D_ReplaySaveAVI(const char *filename)
         printf("[REPLAY] buffer empty\n");
         return 1;
     }
-    printf("[REPLAY] encoding %d frames...\n", n);
+    printf("[REPLAY] encoding %d frames to MP4...\n", n);
 
     rgb = malloc(REPLAY_FRAME_SIZE * 3);
     jpegs = calloc(n, sizeof(mem_buf_t));
+    frame_sizes = malloc(n * sizeof(int));
+    chunk_offsets = malloc(n * sizeof(unsigned long long));
     palette = W_CacheLumpName("PLAYPAL", 1);
-    if (!rgb || !jpegs || !palette) return 1;
+    if (!rgb || !jpegs || !frame_sizes || !chunk_offsets || !palette) return 1;
 
     for (i = 0; i < n; i++) {
         idx = (replay_head - n + i + REPLAY_MAXFRAMES*2) % REPLAY_MAXFRAMES;
@@ -101,6 +117,7 @@ int D_ReplaySaveAVI(const char *filename)
         jpegs[i].len = 0;
         stbi_write_jpg_to_func(mem_write, &jpegs[i],
                                REPLAY_WIDTH, REPLAY_HEIGHT, 3, rgb, 90);
+        frame_sizes[i] = jpegs[i].len;
         if ((i % 100) == 0) printf("[REPLAY] %d/%d\n", i, n);
     }
     free(rgb);
@@ -108,83 +125,221 @@ int D_ReplaySaveAVI(const char *filename)
     f = fopen(filename, "wb");
     if (!f) return 1;
 
-    // RIFF AVI header (simplified MJPEG)
-    fwrite("RIFF", 1, 4, f);
-    riff_pos = ftell(f); { int z=0; fwrite(&z,4,1,f); }
-    fwrite("AVI ", 1, 4, f);
-    fwrite("LIST", 1, 4, f);
-    hdrl_pos = ftell(f); { int z=0; fwrite(&z,4,1,f); }
-    fwrite("hdrl", 1, 4, f);
-    fwrite("avih", 1, 4, f); { int s=56; fwrite(&s,4,1,f); }
+    // ftyp
     {
-        int us = 1000000/REPLAY_FPS, z=0, one=1, w=REPLAY_WIDTH, h=REPLAY_HEIGHT;
-        fwrite(&us,4,1,f); fwrite(&z,4,1,f); fwrite(&z,4,1,f); fwrite(&z,4,1,f);
-        fwrite(&n,4,1,f); fwrite(&z,4,1,f); fwrite(&one,4,1,f); fwrite(&z,4,1,f);
-        fwrite(&w,4,1,f); fwrite(&h,4,1,f);
-        fwrite(&z,4,1,f); fwrite(&z,4,1,f); fwrite(&z,4,1,f); fwrite(&z,4,1,f);
+        long pos = ftell(f); mp4_w32(f,0); fwrite("ftyp",1,4,f);
+        fwrite("isom",1,4,f); mp4_w32(f,0);
+        fwrite("isom",1,4,f); fwrite("iso2",1,4,f); fwrite("mp41",1,4,f);
+        long end = ftell(f); fseek(f,pos,SEEK_SET);
+        mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
     }
-    fwrite("LIST", 1, 4, f);
-    strl_pos = ftell(f); { int z=0; fwrite(&z,4,1,f); }
-    fwrite("strl", 1, 4, f);
-    fwrite("strh", 1, 4, f); { int s=56; fwrite(&s,4,1,f); }
-    fwrite("vidsMJPG", 1, 8, f);
+
+    // mdat (write first so we know chunk offsets)
     {
-        int z=0, one=1, fps=REPLAY_FPS, buf=REPLAY_FRAME_SIZE*3;
-        short rc[4] = {0,0,REPLAY_WIDTH,REPLAY_HEIGHT};
-        fwrite(&z,4,1,f); fwrite(&z,4,1,f); fwrite(&z,4,1,f);
-        fwrite(&one,4,1,f); fwrite(&fps,4,1,f); fwrite(&z,4,1,f);
-        fwrite(&n,4,1,f); fwrite(&buf,4,1,f);
-        fwrite(&z,4,1,f); fwrite(&z,4,1,f);
-        fwrite(rc,2,4,f);
+        unsigned long long mdat_size = 16;
+        for (i = 0; i < n; i++) mdat_size += jpegs[i].len;
+        mp4_w32(f,1); fwrite("mdat",1,4,f); mp4_w64(f,mdat_size);
+        for (i = 0; i < n; i++) {
+            chunk_offsets[i] = (unsigned long long)ftell(f);
+            fwrite(jpegs[i].data, 1, jpegs[i].len, f);
+            free(jpegs[i].data);
+        }
     }
-    fwrite("strf", 1, 4, f); { int s=40; fwrite(&s,4,1,f); }
-    {
-        int bs=40, w=REPLAY_WIDTH, h=REPLAY_HEIGHT, z=0, img=w*h*3;
-        short pl=1, bpp=24;
-        fwrite(&bs,4,1,f); fwrite(&w,4,1,f); fwrite(&h,4,1,f);
-        fwrite(&pl,2,1,f); fwrite(&bpp,2,1,f);
-        fwrite("MJPG",1,4,f); fwrite(&img,4,1,f);
-        fwrite(&z,4,1,f); fwrite(&z,4,1,f); fwrite(&z,4,1,f); fwrite(&z,4,1,f);
-    }
-    { long e=ftell(f); int s=(int)(e-strl_pos-4);
-      fseek(f,strl_pos,SEEK_SET); fwrite(&s,4,1,f); fseek(f,e,SEEK_SET); }
-    { long e=ftell(f); int s=(int)(e-hdrl_pos-4);
-      fseek(f,hdrl_pos,SEEK_SET); fwrite(&s,4,1,f); fseek(f,e,SEEK_SET); }
-
-    fwrite("LIST", 1, 4, f);
-    movi_pos = ftell(f); { int z=0; fwrite(&z,4,1,f); }
-    fwrite("movi", 1, 4, f);
-    long movi_data = ftell(f);
-
-    long *offsets = malloc(n * sizeof(long));
-    int *lens = malloc(n * sizeof(int));
-    for (i = 0; i < n; i++) {
-        offsets[i] = ftell(f) - movi_data;
-        lens[i] = jpegs[i].len;
-        fwrite("00dc",1,4,f);
-        fwrite(&jpegs[i].len,4,1,f);
-        fwrite(jpegs[i].data,1,jpegs[i].len,f);
-        if (jpegs[i].len & 1) fputc(0,f);
-        free(jpegs[i].data);
-    }
-    { long e=ftell(f); int s=(int)(e-movi_pos-4);
-      fseek(f,movi_pos,SEEK_SET); fwrite(&s,4,1,f); fseek(f,e,SEEK_SET); }
-
-    // idx1
-    fwrite("idx1",1,4,f);
-    { int s=n*16; fwrite(&s,4,1,f); }
-    for (i = 0; i < n; i++) {
-        fwrite("00dc",1,4,f);
-        { int fl=0x10; fwrite(&fl,4,1,f); }
-        { int o=(int)offsets[i]; fwrite(&o,4,1,f); }
-        fwrite(&lens[i],4,1,f);
-    }
-    free(offsets);
-    free(lens);
-    { long e=ftell(f); int s=(int)(e-8);
-      fseek(f,riff_pos,SEEK_SET); fwrite(&s,4,1,f); }
-    fclose(f);
     free(jpegs);
-    printf("[REPLAY] saved %s\n", filename);
+
+    // moov
+    {
+        long moov_pos = ftell(f); mp4_w32(f,0); fwrite("moov",1,4,f);
+
+        // mvhd
+        {
+            long pos = ftell(f); mp4_w32(f,0); fwrite("mvhd",1,4,f);
+            mp4_w32(f,0); mp4_w32(f,0); mp4_w32(f,0);
+            mp4_w32(f,(unsigned int)timescale);
+            mp4_w32(f,(unsigned int)(n * frame_duration));
+            mp4_w32(f,0x00010000); mp4_w16(f,0x0100); mp4_w16(f,0);
+            mp4_w32(f,0); mp4_w32(f,0);
+            mp4_w32(f,0x00010000); mp4_w32(f,0); mp4_w32(f,0);
+            mp4_w32(f,0); mp4_w32(f,0x00010000); mp4_w32(f,0);
+            mp4_w32(f,0); mp4_w32(f,0); mp4_w32(f,0x40000000);
+            for (i = 0; i < 6; i++) mp4_w32(f,0);
+            mp4_w32(f,2);
+            long end = ftell(f); fseek(f,pos,SEEK_SET);
+            mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+        }
+
+        // trak
+        {
+            long trak_pos = ftell(f); mp4_w32(f,0); fwrite("trak",1,4,f);
+
+            // tkhd
+            {
+                long pos = ftell(f); mp4_w32(f,0); fwrite("tkhd",1,4,f);
+                mp4_w32(f,7); mp4_w32(f,0); mp4_w32(f,0);
+                mp4_w32(f,1); mp4_w32(f,0);
+                mp4_w32(f,(unsigned int)(n * frame_duration));
+                mp4_w32(f,0); mp4_w32(f,0);
+                mp4_w16(f,0); mp4_w16(f,0); mp4_w16(f,0); mp4_w16(f,0);
+                mp4_w32(f,0x00010000); mp4_w32(f,0); mp4_w32(f,0);
+                mp4_w32(f,0); mp4_w32(f,0x00010000); mp4_w32(f,0);
+                mp4_w32(f,0); mp4_w32(f,0); mp4_w32(f,0x40000000);
+                mp4_w32(f,(unsigned int)(REPLAY_WIDTH<<16));
+                mp4_w32(f,(unsigned int)(REPLAY_HEIGHT<<16));
+                long end = ftell(f); fseek(f,pos,SEEK_SET);
+                mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+            }
+
+            // mdia
+            {
+                long mdia_pos = ftell(f); mp4_w32(f,0); fwrite("mdia",1,4,f);
+
+                // mdhd
+                {
+                    long pos = ftell(f); mp4_w32(f,0); fwrite("mdhd",1,4,f);
+                    mp4_w32(f,0); mp4_w32(f,0); mp4_w32(f,0);
+                    mp4_w32(f,(unsigned int)timescale);
+                    mp4_w32(f,(unsigned int)(n * frame_duration));
+                    mp4_w16(f,0x55c4); mp4_w16(f,0);
+                    long end = ftell(f); fseek(f,pos,SEEK_SET);
+                    mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                }
+
+                // hdlr
+                {
+                    long pos = ftell(f); mp4_w32(f,0); fwrite("hdlr",1,4,f);
+                    mp4_w32(f,0); mp4_w32(f,0);
+                    fwrite("vide",1,4,f);
+                    mp4_w32(f,0); mp4_w32(f,0); mp4_w32(f,0);
+                    fwrite("VideoHandler",1,12,f); fputc(0,f);
+                    long end = ftell(f); fseek(f,pos,SEEK_SET);
+                    mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                }
+
+                // minf
+                {
+                    long minf_pos = ftell(f); mp4_w32(f,0); fwrite("minf",1,4,f);
+
+                    // vmhd
+                    {
+                        long pos = ftell(f); mp4_w32(f,0); fwrite("vmhd",1,4,f);
+                        mp4_w32(f,1); mp4_w16(f,0);
+                        mp4_w16(f,0); mp4_w16(f,0); mp4_w16(f,0);
+                        long end = ftell(f); fseek(f,pos,SEEK_SET);
+                        mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                    }
+
+                    // dinf
+                    {
+                        long dinf_pos = ftell(f); mp4_w32(f,0); fwrite("dinf",1,4,f);
+                        {
+                            long pos = ftell(f); mp4_w32(f,0); fwrite("dref",1,4,f);
+                            mp4_w32(f,0); mp4_w32(f,1);
+                            {
+                                long p2 = ftell(f); mp4_w32(f,0); fwrite("url ",1,4,f);
+                                mp4_w32(f,1);
+                                long e2 = ftell(f); fseek(f,p2,SEEK_SET);
+                                mp4_w32(f,(unsigned int)(e2-p2)); fseek(f,e2,SEEK_SET);
+                            }
+                            long end = ftell(f); fseek(f,pos,SEEK_SET);
+                            mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                        }
+                        long end = ftell(f); fseek(f,dinf_pos,SEEK_SET);
+                        mp4_w32(f,(unsigned int)(end-dinf_pos)); fseek(f,end,SEEK_SET);
+                    }
+
+                    // stbl
+                    {
+                        long stbl_pos = ftell(f); mp4_w32(f,0); fwrite("stbl",1,4,f);
+
+                        // stsd (jpeg sample entry)
+                        {
+                            long pos = ftell(f); mp4_w32(f,0); fwrite("stsd",1,4,f);
+                            mp4_w32(f,0); mp4_w32(f,1);
+                            {
+                                long epos = ftell(f); mp4_w32(f,0); fwrite("jpeg",1,4,f);
+                                for (i = 0; i < 6; i++) fputc(0,f);
+                                mp4_w16(f,1);
+                                mp4_w16(f,0); mp4_w16(f,0);
+                                mp4_w32(f,0); mp4_w32(f,0); mp4_w32(f,0);
+                                mp4_w16(f,REPLAY_WIDTH); mp4_w16(f,REPLAY_HEIGHT);
+                                mp4_w32(f,0x00480000); mp4_w32(f,0x00480000);
+                                mp4_w32(f,0); mp4_w16(f,1);
+                                fputc(9,f); fwrite("PhotoJPEG",1,9,f);
+                                for (i = 0; i < 22; i++) fputc(0,f);
+                                mp4_w16(f,24); mp4_w16(f,0xffff);
+                                long eend = ftell(f); fseek(f,epos,SEEK_SET);
+                                mp4_w32(f,(unsigned int)(eend-epos)); fseek(f,eend,SEEK_SET);
+                            }
+                            long end = ftell(f); fseek(f,pos,SEEK_SET);
+                            mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                        }
+
+                        // stts
+                        {
+                            long pos = ftell(f); mp4_w32(f,0); fwrite("stts",1,4,f);
+                            mp4_w32(f,0); mp4_w32(f,1);
+                            mp4_w32(f,(unsigned int)n);
+                            mp4_w32(f,(unsigned int)frame_duration);
+                            long end = ftell(f); fseek(f,pos,SEEK_SET);
+                            mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                        }
+
+                        // stsc
+                        {
+                            long pos = ftell(f); mp4_w32(f,0); fwrite("stsc",1,4,f);
+                            mp4_w32(f,0); mp4_w32(f,(unsigned int)n);
+                            for (i = 0; i < n; i++) {
+                                mp4_w32(f,(unsigned int)(i+1));
+                                mp4_w32(f,1); mp4_w32(f,1);
+                            }
+                            long end = ftell(f); fseek(f,pos,SEEK_SET);
+                            mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                        }
+
+                        // stsz
+                        {
+                            long pos = ftell(f); mp4_w32(f,0); fwrite("stsz",1,4,f);
+                            mp4_w32(f,0); mp4_w32(f,0);
+                            mp4_w32(f,(unsigned int)n);
+                            for (i = 0; i < n; i++)
+                                mp4_w32(f,(unsigned int)frame_sizes[i]);
+                            long end = ftell(f); fseek(f,pos,SEEK_SET);
+                            mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                        }
+
+                        // co64
+                        {
+                            long pos = ftell(f); mp4_w32(f,0); fwrite("co64",1,4,f);
+                            mp4_w32(f,0); mp4_w32(f,(unsigned int)n);
+                            for (i = 0; i < n; i++)
+                                mp4_w64(f,chunk_offsets[i]);
+                            long end = ftell(f); fseek(f,pos,SEEK_SET);
+                            mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                        }
+
+                        long end = ftell(f); fseek(f,stbl_pos,SEEK_SET);
+                        mp4_w32(f,(unsigned int)(end-stbl_pos)); fseek(f,end,SEEK_SET);
+                    }
+
+                    long end = ftell(f); fseek(f,minf_pos,SEEK_SET);
+                    mp4_w32(f,(unsigned int)(end-minf_pos)); fseek(f,end,SEEK_SET);
+                }
+
+                long end = ftell(f); fseek(f,mdia_pos,SEEK_SET);
+                mp4_w32(f,(unsigned int)(end-mdia_pos)); fseek(f,end,SEEK_SET);
+            }
+
+            long end = ftell(f); fseek(f,trak_pos,SEEK_SET);
+            mp4_w32(f,(unsigned int)(end-trak_pos)); fseek(f,end,SEEK_SET);
+        }
+
+        long end = ftell(f); fseek(f,moov_pos,SEEK_SET);
+        mp4_w32(f,(unsigned int)(end-moov_pos)); fseek(f,end,SEEK_SET);
+    }
+
+    free(frame_sizes);
+    free(chunk_offsets);
+    fclose(f);
+    printf("[REPLAY] saved %s (%d frames, MP4)\n", filename, n);
     return 0;
 }
