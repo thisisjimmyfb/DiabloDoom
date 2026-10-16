@@ -1669,10 +1669,20 @@ void T_DrawHUD(void)
     T_TintFonts();
 
     // EXPLORE mode: minimal header, no turn UI. Combat UI appears only
-    // once an enemy is spotted.
+    // once an enemy is spotted. The controls hint shows only at the
+    // start of a level and fades out after 5 seconds.
     if (turnctrl.state == TS_EXPLORE)
     {
-        T_DrawTextCentered(2, "EXPLORE - WASD MOVE - ARROWS TURN");
+        extern int gametic;
+        extern int levelstarttic;
+        int elapsed = gametic - levelstarttic;
+        if (elapsed < 175) // 5 seconds at 35 tics/sec
+        {
+            if (elapsed < 105) // first 3 seconds: bright
+                T_DrawTextCenteredHi(2, "EXPLORE - WASD MOVE - ARROWS TURN");
+            else // last 2 seconds: dim (fade out)
+                T_DrawTextCentered(2, "EXPLORE - WASD MOVE - ARROWS TURN");
+        }
         return;
     }
 
