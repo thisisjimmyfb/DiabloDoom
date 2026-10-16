@@ -72,25 +72,6 @@ When in EXPLORE mode (not in combat), priority order:
 - **After respawning, recovering your corpse is the #1 priority.** Your inventory and equipment are on the corpse at the death location.
 - Walk back to it immediately. Do NOT engage in new combat or explore for loot until you've recovered your corpse. A naked respawn fighting with no gear is how you die twice.
 
-## Monster Guide
-
-This game uses Freedoom sprites (not classic Doom). Use these names:
-
-| Freedoom Name | What It Looks Like | Threat |
-|---|---|---|
-| **Serpentipede** | Dark insectoid alien, red head-horns, yellow eyes | Ranged — don't kite, just attack |
-| **Flesh worm** | Pinkish-red fleshy blob with gaping toothed maw | Melee, tanky — don't fight up close with pistol |
-| **Stealth worm** | Same as Flesh worm but translucent | Melee — same as above |
-| **Zombie** | Humanoid soldier, gray-olive skin, blue visor | Weak ranged |
-| **Shotgun zombie** | Dark-armored trooper, red-orange head | Ranged, dangerous up close |
-| **Minigun zombie** | Heavy weapons trooper | Ranged, very dangerous |
-| **Trilobite** | Giant floating armored head | Tough |
-| **Hatchling** | Flaming horned skull | Fast, weak |
-| **Pain bringer** | Knight-like demon | Tough melee |
-| **Pain lord** | Armored dark knight | Very tough |
-| **Combat slug** | Bulky cybernetic demon | Tanky ranged |
-| **Necromancer** | Robed figure | Resurrects enemies — kill first! |
-
 ## General Tips
 
 - Don't waste time on empty rooms; head toward doorways and corridors.
@@ -100,4 +81,4 @@ This game uses Freedoom sprites (not classic Doom). Use these names:
 
 ---
 
-*This guide evolves as the agent learns. Have a better strategy? Let us know on Threads @diablo.doom!*
+*This guide evolves as the agent learns.*

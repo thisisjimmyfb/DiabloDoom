@@ -73,3 +73,22 @@ After ~4 min of play:
 ## Failure Handling
 
 If the game won't start (crash on boot), report the last 20 lines of /tmp/doom_hourly.log plainly. Do not retry more than once per run. If libs are broken after a VM recycle, restore via `~/workspace/goals/diablodoom-bfg-hunt/hidden_files/restore_game_libs.sh` before giving up.
+
+## Monster Guide
+
+This game uses Freedoom sprites (not classic Doom). Use these OFFICIAL Freedoom names in reports (from doomwiki.org/wiki/Freedoom):
+
+| Freedoom Name | What It Looks Like | Threat |
+|---|---|---|
+| **Serpentipede** | Dark insectoid alien, red head-horns, yellow eyes | Ranged — don't kite, just attack |
+| **Flesh worm** | Pinkish-red fleshy blob with gaping toothed maw | Melee, tanky — don't fight up close with pistol |
+| **Stealth worm** | Same as Flesh worm but translucent | Melee — same as above |
+| **Zombie** | Humanoid soldier, gray-olive skin, blue visor | Weak ranged |
+| **Shotgun zombie** | Dark-armored trooper, red-orange head | Ranged, dangerous up close |
+| **Minigun zombie** | Heavy weapons trooper | Ranged, very dangerous |
+| **Trilobite** | Giant floating armored head | Tough |
+| **Hatchling** | Flaming horned skull | Fast, weak |
+| **Pain bringer** | Knight-like demon | Tough melee |
+| **Pain lord** | Armored dark knight | Very tough |
+| **Combat slug** | Bulky cybernetic demon | Tanky ranged |
+| **Necromancer** | Robed figure | Resurrects enemies — kill first! |
