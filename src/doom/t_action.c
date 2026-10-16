@@ -816,12 +816,13 @@ void T_DoEndTurn(void)
 
     if (turnctrl.queue_len == 0)
     {
-        // Empty queue: start a new planning phase. The combat exit
-        // check happens after the progress phase (in T_EndPulse),
-        // not here, to avoid blocking turn end.
-        turnctrl.state = TS_PLANNING;
-        turnctrl.tp = turnctrl.tp_max;
-        turnctrl.round++;
+        // Empty queue: run a short 1-second progress phase to let the
+        // game breathe, then back to planning. This ensures T always
+        // does something visible.
+        turnctrl.executing = true;
+        turnctrl.progress_tics = 35; // 1 second
+        T_BeginPulse(35, false, false);
+        players[consoleplayer].message = "Waiting...";
     }
     else
     {
