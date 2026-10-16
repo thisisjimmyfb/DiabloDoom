@@ -52,6 +52,7 @@
 #include "m_controls.h"
 #include "p_saveg.h"
 #include "p_setup.h"
+#include "d_progress.h"
 
 #include "s_sound.h"
 
@@ -880,6 +881,64 @@ void M_DrawMainMenu(void)
 //
 // M_NewGame
 //
+
+// Save slot selection for auto-progress (DiabloDoom).
+// The player must choose a slot when starting a new game; the auto-progress
+// system will save to progress_slotN.dat for the chosen slot.
+static void M_DrawSaveSlot(void);
+static void M_ChooseSlot(int choice);
+static menu_t SaveSlotDef;
+
+enum
+{
+    slot_1,
+    slot_2,
+    slot_3,
+    slot_end
+} slots_e;
+
+menuitem_t SaveSlotMenu[] =
+{
+    {1, "", M_ChooseSlot, '1'},
+    {1, "", M_ChooseSlot, '2'},
+    {1, "", M_ChooseSlot, '3'},
+};
+
+menu_t SaveSlotDef =
+{
+    slot_end,           // # of menu items
+    &MainDef,           // previous menu
+    SaveSlotMenu,       // menuitem_t ->
+    M_DrawSaveSlot,     // drawing routine ->
+    48, 63,             // x, y
+    slot_1              // lastOn
+};
+
+static void M_DrawSaveSlot(void)
+{
+    M_WriteText(48, 38, "CHOOSE SAVE SLOT");
+    M_WriteText(48, 63, "SLOT 1");
+    M_WriteText(48, 63 + 16, "SLOT 2");
+    M_WriteText(48, 63 + 32, "SLOT 3");
+    M_WriteText(48, 63 + 56, "Auto-progress saves to");
+    M_WriteText(48, 63 + 64, "the selected slot.");
+}
+
+static void M_ChooseSlot(int choice)
+{
+    int slot = choice + 1; // slots are 1-based for the user
+
+    // Initialize progress persistence for the chosen slot.
+    // This will load an existing save if one exists for this slot.
+    D_ProgressInitSlot(slot);
+
+    // Proceed to episode/skill selection as before.
+    if (gamemode == commercial || gameversion == exe_chex)
+        M_SetupNextMenu(&NewDef);
+    else
+        M_SetupNextMenu(&EpiDef);
+}
+
 void M_DrawNewGame(void)
 {
     V_DrawPatchDirect(96, 14, W_CacheLumpName(DEH_String("M_NEWG"), PU_CACHE));
@@ -897,13 +956,9 @@ void M_NewGame(int choice)
 	M_StartMessage(DEH_String(NEWGAME),NULL,false);
 	return;
     }
-	
-    // Chex Quest disabled the episode select screen, as did Doom II.
 
-    if (gamemode == commercial || gameversion == exe_chex)
-	M_SetupNextMenu(&NewDef);
-    else
-	M_SetupNextMenu(&EpiDef);
+    // DiabloDoom: choose a save slot for auto-progress before starting.
+    M_SetupNextMenu(&SaveSlotDef);
 }
 
 

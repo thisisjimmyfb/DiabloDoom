@@ -12,7 +12,16 @@
 
 // Call once at boot, before the game starts. Mmaps the progress file;
 // loads the save if a valid one exists. Returns true if a save was loaded.
+// Uses the default slot 0 (progress.dat).
 boolean D_ProgressInit(void);
+
+// Same as D_ProgressInit but for a specific user slot:
+// slot = 0 -> progress.dat (legacy/farm default)
+// slot >= 1 -> progress_slotN.dat (user-selectable, 1..PROGRESS_NUM_SLOTS)
+boolean D_ProgressInitSlot(int slot);
+
+// Number of user-selectable save slots.
+#define PROGRESS_NUM_SLOTS 3
 
 // Returns true if running on a Muse VM (for gating VM-only features).
 boolean D_OnMuseVM(void);

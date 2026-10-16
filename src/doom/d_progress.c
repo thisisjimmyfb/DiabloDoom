@@ -27,6 +27,10 @@
 // The path is relative to the current working directory; the game is
 // typically launched from the repo root or we resolve it below.
 #define PROGRESS_FILENAME "progress.dat"
+#define PROGRESS_SLOT_FILENAME_FMT "progress_slot%d.dat"
+
+// Number of user-selectable save slots (1-based for the UI).
+#define PROGRESS_NUM_SLOTS 3
 
 // 4MB per slot is plenty for a Doom save (typically 100KB-1MB).
 #define PROGRESS_SLOT_SIZE (4 * 1024 * 1024)
@@ -77,13 +81,40 @@ static unsigned int ProgressChecksum(unsigned char *data, unsigned int len)
 
 // Find the repo root: the progress file lives in ~/workspace/DiabloDoom
 // (persistent across VM recycles, per Jimmy 2026-10-10).
-static void ProgressGetPath(char *buf, size_t buflen)
+// slot = 0 -> progress.dat (legacy/farm default)
+// slot >= 1 -> progress_slotN.dat (user-selectable slots)
+static void ProgressGetPathForSlot(char *buf, size_t buflen, int slot)
 {
     const char *home = getenv("HOME");
-    if (home != NULL)
-        M_snprintf(buf, buflen, "%s/workspace/DiabloDoom/" PROGRESS_FILENAME, home);
+    const char *fmt;
+    if (slot <= 0)
+        fmt = "%s/workspace/DiabloDoom/" PROGRESS_FILENAME;
     else
-        M_snprintf(buf, buflen, "./" PROGRESS_FILENAME);
+        fmt = "%s/workspace/DiabloDoom/" PROGRESS_SLOT_FILENAME_FMT;
+
+    if (home != NULL)
+    {
+        if (slot <= 0)
+            M_snprintf(buf, buflen, fmt, home);
+        else
+            M_snprintf(buf, buflen, fmt, home, slot);
+    }
+    else
+    {
+        if (slot <= 0)
+            M_snprintf(buf, buflen, "./" PROGRESS_FILENAME);
+        else
+        {
+            char tmp[64];
+            M_snprintf(tmp, sizeof(tmp), PROGRESS_SLOT_FILENAME_FMT, slot);
+            M_snprintf(buf, buflen, "./%s", tmp);
+        }
+    }
+}
+
+static void ProgressGetPath(char *buf, size_t buflen)
+{
+    ProgressGetPathForSlot(buf, buflen, 0);
 }
 
 // VM detection: this progress mode is only for Muse VMs, not for
@@ -99,7 +130,7 @@ boolean D_OnMuseVM(void)
     return false;
 }
 
-boolean D_ProgressInit(void)
+boolean D_ProgressInitSlot(int slot)
 {
     char path[512];
     int fd;
@@ -109,14 +140,11 @@ boolean D_ProgressInit(void)
     if (progress_initialized)
         return false;
 
-    // Only enable on Muse VMs, not on local machines
-    if (!D_OnMuseVM())
-    {
-        printf("[PROGRESS] not on Muse VM, persistence disabled\n");
-        return false;
-    }
+    // Progress persistence is now available everywhere (VM and local).
+    // slot = 0 -> progress.dat (legacy/farm default)
+    // slot >= 1 -> progress_slotN.dat (user-selectable)
 
-    ProgressGetPath(path, sizeof(path));
+    ProgressGetPathForSlot(path, sizeof(path), slot);
     file_exists = (stat(path, &st) == 0);
 
     fd = open(path, O_RDWR | O_CREAT, 0644);
@@ -314,6 +342,13 @@ static boolean D_ProgressLoadFromSlot(int slot)
     }
 
     return true;
+}
+
+// Legacy wrapper: init with slot 0 (progress.dat), for the farm and
+// any code that doesn't select a slot.
+boolean D_ProgressInit(void)
+{
+    return D_ProgressInitSlot(0);
 }
 
 void D_ProgressTick(void)
