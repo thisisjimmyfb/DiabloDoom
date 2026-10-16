@@ -19,7 +19,15 @@ Play the game well — explore the level, engage enemies in turn-based combat, p
 
 ## Game Loop
 
-Play for ~4 minutes (~20 iterations). Keep it tight — you have a 10-minute total budget including setup and reporting. The game persists between runs — you are continuing a continuous play session, not starting fresh each time.
+Play for ~4 minutes. The 10-minute cron window is the gaming session — within it, make decisions frequently.
+
+**Decision cadence: Take a fresh screenshot every 5 seconds.** Do not reuse a stale screenshot for multiple decisions. The loop is:
+1. Screenshot (SCREENSHOT command, sleep 4, copy to /tmp/farm_view.png)
+2. Read it with vision, decide action based on current state
+3. Send command(s) via FIFO
+4. Sleep 1-2 seconds (so total cycle is ~5-6 seconds), then repeat from step 1
+
+This means ~40-45 decisions per 4-minute session, not 20. Fresh visual input every time — the game state changes fast in combat.
 
 1. Take screenshot: write `SCREENSHOT\n` to /tmp/doom_cmd.txt, sleep 4, then copy the newest `diablodoom_*.png` from `~/workspace/diablodoom/doomshots/` to /tmp/farm_view.png (and clear the diablodoom_*.png files so the game's name cycle doesn't fill up).
 2. Read `/tmp/farm_view.png` with your vision. Assess:
