@@ -726,11 +726,16 @@ void T_KitRegenAmmo(void)
 
 // Gradual ammo trickle: +1 to the ready weapon's magazine if below max.
 // Called per-tic during the progress phase for visible replenishment.
+// Rate is tied to the weapon: cooldown-gated weapons trickle slower
+// (1 per cooldown*12 tics), attack-speed weapons scale with tp_cost
+// (faster weapons = faster trickle).
 void T_KitTrickleAmmo(void)
 {
     player_t *player = &players[consoleplayer];
     weapontype_t w = player->readyweapon;
     const t_kitdef_t *kit;
+    static int trickle_tick = 0;
+    int interval;
     if (!t_cadence_inited)
         T_KitResetCadence();
     if (w < 0 || w >= NUMWEAPONS)
@@ -738,12 +743,30 @@ void T_KitTrickleAmmo(void)
     kit = &t_kits[w];
     if (kit->ap_weapon || kit->ammo_max <= 0 || kit->ammo_cost <= 0)
         return;
-    if (t_ammo[w] < kit->ammo_max)
+    if (t_ammo[w] >= kit->ammo_max)
+        return;
+    // Determine interval based on cooldown or attack speed.
+    if (kit->cooldown > 0)
     {
-        t_ammo[w]++;
-        if (t_ammo[w] > kit->ammo_max)
-            t_ammo[w] = kit->ammo_max;
+        // Cooldown-gated: slower trickle. BFG (cd=3) -> 36 tics/ammo.
+        interval = kit->cooldown * 12;
     }
+    else
+    {
+        // Attack speed: tp_cost scales the interval.
+        // Pistol (4) -> 8 tics, Shotgun (2) -> 4, Chaingun (1) -> 3 (min).
+        interval = kit->tp_cost * 2;
+        if (interval < 3)
+            interval = 3;
+        if (interval > 20)
+            interval = 20;
+    }
+    if (++trickle_tick < interval)
+        return;
+    trickle_tick = 0;
+    t_ammo[w]++;
+    if (t_ammo[w] > kit->ammo_max)
+        t_ammo[w] = kit->ammo_max;
 }
 
 // Ammo pickup: half-fill every magazine, vent half the plasma heat.
