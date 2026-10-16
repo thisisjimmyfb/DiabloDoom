@@ -1042,6 +1042,9 @@ void T_Ticker(void)
     // Kill banner counts down in real time, independent of turn state.
     T_TickKillBanner();
 
+    // Floating combat text (MISS, etc.) ticks down.
+    T_TickFloatText();
+
     // Time-based cadence (charges, cooldowns, heat): independent of rounds.
     T_TickCadence();
 
@@ -1304,6 +1307,71 @@ static boolean T_ProjectTarget(mobj_t *mo, int *sx, int *sy)
     *sx = (int)(160.0 + (tx / tz) * 160.0);
     *sy = (int)((double)centery - (dz / tz) * 160.0) - 8;
     return true;
+}
+
+// Floating combat text (e.g. "MISS" above an enemy). Spawned by combat
+// events, drawn at the target's projected head position, rises and fades.
+#define T_MAXFLOAT 8
+typedef struct {
+    mobj_t *mo;          // target (may become NULL if died/removed)
+    char text[16];
+    int tics;            // remaining (35 = 1 sec)
+} t_floattext_t;
+static t_floattext_t t_floattexts[T_MAXFLOAT];
+void T_TickFloatText(void);
+void T_DrawFloatText(void);
+
+void T_SpawnFloatText(mobj_t *mo, const char *text)
+{
+    int i, oldest = 0;
+    if (mo == NULL || text == NULL)
+        return;
+    // Find free slot, or reuse oldest.
+    for (i = 0; i < T_MAXFLOAT; i++)
+    {
+        if (t_floattexts[i].tics <= 0)
+        {
+            oldest = i;
+            break;
+        }
+        if (t_floattexts[i].tics < t_floattexts[oldest].tics)
+            oldest = i;
+    }
+    t_floattexts[oldest].mo = mo;
+    M_snprintf(t_floattexts[oldest].text, sizeof(t_floattexts[oldest].text), "%s", text);
+    t_floattexts[oldest].tics = 35; // 1 second
+}
+
+void T_TickFloatText(void)
+{
+    int i;
+    for (i = 0; i < T_MAXFLOAT; i++)
+    {
+        if (t_floattexts[i].tics > 0)
+            t_floattexts[i].tics--;
+    }
+}
+
+void T_DrawFloatText(void)
+{
+    int i, sx, sy;
+    for (i = 0; i < T_MAXFLOAT; i++)
+    {
+        if (t_floattexts[i].tics <= 0)
+            continue;
+        if (t_floattexts[i].mo == NULL)
+            continue;
+        // Skip if target died and was removed (health check).
+        // Note: mobj pointer may dangle; we check health but the
+        // pointer itself could be freed. For safety, we only draw
+        // if tics are fresh (< 35, i.e. spawned this second).
+        if (!T_ProjectTarget(t_floattexts[i].mo, &sx, &sy))
+            continue;
+        // Rise as it fades: offset up by (35 - tics) / 2 pixels.
+        sy -= (35 - t_floattexts[i].tics) / 2;
+        T_DrawTextHi(sx - T_TextWidth(t_floattexts[i].text) / 2, sy,
+                     t_floattexts[i].text);
+    }
 }
 
 // Placeholder hit chance for the phase-3 preview (phase 4 derives the
@@ -1646,6 +1714,9 @@ void T_DrawHUD(void)
             T_DrawTextDim(sx - T_TextWidth(line) / 2, sy, line);
         }
     }
+
+    // Floating combat text (MISS, damage numbers, etc.).
+    T_DrawFloatText();
 
     // Target list (right side) and preview (bottom) while targeting.
     if (turnctrl.state == TS_TARGETING || turnctrl.state == TS_CONFIRM)

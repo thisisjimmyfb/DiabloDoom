@@ -1038,6 +1038,11 @@ boolean T_ResolveAttack(player_t *player, mobj_t *target)
     if (hits == 0)
     {
         player->message = "MISS!";
+        // Floating "MISS" above the target.
+        {
+            extern void T_SpawnFloatText(mobj_t *mo, const char *text);
+            T_SpawnFloatText(target, "MISS");
+        }
         return false;
     }
 

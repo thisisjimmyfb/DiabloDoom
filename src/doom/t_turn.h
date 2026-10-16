@@ -284,6 +284,9 @@ void T_CountRound(void);
 // game view for ~2.5s so the kill moment is screenshot-able.
 void T_KillBanner(const char *title, const char *sub);
 
+// Floating combat text (e.g. "MISS" above an enemy).
+void T_SpawnFloatText(mobj_t *mo, const char *text);
+
 // Deterministic turn-mode RNG (independent of M_Random stream).
 int T_Random(void);
 void T_SeedRNG(unsigned int seed);
