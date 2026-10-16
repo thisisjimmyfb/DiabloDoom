@@ -1836,6 +1836,12 @@ void D_DoomMain (void)
     I_InitJoystick();
     I_InitSound(doom);
     I_InitMusic();
+    // Hook SDL_mixer post-mix for replay audio capture (Doom only).
+    {
+        extern void D_ReplayAudioHook(void *udata, uint8_t *stream, int len);
+        extern void Mix_SetPostMix(void (*mix_func)(void *udata, uint8_t *stream, int len), void *arg);
+        Mix_SetPostMix(D_ReplayAudioHook, NULL);
+    }
 
     printf ("NET_Init: Init network subsystem.\n");
     NET_Init ();

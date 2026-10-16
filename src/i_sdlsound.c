@@ -1084,14 +1084,6 @@ static boolean I_SDL_InitSound(GameMission_t mission)
         return false;
     }
 
-    // Hook for replay audio capture: copies mixed output to ring buffer.
-    {
-        extern void D_ReplayAudioHook(void *udata, uint8_t *stream, int len);
-        extern void D_ReplayInit(void);
-        D_ReplayInit(); // ensure audio buffer exists
-        Mix_SetPostMix(D_ReplayAudioHook, NULL);
-    }
-
     ExpandSoundData = ExpandSoundData_SDL;
 
     Mix_QuerySpec(&mixer_freq, &mixer_format, &mixer_channels);
