@@ -1285,6 +1285,12 @@ void T_InvalidateTarget(mobj_t *mo)
             printf("[TURN] queued target invalidated (mobj removed)\n");
         }
     }
+    // Clear the continuous-weapon lock if its target was removed.
+    if (turnctrl.locked_target == mo)
+    {
+        turnctrl.locked_target = NULL;
+        printf("[TURN] locked target invalidated (mobj removed)\n");
+    }
 }
 
 void T_DoAttack(void)
