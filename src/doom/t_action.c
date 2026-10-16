@@ -816,8 +816,10 @@ void T_DoEndTurn(void)
 
     if (turnctrl.queue_len == 0)
     {
-        // Empty queue: just the enemy phase.
-        T_BeginEnemyPhase();
+        // Empty queue: just start a new planning phase (no enemy phase).
+        turnctrl.state = TS_PLANNING;
+        turnctrl.tp = turnctrl.tp_max;
+        turnctrl.round++;
     }
     else
     {
@@ -863,7 +865,10 @@ boolean T_ExecuteOne(void)
     if (turnctrl.queue_len == 0)
     {
         turnctrl.executing = false;
-        T_BeginEnemyPhase();
+        // Queue empty: back to planning (no enemy phase).
+        turnctrl.state = TS_PLANNING;
+        turnctrl.tp = turnctrl.tp_max;
+        turnctrl.round++;
         return false;
     }
 
@@ -901,9 +906,19 @@ void T_ExecuteNext(void)
         if (T_ExecuteOne())
             return; // T_EndPulse resumes the drain
     }
-    // Fully drained (skips included): the enemy phase runs as usual.
+    // Fully drained: back to planning (no enemy phase — the game
+    // runs in real-time during execution, so enemies already acted).
     turnctrl.executing = false;
-    T_BeginEnemyPhase();
+    turnctrl.state = TS_PLANNING;
+    turnctrl.tp = turnctrl.tp_max;
+    turnctrl.round++;
+    // Reset for next planning phase.
+    if (players[consoleplayer].mo != NULL)
+    {
+        turnctrl.turn_start_x = players[consoleplayer].mo->x;
+        turnctrl.turn_start_y = players[consoleplayer].mo->y;
+        turnctrl.turn_start_angle = players[consoleplayer].mo->angle;
+    }
 }
 
 // ------------------------------------------------------------------

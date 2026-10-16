@@ -551,6 +551,10 @@ static void T_PulseOneTic(boolean freeze_monsters)
 
 void T_BeginPulse(int tics, boolean freeze_monsters, boolean fast)
 {
+    // During queue execution (real-time mode), never freeze monsters:
+    // the game unfreezes and enemies act while commands play out.
+    if (turnctrl.executing)
+        freeze_monsters = false;
     turnctrl.pulse_left = tics;
     turnctrl.pulse_freeze = freeze_monsters;
     turnctrl.pulse_fast = fast;
@@ -593,19 +597,12 @@ void T_RunPulseSync(int tics, boolean freeze_monsters)
     turnctrl.sync = was_sync;
 }
 
-// Enemy phase: telegraph, then monsters act for a bounded pulse with
-// input locked, then round bookkeeping (in T_EndPulse).
+// Enemy phase removed: the game runs in real-time during execution,
+// so enemies act while the player's queued commands play out.
+// (Kept as a no-op for compatibility.)
 void T_BeginEnemyPhase(void)
 {
-    players[consoleplayer].message = "Enemy phase...";
-    // Telegraph newly alerted enemies before they get to act.
-    T_TelegraphEnemies();
-    // Flag before the pulse: in sync (script) mode T_BeginPulse runs
-    // T_EndPulse immediately, which needs to see the enemy phase.
-    turnctrl.pulse_enemy = true;
-    T_BeginPulse(ENEMY_PHASE_TICS, false, false); // 2s, real-time rate
-    if (!turnctrl.sync)
-        turnctrl.state = TS_REACTION;
+    // No-op: enemy phase removed per design.
 }
 
 // Round bookkeeping when a pulse finishes.
