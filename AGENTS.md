@@ -180,10 +180,10 @@ hold · Q unequip all · Esc close.
 turn based combat mode (queued actions, FIFO — combat only, triggered by an enemy
 AI acquiring the player): W/S step forward/back, A/D strafe
 (1 TP, never change facing) · left/right arrows turn view 45° (free,
-immediate, never queued) · SPACE use (2 TP) ·
+immediate, never queued) · SPACE use (free) ·
 Hold CTRL to target (arrows navigate, camera snaps to target, release to fire; 0 TP ranged, TP by attack speed melee) · T end turn (drains
 queue FIFO, then enemy phase) · Backspace undo last queued action
-(free, refunds TP) · Z clear queue (free, refunds all TP) · C inventory
+(free, refunds TP) · C inventory
 (free, always available in rounds) · Tab / [
 / ] / 1-9 target selection (free) · G auto-loot nearest (turn mode only;
 disabled in explore) · Esc cancel. Planning actions
