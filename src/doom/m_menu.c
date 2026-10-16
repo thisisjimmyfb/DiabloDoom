@@ -887,7 +887,6 @@ void M_DrawMainMenu(void)
 // system will save to progress_slotN.dat for the chosen slot.
 static void M_DrawSaveSlot(void);
 static void M_ChooseSlot(int choice);
-static menu_t SaveSlotDef;
 
 enum
 {
