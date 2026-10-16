@@ -673,9 +673,6 @@ static void T_EndPulse(void)
                 turnctrl.queue_tp = 0;
                 return;
             }
-            // Regen ammo and tick cooldowns (was in enemy phase).
-            T_KitRegenAmmo();
-            T_KitTickCooldowns();
             T_RefreshTargets();
             if (T_NumCombatants() == 0)
             {

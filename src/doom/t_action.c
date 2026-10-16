@@ -820,6 +820,9 @@ void T_DoEndTurn(void)
         // game breathe, then back to planning. This ensures T always
         // does something visible.
         turnctrl.executing = true;
+        // Ammo regen and cooldown ticks start with the progress phase.
+        T_KitRegenAmmo();
+        T_KitTickCooldowns();
         T_BeginPulse(18, false, false);
         players[consoleplayer].message = "Waiting...";
     }
@@ -827,6 +830,10 @@ void T_DoEndTurn(void)
     {
         player_t *player = &players[consoleplayer];
         turnctrl.executing = true;
+        // Ammo regen and cooldown ticks start as soon as the progress
+        // phase begins (not at the end).
+        T_KitRegenAmmo();
+        T_KitTickCooldowns();
         // First-person replay: teleport back to the turn start, then
         // replay the queue. Unlink/relink the mobj so the sector link
         // stays valid for P_TryMove during the replay.
