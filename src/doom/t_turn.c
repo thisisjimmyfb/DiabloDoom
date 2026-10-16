@@ -1626,27 +1626,16 @@ static int T_DrawQueuePanelAt(int start_y)
     if (y >= 8)
         T_DrawText(x, y, "QUEUE");
     y += 9;
-    // Show the most recent commands: if the queue is longer than 3,
-    // show the last 3 so the newest are always visible.
-    shown = turnctrl.queue_len > 3 ? 3 : turnctrl.queue_len;
+    // Show ALL queued commands (no collapsing). The unified scrolling
+    // in T_DrawPlanningUI ensures the bottom-most are visible.
+    for (i = 0; i < turnctrl.queue_len; i++)
     {
-        int start = turnctrl.queue_len - shown;
-        if (turnctrl.queue_len > 3)
-        {
-            M_snprintf(line, sizeof(line), "+%d EARLIER", start);
-            if (y >= 8)
-                T_DrawTextDim(x, y, line);
-            y += 9;
-        }
-        for (i = 0; i < shown; i++)
-        {
-            t_queueentry_t *e = &turnctrl.queue[start + i];
-            T_QueueEntryName(e, name, sizeof(name));
-            M_snprintf(line, sizeof(line), "%d %s %dTP", start + i + 1, name, e->cost);
-            if (y >= 8)
-                T_DrawText(x, y, line);
-            y += 9;
-        }
+        t_queueentry_t *e = &turnctrl.queue[i];
+        T_QueueEntryName(e, name, sizeof(name));
+        M_snprintf(line, sizeof(line), "%d %s %dTP", i + 1, name, e->cost);
+        if (y >= 8)
+            T_DrawText(x, y, line);
+        y += 9;
     }
     M_snprintf(line, sizeof(line), "%d ACTS %dTP RSVD",
                turnctrl.queue_len, turnctrl.queue_tp);
@@ -1658,20 +1647,18 @@ static int T_DrawQueuePanelAt(int start_y)
 
 // Unified planning UI: menu and queue act as one scrolling text area.
 // Only the bottom-most lines are visible; older content scrolls off
-// the top as new commands are queued.
+// the top as new commands are queued. No collapsing.
 static void T_DrawPlanningUI(void)
 {
-    // Menu is ~8 rows, queue is up to 6 rows (header + 3 items + total + gap).
-    // Visible area: y=18 to y=160 = ~15 rows. Calculate total and scroll.
+    // Menu is ~8 rows. Queue is 1 (header) + N (items) + 1 (total) + 1 (gap).
+    // Visible area: y=18 to y=160 = ~15 rows. Scroll so bottom is visible.
     int menu_rows = 8;
     int queue_rows = 0;
     int total_rows, max_rows, scroll_rows, start_y;
 
     if (turnctrl.queue_len > 0 && !turnctrl.executing && !T_InPulse())
     {
-        queue_rows = 1 + 3 + 1 + 1; // header + 3 items + total + gap
-        if (turnctrl.queue_len > 3)
-            queue_rows += 1; // "+N EARLIER" line
+        queue_rows = 1 + turnctrl.queue_len + 1 + 1;
     }
 
     total_rows = menu_rows + queue_rows;
