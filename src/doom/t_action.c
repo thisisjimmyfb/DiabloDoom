@@ -816,19 +816,12 @@ void T_DoEndTurn(void)
 
     if (turnctrl.queue_len == 0)
     {
-        // Empty queue: check if combat should end (no enemies targeting us).
-        T_RefreshTargets();
-        if (T_NumCombatants() == 0)
-        {
-            T_EnterExplore();
-        }
-        else
-        {
-            // Still in combat: start a new planning phase (no enemy phase).
-            turnctrl.state = TS_PLANNING;
-            turnctrl.tp = turnctrl.tp_max;
-            turnctrl.round++;
-        }
+        // Empty queue: start a new planning phase. The combat exit
+        // check happens after the progress phase (in T_EndPulse),
+        // not here, to avoid blocking turn end.
+        turnctrl.state = TS_PLANNING;
+        turnctrl.tp = turnctrl.tp_max;
+        turnctrl.round++;
     }
     else
     {
