@@ -64,6 +64,7 @@ boolean T_IsContinuousWeapon(weapontype_t weapon)
 // Continuous-weapon target lock: auto-queue an attack if the locked
 // target is still alive. Called at the start of each player turn.
 // The player is free to move; the weapon keeps firing.
+// Lock breaks on: target death, ammo depletion, or overheat.
 void T_AutoFireLocked(void)
 {
     mobj_t *lt;
@@ -80,11 +81,27 @@ void T_AutoFireLocked(void)
         turnctrl.locked_target = NULL;
         return;
     }
-    if (T_IsContinuousWeapon(pl->readyweapon)
-        && T_HasAmmoForKit(pl->readyweapon))
+    if (!T_IsContinuousWeapon(pl->readyweapon))
     {
-        T_Enqueue(TA_ATTACK, 0, 0, lt);
+        // Switched to a non-continuous weapon: clear the lock.
+        turnctrl.locked_target = NULL;
+        return;
     }
+    if (!T_HasAmmoForKit(pl->readyweapon))
+    {
+        // Out of ammo: clear the lock.
+        turnctrl.locked_target = NULL;
+        pl->message = "Out of ammo - lock broken.";
+        return;
+    }
+    if (!T_KitCanFire(pl->readyweapon))
+    {
+        // Overheated or otherwise unable to fire: clear the lock.
+        turnctrl.locked_target = NULL;
+        pl->message = T_KitDenyReason(pl->readyweapon);
+        return;
+    }
+    T_Enqueue(TA_ATTACK, 0, 0, lt);
 }
 
 int T_CostFor(turnaction_t action)
