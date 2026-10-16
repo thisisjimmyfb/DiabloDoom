@@ -1513,15 +1513,19 @@ static boolean T_ActionEnabled(turnaction_t action)
 }
 
 // One action row: key, name, TP cost. Unaffordable rows draw dim gold.
+// Rows scrolled off-screen (y < 8) are skipped but still advance y.
 static void T_DrawActionRow(int x, int *y, const char *key, const char *name,
                             turnaction_t action, const char *coststr)
 {
     char line[64];
-    M_snprintf(line, sizeof(line), "%s %-8s %s", key, name, coststr);
-    if (T_ActionEnabled(action))
-        T_DrawText(x, *y, line);
-    else
-        T_DrawTextDim(x, *y, line);
+    if (*y >= 8)
+    {
+        M_snprintf(line, sizeof(line), "%s %-8s %s", key, name, coststr);
+        if (T_ActionEnabled(action))
+            T_DrawText(x, *y, line);
+        else
+            T_DrawTextDim(x, *y, line);
+    }
     *y += 9;
 }
 
@@ -1555,6 +1559,15 @@ static void T_DrawActionList(void)
     int x = 8, y = 18;
     player_t *pl = &players[consoleplayer];
 
+    // Scroll the menu up as the queue grows, so the queued commands
+    // stay visible. The menu is for newbies; veterans just need the queue.
+    {
+        int scroll = turnctrl.queue_len * 9;
+        if (scroll > 27)
+            scroll = 27; // max 3 rows scrolled off
+        y -= scroll;
+    }
+
     T_DrawActionRow(x, &y, "WASD", "MOVE/STRF", TA_MOVE_N, "1TP");
     T_DrawActionRow(x, &y, "<>", "TURN", TA_TURN_L, "FREE");
     T_DrawActionRow(x, &y, "SPC", "USE", TA_USE, "FREE");
@@ -1586,16 +1599,20 @@ static void T_DrawActionList(void)
     T_DrawActionRow(x, &y, "C", "INVEN", TA_NONE, "FREE");
     // The exit: divider, then END TURN with a background box so it
     // reads as the way out, not just another action.
-    T_DrawTextDim(x, y, "----------------");
+    if (y >= 8)
+        T_DrawTextDim(x, y, "----------------");
     y += 9;
     {
         char line[64];
         int tw;
         M_snprintf(line, sizeof(line), "%s %-8s %s", ">>T", "END TURN", "0TP<<");
         tw = T_TextWidth(line);
-        // Background box: dark fill with 2px padding.
-        V_DrawFilledBox(x - 2, y - 1, tw + 4, 10, 0);
-        T_DrawTextHi(x, y, line);
+        if (y >= 8)
+        {
+            // Background box: dark fill with 2px padding.
+            V_DrawFilledBox(x - 2, y - 1, tw + 4, 10, 0);
+            T_DrawTextHi(x, y, line);
+        }
         y += 9;
     }
 }
