@@ -827,8 +827,11 @@ void T_DoEndTurn(void)
     {
         player_t *player = &players[consoleplayer];
         turnctrl.executing = true;
-        // Progress phase duration: 1 second (35 tics) per queued command.
+        // Progress phase duration: 1 second (35 tics) per queued command,
+        // capped at 5 seconds (175 tics).
         turnctrl.progress_tics = turnctrl.queue_len * 35;
+        if (turnctrl.progress_tics > 175)
+            turnctrl.progress_tics = 175;
         // First-person replay: teleport back to the turn start, then
         // replay the queue. Unlink/relink the mobj so the sector link
         // stays valid for P_TryMove during the replay.
