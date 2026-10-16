@@ -724,6 +724,28 @@ void T_KitRegenAmmo(void)
     }
 }
 
+// Gradual ammo trickle: +1 to the ready weapon's magazine if below max.
+// Called per-tic during the progress phase for visible replenishment.
+void T_KitTrickleAmmo(void)
+{
+    player_t *player = &players[consoleplayer];
+    weapontype_t w = player->readyweapon;
+    const t_kitdef_t *kit;
+    if (!t_cadence_inited)
+        T_KitResetCadence();
+    if (w < 0 || w >= NUMWEAPONS)
+        return;
+    kit = &t_kits[w];
+    if (kit->ap_weapon || kit->ammo_max <= 0 || kit->ammo_cost <= 0)
+        return;
+    if (t_ammo[w] < kit->ammo_max)
+    {
+        t_ammo[w]++;
+        if (t_ammo[w] > kit->ammo_max)
+            t_ammo[w] = kit->ammo_max;
+    }
+}
+
 // Ammo pickup: half-fill every magazine, vent half the plasma heat.
 void T_KitPickupAmmo(void)
 {

@@ -547,6 +547,14 @@ static void T_PulseOneTic(boolean freeze_monsters)
     P_UpdateSpecials();
     P_RespawnSpecials();
     leveltime++;
+
+    // Gradual ammo trickle during the progress phase: 1 ammo per 7 tics
+    // (~5/sec) to the ready weapon if below max. Visible in the HUD,
+    // instead of a silent batch pop.
+    if (turnctrl.executing && (leveltime % 7) == 0)
+    {
+        T_KitTrickleAmmo();
+    }
 }
 
 void T_BeginPulse(int tics, boolean freeze_monsters, boolean fast)
