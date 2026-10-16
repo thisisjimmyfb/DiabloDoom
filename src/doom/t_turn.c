@@ -683,9 +683,24 @@ static void cmd_init(void)
         cmdfd = -1;
         return;
     }
-    // Remove a stale regular file from the old polling implementation.
+    // Race fix: if a worker wrote commands before we created the FIFO,
+    // the path will be a regular file (not a FIFO). Preserve any pending
+    // commands from it before replacing with a real FIFO.
     if (stat("/tmp/doom_cmd.txt", &st) == 0 && !S_ISFIFO(st.st_mode))
+    {
+        // Read any commands the worker wrote early into our buffer.
+        FILE *f = fopen("/tmp/doom_cmd.txt", "r");
+        if (f != NULL)
+        {
+            size_t r = fread(cmdbuf, 1, sizeof(cmdbuf) - 1, f);
+            cmdbuf[r] = '\0';
+            cmdlen = (int)r;
+            fclose(f);
+            if (cmdlen > 0)
+                printf("[CMD] recovered %d bytes from early worker write\n", cmdlen);
+        }
         unlink("/tmp/doom_cmd.txt");
+    }
     if (mkfifo("/tmp/doom_cmd.txt", 0666) != 0 && errno != EEXIST)
     {
         cmdfd = -1;
