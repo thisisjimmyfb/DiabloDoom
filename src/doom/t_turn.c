@@ -662,7 +662,17 @@ static void T_EndPulse(void)
         }
         else
         {
+            // End of progress phase. If the player died, stop here —
+            // the death flow takes over. Otherwise back to planning.
             turnctrl.executing = false;
+            if (players[consoleplayer].mo == NULL
+                || players[consoleplayer].health <= 0)
+            {
+                // Dead: clear queue and let the death flow handle it.
+                turnctrl.queue_len = 0;
+                turnctrl.queue_tp = 0;
+                return;
+            }
             T_RefreshTargets();
             if (T_NumCombatants() == 0)
             {

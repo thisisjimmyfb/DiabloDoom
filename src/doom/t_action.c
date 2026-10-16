@@ -864,6 +864,15 @@ boolean T_ExecuteOne(void)
     int i;
     boolean pulsed;
 
+    // Player died: stop executing, clear the queue.
+    if (!T_ActorAlive())
+    {
+        turnctrl.queue_len = 0;
+        turnctrl.queue_tp = 0;
+        turnctrl.executing = false;
+        return false;
+    }
+
     if (turnctrl.queue_len == 0)
     {
         turnctrl.executing = false;
