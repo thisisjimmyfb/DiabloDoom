@@ -1565,12 +1565,8 @@ static void T_DrawActionList(void)
 
     // Scroll the menu up as the queue grows, so the queued commands
     // stay visible. The menu is for newbies; veterans just need the queue.
-    {
-        int scroll = turnctrl.queue_len * 9;
-        if (scroll > 27)
-            scroll = 27; // max 3 rows scrolled off
-        y -= scroll;
-    }
+    // No cap: the whole menu can scroll off-screen.
+    y -= turnctrl.queue_len * 9;
 
     T_DrawActionRow(x, &y, "WASD", "MOVE/STRF", TA_MOVE_N, "1TP");
     T_DrawActionRow(x, &y, "<>", "TURN", TA_TURN_L, "FREE");
