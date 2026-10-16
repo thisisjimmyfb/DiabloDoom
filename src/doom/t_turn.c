@@ -1636,10 +1636,8 @@ static int T_DrawQueuePanelAt(int start_y)
 
     if (turnctrl.queue_len == 0)
         return y;
-    // Hide the panel while the queue is executing or a pulse resolves:
-    // the drain is visible in the world, not the list.
-    if (turnctrl.executing || T_InPulse())
-        return y;
+    // Show the queue during execution so commands visibly pop off as
+    // they run.
     if (y >= 8)
         T_DrawText(x, y, "QUEUE");
     y += 9;
@@ -1673,7 +1671,7 @@ static void T_DrawPlanningUI(void)
     int queue_rows = 0;
     int total_rows, max_rows, scroll_rows, start_y;
 
-    if (turnctrl.queue_len > 0 && !turnctrl.executing && !T_InPulse())
+    if (turnctrl.queue_len > 0)
     {
         queue_rows = 1 + turnctrl.queue_len + 1 + 1;
     }
