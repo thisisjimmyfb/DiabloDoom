@@ -816,10 +816,19 @@ void T_DoEndTurn(void)
 
     if (turnctrl.queue_len == 0)
     {
-        // Empty queue: just start a new planning phase (no enemy phase).
-        turnctrl.state = TS_PLANNING;
-        turnctrl.tp = turnctrl.tp_max;
-        turnctrl.round++;
+        // Empty queue: check if combat should end (no enemies targeting us).
+        T_RefreshTargets();
+        if (T_NumCombatants() == 0)
+        {
+            T_EnterExplore();
+        }
+        else
+        {
+            // Still in combat: start a new planning phase (no enemy phase).
+            turnctrl.state = TS_PLANNING;
+            turnctrl.tp = turnctrl.tp_max;
+            turnctrl.round++;
+        }
     }
     else
     {
@@ -865,10 +874,18 @@ boolean T_ExecuteOne(void)
     if (turnctrl.queue_len == 0)
     {
         turnctrl.executing = false;
-        // Queue empty: back to planning (no enemy phase).
-        turnctrl.state = TS_PLANNING;
-        turnctrl.tp = turnctrl.tp_max;
-        turnctrl.round++;
+        // Queue empty: check if combat should end.
+        T_RefreshTargets();
+        if (T_NumCombatants() == 0)
+        {
+            T_EnterExplore();
+        }
+        else
+        {
+            turnctrl.state = TS_PLANNING;
+            turnctrl.tp = turnctrl.tp_max;
+            turnctrl.round++;
+        }
         return false;
     }
 
@@ -906,18 +923,27 @@ void T_ExecuteNext(void)
         if (T_ExecuteOne())
             return; // T_EndPulse resumes the drain
     }
-    // Fully drained: back to planning (no enemy phase — the game
-    // runs in real-time during execution, so enemies already acted).
+    // Fully drained: check if combat should end, else back to planning
+    // (no enemy phase — the game runs in real-time during execution,
+    // so enemies already acted).
     turnctrl.executing = false;
-    turnctrl.state = TS_PLANNING;
-    turnctrl.tp = turnctrl.tp_max;
-    turnctrl.round++;
-    // Reset for next planning phase.
-    if (players[consoleplayer].mo != NULL)
+    T_RefreshTargets();
+    if (T_NumCombatants() == 0)
     {
-        turnctrl.turn_start_x = players[consoleplayer].mo->x;
-        turnctrl.turn_start_y = players[consoleplayer].mo->y;
-        turnctrl.turn_start_angle = players[consoleplayer].mo->angle;
+        T_EnterExplore();
+    }
+    else
+    {
+        turnctrl.state = TS_PLANNING;
+        turnctrl.tp = turnctrl.tp_max;
+        turnctrl.round++;
+        // Reset for next planning phase.
+        if (players[consoleplayer].mo != NULL)
+        {
+            turnctrl.turn_start_x = players[consoleplayer].mo->x;
+            turnctrl.turn_start_y = players[consoleplayer].mo->y;
+            turnctrl.turn_start_angle = players[consoleplayer].mo->angle;
+        }
     }
 }
 
