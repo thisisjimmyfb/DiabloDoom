@@ -18,7 +18,7 @@ Each decision starts with a fresh screenshot. Assess:
 ## Setup
 
 1. No X display exists on this VM — launch the game with the dummy video driver (no Xvfb — never start it).
-2. Kill any stale game: `pkill -9 -f "chocolate-doo[m]"` (bracket trick avoids suicide).
+2. Kill any stale game: `pkill -9 -f "chocolate-doo[m]"` (bracket trick avoids suicide). **CRITICAL: Run pkill in its own exec call, launch the game in a SEPARATE exec call. Never put the literal binary path (e.g. `.../chocolate-doom`) in the same shell command as the pkill — the pkill regex matches your own command line and kills your shell.**
 3. Launch from ~/workspace/diablodoom: `cd ~/workspace/diablodoom && SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy nohup ~/workspace/DiabloDoom/build/src/chocolate-doom -iwad ~/workspace/doom/freedoom1.wad -width 960 -height 600 -warp 1 1 > /tmp/doom_hourly.log 2>&1 &` then sleep 15. Verify with `pgrep -a -f "chocolate-doo[m]"` (bracket trick avoids suicide).
    - SDL_AUDIODRIVER=dummy: VM has no audio hardware; dummy driver still mixes audio so the replay AAC capture hook gets data.
    - NEVER pull from git, NEVER rebuild. Use the existing binary only.
