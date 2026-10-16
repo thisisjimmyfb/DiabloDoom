@@ -28,6 +28,7 @@ Play for ~4 minutes (~20 iterations). Keep it tight — you have a 10-minute tot
    - If COMBAT (turn-based UI visible): 
      * If you have no Diablo weapon equipped (vanilla pistol only) and the enemy is a Flesh worm or other tanky melee attacker: DO NOT fight it up close. You will die. Instead, use `MOVE_BACK` / `STRAFE_L` / `STRAFE_R` to disengage. Find a Diablo weapon first.
      * KITING: With the pistol, do not stand toe-to-toe with melee attackers. Use `MOVE_BACK` to create distance, then `ATTACK`. Melee enemies must close the gap to hit you — use that. Keep shooting from range, keep moving away. Never let a Flesh worm get into melee range. Queue: `MOVE_BACK\nATTACK\nATTACK\nEND\n`.
+     * STUCK RECOVERY: If your position (x,y) does not change after a movement command, you are against a wall. Do NOT repeat the same move. Try `STRAFE_L` or `STRAFE_R` to sidestep, or turn with arrow keys then `WALK` forward. Alternate until you move.
      * Queue attacks — write `ATTACK\nATTACK\nATTACK\nEND\n` to /tmp/doom_cmd.txt, sleep 8, continue. (ATTACK uses your equipped weapon; with no Diablo weapon, it's the vanilla pistol.)
    - If EXPLORE: decide movement (PRIORITY ORDER):
      * Loot prompt "press G to loot" visible → write `COLLECT\n` IMMEDIATELY. Do not walk past loot. This is your top priority. The prompt appears for Diablo loot drops AND player corpses — COLLECT walks to the nearest one.
