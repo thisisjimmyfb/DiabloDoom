@@ -1630,21 +1630,25 @@ static int T_DrawQueuePanel(void)
         return y;
     T_DrawText(x, y, "QUEUE");
     y += 9;
-    // Cap visible rows so the panel never reaches the status bar.
+    // Show the most recent commands: if the queue is longer than 3,
+    // show the last 3 so the newest are always visible.
     shown = turnctrl.queue_len > 3 ? 3 : turnctrl.queue_len;
-    for (i = 0; i < shown; i++)
     {
-        t_queueentry_t *e = &turnctrl.queue[i];
-        T_QueueEntryName(e, name, sizeof(name));
-        M_snprintf(line, sizeof(line), "%d %s %dTP", i + 1, name, e->cost);
-        T_DrawText(x, y, line);
-        y += 9;
-    }
-    if (turnctrl.queue_len > shown)
-    {
-        M_snprintf(line, sizeof(line), "+%d MORE", turnctrl.queue_len - shown);
-        T_DrawTextDim(x, y, line);
-        y += 9;
+        int start = turnctrl.queue_len - shown;
+        if (turnctrl.queue_len > 3)
+        {
+            M_snprintf(line, sizeof(line), "+%d EARLIER", start);
+            T_DrawTextDim(x, y, line);
+            y += 9;
+        }
+        for (i = 0; i < shown; i++)
+        {
+            t_queueentry_t *e = &turnctrl.queue[start + i];
+            T_QueueEntryName(e, name, sizeof(name));
+            M_snprintf(line, sizeof(line), "%d %s %dTP", start + i + 1, name, e->cost);
+            T_DrawText(x, y, line);
+            y += 9;
+        }
     }
     M_snprintf(line, sizeof(line), "%d ACTS %dTP RSVD",
                turnctrl.queue_len, turnctrl.queue_tp);
