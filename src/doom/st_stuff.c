@@ -1027,80 +1027,6 @@ static void STWepDrawIcon(int x, int y, int box, const unsigned char *icon)
     }
 }
 
-// Draw the pistol sprite (PISGB0 - firing frame) scaled to fit a box,
-// for when no Diablo weapon is equipped (the game defaults to pistol
-// when unarmed).
-static void STWepDrawPistolSprite(int x, int y, int box)
-{
-    patch_t *p;
-    int pw, ph;
-    int dx, dy, sx, sy;
-    pixel_t *dest;
-    int colofs;
-    byte *coldata;
-    byte topdelta, length;
-    int post_y, post_len;
-    byte *post_data;
-    int found;
-
-    p = W_CacheLumpName("PISGB0", PU_CACHE);
-    if (!p)
-        return;
-
-    pw = SHORT(p->width);
-    ph = SHORT(p->height);
-    if (pw <= 0 || ph <= 0)
-        return;
-
-    for (dy = 0; dy < box; ++dy)
-    {
-        if (y + dy < 0 || y + dy >= SCREENHEIGHT)
-            continue;
-        sy = dy * ph / box;
-        dest = I_VideoBuffer + SCREENWIDTH * (y + dy) + x;
-        for (dx = 0; dx < box; ++dx)
-        {
-            if (x + dx < 0 || x + dx >= SCREENWIDTH)
-            {
-                dest++;
-                continue;
-            }
-            sx = dx * pw / box;
-            if (sx < 0 || sx >= pw)
-            {
-                dest++;
-                continue;
-            }
-
-            // Find the pixel at (sx, sy) in the patch column.
-            // Patch columns are RLE: series of posts (topdelta, length, data).
-            colofs = LONG(p->columnofs[sx]);
-            coldata = (byte *)p + colofs;
-            found = 0;
-            while (*coldata != 0xff)
-            {
-                topdelta = *coldata++;
-                length = *coldata++;
-                coldata++; // padding
-                post_y = topdelta;
-                post_len = length;
-                post_data = coldata;
-                if (sy >= post_y && sy < post_y + post_len)
-                {
-                    *dest = (pixel_t)post_data[sy - post_y];
-                    found = 1;
-                    break;
-                }
-                coldata += post_len;
-                coldata++; // padding
-            }
-            if (!found)
-                dest++; // transparent pixel, leave background
-            else
-                dest++;
-        }
-    }
-}
 
 #define ST_WEPX0 104
 #define ST_WEPX1 143
@@ -1357,9 +1283,13 @@ static void ST_drawDiabloWeapon(void)
     def = (id != D_NOITEM) ? D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id)) : NULL;
     if (def == NULL)
     {
-        // No Diablo weapon equipped: show the pistol sprite (the game
-        // defaults to pistol when unarmed; see D_SyncDoomWeapon).
-        STWepDrawPistolSprite(ST_WEPCX - 10, 170, 20);
+        // No Diablo weapon equipped: show the Diablo pistol icon
+        // (the game defaults to pistol when unarmed; see D_SyncDoomWeapon).
+        // Use the Diablo icon, not the Doom view-model sprite.
+        if (D_ICON_GUN_PISTOL >= 0 && D_ICON_GUN_PISTOL < d_num_item_icons
+            && d_item_icons[D_ICON_GUN_PISTOL] != NULL)
+            STWepDrawIcon(ST_WEPCX - 10, 170, 20,
+                          d_item_icons[D_ICON_GUN_PISTOL]);
         return;
     }
 
