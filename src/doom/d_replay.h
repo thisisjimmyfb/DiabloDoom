@@ -2,6 +2,8 @@
 #ifndef D_REPLAY_H
 #define D_REPLAY_H
 
+#include <stdint.h>
+
 // 15 seconds at 35 FPS (Doom tick rate)
 #define REPLAY_FPS 35
 #define REPLAY_SECONDS 15
@@ -19,7 +21,11 @@ void D_ReplayInit(void);
 // Capture the current framebuffer. Call once per tick.
 void D_ReplayTick(void);
 
-// Dump the buffer to an MP4 file (H.264). Returns 0 on success.
+// Audio hook for SDL_mixer post-mix. Copies mixed audio into ring buffer.
+// Called from audio thread; must be lock-free.
+void D_ReplayAudioHook(void *udata, uint8_t *stream, int len);
+
+// Dump the buffer to an MP4 file (H.264 + AAC). Returns 0 on success.
 int D_ReplaySaveMP4(const char *filename);
 
 // Ensure the doomshots/ output directory exists.

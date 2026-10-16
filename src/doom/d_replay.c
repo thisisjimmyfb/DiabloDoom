@@ -14,6 +14,11 @@
 #else
 #include <x264.h>
 #endif
+#ifdef NO_FAAC
+// No AAC support: replays will be video-only.
+#else
+#include <faac.h>
+#endif
 #include "doomdef.h"
 #include "d_replay.h"
 #include "i_video.h"
@@ -61,6 +66,17 @@ static byte *replay_buffer = NULL;
 static int replay_head = 0;
 static int replay_count = 0;
 
+// Audio ring buffer: 15 seconds of 44.1kHz stereo 16-bit PCM.
+// Written by the SDL_mixer post-mix hook (audio thread), read when saving.
+#define REPLAY_AUDIO_RATE 44100
+#define REPLAY_AUDIO_CHANNELS 2
+#define REPLAY_AUDIO_SECS 15
+#define REPLAY_AUDIO_SAMPLES (REPLAY_AUDIO_RATE * REPLAY_AUDIO_SECS)
+#define REPLAY_AUDIO_BYTES (REPLAY_AUDIO_SAMPLES * REPLAY_AUDIO_CHANNELS * 2)
+static int16_t *replay_audio_buf = NULL;
+static volatile int replay_audio_write = 0; // write position (samples, mono count)
+static int replay_audio_init_done = 0;
+
 void D_ReplayInit(void)
 {
     D_EnsureDoomshotsDir();
@@ -69,6 +85,33 @@ void D_ReplayInit(void)
     if (replay_buffer) {
         memset(replay_buffer, 0, REPLAY_MAXFRAMES * REPLAY_FRAME_SIZE);
         printf("[REPLAY] buffer ready: %d frames\n", REPLAY_MAXFRAMES);
+    }
+    // Audio ring buffer.
+    if (!replay_audio_buf) {
+        replay_audio_buf = malloc(REPLAY_AUDIO_BYTES);
+        if (replay_audio_buf) {
+            memset(replay_audio_buf, 0, REPLAY_AUDIO_BYTES);
+            printf("[REPLAY] audio buffer ready: %d secs\n", REPLAY_AUDIO_SECS);
+        }
+    }
+}
+
+// Called from SDL_mixer post-mix hook (audio thread). Copies mixed stereo
+// 16-bit audio into the ring buffer. Must be lock-free and fast.
+void D_ReplayAudioHook(void *udata, uint8_t *stream, int len)
+{
+    int16_t *src = (int16_t *)stream;
+    int samples = len / 2; // 16-bit samples (stereo interleaved)
+    int i;
+    (void)udata;
+    if (!replay_audio_buf)
+        return;
+    for (i = 0; i < samples; i++) {
+        // Ring buffer holds interleaved stereo samples.
+        // write pos is in samples (not frames).
+        int pos = replay_audio_write % (REPLAY_AUDIO_SAMPLES * REPLAY_AUDIO_CHANNELS);
+        replay_audio_buf[pos] = src[i];
+        replay_audio_write++;
     }
 }
 
@@ -146,6 +189,164 @@ static void rgb_to_yuv420p(byte *rgb, x264_picture_t *pic, int w, int h)
 }
 #endif
 
+#ifndef NO_FAAC
+// Encode the 15-second audio ring buffer to raw AAC frames (AAC-LC,
+// 44.1kHz stereo, ~128kbps). On success returns the frame count (>0) and
+// fills outputs; the caller owns each aframes[i].data, the aframes array,
+// and the asc copy. Returns 0 when no audio is available or encoding
+// failed (caller should fall back to video-only).
+static int replay_encode_audio(mem_buf_t **aframes_out,
+                               uint8_t **asc_out, uint32_t *asc_len_out,
+                               uint32_t *samples_per_chan_out)
+{
+    int16_t *pcm = NULL;
+    faac_encoder *enc = NULL;
+    faac_encoder_info info;
+    const uint8_t *asc;
+    uint32_t asc_len;
+    uint8_t *outbuf = NULL;
+    mem_buf_t *aframes = NULL;
+    int aframes_cap = 0, aframes_n = 0;
+    int total = REPLAY_AUDIO_SAMPLES * REPLAY_AUDIO_CHANNELS; // int16 count
+    int wpos, i;
+    uint32_t samples_per_chan = REPLAY_AUDIO_SAMPLES; // 661500
+    uint32_t frames_needed;
+
+    *aframes_out = NULL;
+    *asc_out = NULL;
+    *asc_len_out = 0;
+    *samples_per_chan_out = 0;
+
+    if (!replay_audio_buf)
+        return 0;
+
+    // Snapshot the write position, then extract a contiguous 15s window
+    // (oldest -> newest). Pad with leading silence if the buffer isn't
+    // full yet (game ran less than 15s).
+    wpos = replay_audio_write;
+    pcm = malloc(REPLAY_AUDIO_BYTES);
+    if (!pcm)
+        return 0;
+    memset(pcm, 0, REPLAY_AUDIO_BYTES);
+    if (wpos >= total) {
+        int start = wpos % total;
+        int first = total - start;
+        memcpy(pcm, replay_audio_buf + start, (size_t)first * 2);
+        memcpy(pcm + first, replay_audio_buf, (size_t)start * 2);
+    } else if (wpos > 0) {
+        memcpy(pcm + (total - wpos), replay_audio_buf, (size_t)wpos * 2);
+    }
+
+    {
+        faac_params params;
+        if (faac_params_init(&params, sizeof(params)) != FAAC_OK) {
+            printf("[REPLAY] faac_params_init failed\n");
+            goto adone;
+        }
+        params.sample_rate = REPLAY_AUDIO_RATE;
+        params.num_channels = REPLAY_AUDIO_CHANNELS;
+        params.mpeg_version = FAAC_MPEG4;
+        params.object_type = FAAC_OBJ_LOW;   // AAC-LC
+        params.bit_rate = 64000;             // per channel -> 128 kbps
+        params.input_format = FAAC_INPUT_16BIT;
+        params.output_format = FAAC_STREAM_RAW;
+        if (faac_encoder_open(&params, &enc) != FAAC_OK || !enc) {
+            printf("[REPLAY] faac_encoder_open failed\n");
+            goto adone;
+        }
+        info.struct_size = sizeof(info);
+        if (faac_encoder_get_info(enc, &info) != FAAC_OK) {
+            printf("[REPLAY] faac_encoder_get_info failed\n");
+            goto adone;
+        }
+        if (faac_encoder_asc(enc, &asc, &asc_len) != FAAC_OK ||
+            !asc || asc_len == 0) {
+            printf("[REPLAY] faac_encoder_asc failed\n");
+            goto adone;
+        }
+        printf("[REPLAY] AAC: %u Hz %u ch, %u samples/frame, asc %u bytes\n",
+               info.sample_rate, REPLAY_AUDIO_CHANNELS,
+               info.frame_samples, asc_len);
+    }
+
+    outbuf = malloc(info.max_output_bytes);
+    aframes_cap = 700;
+    aframes = calloc((size_t)aframes_cap, sizeof(mem_buf_t));
+    if (!outbuf || !aframes)
+        goto adone;
+
+    frames_needed = (samples_per_chan + info.frame_samples - 1)
+                    / info.frame_samples;
+    {
+        uint32_t in_per_frame = info.frame_samples * REPLAY_AUDIO_CHANNELS;
+        uint32_t remaining = samples_per_chan * REPLAY_AUDIO_CHANNELS;
+        int16_t *ip = pcm;
+        uint32_t written;
+        for (i = 0; (uint32_t)i < frames_needed; i++) {
+            uint32_t take = remaining < in_per_frame ? remaining : in_per_frame;
+            if (faac_encoder_encode(enc, ip, take, outbuf,
+                                    info.max_output_bytes,
+                                    &written) != FAAC_OK) {
+                printf("[REPLAY] faac encode failed at frame %d\n", i);
+                goto adone;
+            }
+            if (written > 0) {
+                if (aframes_n >= aframes_cap)
+                    goto adone; // shouldn't happen
+                buf_append(&aframes[aframes_n], outbuf, (int)written);
+                aframes_n++;
+            }
+            ip += take;
+            remaining -= take;
+        }
+        // Flush the encoder.
+        for (;;) {
+            uint32_t written2;
+            if (faac_encoder_encode(enc, NULL, 0, outbuf,
+                                    info.max_output_bytes,
+                                    &written2) != FAAC_OK)
+                break;
+            if (written2 == 0 || aframes_n >= aframes_cap)
+                break;
+            buf_append(&aframes[aframes_n], outbuf, (int)written2);
+            aframes_n++;
+        }
+    }
+
+    if (aframes_n == 0) {
+        printf("[REPLAY] AAC produced no frames\n");
+        goto adone;
+    }
+
+    *asc_out = malloc(asc_len);
+    if (!*asc_out)
+        goto adone;
+    memcpy(*asc_out, asc, asc_len);
+    *asc_len_out = asc_len;
+    *aframes_out = aframes;
+    *samples_per_chan_out = samples_per_chan;
+    aframes = NULL; // ownership transferred
+
+    printf("[REPLAY] AAC encoded %d frames\n", aframes_n);
+
+adone:
+    if (enc)
+        faac_encoder_close(&enc);
+    free(outbuf);
+    free(pcm);
+    if (aframes) {
+        for (i = 0; i < aframes_n; i++)
+            free(aframes[i].data);
+        free(aframes);
+    }
+    if (*aframes_out)
+        return aframes_n;
+    free(*asc_out);
+    *asc_out = NULL;
+    return 0;
+}
+#endif
+
 int D_ReplaySaveMP4(const char *filename)
 {
 #ifdef NO_X264
@@ -160,6 +361,16 @@ int D_ReplaySaveMP4(const char *filename)
     unsigned long long *chunk_offsets = NULL;
     byte *sps = NULL, *pps = NULL;
     int sps_len = 0, pps_len = 0;
+    // AAC audio state (stays zeroed/NULL when NO_FAAC or on failure).
+    int has_audio = 0;
+    mem_buf_t *aframes = NULL;
+    int naframes = 0;
+    int *audio_sizes = NULL;
+    unsigned long long *audio_offsets = NULL;
+    uint8_t *audio_asc = NULL;
+    uint32_t audio_asc_len = 0;
+    uint32_t audio_samples = 0;      // samples per channel
+    unsigned int audio_movie_dur = 0; // audio duration in movie timescale
     x264_t *enc = NULL;
     x264_picture_t pic_in;
     int pic_allocated = 0;
@@ -335,6 +546,40 @@ int D_ReplaySaveMP4(const char *filename)
         frame_sizes[i] = frames[i].len;
     }
 
+    // ---- AAC audio from the ring buffer (video-only fallback on failure)
+#ifndef NO_FAAC
+    naframes = replay_encode_audio(&aframes, &audio_asc, &audio_asc_len,
+                                   &audio_samples);
+    if (naframes > 0 && audio_asc && audio_asc_len > 0) {
+        audio_sizes = malloc((size_t)naframes * sizeof(int));
+        audio_offsets = malloc((size_t)naframes * sizeof(unsigned long long));
+        if (audio_sizes && audio_offsets) {
+            has_audio = 1;
+            audio_movie_dur = (unsigned int)(
+                (unsigned long long)audio_samples *
+                (unsigned long long)timescale / REPLAY_AUDIO_RATE);
+        }
+    }
+    if (!has_audio) {
+        if (aframes) {
+            for (i = 0; i < naframes; i++)
+                free(aframes[i].data);
+            free(aframes);
+            aframes = NULL;
+        }
+        free(audio_asc);
+        audio_asc = NULL;
+        free(audio_sizes);
+        audio_sizes = NULL;
+        free(audio_offsets);
+        audio_offsets = NULL;
+        naframes = 0;
+        audio_asc_len = 0;
+        audio_samples = 0;
+        printf("[REPLAY] no AAC audio - video-only\n");
+    }
+#endif
+
     f = fopen(filename, "wb");
     if (!f) {
         printf("[REPLAY] cannot open %s\n", filename);
@@ -355,6 +600,9 @@ int D_ReplaySaveMP4(const char *filename)
     {
         unsigned long long mdat_size = 16;
         for (i = 0; i < n; i++) mdat_size += frames[i].len;
+        if (has_audio)
+            for (i = 0; i < naframes; i++)
+                mdat_size += (unsigned long long)aframes[i].len;
         mp4_w32(f,1); fwrite("mdat",1,4,f); mp4_w64(f,mdat_size);
         for (i = 0; i < n; i++) {
             chunk_offsets[i] = (unsigned long long)ftell(f);
@@ -362,9 +610,22 @@ int D_ReplaySaveMP4(const char *filename)
             free(frames[i].data);
             frames[i].data = NULL;
         }
+        if (has_audio) {
+            for (i = 0; i < naframes; i++) {
+                audio_offsets[i] = (unsigned long long)ftell(f);
+                audio_sizes[i] = aframes[i].len;
+                fwrite(aframes[i].data, 1, aframes[i].len, f);
+                free(aframes[i].data);
+                aframes[i].data = NULL;
+            }
+        }
     }
     free(frames);
     frames = NULL;
+    if (has_audio) {
+        free(aframes);
+        aframes = NULL;
+    }
 
     // moov
     {
@@ -375,14 +636,19 @@ int D_ReplaySaveMP4(const char *filename)
             long pos = ftell(f); mp4_w32(f,0); fwrite("mvhd",1,4,f);
             mp4_w32(f,0); mp4_w32(f,0); mp4_w32(f,0);
             mp4_w32(f,(unsigned int)timescale);
-            mp4_w32(f,(unsigned int)(n * frame_duration));
+            {
+                unsigned int dur = (unsigned int)(n * frame_duration);
+                if (has_audio && audio_movie_dur > dur)
+                    dur = audio_movie_dur;
+                mp4_w32(f, dur);
+            }
             mp4_w32(f,0x00010000); mp4_w16(f,0x0100); mp4_w16(f,0);
             mp4_w32(f,0); mp4_w32(f,0);
             mp4_w32(f,0x00010000); mp4_w32(f,0); mp4_w32(f,0);
             mp4_w32(f,0); mp4_w32(f,0x00010000); mp4_w32(f,0);
             mp4_w32(f,0); mp4_w32(f,0); mp4_w32(f,0x40000000);
             for (i = 0; i < 6; i++) mp4_w32(f,0);
-            mp4_w32(f,2);
+            mp4_w32(f, has_audio ? 3 : 2); // next_track_ID
             long end = ftell(f); fseek(f,pos,SEEK_SET);
             mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
         }
@@ -569,6 +835,190 @@ int D_ReplaySaveMP4(const char *filename)
             mp4_w32(f,(unsigned int)(end-trak_pos)); fseek(f,end,SEEK_SET);
         }
 
+        // ---- audio trak (AAC) ----
+        if (has_audio)
+        {
+            long trak_pos = ftell(f); mp4_w32(f,0); fwrite("trak",1,4,f);
+
+            // tkhd (audio: track 2, full volume, no dimensions)
+            {
+                long pos = ftell(f); mp4_w32(f,0); fwrite("tkhd",1,4,f);
+                mp4_w32(f,7); mp4_w32(f,0); mp4_w32(f,0);
+                mp4_w32(f,2); mp4_w32(f,0);
+                mp4_w32(f,audio_movie_dur);
+                mp4_w32(f,0); mp4_w32(f,0);
+                mp4_w16(f,0); mp4_w16(f,0); mp4_w16(f,0x0100); mp4_w16(f,0);
+                mp4_w32(f,0x00010000); mp4_w32(f,0); mp4_w32(f,0);
+                mp4_w32(f,0); mp4_w32(f,0x00010000); mp4_w32(f,0);
+                mp4_w32(f,0); mp4_w32(f,0); mp4_w32(f,0x40000000);
+                mp4_w32(f,0); mp4_w32(f,0);
+                long end = ftell(f); fseek(f,pos,SEEK_SET);
+                mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+            }
+
+            // mdia
+            {
+                long mdia_pos = ftell(f); mp4_w32(f,0); fwrite("mdia",1,4,f);
+
+                // mdhd (audio timescale)
+                {
+                    long pos = ftell(f); mp4_w32(f,0); fwrite("mdhd",1,4,f);
+                    mp4_w32(f,0); mp4_w32(f,0); mp4_w32(f,0);
+                    mp4_w32(f,REPLAY_AUDIO_RATE);
+                    mp4_w32(f,audio_samples);
+                    mp4_w16(f,0x55c4); mp4_w16(f,0);
+                    long end = ftell(f); fseek(f,pos,SEEK_SET);
+                    mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                }
+
+                // hdlr (soun)
+                {
+                    long pos = ftell(f); mp4_w32(f,0); fwrite("hdlr",1,4,f);
+                    mp4_w32(f,0); mp4_w32(f,0);
+                    fwrite("soun",1,4,f);
+                    mp4_w32(f,0); mp4_w32(f,0); mp4_w32(f,0);
+                    fwrite("SoundHandler",1,12,f); fputc(0,f);
+                    long end = ftell(f); fseek(f,pos,SEEK_SET);
+                    mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                }
+
+                // minf
+                {
+                    long minf_pos = ftell(f); mp4_w32(f,0); fwrite("minf",1,4,f);
+
+                    // smhd
+                    {
+                        long pos = ftell(f); mp4_w32(f,0); fwrite("smhd",1,4,f);
+                        mp4_w32(f,0); mp4_w16(f,0); mp4_w16(f,0);
+                        long end = ftell(f); fseek(f,pos,SEEK_SET);
+                        mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                    }
+
+                    // dinf
+                    {
+                        long dinf_pos = ftell(f); mp4_w32(f,0); fwrite("dinf",1,4,f);
+                        {
+                            long pos = ftell(f); mp4_w32(f,0); fwrite("dref",1,4,f);
+                            mp4_w32(f,0); mp4_w32(f,1);
+                            {
+                                long p2 = ftell(f); mp4_w32(f,0); fwrite("url ",1,4,f);
+                                mp4_w32(f,1);
+                                long e2 = ftell(f); fseek(f,p2,SEEK_SET);
+                                mp4_w32(f,(unsigned int)(e2-p2)); fseek(f,e2,SEEK_SET);
+                            }
+                            long end = ftell(f); fseek(f,pos,SEEK_SET);
+                            mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                        }
+                        long end = ftell(f); fseek(f,dinf_pos,SEEK_SET);
+                        mp4_w32(f,(unsigned int)(end-dinf_pos)); fseek(f,end,SEEK_SET);
+                    }
+
+                    // stbl
+                    {
+                        long stbl_pos = ftell(f); mp4_w32(f,0); fwrite("stbl",1,4,f);
+
+                        // stsd (mp4a sample entry + esds with ASC)
+                        {
+                            long pos = ftell(f); mp4_w32(f,0); fwrite("stsd",1,4,f);
+                            mp4_w32(f,0); mp4_w32(f,1);
+                            {
+                                long epos = ftell(f); mp4_w32(f,0); fwrite("mp4a",1,4,f);
+                                for (i = 0; i < 6; i++) fputc(0,f);
+                                mp4_w16(f,1);
+                                mp4_w16(f,0); mp4_w16(f,0); mp4_w32(f,0);
+                                mp4_w16(f,REPLAY_AUDIO_CHANNELS);
+                                mp4_w16(f,16);
+                                mp4_w16(f,0); mp4_w16(f,0);
+                                mp4_w32(f,(unsigned int)(REPLAY_AUDIO_RATE<<16));
+                                // esds: decoder config with AudioSpecificConfig
+                                {
+                                    long xpos = ftell(f); mp4_w32(f,0); fwrite("esds",1,4,f);
+                                    mp4_w32(f,0); // version + flags
+                                    {
+                                        unsigned int len_dec = 15 + audio_asc_len;
+                                        unsigned int len_es = 23 + audio_asc_len;
+                                        fputc(0x03, f); fputc((int)len_es, f);
+                                        fputc(0x00, f); fputc(0x02, f); // ES_ID = 2
+                                        fputc(0x00, f);                // flags
+                                        fputc(0x04, f); fputc((int)len_dec, f);
+                                        fputc(0x40, f); // objectTypeIndication: MPEG-4 AAC
+                                        fputc(0x15, f); // streamType: AudioStream
+                                        fputc(0x00, f); fputc(0x00, f); fputc(0x00, f); // bufferSizeDB
+                                        mp4_w32(f,128000); // maxBitrate
+                                        mp4_w32(f,128000); // avgBitrate
+                                        fputc(0x05, f); fputc((int)audio_asc_len, f);
+                                        fwrite(audio_asc, 1, audio_asc_len, f);
+                                        fputc(0x06, f); fputc(0x01, f); fputc(0x02, f); // SL config
+                                    }
+                                    long xend = ftell(f); fseek(f,xpos,SEEK_SET);
+                                    mp4_w32(f,(unsigned int)(xend-xpos)); fseek(f,xend,SEEK_SET);
+                                }
+                                long eend = ftell(f); fseek(f,epos,SEEK_SET);
+                                mp4_w32(f,(unsigned int)(eend-epos)); fseek(f,eend,SEEK_SET);
+                            }
+                            long end = ftell(f); fseek(f,pos,SEEK_SET);
+                            mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                        }
+
+                        // stts: every AAC frame decodes to 1024 samples
+                        {
+                            long pos = ftell(f); mp4_w32(f,0); fwrite("stts",1,4,f);
+                            mp4_w32(f,0); mp4_w32(f,1);
+                            mp4_w32(f,(unsigned int)naframes);
+                            mp4_w32(f,1024);
+                            long end = ftell(f); fseek(f,pos,SEEK_SET);
+                            mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                        }
+
+                        // stsc: one sample per chunk
+                        {
+                            long pos = ftell(f); mp4_w32(f,0); fwrite("stsc",1,4,f);
+                            mp4_w32(f,0); mp4_w32(f,(unsigned int)naframes);
+                            for (i = 0; i < naframes; i++) {
+                                mp4_w32(f,(unsigned int)(i+1));
+                                mp4_w32(f,1); mp4_w32(f,1);
+                            }
+                            long end = ftell(f); fseek(f,pos,SEEK_SET);
+                            mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                        }
+
+                        // stsz
+                        {
+                            long pos = ftell(f); mp4_w32(f,0); fwrite("stsz",1,4,f);
+                            mp4_w32(f,0); mp4_w32(f,0);
+                            mp4_w32(f,(unsigned int)naframes);
+                            for (i = 0; i < naframes; i++)
+                                mp4_w32(f,(unsigned int)audio_sizes[i]);
+                            long end = ftell(f); fseek(f,pos,SEEK_SET);
+                            mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                        }
+
+                        // co64
+                        {
+                            long pos = ftell(f); mp4_w32(f,0); fwrite("co64",1,4,f);
+                            mp4_w32(f,0); mp4_w32(f,(unsigned int)naframes);
+                            for (i = 0; i < naframes; i++)
+                                mp4_w64(f,audio_offsets[i]);
+                            long end = ftell(f); fseek(f,pos,SEEK_SET);
+                            mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                        }
+
+                        long end = ftell(f); fseek(f,stbl_pos,SEEK_SET);
+                        mp4_w32(f,(unsigned int)(end-stbl_pos)); fseek(f,end,SEEK_SET);
+                    }
+
+                    long end = ftell(f); fseek(f,minf_pos,SEEK_SET);
+                    mp4_w32(f,(unsigned int)(end-minf_pos)); fseek(f,end,SEEK_SET);
+                }
+
+                long end = ftell(f); fseek(f,mdia_pos,SEEK_SET);
+                mp4_w32(f,(unsigned int)(end-mdia_pos)); fseek(f,end,SEEK_SET);
+            }
+
+            long end = ftell(f); fseek(f,trak_pos,SEEK_SET);
+            mp4_w32(f,(unsigned int)(end-trak_pos)); fseek(f,end,SEEK_SET);
+        }
+
         long end = ftell(f); fseek(f,moov_pos,SEEK_SET);
         mp4_w32(f,(unsigned int)(end-moov_pos)); fseek(f,end,SEEK_SET);
     }
@@ -577,8 +1027,12 @@ int D_ReplaySaveMP4(const char *filename)
     free(chunk_offsets);
     free(sps);
     free(pps);
+    free(audio_sizes);
+    free(audio_offsets);
+    free(audio_asc);
     fclose(f);
-    printf("[REPLAY] saved %s (%d frames, H.264 MP4)\n", filename, n);
+    printf("[REPLAY] saved %s (%d frames, H.264%s MP4)\n",
+           filename, n, has_audio ? "+AAC" : "");
     return 0;
 
 fail:
@@ -594,6 +1048,13 @@ fail:
     }
     free(frame_sizes);
     free(chunk_offsets);
+    if (aframes) {
+        for (i = 0; i < naframes; i++) free(aframes[i].data);
+        free(aframes);
+    }
+    free(audio_sizes);
+    free(audio_offsets);
+    free(audio_asc);
     return 1;
 #endif
 }
