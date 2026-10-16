@@ -45,7 +45,11 @@ static turnaction_t T_KeyAction(int key)
       case 'g': case 'G':                      return TA_COLLECT;
       case 't': case 'T':                      return TA_END_TURN;
       case KEY_BACKSPACE:                      return TA_UNDO;
-      case KEY_ENTER:                          return TA_ATTACK;
+      case KEY_ENTER:
+        // Enter confirms an attack in CONFIRM state; otherwise ends turn.
+        if (turnctrl.state == TS_CONFIRM)
+            return TA_ATTACK;
+        return TA_END_TURN;
       case KEY_ESCAPE:                         return TA_CANCEL;
       case '1': case '2': case '3':
       case '4': case '5': case '6':

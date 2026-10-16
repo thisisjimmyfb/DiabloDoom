@@ -1623,7 +1623,7 @@ static void T_DrawActionList(int start_y)
     T_DrawActionRow(x, &y, "BKSP", "UNDO", TA_UNDO, "FREE");
     // The exit: END TURN as a simple action row, consistent with the rest.
     // (C inventory is hidden from the menu but still works during combat.)
-    T_DrawActionRow(x, &y, "T", "END TURN", TA_END_TURN, "0TP");
+    T_DrawActionRow(x, &y, "ENTER", "END TURN", TA_END_TURN, "0TP");
 }
 
 // Queued-action panel: FIFO order with per-action costs and the total
