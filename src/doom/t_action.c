@@ -820,9 +820,9 @@ void T_DoEndTurn(void)
         // game breathe, then back to planning. This ensures T always
         // does something visible.
         turnctrl.executing = true;
-        // Cooldown ticks start with the progress phase.
-        // (Ammo trickles in gradually via T_PulseOneTic, not batch.)
-        T_KitTickCooldowns();
+        // (Ammo trickles in gradually via T_PulseOneTic, not batch.
+        // Cooldowns/charges tick every game tic via T_TickCharges,
+        // not on turn end.)
         T_BeginPulse(18, false, false);
         players[consoleplayer].message = "Waiting...";
     }
@@ -830,9 +830,9 @@ void T_DoEndTurn(void)
     {
         player_t *player = &players[consoleplayer];
         turnctrl.executing = true;
-        // Cooldown ticks start as soon as the progress phase begins.
-        // (Ammo trickles in gradually via T_PulseOneTic, not batch.)
-        T_KitTickCooldowns();
+        // (Ammo trickles in gradually via T_PulseOneTic, not batch.
+        // Cooldowns/charges tick every game tic via T_TickCharges,
+        // not on turn end.)
         // First-person replay: teleport back to the turn start, then
         // replay the queue. Unlink/relink the mobj so the sector link
         // stays valid for P_TryMove during the replay.
