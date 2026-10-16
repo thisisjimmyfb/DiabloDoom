@@ -45,34 +45,8 @@
 // chainsaw) costs TP.
 int T_AttackCost(void)
 {
-    const t_kitdef_t *kit;
-    t_combatstats_t st;
-    player_t *player = &players[consoleplayer];
-    int cost;
-    int id;
-    if (!T_Active() || player->mo == NULL)
-        return 4;
-    // Melee check via the Diablo paperdoll: no Diablo weapon = pistol-whip.
-    id = player->diablo_equipped[ESLOT_WEAPON];
-    if (id == D_NOITEM)
-        goto melee_cost; // pistol-whip
-    {
-        const diablo_itemdef_t *def =
-            D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
-        if (def && def->doomweapon == wp_chainsaw)
-            goto melee_cost; // chainsaw
-    }
-    // Ranged: TP-free, ammo-gated.
+    // All attacks are TP-free; the weapon's ammo system gates spam.
     return 0;
-
-melee_cost:
-    kit = T_KitForWeapon(player->readyweapon);
-    T_DeriveStats(player, &st);
-    // AS reduces the kit cost: -1 per 20 dex above 10, floor 2.
-    cost = kit->tp_cost - (10 + player->diablo_stats[DSTAT_DEX] - 10) / 20;
-    if (cost < 2)
-        cost = 2;
-    return cost;
 }
 
 int T_CostFor(turnaction_t action)
