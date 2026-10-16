@@ -2066,67 +2066,25 @@ int T_XPForLevel(int level)
 
 void T_GainXP(int amount)
 {
-    int threshold;
-    if (amount <= 0)
-        return;
-    t_profile.xp += amount;
-    // Level up while XP meets the next threshold.
-    while (1)
-    {
-        threshold = T_XPForLevel(t_profile.level + 1);
-        if (t_profile.xp < threshold)
-            break;
-        t_profile.level++;
-        t_profile.stat_points += 2; // 2 points per level
-        printf("[TURN] LEVEL UP! Now level %d (+2 stat points)\n",
-               t_profile.level);
-        players[consoleplayer].message = "LEVEL UP! +2 stat points";
-    }
+    // XP/leveling scrapped: progression is purely equipment-based.
+    (void)amount;
+    return;
 }
 
 void T_AddStatPoint(const char *stat)
 {
-    player_t *pl = &players[consoleplayer];
-    if (t_profile.stat_points <= 0)
-    {
-        printf("[TURN] no stat points to spend\n");
-        return;
-    }
-    if (!strcmp(stat, "str"))
-        pl->diablo_stats[DSTAT_STR]++;
-    else if (!strcmp(stat, "dex"))
-        pl->diablo_stats[DSTAT_DEX]++;
-    else if (!strcmp(stat, "vit"))
-    {
-        pl->diablo_stats[DSTAT_VIT]++;
-        // Max HP is derived via D_MaxHealth() (+5 per VIT).
-        // Heal the 5 HP gained.
-        pl->health += 5;
-        if (pl->mo)
-            pl->mo->health = pl->health;
-    }
-    else if (!strcmp(stat, "ene"))
-        pl->diablo_stats[DSTAT_ENE]++;
-    else
-    {
-        printf("[TURN] unknown stat '%s' (use str/dex/vit/ene)\n", stat);
-        return;
-    }
-    t_profile.stat_points--;
-    // Re-derive? diablo_stats are the base; D_RecalcStats would wipe them.
-    // For Phase 8, stat points directly increment the aggregated stats.
-    // (A full implementation would store base stats separately.)
-    printf("[TURN] +1 %s (%d points left)\n", stat, t_profile.stat_points);
+    // Stat points scrapped: progression is purely equipment-based.
+    (void)stat;
+    printf("[TURN] stat points disabled (equipment-based progression)\n");
+    return;
 }
 
 void T_CountKill(mobj_t *target)
 {
-    int xp = 10;
     t_profile.lifetime_kills++;
-    // XP by target max health (tougher = more XP).
-    if (target && target->info)
-        xp = 10 + target->info->spawnhealth / 10;
-    T_GainXP(xp);
+    // XP/leveling scrapped: progression is purely equipment-based.
+    // (t_profile.xp/level/stat_points retained in struct for save compat,
+    // but no longer used.)
 }
 
 // ------------------------------------------------------------------
