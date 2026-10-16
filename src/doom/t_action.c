@@ -816,23 +816,17 @@ void T_DoEndTurn(void)
 
     if (turnctrl.queue_len == 0)
     {
-        // Empty queue: run a short 1-second progress phase to let the
+        // Empty queue: run a short 0.5s settle phase to let the
         // game breathe, then back to planning. This ensures T always
         // does something visible.
         turnctrl.executing = true;
-        turnctrl.progress_tics = 35; // 1 second
-        T_BeginPulse(35, false, false);
+        T_BeginPulse(18, false, false);
         players[consoleplayer].message = "Waiting...";
     }
     else
     {
         player_t *player = &players[consoleplayer];
         turnctrl.executing = true;
-        // Progress phase duration: 1 second (35 tics) per queued command,
-        // capped at 5 seconds (175 tics).
-        turnctrl.progress_tics = turnctrl.queue_len * 35;
-        if (turnctrl.progress_tics > 175)
-            turnctrl.progress_tics = 175;
         // First-person replay: teleport back to the turn start, then
         // replay the queue. Unlink/relink the mobj so the sector link
         // stays valid for P_TryMove during the replay.
@@ -922,11 +916,9 @@ void T_ExecuteNext(void)
         if (T_ExecuteOne())
             return; // T_EndPulse resumes the drain
     }
-    // Queue drained: start the progress phase. The game runs unfrozen
-    // for a duration based on the number of commands, letting attacks
-    // play out in real-time. Input stays blocked.
-    // (No enemy phase — enemies act during the progress phase.)
-    T_BeginPulse(turnctrl.progress_tics, false, false);
+    // Queue drained: run a short 0.5s (18 tics) settle phase to let
+    // attacks play out, then exit to planning/explore.
+    T_BeginPulse(18, false, false);
     players[consoleplayer].message = "Executing...";
 }
 
