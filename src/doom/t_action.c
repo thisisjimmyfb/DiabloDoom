@@ -824,7 +824,7 @@ void T_DoEndTurn(void)
         T_KitRegenAmmo();
         T_KitTickCooldowns();
         T_BeginPulse(18, false, false);
-        // No message: the unfrozen world is the feedback.
+        players[consoleplayer].message = "Waiting...";
     }
     else
     {
@@ -934,8 +934,8 @@ void T_ExecuteNext(void)
     }
     // Queue drained: run a short 0.5s (18 tics) settle phase to let
     // attacks play out, then exit to planning/explore.
-    // No message: the unfrozen world is the feedback.
     T_BeginPulse(18, false, false);
+    players[consoleplayer].message = "Executing...";
 }
 
 // ------------------------------------------------------------------

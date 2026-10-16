@@ -1376,7 +1376,7 @@ void T_SpawnFloatText(mobj_t *mo, const char *text)
     }
     t_floattexts[oldest].mo = mo;
     M_snprintf(t_floattexts[oldest].text, sizeof(t_floattexts[oldest].text), "%s", text);
-    t_floattexts[oldest].tics = 18; // 0.5 second
+    t_floattexts[oldest].tics = 70; // 2 seconds (survives queue drain)
 }
 
 void T_TickFloatText(void)
@@ -1621,25 +1621,9 @@ static void T_DrawActionList(int start_y)
         T_DrawActionRow(x, &y, "CTRL", "TARGET", TA_ATTACK, cost);
     }
     T_DrawActionRow(x, &y, "BKSP", "UNDO", TA_UNDO, "FREE");
-    // The exit: divider, then END TURN with a background box so it
-    // reads as the way out, not just another action.
+    // The exit: END TURN as a simple action row, consistent with the rest.
     // (C inventory is hidden from the menu but still works during combat.)
-    if (y >= 8)
-        T_DrawTextDim(x, y, "----------------");
-    y += 9;
-    {
-        char line[64];
-        int tw;
-        M_snprintf(line, sizeof(line), "%s %-8s %s", ">>T", "END TURN", "0TP<<");
-        tw = T_TextWidth(line);
-        if (y >= 8)
-        {
-            // Background box: dark fill with 2px padding.
-            V_DrawFilledBox(x - 2, y - 1, tw + 4, 10, 0);
-            T_DrawTextHi(x, y, line);
-        }
-        y += 9;
-    }
+    T_DrawActionRow(x, &y, "T", "END TURN", TA_END_TURN, "0TP");
 }
 
 // Queued-action panel: FIFO order with per-action costs and the total
@@ -1765,34 +1749,9 @@ void T_DrawHUD(void)
         T_DrawPlanningUI();
     }
 
-    // Target markers: stable numbers projected above each visible enemy.
-    // The selected target is unmistakable: bright highlight gold with
-    // chevron brackets, centered over the enemy. Non-selected targets
-    // are subdued dim gold numbers. Non-combatants (barrels) get no
-    // marker — they don't trigger combat presence.
-    for (i = 0; i < t_numtargets; i++)
-    {
-        mobj_t *mo = t_targets[i];
-        int sx, sy;
-        if (mo == NULL || mo->health <= 0)
-            continue;
-        if (!T_IsCombatant(mo))
-            continue;
-        if (!T_ProjectTarget(mo, &sx, &sy))
-            continue;
-        if (sx < 0 || sx > 312 || sy < 0 || sy > 192)
-            continue;
-        if (i == turnctrl.selected_target)
-        {
-            M_snprintf(line, sizeof(line), ">[%d]<", i + 1);
-            T_DrawTextHi(sx - T_TextWidth(line) / 2, sy, line);
-        }
-        else
-        {
-            M_snprintf(line, sizeof(line), "%d", i + 1);
-            T_DrawTextDim(sx - T_TextWidth(line) / 2, sy, line);
-        }
-    }
+    // Target markers removed: no floating numbers on enemy heads.
+    // (Targeting is via Ctrl hold/release; the target list on the
+    // right side shows options during targeting.)
 
     // Floating combat text (MISS, damage numbers, etc.).
     T_DrawFloatText();
