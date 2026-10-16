@@ -113,8 +113,8 @@ fight starts). The player merely *seeing* an enemy only drives the HUD
 target markers; it never starts combat. The HUD flips to
 `TURN MODE - ROUND 1` with a "X spots you!" callout, and the player plans
 with 10 TP. Enemies that acquired the player but are not visible get an
-"X is hunting you!" telegraph before the first enemy phase. When the
-enemy phase ends with no visible combatants left, the game returns to
+"X is hunting you!" telegraph before the first progress phase. When the
+queue drains with no combatants left, the game returns to
 EXPLORE — and every monster forgets the player (targets and stale
 gunshot noise are cleared), so the next encounter starts from a clean
 detection state.
@@ -125,10 +125,14 @@ props with no attack are **not** combatants: they never trigger combat,
 never get numbered markers, never telegraph. They remain in the Tab
 target list so the player can still shoot them deliberately.
 
+**Voluntary fights:** hold Ctrl in explore mode to enter mini-combat
+targeting — a single-turn attack on a barrel, prop, or enemy without
+starting a full fight.
+
 **Design intent:** the Diablo farm loop (walk room to room, grab loot,
 build the character) stays frictionless; the XCOM tactical layer appears
 only when an enemy spots the player. Combat entry is on acquisition,
-combat exit is on clear (no visible combatants at round end).
+combat exit is on clear (no combatants left when the queue drains).
 
 ---
 
@@ -169,11 +173,17 @@ through a bounded simulation pulse.
    the total reserved TP. Unaffordable actions are dimmed and cannot be
    queued. Backspace removes the last entry (refunds TP); Z clears the
    whole queue (refunds all TP).
-4. **Execute** — END TURN teleports the camera back to the turn start,
-   then replays the queue FIFO in first-person at 3 tics per action
-   (tick-driven, not instant): each entry runs with its normal settle
-   behavior, then the enemy phase runs. An empty queue skips straight
-   to the enemy phase.
+4. **Progress** — Enter (or T) unfreezes the world into the *progress
+   phase*: the queue drains FIFO in real time while the game runs —
+   enemies move, shoot, and die around the player. There is no enemy
+   phase; the player's queued commands simply play out inside the
+   running game. The queue panel stays visible, entries popping off as
+   they execute. When the queue is empty, a fixed 0.5 s (18-tic) settle
+   runs, then the game returns to planning — or to explore, if no
+   combatants remain. END TURN still teleports the camera back to the
+   turn start first. T with an empty queue still runs a brief
+   progress/settle phase, so it always advances the game. Dying clears
+   the queue immediately and ends the phase; the death flow takes over.
 5. **Preview** — during planning, the first-person camera follows queued
    moves (no game logic, just the view), so the player sees where the
    queue goes before committing. UNDO steps the camera back; Z clears
@@ -187,6 +197,7 @@ through a bounded simulation pulse.
   refunds its TP, and the drain continues.
 - Blocked movement retains partial-progress behavior.
 - Input locks while the queue drains.
+- Dying clears the queue immediately and ends the progress phase.
 
 **Resolution rule:** An attack auto-faces its snapshotted target at
 execution; steps are facing-relative (W/S forward/back, A/D strafe) and
@@ -472,9 +483,10 @@ plus a brief kill flash. The queue drain resumes when the beat ends.
 
 - `Tab` / `]` next target, `[` previous, number keys select directly.
 - ATTACK shows hit chance, damage, TP cost, range, cover, target HP.
-- Confirm enqueues the attack and reserves its TP; it executes FIFO on
-  END TURN, auto-facing the snapshotted target. Cancel returns to
-  selection for free. Selection never advances time.
+- Confirm enqueues the attack and reserves its TP; it executes FIFO when
+  the progress phase starts (Enter/T), auto-facing the snapshotted target.
+  Cancel returns to selection for free. Selection never advances time.
+  In CONFIRM state, Enter still confirms the attack.
 - If the enemy becomes invalid before commitment, the action cancels
   without reserving TP. If it becomes invalid before execution, the
   queued attack skips gracefully and refunds its TP.
@@ -494,6 +506,21 @@ no world cursor or ground coordinate.
 behavior and visible telegraphs. Newly alerted enemies show a state change
 before attacking; unseen enemies get no free shots.
 
+### Hit resolution
+
+Vanilla Doom has no miss chance; the hit formula is a Diablo-style
+addition.
+
+- **Hit chance** = accuracy − distance penalty − cover penalty, clamped
+  5–95%. Distance bands: −10 / −20 / −30 beyond 192 / 384 / 576 map
+  units — pistols are exempt from the distance penalty. Cover: −10 for
+  one blocked trace, −25 for two; three blocked traces is full blockage
+  and the target is not legal.
+- A d100 roll decides each hit; every shotgun pellet rolls separately.
+- A miss shows a floating `MISS` above the enemy for 2 s (long enough to
+  survive the queue drain). Floating target numbers on enemy heads were
+  removed.
+
 ---
 
 ## Engine plan
@@ -511,9 +538,10 @@ One rules layer owns time, input, and resolution. Do **not** scatter
 | Presentation      | HUD markers, target list, preview, weapon state, turn log, audio — reads controller state | No rules in UI |
 | Persistence       | Doom saves own map + turn state; separate versioned character profile owns identity/progression | Atomic write + clean migration |
 
-**State machine:** PLANNING → TARGETING → CONFIRM → PULSE → (REACTION) →
-ROUND END. Targeting and confirmation are reversible; TP is spent only
-when a valid action enters PULSE.
+**State machine:** PLANNING → TARGETING → CONFIRM → PULSE → PLANNING
+(or EXPLORE when no combatants remain). Targeting and confirmation are
+reversible; TP is reserved when an action is queued. There is no enemy
+phase — monsters act in real time while the queue drains in PULSE.
 
 **Compatibility:** real-time play bypasses the controller via the stock
 tic path. Turn mode disables demo recording/playback and netplay with a

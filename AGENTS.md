@@ -72,7 +72,7 @@ sends `SCREENSHOT`, collects the PNG, and upscales 3x nearest-neighbor to
    arc, or hearing a shot for non-deaf monsters — mirroring vanilla
    `A_Look` minus movement/attacks. The player merely seeing an enemy
    only drives the HUD markers. Unseen-but-acquired enemies telegraph
-   ("X is hunting you!") before the first enemy phase. Leaving combat
+   ("X is hunting you!") before the first progress phase. Leaving combat
    clears every monster's target and stale sector noise, so the next
    encounter starts clean. No visible combatants at round end returns to
    explore mode. Barrels never trigger combat but stay in the Tab target list.
@@ -181,11 +181,11 @@ turn based combat mode (queued actions, FIFO — combat only, triggered by an en
 AI acquiring the player): W/S step forward/back, A/D strafe
 (1 TP, never change facing) · left/right arrows turn view 45° (free,
 immediate, never queued) · SPACE use (free) ·
-Hold CTRL to target (arrows navigate, camera snaps to target, release to fire; 0 TP ranged, TP by attack speed melee) · T end turn (drains
-queue FIFO, then enemy phase) · Backspace undo last queued action
+Hold CTRL to target (arrows navigate, camera snaps to target, release to fire; 0 TP ranged, TP by attack speed melee; in explore mode Ctrl starts mini-combat targeting for voluntary attacks on barrels/props/enemies) · Enter/T end turn (unfreeze into the progress phase: the queue drains FIFO in real time while the game runs — no enemy phase — then a fixed 18-tic settle, back to planning or explore; Enter still confirms the attack in CONFIRM state; T with an empty queue still runs a brief progress/settle phase) · Backspace undo last queued action
 (free, refunds TP) · C inventory
 (free, always available in rounds) · Tab / [
 / ] / 1-9 target selection (free) · G auto-loot nearest (turn mode only;
 disabled in explore) · Esc cancel. Planning actions
-enqueue and reserve TP; END TURN executes. There is no WAIT and no
+enqueue and reserve TP; dying clears the queue and ends the progress
+phase. There is no WAIT and no
 HEADSHOT; crits come from gear, not dexterity.
