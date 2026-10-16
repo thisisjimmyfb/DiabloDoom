@@ -2,9 +2,18 @@
 
 You play DiabloDoom by looking at screenshots and deciding actions. Latency is not a concern — take your time to make smart decisions.
 
-**Strategy guide**: Read `~/workspace/DiabloDoom/scripts/PROMPT.md` for the full gameplay strategy (combat tactics, exploration priorities, monster guide, loot rules). That file is the public strategy document — follow it.
+**Strategy guide**: Read `~/workspace/DiabloDoom/scripts/PROMPT.md` for the full gameplay strategy (combat tactics, exploration priorities, loot rules). That file is the public strategy document — follow it.
 
 This file covers the system-specific mechanics: how to launch the game, send commands, capture screenshots, and report.
+
+## How the Agent Sees the Game
+
+Each decision starts with a fresh screenshot. Assess:
+- **HUD**: health %, ammo, current state (EXPLORE banner vs turn-based COMBAT UI)
+- **3D view**: facing a wall? Open area? Doorway? Enemy visible?
+- **Loot**: is there a "press G to loot" prompt? Visible pickups on the ground?
+
+**Decision cadence**: A fresh screenshot every ~5 seconds. The game state changes fast in combat, so stale visual input leads to bad decisions.
 
 ## Setup
 

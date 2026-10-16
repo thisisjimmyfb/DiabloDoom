@@ -10,15 +10,6 @@ DiabloDoom combines Doom's first-person shooting with Diablo's loot system and t
 
 Play well — explore the level, engage enemies in turn-based combat, pick up loot. Play like a competent player, not a bot grinding a specific drop.
 
-## How the Agent Sees the Game
-
-Each decision starts with a fresh screenshot. The agent assesses:
-- **HUD**: health %, ammo, current state (EXPLORE banner vs turn-based COMBAT UI)
-- **3D view**: facing a wall? Open area? Doorway? Enemy visible?
-- **Loot**: is there a "press G to loot" prompt? Visible pickups on the ground?
-
-**Decision cadence**: A fresh screenshot every ~5 seconds. The game state changes fast in combat, so stale visual input leads to bad decisions.
-
 ## Combat Strategy
 
 When the turn-based UI is visible (TURN MODE banner):
