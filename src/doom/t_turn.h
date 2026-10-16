@@ -118,6 +118,10 @@ typedef struct
     // Mini-combat: hold-Ctrl in explore mode enters a single-turn combat
     // for barrels/props. No enemy phase if no AI enemies.
     boolean mini_combat;
+    // Continuous-weapon target lock: chainsaw/chaingun/plasma lock onto
+    // a target and keep firing until it dies or the player switches
+    // targets. Movement does not break the lock.
+    mobj_t *locked_target;
 } turnctrl_t;
 
 extern turnctrl_t turnctrl;
@@ -222,6 +226,8 @@ void T_TelegraphEnemies(void);  // Phase 6: warn of acquired-but-unseen enemies
 int T_CostFor(turnaction_t action);   // TP cost; selection/cancel = 0
 boolean T_CanAfford(turnaction_t action);
 int T_AttackCost(void);              // derived from attack speed (ph4/5)
+boolean T_IsContinuousWeapon(weapontype_t weapon); // chainsaw/chaingun/plasma
+void T_AutoFireLocked(void);       // auto-queue locked target attack
 void T_SpendTP(int cost);
 // Infinite-ammo invariant: turn mode never tracks ammo.
 void T_TopUpAmmo(void);

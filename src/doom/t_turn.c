@@ -640,6 +640,10 @@ static void T_EndPulse(void)
         }
         else
         {
+            // Continuous-weapon target lock: auto-queue an attack if the
+            // locked target is still alive. The player is free to move;
+            // the weapon keeps firing.
+            T_AutoFireLocked();
             static char msg[96];
             if (T_LootAvailable())
                 M_snprintf(msg, sizeof(msg), "Round %d - LOOT AVAILABLE! Press G.",

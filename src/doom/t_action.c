@@ -49,6 +49,44 @@ int T_AttackCost(void)
     return 0;
 }
 
+// Forward declaration: defined below.
+static boolean T_Enqueue(turnaction_t action, int cost, angle_t moveangle,
+                         mobj_t *target);
+
+// Continuous weapons (chainsaw, chaingun, plasma) lock onto a target
+// and keep firing until it dies or the player switches targets.
+boolean T_IsContinuousWeapon(weapontype_t weapon)
+{
+    return weapon == wp_chainsaw || weapon == wp_chaingun
+        || weapon == wp_plasma;
+}
+
+// Continuous-weapon target lock: auto-queue an attack if the locked
+// target is still alive. Called at the start of each player turn.
+// The player is free to move; the weapon keeps firing.
+void T_AutoFireLocked(void)
+{
+    mobj_t *lt;
+    player_t *pl;
+    if (!T_Active())
+        return;
+    if (turnctrl.locked_target == NULL)
+        return;
+    lt = turnctrl.locked_target;
+    pl = &players[consoleplayer];
+    if (lt->health <= 0 || !(lt->flags & MF_SHOOTABLE))
+    {
+        // Target died: clear the lock.
+        turnctrl.locked_target = NULL;
+        return;
+    }
+    if (T_IsContinuousWeapon(pl->readyweapon)
+        && T_HasAmmoForKit(pl->readyweapon))
+    {
+        T_Enqueue(TA_ATTACK, 0, 0, lt);
+    }
+}
+
 int T_CostFor(turnaction_t action)
 {
     switch (action)
@@ -983,6 +1021,8 @@ void T_StartCtrlTargeting(void)
         return;
     if (!T_ActorAlive())
         return;
+    // Switching targets breaks the continuous-weapon lock.
+    turnctrl.locked_target = NULL;
     // Mini-combat: allow hold-Ctrl in explore mode for barrels/props.
     if (turnctrl.state == TS_EXPLORE)
     {
@@ -1280,6 +1320,10 @@ void T_DoAttack(void)
     // turn-based combat math. The selection is consumed: back to
     // planning so more actions can be queued.
     T_Enqueue(TA_ATTACK, T_CostFor(TA_ATTACK), 0, target);
+    // Continuous weapons lock onto the target: keep firing until it
+    // dies or the player switches targets. Movement does not break it.
+    if (T_IsContinuousWeapon(player->readyweapon))
+        turnctrl.locked_target = target;
     turnctrl.selected_target = -1;
     turnctrl.state = TS_PLANNING;
 }
