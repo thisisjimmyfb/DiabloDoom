@@ -33,6 +33,7 @@
 #include "m_random.h"
 #include "p_local.h"
 #include "t_combat.h"
+#include "w_wad.h"
 
 // Shorthand for the long positional initializers below.
 // Fields: name, tier, slot, grid_w, grid_h, consumable, usekind, heal,
@@ -530,6 +531,15 @@ void D_SyncDoomWeapon(struct player_s *pl)
             D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
         if (def && def->doomweapon >= 0 && def->doomweapon < NUMWEAPONS)
             w = def->doomweapon;
+    }
+
+    // Fallback: if the WAD lacks this weapon's sprites (e.g. super shotgun
+    // in Doom 1 WADs), fall back to pistol to avoid R_ProjectSprite crashes.
+    if (w == wp_supershotgun)
+    {
+        // Check if SHT2A0 exists in the WAD
+        if (W_CheckNumForName("SHT2A0") < 0)
+            w = wp_pistol; // Doom 1 WAD: no SSG sprites, use pistol
     }
 
     player->weaponowned[w] = true;

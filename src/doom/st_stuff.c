@@ -1027,8 +1027,9 @@ static void STWepDrawIcon(int x, int y, int box, const unsigned char *icon)
     }
 }
 
-// Draw the pistol sprite (PISGA0) scaled to fit a box, for when no
-// Diablo weapon is equipped (the game defaults to pistol when unarmed).
+// Draw the pistol sprite (PISGB0 - firing frame) scaled to fit a box,
+// for when no Diablo weapon is equipped (the game defaults to pistol
+// when unarmed).
 static void STWepDrawPistolSprite(int x, int y, int box)
 {
     patch_t *p;
@@ -1042,7 +1043,7 @@ static void STWepDrawPistolSprite(int x, int y, int box)
     byte *post_data;
     int found;
 
-    p = W_CacheLumpName("PISGA0", PU_CACHE);
+    p = W_CacheLumpName("PISGB0", PU_CACHE);
     if (!p)
         return;
 
