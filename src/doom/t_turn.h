@@ -122,6 +122,10 @@ typedef struct
     // a target and keep firing until it dies or the player switches
     // targets. Movement does not break the lock.
     mobj_t *locked_target;
+    // Progress phase: after the queue drains, the game runs unfrozen
+    // for a duration based on the number of commands, letting attacks
+    // and enemy reactions play out. Input is blocked during this.
+    int progress_tics;
 } turnctrl_t;
 
 extern turnctrl_t turnctrl;

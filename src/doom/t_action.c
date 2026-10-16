@@ -834,6 +834,8 @@ void T_DoEndTurn(void)
     {
         player_t *player = &players[consoleplayer];
         turnctrl.executing = true;
+        // Progress phase duration: 1 second (35 tics) per queued command.
+        turnctrl.progress_tics = turnctrl.queue_len * 35;
         // First-person replay: teleport back to the turn start, then
         // replay the queue. Unlink/relink the mobj so the sector link
         // stays valid for P_TryMove during the replay.
@@ -923,28 +925,12 @@ void T_ExecuteNext(void)
         if (T_ExecuteOne())
             return; // T_EndPulse resumes the drain
     }
-    // Fully drained: check if combat should end, else back to planning
-    // (no enemy phase — the game runs in real-time during execution,
-    // so enemies already acted).
-    turnctrl.executing = false;
-    T_RefreshTargets();
-    if (T_NumCombatants() == 0)
-    {
-        T_EnterExplore();
-    }
-    else
-    {
-        turnctrl.state = TS_PLANNING;
-        turnctrl.tp = turnctrl.tp_max;
-        turnctrl.round++;
-        // Reset for next planning phase.
-        if (players[consoleplayer].mo != NULL)
-        {
-            turnctrl.turn_start_x = players[consoleplayer].mo->x;
-            turnctrl.turn_start_y = players[consoleplayer].mo->y;
-            turnctrl.turn_start_angle = players[consoleplayer].mo->angle;
-        }
-    }
+    // Queue drained: start the progress phase. The game runs unfrozen
+    // for a duration based on the number of commands, letting attacks
+    // play out in real-time. Input stays blocked.
+    // (No enemy phase — enemies act during the progress phase.)
+    T_BeginPulse(turnctrl.progress_tics, false, false);
+    players[consoleplayer].message = "Executing...";
 }
 
 // ------------------------------------------------------------------

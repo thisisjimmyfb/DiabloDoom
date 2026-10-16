@@ -653,9 +653,35 @@ static void T_EndPulse(void)
     }
     else if (turnctrl.executing)
     {
-        // Queue drain: run the next entry; when the queue is fully
-        // drained T_ExecuteNext starts the enemy phase itself.
-        T_ExecuteNext();
+        // During queue execution: if the queue still has entries, continue
+        // draining. If empty, this is the end of the progress phase —
+        // back to planning (or explore if no combatants).
+        if (turnctrl.queue_len > 0)
+        {
+            T_ExecuteNext();
+        }
+        else
+        {
+            turnctrl.executing = false;
+            T_RefreshTargets();
+            if (T_NumCombatants() == 0)
+            {
+                T_EnterExplore();
+            }
+            else
+            {
+                turnctrl.state = TS_PLANNING;
+                turnctrl.tp = turnctrl.tp_max;
+                turnctrl.round++;
+                if (players[consoleplayer].mo != NULL)
+                {
+                    turnctrl.turn_start_x = players[consoleplayer].mo->x;
+                    turnctrl.turn_start_y = players[consoleplayer].mo->y;
+                    turnctrl.turn_start_angle = players[consoleplayer].mo->angle;
+                }
+                T_AutoFireLocked();
+            }
+        }
     }
     else
     {
