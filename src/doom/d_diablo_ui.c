@@ -482,7 +482,7 @@ static void UILeftClick(void)
                 UIMsg("That item doesn't fit there.");
                 return;
             }
-            // Shield: block if two-handed weapon equipped.
+            // Shield: unequip the two-handed weapon to cursor.
             if (slot == ESLOT_SHIELD)
             {
                 int weap_id = player->diablo_equipped[ESLOT_WEAPON];
@@ -492,7 +492,14 @@ static void UILeftClick(void)
                         D_ITEMTIER(weap_id), D_ITEMIDX(weap_id));
                     if (wdef && D_IsTwoHandedWeapon(wdef->doomweapon))
                     {
-                        UIMsg("Two-handed weapon equipped.");
+                        int shield_held = ui_held;
+                        UIMsg("Two-handed weapon unequipped.");
+                        player->diablo_equipped[ESLOT_WEAPON] = D_NOITEM;
+                        // Equip shield, weapon goes to cursor.
+                        player->diablo_equipped[slot] = shield_held;
+                        ui_held = weap_id;
+                        ui_held_from = -1;
+                        D_RecalcStats((struct player_s *)player);
                         return;
                     }
                 }

@@ -963,18 +963,28 @@ int D_EquipToSlot(struct player_s *pl, int id, int slot)
             player->diablo_equipped[ESLOT_SHIELD] = D_NOITEM;
         }
     }
-    // Shield: cannot equip while a two-handed weapon is equipped.
+    // Shield: unequip the two-handed weapon first (stash in backpack).
     if (slot == ESLOT_SHIELD)
     {
         int weap_id = player->diablo_equipped[ESLOT_WEAPON];
         if (weap_id != D_NOITEM)
         {
             const diablo_itemdef_t *wdef;
+            int gx, gy;
             wdef = D_GetItemDef(D_ITEMTIER(weap_id), D_ITEMIDX(weap_id));
             if (wdef && D_IsTwoHandedWeapon(wdef->doomweapon))
             {
-                // TODO: UIMsg not available here; caller should check.
-                return D_NOITEM;
+                if (player->diablo_bp_count >= D_BACKPACK_SIZE
+                 || !D_GridFindSpace(pl, wdef->grid_w, wdef->grid_h, &gx, &gy))
+                {
+                    D_BackpackFullMsg(pl);
+                    return D_NOITEM;
+                }
+                player->diablo_backpack[player->diablo_bp_count] = weap_id;
+                player->diablo_bp_gx[player->diablo_bp_count] = gx;
+                player->diablo_bp_gy[player->diablo_bp_count] = gy;
+                player->diablo_bp_count++;
+                player->diablo_equipped[ESLOT_WEAPON] = D_NOITEM;
             }
         }
     }
