@@ -203,12 +203,16 @@ int T_HitChance(player_t *player, mobj_t *target, const t_combatstats_t *st)
     chance = st->accuracy;
 
     // Range bands: close is best, long range falls off.
-    if (dist > 576)
-        chance -= 30;
-    else if (dist > 384)
-        chance -= 20;
-    else if (dist > 192)
-        chance -= 10;
+    // Pistols are exempt (already weak, no range penalty).
+    if (player->readyweapon != wp_pistol)
+    {
+        if (dist > 576)
+            chance -= 30;
+        else if (dist > 384)
+            chance -= 20;
+        else if (dist > 192)
+            chance -= 10;
+    }
 
     // Cover (multi-point): 1 blocked = -10, 2 blocked = -25.
     // 3 blocked = full blockage (handled in T_RefreshTargets; target
