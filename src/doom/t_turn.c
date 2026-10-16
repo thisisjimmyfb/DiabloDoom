@@ -1339,7 +1339,7 @@ void T_SpawnFloatText(mobj_t *mo, const char *text)
     }
     t_floattexts[oldest].mo = mo;
     M_snprintf(t_floattexts[oldest].text, sizeof(t_floattexts[oldest].text), "%s", text);
-    t_floattexts[oldest].tics = 35; // 1 second
+    t_floattexts[oldest].tics = 18; // 0.5 second
 }
 
 void T_TickFloatText(void)
@@ -1367,8 +1367,8 @@ void T_DrawFloatText(void)
         // if tics are fresh (< 35, i.e. spawned this second).
         if (!T_ProjectTarget(t_floattexts[i].mo, &sx, &sy))
             continue;
-        // Rise as it fades: offset up by (35 - tics) / 2 pixels.
-        sy -= (35 - t_floattexts[i].tics) / 2;
+        // Rise as it fades: offset up by (18 - tics) / 2 pixels.
+        sy -= (18 - t_floattexts[i].tics) / 2;
         T_DrawTextHi(sx - T_TextWidth(t_floattexts[i].text) / 2, sy,
                      t_floattexts[i].text);
     }
