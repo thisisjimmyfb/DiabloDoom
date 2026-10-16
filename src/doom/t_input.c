@@ -124,15 +124,28 @@ boolean T_Responder(event_t *ev)
               case 't': case 'T':
                 // No turn to end outside combat.
                 return true;
-              case KEY_RCTRL:
               case KEY_TAB: case ']': case '[':
                 // Targeting/attack need combat; ignore in explore.
                 return true;
+              case KEY_RCTRL:
+                // Hold-Ctrl in explore: fall through to the main handler
+                // to start mini-combat targeting.
+                break;
               default:
                 return false; // movement, C/E/Q pass through
             }
+            // Ctrl in explore: continue to the main turn handler below.
+            if (ev->data1 != KEY_RCTRL)
+                return false; // key releases pass through
         }
-        return false; // key releases pass through
+        else
+        {
+            // Ctrl release in explore: let the main handler confirm
+            // mini-combat targeting (don't return early).
+            // Other releases pass through.
+            if (!(ev->data1 == KEY_RCTRL && turnctrl.ctrl_targeting))
+                return false;
+        }
     }
 
     // No analog input in turn mode: swallow mouse and joystick gameplay
