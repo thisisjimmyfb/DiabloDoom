@@ -92,7 +92,7 @@ int T_CostFor(turnaction_t action)
         return 3;
       case TA_POTION: // consumable use cost lands with the Diablo bridge
         return 2;
-      case TA_SELECT_NEXT: case TA_SELECT_PREV: case TA_SELECT_NUM:
+      case TA_SELECT_NUM:
       case TA_CANCEL:
       case TA_END_TURN:
       case TA_NONE:

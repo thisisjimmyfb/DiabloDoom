@@ -1552,13 +1552,12 @@ static void T_KitGateStr(weapontype_t w, char *buf, int bufsz)
 static void T_DrawActionList(void)
 {
     char cost[16];
-    int x = 8, y = 26;
+    int x = 8, y = 18;
     player_t *pl = &players[consoleplayer];
 
     T_DrawActionRow(x, &y, "WASD", "MOVE/STRF", TA_MOVE_N, "1TP");
     T_DrawActionRow(x, &y, "<>", "TURN", TA_TURN_L, "FREE");
     T_DrawActionRow(x, &y, "SPC", "USE", TA_USE, "FREE");
-    T_DrawActionRow(x, &y, "TAB", "TARGET", TA_SELECT_NEXT, "FREE");
     if (!T_KitCanFire(pl->readyweapon))
     {
         // Gated: show the specific gate, not a generic "CD".
@@ -1585,12 +1584,17 @@ static void T_DrawActionList(void)
     // round (free, immediate). It owns all input while open; the turn
     // controller simply waits in PLANNING.
     T_DrawActionRow(x, &y, "C", "INVEN", TA_NONE, "FREE");
-    // The exit: divider, then END TURN bracketed in highlight gold.
+    // The exit: divider, then END TURN with a background box so it
+    // reads as the way out, not just another action.
     T_DrawTextDim(x, y, "----------------");
     y += 9;
     {
         char line[64];
+        int tw;
         M_snprintf(line, sizeof(line), "%s %-8s %s", ">>T", "END TURN", "0TP<<");
+        tw = T_TextWidth(line);
+        // Background box: dark fill with 2px padding.
+        V_DrawFilledBox(x - 2, y - 1, tw + 4, 10, 0);
         T_DrawTextHi(x, y, line);
         y += 9;
     }

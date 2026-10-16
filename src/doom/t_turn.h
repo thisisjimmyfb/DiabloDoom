@@ -47,7 +47,7 @@ typedef enum
     TA_NONE,
     TA_MOVE_N, TA_MOVE_S, TA_MOVE_E, TA_MOVE_W,  // facing-relative steps
     TA_TURN_L, TA_TURN_R,  // free view turn (arrow keys), 0 TP
-    TA_SELECT_NEXT, TA_SELECT_PREV, TA_SELECT_NUM,
+    TA_SELECT_NUM,
     TA_ATTACK,
     TA_ABILITY,        // weapon kit ability (phase 5)
     TA_USE,
