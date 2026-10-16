@@ -1507,7 +1507,7 @@ static boolean T_ActionEnabled(turnaction_t action)
     if (action == TA_ATTACK)
         return T_CanAfford(TA_ATTACK)
             && T_KitCanFire(players[consoleplayer].readyweapon);
-    if (action == TA_UNDO || action == TA_CLEAR_QUEUE)
+    if (action == TA_UNDO)
         return turnctrl.queue_len > 0;
     return T_CanAfford(action);
 }
@@ -1557,7 +1557,7 @@ static void T_DrawActionList(void)
 
     T_DrawActionRow(x, &y, "WASD", "MOVE/STRF", TA_MOVE_N, "1TP");
     T_DrawActionRow(x, &y, "<>", "TURN", TA_TURN_L, "FREE");
-    T_DrawActionRow(x, &y, "SPC", "USE", TA_USE, "2TP");
+    T_DrawActionRow(x, &y, "SPC", "USE", TA_USE, "FREE");
     T_DrawActionRow(x, &y, "TAB", "TARGET", TA_SELECT_NEXT, "FREE");
     if (!T_KitCanFire(pl->readyweapon))
     {
@@ -1581,7 +1581,6 @@ static void T_DrawActionList(void)
         T_DrawActionRow(x, &y, "CTRL", "TARGET", TA_ATTACK, cost);
     }
     T_DrawActionRow(x, &y, "BKSP", "UNDO", TA_UNDO, "FREE");
-    T_DrawActionRow(x, &y, "Z", "CLEARQ", TA_CLEAR_QUEUE, "FREE");
     // The Diablo inventory/character screen is always available during a
     // round (free, immediate). It owns all input while open; the turn
     // controller simply waits in PLANNING.

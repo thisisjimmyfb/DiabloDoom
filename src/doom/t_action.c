@@ -82,7 +82,7 @@ int T_CostFor(turnaction_t action)
       case TA_MOVE_N: case TA_MOVE_S: case TA_MOVE_E: case TA_MOVE_W:
         return 1;
       case TA_USE:
-        return 2;
+        return 0;
       case TA_ATTACK:
         return T_AttackCost();
       case TA_TURN_L: case TA_TURN_R:
