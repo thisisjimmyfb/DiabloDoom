@@ -1615,13 +1615,12 @@ static void T_DrawActionList(int start_y)
 }
 
 // Queued-action panel: FIFO order with per-action costs and the total
-// reserved TP. Drawn at the top while planning (and while targeting,
-// so the queue stays visible). Hidden when empty. The action menu
-// draws below it and scrolls off as the queue grows.
+// reserved TP. Drawn below the action list while planning (and while
+// targeting, so the queue stays visible). Hidden when empty.
 static int T_DrawQueuePanel(void)
 {
     char line[64], name[48];
-    int x = 8, y = 18, i, shown;
+    int x = 8, y = 122, i, shown;
 
     if (turnctrl.queue_len == 0)
         return y;
@@ -1702,11 +1701,7 @@ void T_DrawHUD(void)
     else if (turnctrl.state == TS_PULSE)
         T_DrawTextCentered(12, "RESOLVING");
     else if (turnctrl.state == TS_PLANNING)
-    {
-        // Queue first (top), menu below it. Menu scrolls off as queue grows.
-        int menu_y = T_DrawQueuePanel();
-        T_DrawActionList(menu_y);
-    }
+        T_DrawActionList(18);
     else
     {
         // TARGETING / CONFIRM: the always-legal outs stay visible.
@@ -1714,9 +1709,11 @@ void T_DrawHUD(void)
         // border-zone pixels every frame and keeps costs/disabled states
         // visible while targeting.
         T_DrawTextCentered(12, "T END TURN  BKSP UNDO  Z CLEAR  <> TURN  ESC BACK");
-        int menu_y = T_DrawQueuePanel();
-        T_DrawActionList(menu_y);
+        T_DrawActionList(18);
     }
+    // Queued-action panel below the menu: FIFO order, per-action costs,
+    // total reserved TP. As the queue grows, the menu scrolls up and out.
+    T_DrawQueuePanel();
 
     // Target markers: stable numbers projected above each visible enemy.
     // The selected target is unmistakable: bright highlight gold with
