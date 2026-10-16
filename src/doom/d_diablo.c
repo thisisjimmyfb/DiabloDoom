@@ -914,6 +914,16 @@ boolean D_SlotFits(int slot, const diablo_itemdef_t *def)
     return def->slot == slot;
 }
 
+// Two-handed weapons: BFG, rocket launcher, chaingun, super shotgun.
+// They occupy both hands, so no shield can be equipped with them.
+boolean D_IsTwoHandedWeapon(int doomweapon)
+{
+    return doomweapon == wp_bfg
+        || doomweapon == wp_missile
+        || doomweapon == wp_chaingun
+        || doomweapon == wp_supershotgun;
+}
+
 // Equip an item id directly into a slot.  Ring items prefer the requested
 // slot, falling back to the other ring slot when taken.  Returns the
 // displaced item id, or D_NOITEM when the slot was empty.  The displaced
@@ -928,6 +938,46 @@ int D_EquipToSlot(struct player_s *pl, int id, int slot)
     def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
     if (!D_SlotFits(slot, def))
         return D_NOITEM;
+
+    // Two-handed weapon: equipping it unequips the shield.
+    if (slot == ESLOT_WEAPON && D_IsTwoHandedWeapon(def->doomweapon))
+    {
+        int shield_id = player->diablo_equipped[ESLOT_SHIELD];
+        if (shield_id != D_NOITEM)
+        {
+            const diablo_itemdef_t *sdef;
+            int gx, gy;
+            sdef = D_GetItemDef(D_ITEMTIER(shield_id), D_ITEMIDX(shield_id));
+            if (!sdef)
+                return D_NOITEM;
+            if (player->diablo_bp_count >= D_BACKPACK_SIZE
+             || !D_GridFindSpace(pl, sdef->grid_w, sdef->grid_h, &gx, &gy))
+            {
+                D_BackpackFullMsg(pl);
+                return D_NOITEM;
+            }
+            player->diablo_backpack[player->diablo_bp_count] = shield_id;
+            player->diablo_bp_gx[player->diablo_bp_count] = gx;
+            player->diablo_bp_gy[player->diablo_bp_count] = gy;
+            player->diablo_bp_count++;
+            player->diablo_equipped[ESLOT_SHIELD] = D_NOITEM;
+        }
+    }
+    // Shield: cannot equip while a two-handed weapon is equipped.
+    if (slot == ESLOT_SHIELD)
+    {
+        int weap_id = player->diablo_equipped[ESLOT_WEAPON];
+        if (weap_id != D_NOITEM)
+        {
+            const diablo_itemdef_t *wdef;
+            wdef = D_GetItemDef(D_ITEMTIER(weap_id), D_ITEMIDX(weap_id));
+            if (wdef && D_IsTwoHandedWeapon(wdef->doomweapon))
+            {
+                // TODO: UIMsg not available here; caller should check.
+                return D_NOITEM;
+            }
+        }
+    }
 
     // Rings: use the requested slot unless taken, then the other one.
     if (def->slot == ESLOT_RING1 && player->diablo_equipped[slot] != D_NOITEM)

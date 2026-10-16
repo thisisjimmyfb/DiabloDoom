@@ -199,6 +199,7 @@ void D_UseBackpackItem(struct player_s *player, int bpi);
 int D_EquipToSlot(struct player_s *player, int id, int slot);
 // True if the item def can go in the given equipment slot.
 boolean D_SlotFits(int slot, const diablo_itemdef_t *def);
+boolean D_IsTwoHandedWeapon(int doomweapon);
 
 // Combat stat hooks.
 int D_WeaponBonus(struct player_s *player);           // bonus damage

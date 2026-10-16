@@ -475,11 +475,44 @@ static void UILeftClick(void)
         if (ui_held != D_NOITEM)
         {
             int old;
+            int weapon_id;
             def = UIHeldDef();
             if (!D_SlotFits(slot, def))
             {
                 UIMsg("That item doesn't fit there.");
                 return;
+            }
+            // Shield: block if two-handed weapon equipped.
+            if (slot == ESLOT_SHIELD)
+            {
+                int weap_id = player->diablo_equipped[ESLOT_WEAPON];
+                if (weap_id != D_NOITEM)
+                {
+                    const diablo_itemdef_t *wdef = D_GetItemDef(
+                        D_ITEMTIER(weap_id), D_ITEMIDX(weap_id));
+                    if (wdef && D_IsTwoHandedWeapon(wdef->doomweapon))
+                    {
+                        UIMsg("Two-handed weapon equipped.");
+                        return;
+                    }
+                }
+            }
+            // Two-handed weapon: unequip shield to cursor.
+            weapon_id = ui_held;
+            if (slot == ESLOT_WEAPON && D_IsTwoHandedWeapon(def->doomweapon))
+            {
+                int shield_id = player->diablo_equipped[ESLOT_SHIELD];
+                if (shield_id != D_NOITEM)
+                {
+                    UIMsg("Two-handed: shield unequipped.");
+                    player->diablo_equipped[ESLOT_SHIELD] = D_NOITEM;
+                    // Equip weapon, shield goes to cursor.
+                    player->diablo_equipped[slot] = weapon_id;
+                    ui_held = shield_id;
+                    ui_held_from = -1;
+                    D_RecalcStats((struct player_s *)player);
+                    return;
+                }
             }
             // Equip; whatever was there lands on the cursor (swap).
             old = player->diablo_equipped[slot];
