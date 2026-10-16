@@ -1563,11 +1563,6 @@ static void T_DrawActionList(int start_y)
     int x = 8, y = start_y;
     player_t *pl = &players[consoleplayer];
 
-    // Scroll the menu up as the queue grows, so the queued commands
-    // stay visible. The menu is for newbies; veterans just need the queue.
-    // No cap: the whole menu can scroll off-screen.
-    y -= turnctrl.queue_len * 9;
-
     T_DrawActionRow(x, &y, "WASD", "MOVE/STRF", TA_MOVE_N, "1TP");
     T_DrawActionRow(x, &y, "<>", "TURN", TA_TURN_L, "FREE");
     T_DrawActionRow(x, &y, "SPC", "USE", TA_USE, "FREE");
@@ -1617,10 +1612,10 @@ static void T_DrawActionList(int start_y)
 // Queued-action panel: FIFO order with per-action costs and the total
 // reserved TP. Drawn below the action list while planning (and while
 // targeting, so the queue stays visible). Hidden when empty.
-static int T_DrawQueuePanel(void)
+static int T_DrawQueuePanelAt(int start_y)
 {
     char line[64], name[48];
-    int x = 8, y = 122, i, shown;
+    int x = 8, y = start_y, i, shown;
 
     if (turnctrl.queue_len == 0)
         return y;
@@ -1628,7 +1623,8 @@ static int T_DrawQueuePanel(void)
     // the drain is visible in the world, not the list.
     if (turnctrl.executing || T_InPulse())
         return y;
-    T_DrawText(x, y, "QUEUE");
+    if (y >= 8)
+        T_DrawText(x, y, "QUEUE");
     y += 9;
     // Show the most recent commands: if the queue is longer than 3,
     // show the last 3 so the newest are always visible.
@@ -1638,7 +1634,8 @@ static int T_DrawQueuePanel(void)
         if (turnctrl.queue_len > 3)
         {
             M_snprintf(line, sizeof(line), "+%d EARLIER", start);
-            T_DrawTextDim(x, y, line);
+            if (y >= 8)
+                T_DrawTextDim(x, y, line);
             y += 9;
         }
         for (i = 0; i < shown; i++)
@@ -1646,15 +1643,47 @@ static int T_DrawQueuePanel(void)
             t_queueentry_t *e = &turnctrl.queue[start + i];
             T_QueueEntryName(e, name, sizeof(name));
             M_snprintf(line, sizeof(line), "%d %s %dTP", start + i + 1, name, e->cost);
-            T_DrawText(x, y, line);
+            if (y >= 8)
+                T_DrawText(x, y, line);
             y += 9;
         }
     }
     M_snprintf(line, sizeof(line), "%d ACTS %dTP RSVD",
                turnctrl.queue_len, turnctrl.queue_tp);
-    T_DrawTextHi(x, y, line);
+    if (y >= 8)
+        T_DrawTextHi(x, y, line);
     y += 9;
     return y + 9; // gap before the menu
+}
+
+// Unified planning UI: menu and queue act as one scrolling text area.
+// Only the bottom-most lines are visible; older content scrolls off
+// the top as new commands are queued.
+static void T_DrawPlanningUI(void)
+{
+    // Menu is ~8 rows, queue is up to 6 rows (header + 3 items + total + gap).
+    // Visible area: y=18 to y=160 = ~15 rows. Calculate total and scroll.
+    int menu_rows = 8;
+    int queue_rows = 0;
+    int total_rows, max_rows, scroll_rows, start_y;
+
+    if (turnctrl.queue_len > 0 && !turnctrl.executing && !T_InPulse())
+    {
+        queue_rows = 1 + 3 + 1 + 1; // header + 3 items + total + gap
+        if (turnctrl.queue_len > 3)
+            queue_rows += 1; // "+N EARLIER" line
+    }
+
+    total_rows = menu_rows + queue_rows;
+    max_rows = 15; // (160 - 18) / 9
+    scroll_rows = total_rows > max_rows ? total_rows - max_rows : 0;
+    start_y = 18 - scroll_rows * 9;
+
+    // Draw menu at the scrolled position (it clips when off-screen).
+    T_DrawActionList(start_y);
+
+    // Draw queue below the menu.
+    T_DrawQueuePanelAt(start_y + menu_rows * 9);
 }
 
 void T_DrawHUD(void)
@@ -1705,7 +1734,7 @@ void T_DrawHUD(void)
     else if (turnctrl.state == TS_PULSE)
         T_DrawTextCentered(12, "RESOLVING");
     else if (turnctrl.state == TS_PLANNING)
-        T_DrawActionList(18);
+        T_DrawPlanningUI();
     else
     {
         // TARGETING / CONFIRM: the always-legal outs stay visible.
@@ -1713,11 +1742,8 @@ void T_DrawHUD(void)
         // border-zone pixels every frame and keeps costs/disabled states
         // visible while targeting.
         T_DrawTextCentered(12, "T END TURN  BKSP UNDO  Z CLEAR  <> TURN  ESC BACK");
-        T_DrawActionList(18);
+        T_DrawPlanningUI();
     }
-    // Queued-action panel below the menu: FIFO order, per-action costs,
-    // total reserved TP. As the queue grows, the menu scrolls up and out.
-    T_DrawQueuePanel();
 
     // Target markers: stable numbers projected above each visible enemy.
     // The selected target is unmistakable: bright highlight gold with
