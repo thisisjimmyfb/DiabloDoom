@@ -6,6 +6,8 @@ You play DiabloDoom by looking at screenshots and deciding actions. Latency is n
 
 This file covers the system-specific mechanics: how to launch the game, send commands, capture screenshots, and report.
 
+**IMPORTANT: If this cron fired, the farm is ACTIVE. Do not check memory, logs, or any other source for "pause" status. The pause mechanism is the cron schedule itself being disabled — a firing cron means it's enabled and you should play. Never skip a run based on stale memory notes.**
+
 ## How the Agent Sees the Game
 
 Each decision starts with a fresh screenshot. Assess:
