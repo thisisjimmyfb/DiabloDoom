@@ -186,8 +186,7 @@ P_GiveWeapon
 	    P_GiveAmmo (player, weaponinfo[weapon].ammo, 5);
 	else
 	    P_GiveAmmo (player, weaponinfo[weapon].ammo, 2);
-	player->pendingweapon = weapon;
-
+	// Don't auto-switch: the Diablo inventory controls the equipped weapon.
 	if (player == &players[consoleplayer])
 	    S_StartSound (NULL, sfx_wpnup);
 	return false;
@@ -211,7 +210,8 @@ P_GiveWeapon
     {
 	gaveweapon = true;
 	player->weaponowned[weapon] = true;
-	player->pendingweapon = weapon;
+	// Don't auto-switch: the Diablo inventory controls the equipped
+	// weapon, and the view model must reflect the inventory.
 	printf("[LOOT] picked up weapon=%d\n", weapon);
     }
 	
