@@ -44,7 +44,7 @@ When the turn-based UI is visible (TURN MODE banner):
 - **Check ammo first:** Never queue more attacks than your current ammo. If you see "NO AMMO" skips in the log, you're queuing too many.
 - **Kill ranged first:** Serpentipedes and Imps out-DPS the pistol at range. If multiple enemies are visible, target the ranged ones before melee — or break LOS and force them to come to you.
 - **Use cover:** Peek around corners and doors. Move out, queue 2-3 attacks, move back behind cover, END turn. Repeat. Don't stand in the open against ranged enemies.
-- **Capture the fight:** If your HP drops below 50% during combat, capture a REPLAY. Prefer capturing during the PROGRESS phase (after you END TURN, while queued commands execute) — it has more action. But occasionally a planning-phase capture is good too, to show off the planning UI with queued commands.
+- **Capture the fight:** If your HP drops below 50% during combat, capture a REPLAY. The buffer holds the last ~15 seconds — what matters is that a progress phase (action) happened recently, not which phase you're in when you capture. Prefer capturing right after a progress phase; a planning-phase capture is fine if the last progress phase was just seconds ago (you'll get both the action and the queue UI).
 
 ### Gear Check
 - You are NEVER unarmed — you always have the pistol, even with no Diablo weapon equipped. "No weapon" means no Diablo weapon in the WEAPON slot. Don't avoid combat thinking you're defenseless.
