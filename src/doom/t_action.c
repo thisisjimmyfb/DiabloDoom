@@ -685,6 +685,9 @@ static void T_PreviewMove(angle_t moveangle)
     P_XYMovement(mo);
     mo->momx = mo->momy = 0;
     mo->momz = 0;
+    // Stairs: snap z to floorz if below (see T_ExecMove).
+    if (mo->z < mo->floorz)
+        mo->z = mo->floorz;
 }
 
 // Executor: step along a snapshotted world-space angle. Collision-
@@ -710,6 +713,13 @@ static boolean T_ExecMove(angle_t moveangle)
     P_XYMovement(mo);
     mo->momx = mo->momy = 0;
     mo->momz = 0;
+
+    // Stairs: P_TryMove updates floorz but not z. If the player is below
+    // the new floor (e.g. walked up a step), snap z to floorz. Otherwise
+    // the 24-unit step check fails on the next move and the player gets
+    // stuck. Don't snap if above the floor (falling/ledges).
+    if (mo->z < mo->floorz)
+        mo->z = mo->floorz;
 
     // Settle pulse: sector effects, in-flight odds and ends. Monsters
     // stay frozen — they act on their own phase.
