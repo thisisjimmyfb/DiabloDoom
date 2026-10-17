@@ -519,7 +519,29 @@ void M_ReadSaveStrings(void)
             int map = 0;
             int menu_pos = i - 6; // 0, 1, 2
             M_snprintf(tmp, sizeof(tmp), "progress_auto%d.dat", i - 6 + 1);
-            M_snprintf(auto_path, sizeof(auto_path), "./%s", tmp);
+            {
+                // Auto-saves live in the savegames dir on local, repo root on VM.
+                extern boolean D_OnMuseVM(void);
+                if (D_OnMuseVM())
+                    M_snprintf(auto_path, sizeof(auto_path), "./%s", tmp);
+                else
+                {
+                    char save_path[512];
+                    extern char *P_SaveGameFile(int slot);
+                    M_StringCopy(save_path, P_SaveGameFile(0),
+                                 sizeof(save_path));
+                    char *last_slash = strrchr(save_path, '/');
+                    if (last_slash)
+                    {
+                        *last_slash = '\0';
+                        M_snprintf(auto_path, sizeof(auto_path),
+                                   "%s/%s", save_path, tmp);
+                    }
+                    else
+                        M_snprintf(auto_path, sizeof(auto_path),
+                                   "./%s", tmp);
+                }
+            }
             af = M_fopen(auto_path, "rb");
             if (af == NULL)
             {

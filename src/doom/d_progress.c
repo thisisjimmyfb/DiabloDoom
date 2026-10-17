@@ -108,6 +108,38 @@ static void ProgressGetPath(char *buf, size_t buflen)
     ProgressGetPathForSlot(buf, buflen, 0);
 }
 
+static void ProgressGetAutoDir(char *buf, size_t buflen)
+{
+    // On Muse VMs: repo root (persistent, survives recycles).
+    // On local machines: ~/.local/share/chocolate-doom/savegames/[wad]/
+    extern boolean D_OnMuseVM(void);
+    if (D_OnMuseVM())
+    {
+        M_snprintf(buf, buflen, ".");
+        return;
+    }
+    {
+        const char *home = getenv("HOME");
+        if (home)
+        {
+            // Use the standard savegames directory for the current IWAD.
+            // P_SaveGameFile gives us the pattern; extract the dir.
+            char save_path[512];
+            extern char *P_SaveGameFile(int slot);
+            M_StringCopy(save_path, P_SaveGameFile(0), sizeof(save_path));
+            // Strip the filename to get the directory.
+            char *last_slash = strrchr(save_path, '/');
+            if (last_slash)
+            {
+                *last_slash = '\0';
+                M_snprintf(buf, buflen, "%s", save_path);
+                return;
+            }
+        }
+        M_snprintf(buf, buflen, ".");
+    }
+}
+
 // VM detection: this progress mode is only for Muse VMs, not for
 // Jimmy's local machine. We check JARVIS_FQDN for the metaaivm.com suffix.
 boolean D_OnMuseVM(void)
@@ -378,7 +410,11 @@ void D_AutoSaveGame(void)
     }
     M_snprintf(tmp, sizeof(tmp), PROGRESS_AUTO_FILENAME_FMT,
                progress_auto_slot + 1);
-    M_snprintf(path, sizeof(path), "./%s", tmp);
+    {
+        char auto_dir[512];
+        ProgressGetAutoDir(auto_dir, sizeof(auto_dir));
+        M_snprintf(path, sizeof(path), "%s/%s", auto_dir, tmp);
+    }
 
     // Copy the entire progress file (header + slots) to the auto slot.
     {
@@ -417,7 +453,11 @@ void D_ProgressLoadAutoSlot(int auto_slot)
         return;
 
     M_snprintf(tmp, sizeof(tmp), PROGRESS_AUTO_FILENAME_FMT, auto_slot);
-    M_snprintf(path, sizeof(path), "./%s", tmp);
+    {
+        char auto_dir[512];
+        ProgressGetAutoDir(auto_dir, sizeof(auto_dir));
+        M_snprintf(path, sizeof(path), "%s/%s", auto_dir, tmp);
+    }
 
     f = fopen(path, "rb");
     if (!f)
