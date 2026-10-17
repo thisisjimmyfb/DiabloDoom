@@ -349,14 +349,11 @@ void T_EnterExplore(void)
 void T_EnterCombat(mobj_t *spotter)
 {
     static char msg[96];
-    // Auto-save progress before combat: don't lose the pre-fight state.
-    // NOTE: D_AutoSaveGame (Doom savegame slots) is disabled — the Diablo
-    // mod's save data exceeds vanilla's 180KB SAVEGAMESIZE limit, causing
-    // "Savegame buffer overrun" crashes. Slots 7-9 remain in the menu but
-    // are not auto-populated.
+    // Auto-save before combat: don't lose the pre-fight state.
+    // Saves both the Doom savegame (slots 7-9) and progress.dat.
     {
-        extern void D_ProgressSaveNow(void);
-        D_ProgressSaveNow();
+        extern void D_AutoSaveGame(void);
+        D_AutoSaveGame();
     }
     // Movement keys that might be held from explore mode. Their key
     // repeats are stale -- the player must release and re-press to act.

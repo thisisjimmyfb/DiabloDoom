@@ -372,6 +372,10 @@ void D_AutoSaveGame(void)
     if (gamestate != GS_LEVEL)
         return;
 
+    // Save Diablo progress (progress.dat) alongside the Doom savegame.
+    // This ensures loading from auto-save slots restores both.
+    D_ProgressSaveNow();
+
     // Build a description with timestamp
     {
         extern int leveltime;
@@ -381,7 +385,7 @@ void D_AutoSaveGame(void)
     }
 
     G_SaveGame(auto_slot, desc);
-    printf("[AUTOSAVE] saved to slot %d\n", auto_slot + 1);
+    printf("[AUTOSAVE] saved to slot %d (progress.dat updated)\n", auto_slot + 1);
 
     // Rotate to next slot
     auto_slot++;
