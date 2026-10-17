@@ -110,11 +110,26 @@ static void ProgressGetPath(char *buf, size_t buflen)
 
 static void ProgressGetAutoDir(char *buf, size_t buflen)
 {
-    // On Muse VMs: repo root (persistent, survives recycles).
+    // On Muse VMs: ~/workspace/chocolate-doom/savegames/doom.wad/
+    // (persistent, survives recycles).
     // On local machines: ~/.local/share/chocolate-doom/savegames/[wad]/
     extern boolean D_OnMuseVM(void);
     if (D_OnMuseVM())
     {
+        const char *home = getenv("HOME");
+        if (home)
+        {
+            M_snprintf(buf, buflen,
+                       "%s/workspace/chocolate-doom/savegames/doom.wad",
+                       home);
+            // Create the directory if it doesn't exist.
+            {
+                char cmd[1024];
+                M_snprintf(cmd, sizeof(cmd), "mkdir -p \"%s\"", buf);
+                system(cmd);
+            }
+            return;
+        }
         M_snprintf(buf, buflen, ".");
         return;
     }

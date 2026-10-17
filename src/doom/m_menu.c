@@ -520,10 +520,20 @@ void M_ReadSaveStrings(void)
             int menu_pos = i - 6; // 0, 1, 2
             M_snprintf(tmp, sizeof(tmp), "progress_auto%d.dat", i - 6 + 1);
             {
-                // Auto-saves live in the savegames dir on local, repo root on VM.
+                // Auto-saves: ~/workspace/chocolate-doom/savegames/doom.wad/
+                // on VM, savegames dir on local.
                 extern boolean D_OnMuseVM(void);
                 if (D_OnMuseVM())
-                    M_snprintf(auto_path, sizeof(auto_path), "./%s", tmp);
+                {
+                    const char *home = getenv("HOME");
+                    if (home)
+                        M_snprintf(auto_path, sizeof(auto_path),
+                                   "%s/workspace/chocolate-doom/savegames/doom.wad/%s",
+                                   home, tmp);
+                    else
+                        M_snprintf(auto_path, sizeof(auto_path),
+                                   "./%s", tmp);
+                }
                 else
                 {
                     char save_path[512];
