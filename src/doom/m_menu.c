@@ -449,15 +449,16 @@ enum
 
 menuitem_t LoadMenu[]=
 {
+    // Auto-save slots first (7-9), then manual slots (1-6).
+    {1,"", M_LoadSelect,'7'},
+    {1,"", M_LoadSelect,'8'},
+    {1,"", M_LoadSelect,'9'},
     {1,"", M_LoadSelect,'1'},
     {1,"", M_LoadSelect,'2'},
     {1,"", M_LoadSelect,'3'},
     {1,"", M_LoadSelect,'4'},
     {1,"", M_LoadSelect,'5'},
-    {1,"", M_LoadSelect,'6'},
-    {1,"", M_LoadSelect,'7'},
-    {1,"", M_LoadSelect,'8'},
-    {1,"", M_LoadSelect,'9'}
+    {1,"", M_LoadSelect,'6'}
 };
 
 menu_t  LoadDef =
@@ -571,17 +572,20 @@ void M_DrawSaveLoadBorder(int x,int y)
 void M_LoadSelect(int choice)
 {
     char    name[256];
+    // Map menu position to actual save slot: auto slots (7-9) are first
+    // in the menu, then manual slots (1-6).
+    static const int slot_map[9] = {6, 7, 8, 0, 1, 2, 3, 4, 5};
+    int slot = slot_map[choice];
 	
-    M_StringCopy(name, P_SaveGameFile(choice), sizeof(name));
+    M_StringCopy(name, P_SaveGameFile(slot), sizeof(name));
 
     G_LoadGame (name);
-    // If loading from auto-save slots 7-9 (choice 6-8), also restore the
-    // Diablo progress from the corresponding auto-save slot. This keeps
-    // the auto-save rotation working after loading.
-    if (choice >= 6 && choice <= 8)
+    // If loading from auto-save slots 7-9, also restore the Diablo
+    // progress from the corresponding auto-save slot.
+    if (slot >= 6 && slot <= 8)
     {
         extern void D_ProgressLoadAutoSlot(int auto_slot);
-        D_ProgressLoadAutoSlot(choice - 6 + 1);
+        D_ProgressLoadAutoSlot(slot - 6 + 1);
     }
     M_ClearMenus ();
 }
