@@ -1033,6 +1033,10 @@ int D_ReplaySaveMP4(const char *filename)
     fclose(f);
     printf("[REPLAY] saved %s (%d frames, H.264%s MP4)\n",
            filename, n, has_audio ? "+AAC" : "");
+    // Clear the buffer after saving. Otherwise old frames (including
+    // screenshot "captured" text) persist and appear at the start of
+    // the next replay.
+    replay_count = 0;
     return 0;
 
 fail:
