@@ -12,6 +12,7 @@
 int t_last_hit = -1;
 int t_last_damage = 0;
 int t_last_crit = 0;
+mobj_t *t_last_hit_mobj = NULL; // mobj hit by the last Diablo damage callback
 static int t_last_kill = 0; // set when the resolved attack killed anything
 static int t_shots[NUMWEAPONS]; // shots fired per weapon (Lucky rhythm)
 
@@ -422,6 +423,7 @@ static int T_DiabloDamageCallback(player_t *pl, mobj_t *target, int weapon)
         dmg = 1;
 
     t_last_damage = dmg;
+    t_last_hit_mobj = target;
     return dmg;
 }
 
@@ -1033,6 +1035,7 @@ boolean T_ResolveAttack(player_t *player, mobj_t *target)
     t_last_damage = 0;
     t_last_crit = 0;
     t_last_kill = 0;
+    t_last_hit_mobj = NULL;
 
     if (!player->mo || !target || target->health <= 0)
         return false;

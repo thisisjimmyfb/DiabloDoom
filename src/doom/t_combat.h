@@ -74,6 +74,8 @@ void T_KitOnFire(player_t *player);
 extern int t_last_hit;      // 1 hit, 0 miss, -1 none yet
 extern int t_last_damage;   // damage dealt (0 on miss)
 extern int t_last_crit;     // 1 if the hit crit
+struct mobj_s;
+extern struct mobj_s *t_last_hit_mobj; // mobj hit by last Diablo damage cb
 
 // Diablo damage override for native weapon fire (Phase 8).
 // When t_damage_override is true, P_DamageMobj replaces Doom's damage

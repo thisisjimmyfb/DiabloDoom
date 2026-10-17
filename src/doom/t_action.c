@@ -1489,6 +1489,10 @@ static boolean T_ExecAttack(mobj_t *target, int cost)
         if (is_hitscan)
             d_diablo_hitscan_weapon = w;
     }
+    // Reset hit tracking before native fire; the damage callback sets it.
+    t_last_hit_mobj = NULL;
+    t_last_damage = 0;
+    t_last_crit = 0;
     T_NativeFire(player);
     d_diablo_hitscan_weapon = -1;
 
@@ -1517,13 +1521,22 @@ static boolean T_ExecAttack(mobj_t *target, int cost)
                     player->message = "CRITICAL HIT!";
                 else
                     player->message = "HIT!";
-                // Untargeted attacks: don't touch target (NULL). The hit
-                // was on a wall or untracked mobj; no kill resolution.
+                // Untargeted attacks: use the mobj actually hit (tracked by
+                // the damage callback). If it died, resolve the kill for
+                // loot. Walls have no mobj, so no kill resolution.
                 // Barrels (and other non-monster shootables) explode but
                 // don't count as kills — skip T_ResolveKill to avoid
                 // use-after-free on the removed mobj.
-                if (!untargeted && target->type != MT_BARREL &&
-                    target->health <= 0)
+                if (untargeted)
+                {
+                    mobj_t *hit = t_last_hit_mobj;
+                    if (hit && hit->type != MT_BARREL && hit->health <= 0)
+                    {
+                        T_ResolveKill(player, hit, t_last_damage, kit->name);
+                    }
+                    t_last_hit_mobj = NULL;
+                }
+                else if (target->type != MT_BARREL && target->health <= 0)
                 {
                     T_ResolveKill(player, target, t_last_damage, kit->name);
                 }
