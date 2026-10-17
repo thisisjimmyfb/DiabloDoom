@@ -1155,9 +1155,9 @@ void T_ConfirmCtrlTarget(void)
     if (turnctrl.selected_target < 0)
     {
         // Mini-combat with no target: allow firing in the facing direction.
-        // This lets the player shoot walls (secrets), barrels, etc. that
-        // aren't in the target list. The vanilla hitscan will hit whatever
-        // is in front.
+        // This lets the player shoot walls (secrets) that aren't targetable
+        // mobjs. The vanilla hitscan will hit whatever is in front.
+        // Queues the attack but does NOT auto-end — user presses Enter.
         if (was_mini)
         {
             // Queue an untargeted attack.
@@ -1183,9 +1183,11 @@ void T_ConfirmCtrlTarget(void)
                 return;
             }
             T_Enqueue(TA_ATTACK, T_CostFor(TA_ATTACK), 0, NULL);
-            player->message = "Firing...";
-            // Auto-end the mini-combat turn immediately.
-            T_DoEndTurn();
+            player->message = "Queued attack (no target) — press Enter to fire.";
+            // Stay in planning; do NOT auto-end. User presses Enter.
+            turnctrl.ctrl_targeting = false;
+            turnctrl.ctrl_held = false;
+            turnctrl.state = TS_PLANNING;
             return;
         }
         if (was_mini) { turnctrl.mini_combat = false; turnctrl.state = TS_EXPLORE; }
@@ -1225,13 +1227,8 @@ void T_ConfirmCtrlTarget(void)
     T_Enqueue(TA_ATTACK, T_CostFor(TA_ATTACK), 0, target);
     turnctrl.selected_target = -1;
     turnctrl.state = TS_PLANNING;
-    // Mini-combat: auto-end the turn immediately. If no AI enemies,
-    // T_EndPulse will return to explore mode.
-    if (turnctrl.mini_combat)
-    {
-        turnctrl.mini_combat = false;
-        T_DoEndTurn();
-    }
+    // Mini-combat: do NOT auto-end. User presses Enter to fire.
+    // (mini_combat flag stays set; cleared on turn end.)
 }
 
 void T_DoSelectPrev(void)
