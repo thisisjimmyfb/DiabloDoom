@@ -1934,7 +1934,7 @@ void T_DumpState(const char *why)
     const char *st = (turnctrl.state >= 0 && turnctrl.state <= TS_ROUND_END)
                      ? names[turnctrl.state] : "?";
 
-    printf("[TURN] %-10s round=%d tp=%d/%d qlen=%d qtp=%d exec=%d state=%s sel=%d hp=%d pos=(%d,%d) angle=%u\n",
+    printf("[TURN] %-10s round=%d tp=%d/%d qlen=%d qtp=%d exec=%d state=%s sel=%d hp=%d pos=(%d,%d,%d) floor=%d ceil=%d angle=%u\n",
            why ? why : "-",
            turnctrl.round, turnctrl.tp, turnctrl.tp_max,
            turnctrl.queue_len, turnctrl.queue_tp, turnctrl.executing ? 1 : 0,
@@ -1943,6 +1943,9 @@ void T_DumpState(const char *why)
            p->mo ? p->health : -1,
            p->mo ? p->mo->x >> FRACBITS : 0,
            p->mo ? p->mo->y >> FRACBITS : 0,
+           p->mo ? p->mo->z >> FRACBITS : 0,
+           p->mo ? p->mo->floorz >> FRACBITS : 0,
+           p->mo ? p->mo->ceilingz >> FRACBITS : 0,
            p->mo ? (unsigned)(p->mo->angle >> 24) : 0);
     fflush(stdout);
 }

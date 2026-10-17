@@ -708,7 +708,17 @@ static boolean T_ExecMove(angle_t moveangle)
     for (k = 0; k < STEP_SUB; k++)
     {
         if (!P_TryMove(mo, mo->x + dx, mo->y + dy))
+        {
+            // Diagnostic: log z/floor/ceiling when movement fails.
+            // If z is far below floorz, the step-up check (>24 units)
+            // will fail in all directions.
+            printf("[TURN] move-blocked: pos=(%d,%d) z=%d floor=%d ceil=%d target=(%d,%d)\n",
+                   mo->x >> FRACBITS, mo->y >> FRACBITS,
+                   mo->z >> FRACBITS, mo->floorz >> FRACBITS,
+                   mo->ceilingz >> FRACBITS,
+                   (mo->x + dx) >> FRACBITS, (mo->y + dy) >> FRACBITS);
             break; // blocked: stop, keep partial progress
+        }
     }
     mo->momx = mo->momy = 0;
     mo->momz = 0;
