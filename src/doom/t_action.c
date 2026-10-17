@@ -1615,7 +1615,15 @@ static void T_NativeFire(player_t *player)
                     A_FireShotgun(player, NULL);
             }
             break;
-        case wp_chaingun:    A_FireCGun(player, NULL); break;
+        case wp_chaingun:
+            // A_FireCGun uses psp->state to select the flash frame; pass a
+            // dummy pspdef pointing at S_CHAIN1 (T_NativeFire passes NULL).
+            {
+                pspdef_t dummy_psp;
+                dummy_psp.state = &states[S_CHAIN1];
+                A_FireCGun(player, &dummy_psp);
+            }
+            break;
         case wp_missile:     A_FireMissile(player, NULL); break;
         case wp_plasma:      A_FirePlasma(player, NULL); break;
         case wp_bfg:         A_FireBFG(player, NULL); break;
