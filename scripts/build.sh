@@ -2,10 +2,10 @@
 #
 # Build DiabloDoom (Chocolate Doom fork) with CMake.
 #
-# Usage: scripts/build.sh [--deps] [--clean] [--debug]
-#   --deps   install build dependencies via apt (needs sudo)
-#   --clean  remove the build directory before configuring
-#   --debug  build with debug symbols instead of Release
+# Usage: scripts/build.sh [--deps] [--clean] [--release]
+#   --deps    install build dependencies via apt (needs sudo)
+#   --clean   remove the build directory before configuring
+#   --release build optimized Release instead of Debug (default)
 #
 
 set -euo pipefail
@@ -13,15 +13,15 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 BUILD_DIR=build
-BUILD_TYPE=Release
+BUILD_TYPE=Debug
 INSTALL_DEPS=0
 CLEAN=0
 
 for arg in "$@"; do
     case "$arg" in
-        --deps)  INSTALL_DEPS=1 ;;
-        --clean) CLEAN=1 ;;
-        --debug) BUILD_TYPE=Debug ;;
+        --deps)    INSTALL_DEPS=1 ;;
+        --clean)   CLEAN=1 ;;
+        --release) BUILD_TYPE=Release ;;
         -h|--help)
             sed -n '3,10p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
