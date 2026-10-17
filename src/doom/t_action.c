@@ -720,7 +720,18 @@ static boolean T_ExecMove(angle_t moveangle)
 
     // Settle pulse: sector effects, in-flight odds and ends. Monsters
     // stay frozen — they act on their own phase.
-    T_BeginPulse(6, true, true);
+    // Movement speed modifier reduces the pulse duration.
+    {
+        extern int D_MoveSpeed(struct player_s *pl);
+        int movespeed = D_MoveSpeed(player);
+        int tics = 6;
+        if (movespeed > 0)
+        {
+            tics = (6 * 100) / (100 + movespeed);
+            if (tics < 1) tics = 1;
+        }
+        T_BeginPulse(tics, true, true);
+    }
     T_DumpState("exec-move");
     return true;
 }
