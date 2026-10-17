@@ -674,17 +674,15 @@ static void T_PreviewMove(angle_t moveangle)
     player_t *player = &players[consoleplayer];
     mobj_t *mo = player->mo;
     fixed_t dx, dy;
-    int k;
 
     if (mo == NULL)
         return;
     dx = FixedMul(STEP_LEN, finecosine[moveangle >> ANGLETOFINESHIFT]);
     dy = FixedMul(STEP_LEN, finesine[moveangle >> ANGLETOFINESHIFT]);
-    for (k = 0; k < STEP_SUB; k++)
-    {
-        if (!P_TryMove(mo, mo->x + dx, mo->y + dy))
-            break;
-    }
+    // Use P_XYMovement for wall sliding, matching T_ExecMove.
+    mo->momx = dx * STEP_SUB;
+    mo->momy = dy * STEP_SUB;
+    P_XYMovement(mo);
     mo->momx = mo->momy = 0;
     mo->momz = 0;
 }
@@ -697,7 +695,6 @@ static boolean T_ExecMove(angle_t moveangle)
     player_t *player = &players[consoleplayer];
     mobj_t *mo = player->mo;
     fixed_t dx, dy;
-    int k;
 
     if (mo == NULL)
         return false;
@@ -705,21 +702,12 @@ static boolean T_ExecMove(angle_t moveangle)
     dx = FixedMul(STEP_LEN, finecosine[moveangle >> ANGLETOFINESHIFT]);
     dy = FixedMul(STEP_LEN, finesine[moveangle >> ANGLETOFINESHIFT]);
 
-    for (k = 0; k < STEP_SUB; k++)
-    {
-        if (!P_TryMove(mo, mo->x + dx, mo->y + dy))
-        {
-            // Diagnostic: log z/floor/ceiling when movement fails.
-            // If z is far below floorz, the step-up check (>24 units)
-            // will fail in all directions.
-            printf("[TURN] move-blocked: pos=(%d,%d) z=%d floor=%d ceil=%d target=(%d,%d)\n",
-                   mo->x >> FRACBITS, mo->y >> FRACBITS,
-                   mo->z >> FRACBITS, mo->floorz >> FRACBITS,
-                   mo->ceilingz >> FRACBITS,
-                   (mo->x + dx) >> FRACBITS, (mo->y + dy) >> FRACBITS);
-            break; // blocked: stop, keep partial progress
-        }
-    }
+    // Use P_XYMovement (the normal game movement) instead of manual
+    // P_TryMove loop. This gives us wall sliding (P_SlideMove) for free,
+    // matching how the player moves in explore mode.
+    mo->momx = dx * STEP_SUB;
+    mo->momy = dy * STEP_SUB;
+    P_XYMovement(mo);
     mo->momx = mo->momy = 0;
     mo->momz = 0;
 
