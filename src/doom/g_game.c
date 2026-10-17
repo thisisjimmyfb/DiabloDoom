@@ -532,13 +532,16 @@ void G_BuildTiccmd (ticcmd_t* cmd, int maketic)
     // next_weapon variable is set to change weapons when
     // we generate a ticcmd.  Choose a new weapon.
 
-    if (gamestate == GS_LEVEL && next_weapon != 0)
+    // DiabloDoom: weapon switching via number keys is disabled.
+    // The visible weapon is driven by Diablo equipment (D_SyncDoomWeapon),
+    // not vanilla weapon slots. Number keys would desync the state machine.
+    if (false && gamestate == GS_LEVEL && next_weapon != 0)
     {
         i = G_NextWeapon(next_weapon);
         cmd->buttons |= BT_CHANGE;
         cmd->buttons |= i << BT_WEAPONSHIFT;
     }
-    else
+    else if (false)
     {
         // Check weapon keys.
 
