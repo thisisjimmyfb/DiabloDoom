@@ -566,7 +566,9 @@ void T_BeginPulse(int tics, boolean freeze_monsters, boolean fast)
     // the game unfreezes and enemies act while commands play out.
     if (turnctrl.executing)
         freeze_monsters = false;
-    turnctrl.pulse_left = tics;
+    // Accumulate: a Move queued after an Attack must not cancel the
+    // attack's delay. Each command's duration adds to the total.
+    turnctrl.pulse_left += tics;
     turnctrl.pulse_freeze = freeze_monsters;
     turnctrl.pulse_fast = fast;
     // Do NOT clear pulse_enemy here: T_DoEndTurn sets it before starting
