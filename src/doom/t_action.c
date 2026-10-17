@@ -1579,7 +1579,26 @@ static void T_NativeFire(player_t *player)
     {
         case wp_fist:        A_Punch(player, NULL); break;
         case wp_pistol:      A_FirePistol(player, NULL); break;
-        case wp_shotgun:     A_FireShotgun(player, NULL); break;
+        case wp_shotgun:
+            // Doom 1 WAD SSG fallback: Diablo SSG uses 20-pellet fire
+            // even with shotgun sprites. A_FireShotgun2 uses the
+            // readyweapon's flashstate (shotgun, safe) for the muzzle flash.
+            {
+                int id = player->diablo_equipped[ESLOT_WEAPON];
+                boolean is_ssg = false;
+                if (id != D_NOITEM)
+                {
+                    const diablo_itemdef_t *def =
+                        D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
+                    if (def && def->doomweapon == wp_supershotgun)
+                        is_ssg = true;
+                }
+                if (is_ssg)
+                    A_FireShotgun2(player, NULL);
+                else
+                    A_FireShotgun(player, NULL);
+            }
+            break;
         case wp_chaingun:    A_FireCGun(player, NULL); break;
         case wp_missile:     A_FireMissile(player, NULL); break;
         case wp_plasma:      A_FirePlasma(player, NULL); break;
