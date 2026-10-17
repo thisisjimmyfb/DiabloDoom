@@ -31,5 +31,6 @@ void D_ProgressTick(void);
 
 // Force an immediate write (e.g., before a risky operation).
 void D_ProgressSaveNow(void);
+void D_AutoSaveGame(void);
 
 #endif

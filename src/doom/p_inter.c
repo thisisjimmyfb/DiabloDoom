@@ -541,7 +541,9 @@ P_TouchSpecialThing
             // Auto-save after loot pickup: don't lose the new item.
             {
                 extern void D_ProgressSaveNow(void);
+                extern void D_AutoSaveGame(void);
                 D_ProgressSaveNow();
+                D_AutoSaveGame();
             }
         }
         else

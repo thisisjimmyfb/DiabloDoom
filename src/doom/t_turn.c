@@ -352,7 +352,9 @@ void T_EnterCombat(mobj_t *spotter)
     // Auto-save progress before combat: don't lose the pre-fight state.
     {
         extern void D_ProgressSaveNow(void);
+        extern void D_AutoSaveGame(void);
         D_ProgressSaveNow();
+        D_AutoSaveGame();
     }
     // Movement keys that might be held from explore mode. Their key
     // repeats are stale -- the player must release and re-press to act.

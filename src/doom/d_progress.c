@@ -359,3 +359,32 @@ void D_ProgressTick(void)
     (void)progress_initialized;
     (void)progress_tic_count;
 }
+
+// Auto-save to Doom savegame slots 7-9 (0-indexed 6-8).
+// Rotates through the three slots. Called at the same points as
+// D_ProgressSaveNow (before combat, after loot pickup).
+void D_AutoSaveGame(void)
+{
+    static int auto_slot = 6; // 0-indexed: slots 7, 8, 9
+    char desc[64];
+    extern void G_SaveGame(int slot, char *description);
+
+    if (gamestate != GS_LEVEL)
+        return;
+
+    // Build a description with timestamp
+    {
+        extern int leveltime;
+        int mins = leveltime / (35 * 60);
+        int secs = (leveltime / 35) % 60;
+        snprintf(desc, sizeof(desc), "AUTO-SAVE %02d:%02d", mins, secs);
+    }
+
+    G_SaveGame(auto_slot, desc);
+    printf("[AUTOSAVE] saved to slot %d\n", auto_slot + 1);
+
+    // Rotate to next slot
+    auto_slot++;
+    if (auto_slot > 8)
+        auto_slot = 6;
+}
