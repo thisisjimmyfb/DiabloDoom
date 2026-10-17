@@ -694,6 +694,12 @@ void G_DoLoadLevel (void)
 { 
     int             i; 
 
+    // Auto-save Diablo progress on starting a new level.
+    {
+        extern void D_AutoSaveGame(void);
+        D_AutoSaveGame();
+    }
+
     // Set the sky map.
     // First thing, we have a dummy sky texture name,
     //  a flat. The data is in the WAD only because
@@ -1507,6 +1513,12 @@ void G_DoCompleted (void)
 
     // Phase 8: atomic profile save on level exit.
     T_ProfileSave();
+
+    // Auto-save Diablo progress on level completion.
+    {
+        extern void D_AutoSaveGame(void);
+        D_AutoSaveGame();
+    }
 	 
     gameaction = ga_nothing; 
  

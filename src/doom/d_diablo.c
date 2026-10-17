@@ -1027,6 +1027,11 @@ int D_EquipToSlot(struct player_s *pl, int id, int slot)
 
     player->diablo_equipped[slot] = id;
     D_RecalcStats(pl);
+    // Auto-save on gear change.
+    {
+        extern void D_AutoSaveGame(void);
+        D_AutoSaveGame();
+    }
     return old;
 }
 
