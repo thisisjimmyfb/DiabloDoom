@@ -576,17 +576,21 @@ void M_LoadSelect(int choice)
     // in the menu, then manual slots (1-6).
     static const int slot_map[9] = {6, 7, 8, 0, 1, 2, 3, 4, 5};
     int slot = slot_map[choice];
-	
-    M_StringCopy(name, P_SaveGameFile(slot), sizeof(name));
 
-    G_LoadGame (name);
-    // If loading from auto-save slots 7-9, also restore the Diablo
-    // progress from the corresponding auto-save slot.
+    // Auto-save slots (7-9): no Doom savegame exists (auto-save is Diablo
+    // progress only). Just restore the Diablo progress from the auto slot
+    // and continue from the current position.
     if (slot >= 6 && slot <= 8)
     {
         extern void D_ProgressLoadAutoSlot(int auto_slot);
         D_ProgressLoadAutoSlot(slot - 6 + 1);
+        M_ClearMenus ();
+        return;
     }
+	
+    M_StringCopy(name, P_SaveGameFile(slot), sizeof(name));
+
+    G_LoadGame (name);
     M_ClearMenus ();
 }
 
