@@ -265,16 +265,16 @@ Doom `readyweapon`, so the first-person sprite, ground pickup sprite, and
 turn-mode kit all follow the gun. Fist is the unarmed fallback (no gun
 equipped), not loot.
 
-| Gun | Type | LoL mechanic | Identity |
-|-----|------|--------------|----------|
-| Pistol | AD | **Magazine 10** (1/shot) | Reliable fallback sidearm. |
-| Shotgun | AD | **Magazine 20** (2/shot) | Positioning reward, pellet spread. |
-| Chaingun | AD | **Magazine 10** (1/shot) | TP-hungry DPS hose. |
-| Chainsaw | AD | **Magazine 6** (1/shot) + **30% inherent leech** | High risk, constant uptime; leech sustains close-range fighting. |
-| Plasma Rifle | AP | **Heat** (inverse ammo) | Free to spam while heat < 100: +25 heat per shot, vents 40 per 10 s continuously (fractional accumulation). |
-| Rocket Launcher | AP | **Charges** (3, +1 per 3 s) + **Magazine 20** (10/shot) | Punctuated splash; firing consumes 1 charge. Each regenerated charge also loads one attack's worth of ammo. |
-| Super Shotgun | AP | **Cooldown** (20 s breach reload) + **Magazine 8** (8/shot) + **knockback** | Breach tool: shoves target 1 tile, forced reload rhythm. |
-| BFG9000 | AP | **Cooldown** (30 s) + **Magazine 20** (20/shot) | Ultimate: highest damage, gated hardest. |
+| Gun | Type | LoL mechanic | Replenish | Identity |
+|-----|------|--------------|-----------|----------|
+| Pistol | AD | **Magazine 10** (1/shot) | AS | Reliable fallback sidearm. |
+| Shotgun | AD | **Magazine 20** (2/shot) | AS | Positioning reward, pellet spread. |
+| Chaingun | AD | **Magazine 10** (1/shot) | AS | TP-hungry DPS hose. |
+| Chainsaw | AD | **Magazine 6** (1/shot) + **30% inherent leech** | AS | High risk, constant uptime; leech sustains close-range fighting. |
+| Plasma Rifle | AP | **Heat** (inverse ammo) | — (heat) | Free to spam while heat < 100: +25 heat per shot, vents 40 per 10 s continuously (fractional accumulation). |
+| Rocket Launcher | AP | **Charges** (3, +1 per 3 s) + **Magazine 20** (10/shot) | AS | Punctuated splash; firing consumes 1 charge. Each regenerated charge also loads one attack's worth of ammo. |
+| Super Shotgun | AP | **Cooldown** (20 s breach reload) + **Magazine 8** (8/shot) + **knockback** | CD | Breach tool: shoves target 1 tile, forced reload rhythm. |
+| BFG9000 | AP | **Cooldown** (30 s) + **Magazine 20** (20/shot) | CD | Ultimate: highest damage, gated hardest. |
 
 **Base kits are deliberately weak.** Kit damage is ~1/3 of the original
 values (e.g. BFG 10–18 instead of 30–50, Pistol 2–4 instead of 6–13), so
