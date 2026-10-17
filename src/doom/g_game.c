@@ -240,7 +240,10 @@ static char     savedescription[32];
 mobj_t*		bodyque[BODYQUESIZE]; 
 int		bodyqueslot; 
  
-int             vanilla_savegame_limit = 1;
+// DiabloDoom saves carry Diablo equipment/turn-state blocks and can
+// legitimately exceed the vanilla 180224-byte limit, so the limit
+// is off by default. (The farm config also sets it to 0.)
+int             vanilla_savegame_limit = 0;
 int             vanilla_demo_limit = 1;
  
 int G_CmdChecksum (ticcmd_t* cmd) 
