@@ -486,7 +486,7 @@ menuitem_t SaveMenu[]=
 
 menu_t  SaveDef =
 {
-    load_end,
+    6,
     &MainDef,
     SaveMenu,
     M_DrawSave,
@@ -685,7 +685,7 @@ void M_DrawSave(void)
     int             i;
 	
     V_DrawPatchDirect(72, 28, W_CacheLumpName(DEH_String("M_SAVEG"), PU_CACHE));
-    for (i = 0;i < load_end; i++)
+    for (i = 0;i < 6; i++)
     {
 	M_DrawSaveLoadBorder(LoadDef.x,LoadDef.y+LINEHEIGHT*i);
 	M_WriteText(LoadDef.x,LoadDef.y+LINEHEIGHT*i,savegamestrings[i]);
