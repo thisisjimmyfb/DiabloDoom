@@ -198,7 +198,8 @@ through a bounded simulation pulse.
   refunds its TP, and the drain continues.
 - Movement uses `P_XYMovement` (the normal game movement code) with wall
   sliding (`P_SlideMove`), matching explore-mode behavior. Blocked moves
-  slide along walls instead of stopping dead.
+  slide along walls instead of stopping dead. `P_ZMovement` runs after
+  each turn-based step so stairs climb the same as explore mode.
 - Input locks while the queue drains.
 - Dying clears the queue immediately and ends the progress phase.
 
@@ -624,6 +625,46 @@ Item instances reuse the Phase 4 equipment/backpack serialization
 **Separation rule:** loading a Doom save may restore map position and
 turn state but must never silently replace the newer standalone
 character. Profile reconciliation is explicit, versioned, and tested.
+
+### Diablo progress file (as built 2026-10-17)
+
+The Diablo state — gear, inventory, Essence, progression — persists in a
+separate mmap'd file, never inside the Doom savegame:
+
+- `progress.dat` — farm/legacy default (slot 0).
+- `progress_slotN.dat` — the slot the player picks at New Game
+  (`CHOOSE SAVE SLOT` → `D_ProgressInitSlot(slot)`).
+- `progress_auto1/2/3.dat` — auto-save rotation, independent of the
+  manual slot.
+
+Paths resolve from the working directory (`./progress.dat`), so they
+work on any checkout — the old `$HOME/workspace/DiabloDoom/` assumption
+silently disabled persistence wherever the repo lived elsewhere. The
+file holds a header (magic `DDPG`, version, active slot, checksums) plus
+two 4MB slots; a failed write keeps the previous valid slot.
+
+**Auto-save is event-driven, not periodic** (`D_ProgressTick` is a
+no-op). `D_AutoSaveGame()` snapshots the whole progress file into the
+next rotation slot on:
+
+- combat entry (`T_EnterCombat`),
+- loot drop (`P_DropDiabloLoot`),
+- inventory change — equip, unequip, or moving gear between slots
+  (`D_EquipToSlot`),
+- level completion (`G_DoCompleted`),
+- level start (`G_DoLoadLevel`).
+
+**Load Game menu:** auto-save slots list first (menu positions 1–3 map
+to slots 7–9), then manual slots 1–6. Loading an auto slot restores the
+Diablo progress (`D_ProgressLoadAutoSlot`) and continues from the
+current position — no Doom savegame is involved, because auto-saves
+never write `.dsg` files. The next auto-save overwrites the oldest
+rotation slot, never the one just loaded.
+
+Auto-save used to write Doom savegames into slots 7–9; that was
+disabled — the Diablo save data exceeds vanilla's 180KB `SAVEGAMESIZE`,
+which crashed deterministically ("Savegame buffer overrun") on combat
+entry.
 
 ### XP and levels (removed 2026-10-16)
 
