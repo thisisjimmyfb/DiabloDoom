@@ -551,9 +551,13 @@ static void T_PulseOneTic(boolean freeze_monsters)
     leveltime++;
 
     // Gradual ammo trickle. The rate is tied to the weapon's cooldown or
-    // attack speed (see T_KitTrickleAmmo). Runs continuously, not just
-    // during execution, so ammo replenishes while planning too.
-    T_KitTrickleAmmo();
+    // attack speed (see T_KitTrickleAmmo). Runs when the game is unfrozen
+    // (explore, progress phase) — not during the frozen planning phase.
+    if (turnctrl.state != TS_PLANNING && turnctrl.state != TS_TARGETING &&
+        turnctrl.state != TS_CONFIRM)
+    {
+        T_KitTrickleAmmo();
+    }
 }
 
 void T_BeginPulse(int tics, boolean freeze_monsters, boolean fast)
