@@ -26,6 +26,7 @@
 #include "p_tick.h"
 #include "i_swap.h"
 #include "g_game.h"
+#include "d_replay.h"
 #include "p_local.h"
 #include "r_main.h"
 #include "m_misc.h"
@@ -921,6 +922,18 @@ static void cmd_dispatch(const char *cmd)
     {
         extern void G_ScreenShot(void);
         G_ScreenShot();
+        // Also save a replay video. The agent's vision takes 10-20s;
+        // by pairing every screenshot with the last 15s of video,
+        // the agent can share the video if the screenshot looks interesting
+        // without needing to time a separate REPLAY command.
+        {
+            char filename[256];
+            D_ReplayNextFilename(filename, sizeof(filename));
+            if (D_ReplaySaveMP4(filename) == 0)
+            {
+                printf("[REPLAY] paired with screenshot: %s\n", filename);
+            }
+        }
     }
     else if (!strcmp(cmd, "INVENTORY"))
     {
