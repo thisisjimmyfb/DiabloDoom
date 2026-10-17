@@ -54,6 +54,7 @@ Write commands to /tmp/doom_cmd.txt (one per line). It's a FIFO — do NOT delet
 - `WALK` only works in explore mode (silently does nothing in combat)
 - `COLLECT` requires turn-based mode active, player alive, not mid-pulse
 - The game drains the FIFO every tick; write commands with `printf "CMD\n" > /tmp/doom_cmd.txt`
+- FIFO liveness: `> /tmp/doom_cmd.txt` BLOCKS FOREVER if no game process is reading it. Before your first FIFO write each run, confirm `pgrep -c -f "chocolate-doo[m]"` is exactly 1. If 0, do the Setup launch first. If >1, re-run the pkill (two games split FIFO reads between them — commands randomly vanish).
 
 ## Game Loop
 
@@ -69,6 +70,8 @@ This means ~40-45 decisions per 4-minute session. Fresh visual input every time.
 
 Check /tmp/doom_hourly.log periodically for: kills, PLAYER_DIED, errors.
 - If you see PLAYER_DIED: capture a REPLAY video (write `REPLAY\n`, sleep 20, grab newest mp4) for the death moment, upload it with your report. Mention what killed you and where your corpse is. Then send RESPAWN. Do not send RESPAWN until you've uploaded the death video.
+  - RESPAWN preflight (added 2026-10-16 after two silent RESPAWN failures): confirm `pgrep -c -f "chocolate-doo[m]"` is exactly 1 BEFORE writing RESPAWN — a dead/missing game means your write blocks forever, and two games split the FIFO so the command can vanish.
+  - Verify with the log, not just the screenshot: look for `[FARM] RESPAWN confirmed` (worked) vs `[FARM] RESPAWN failed - no dead player found` (the command ARRIVED but nobody was dead — do NOT resend blindly; check the screenshot). No line at all means the command never reached the game — check the process count, don't assume the engine is broken. Note: every game launch truncates /tmp/doom_hourly.log, so only trust lines written after the latest launch.
 - After RESPAWN: corpse recovery is #1 priority (see PROMPT.md).
 
 ## Report

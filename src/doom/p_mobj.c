@@ -24,6 +24,7 @@
 
 #include "doomdef.h"
 #include "t_turn.h"
+#include "t_combat.h"
 #include "p_local.h"
 #include "sounds.h"
 
@@ -544,6 +545,8 @@ P_SpawnMobj
     mobj->radius = info->radius;
     mobj->height = info->height;
     mobj->flags = info->flags;
+    // Diablo turn-mode: not a player-fired projectile by default.
+    mobj->diablo_weapon = -1;
     // NG+ loop: enemies get tougher each loop.
     if (info->spawnhealth > 0 && (info->flags & MF_COUNTKILL))
         mobj->health = info->spawnhealth * D_LoopHpMult() / 100;
@@ -1084,6 +1087,17 @@ P_SpawnPlayerMissile
     th->momy = FixedMul( th->info->speed,
 			 finesine[an>>ANGLETOFINESHIFT]);
     th->momz = FixedMul( th->info->speed, slope);
+
+    // Diablo turn-mode: if the player fired this in turn mode, tag it
+    // with the weapon for Diablo damage calculation on impact.
+    // (d_diablo_damage_cb is set by T_ExecAttack before T_NativeFire.)
+    if (source && source->player && d_diablo_damage_cb)
+    {
+        extern int d_diablo_hitscan_weapon;
+        // For projectiles, use the player's current weapon.
+        // (d_diablo_hitscan_weapon is for hitscan only.)
+        th->diablo_weapon = source->player->readyweapon;
+    }
 
     P_CheckMissileSpawn (th);
 }

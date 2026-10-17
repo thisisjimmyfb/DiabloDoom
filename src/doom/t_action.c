@@ -1391,8 +1391,6 @@ void T_DoAttack(void)
 static boolean T_ExecAttack(mobj_t *target, int cost)
 {
     player_t *player = &players[consoleplayer];
-    int damage = 0, crit = 0;
-    boolean hit;
 
     if (target == NULL || target->health <= 0
         || !(target->flags & MF_SHOOTABLE))
@@ -1435,13 +1433,6 @@ static boolean T_ExecAttack(mobj_t *target, int cost)
         }
     }
 
-    // Roll Diablo damage (no apply yet). The native weapon fire below
-    // uses this via the P_DamageMobj override.
-    hit = T_RollDiabloDamage(player, target, &damage, &crit);
-    t_last_hit = hit ? 1 : 0;
-    t_last_damage = hit ? damage : 0;
-    t_last_crit = crit;
-
     // Kit setup: heat buildup, charge consumption, cooldown (with Haste
     // and flat CDR). Must happen on fire, not on hit.
     T_KitOnFire(player);
@@ -1450,33 +1441,58 @@ static boolean T_ExecAttack(mobj_t *target, int cost)
     // a follow-up).
     T_FaceTarget(target);
 
-    // Trigger native weapon fire for visuals (muzzle flash, sound,
-    // projectiles). The damage is overridden to use the Diablo roll.
-    t_damage_override = true;
-    t_damage_override_value = hit ? damage : 0;
-    T_NativeFire(player);
-    t_damage_override = false;
-    t_damage_override_value = 0;
-
-    if (!hit)
+    // Natural simulation: Doom's hitscan/projectile determines hit/miss.
+    // The Diablo damage callback (installed in T_KitResetCadence) computes
+    // AD/AP damage on hit. No instant T_RollDiabloDamage.
+    // For hitscan weapons, set the weapon (synchronous; cleared after).
+    // Projectiles store it on the mobj (see P_SpawnPlayerMissile).
     {
-        player->message = "MISS!";
-        printf("[TURN] attack resolved: MISS\n");
+        weapontype_t w = player->readyweapon;
+        boolean is_hitscan = (w == wp_fist || w == wp_pistol || w == wp_shotgun ||
+                              w == wp_chaingun || w == wp_chainsaw ||
+                              w == wp_supershotgun);
+        if (is_hitscan)
+            d_diablo_hitscan_weapon = w;
     }
-    else
+    T_NativeFire(player);
+    d_diablo_hitscan_weapon = -1;
+
+    // For hitscan, the callback ran synchronously; t_last_damage > 0 means hit.
+    // For projectiles, the hit happens later (callback fires on impact).
     {
         const t_kitdef_t *kit = T_KitForWeapon(player->readyweapon);
-        printf("[TURN] attack resolved: hits=1 dmg=%d crit=%d\n",
-               damage, crit);
-        if (crit)
-            player->message = "CRITICAL HIT!";
-        else
-            player->message = "HIT!";
-        // Kill credit: if the native fire (with Diablo damage override)
-        // killed the target, run kill-triggered affixes.
-        if (target->health <= 0)
+        boolean is_hitscan = (player->readyweapon == wp_fist ||
+                              player->readyweapon == wp_pistol ||
+                              player->readyweapon == wp_shotgun ||
+                              player->readyweapon == wp_chaingun ||
+                              player->readyweapon == wp_chainsaw ||
+                              player->readyweapon == wp_supershotgun);
+        if (is_hitscan)
         {
-            T_ResolveKill(player, target, damage, kit->name);
+            if (t_last_damage <= 0)
+            {
+                player->message = "MISS!";
+                printf("[TURN] attack resolved: MISS (natural)\n");
+            }
+            else
+            {
+                printf("[TURN] attack resolved: hits=1 dmg=%d crit=%d (natural)\n",
+                       t_last_damage, t_last_crit);
+                if (t_last_crit)
+                    player->message = "CRITICAL HIT!";
+                else
+                    player->message = "HIT!";
+                if (target->health <= 0)
+                {
+                    T_ResolveKill(player, target, t_last_damage, kit->name);
+                }
+            }
+        }
+        else
+        {
+            // Projectile: in flight. Damage/kill handled on impact via callback.
+            player->message = "FIRED!";
+            printf("[TURN] projectile fired (natural simulation)\n");
         }
     }
 

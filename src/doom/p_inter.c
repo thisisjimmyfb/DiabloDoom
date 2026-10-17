@@ -1247,6 +1247,24 @@ P_DamageMobj
 	    I_Tactile (40,10,40+temp*2);
     }
     
+    // Diablo turn-mode natural simulation (mod): when the player fires in
+    // turn mode, Doom's hitscan/projectile determines hit/miss. On a hit,
+    // use Diablo AD/AP damage instead of vanilla damage.
+    // - Projectile: inflictor->diablo_weapon >= 0 (set at fire time)
+    // - Hitscan: d_diablo_hitscan_weapon >= 0 (set before P_LineAttack)
+    if (d_diablo_damage_cb && source && source->player && target->player == NULL)
+    {
+        int weapon = -1;
+        if (inflictor && inflictor->diablo_weapon >= 0)
+            weapon = inflictor->diablo_weapon;
+        else if (d_diablo_hitscan_weapon >= 0)
+            weapon = d_diablo_hitscan_weapon;
+        if (weapon >= 0)
+        {
+            damage = d_diablo_damage_cb(source->player, target, weapon);
+        }
+    }
+
     // do the damage	
     target->health -= damage;	
 

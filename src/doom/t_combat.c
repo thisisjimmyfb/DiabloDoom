@@ -359,6 +359,72 @@ static int t_cooldown_tics[NUMWEAPONS]; // tics since last cooldown tick
 static int t_heat_tics[NUMWEAPONS];   // tics since last heat vent
 static boolean t_cadence_inited;
 
+// Diablo damage callback globals (see t_combat.h).
+diablo_damage_cb_t d_diablo_damage_cb = NULL;
+int d_diablo_hitscan_weapon = -1;
+
+// Diablo damage calculation for natural simulation.
+// Called by P_DamageMobj when a player-fired hitscan/projectile hits in
+// turn mode. Doom's simulation determined HIT; we compute Diablo damage.
+// - pl: attacking player
+// - target: mobj being damaged
+// - weapon: wp_* type that fired
+// Returns Diablo AD/AP damage (with crit, armor mitigation).
+static int T_DiabloDamageCallback(player_t *pl, mobj_t *target, int weapon)
+{
+    const t_kitdef_t *kit;
+    t_combatstats_t st;
+    int mech, dmg, range;
+    boolean lucky;
+
+    if (!pl || !target || weapon < 0 || weapon >= NUMWEAPONS)
+        return 1;
+    kit = T_KitForWeapon((weapontype_t)weapon);
+    mech = D_EquippedWeaponMech((struct player_s *)pl);
+    T_DeriveStats(pl, &st);
+
+    // Gun damage, approved formula. AD: kit_base + gun_dmg_range +
+    // STR/2..STR, then AD%. AP: kit_base + AP/4..AP/2, then AP%.
+    if (kit->ap_weapon)
+    {
+        int kmin = kit->dmg_min + st.ap / 4;
+        int kmax = kit->dmg_max + st.ap / 2;
+        if (kmax < kmin)
+            kmax = kmin;
+        st.ad_min = T_ApplyApPct(pl, kmin);
+        st.ad_max = T_ApplyApPct(pl, kmax);
+    }
+    else
+    {
+        st.ad_min = T_ApplyAdPct(pl, st.ad_min + kit->dmg_min);
+        st.ad_max = T_ApplyAdPct(pl, st.ad_max + kit->dmg_max);
+        if (st.ad_max < st.ad_min)
+            st.ad_max = st.ad_min;
+    }
+
+    // Single damage roll (no hit chance; Doom simulation determined hit).
+    // For multi-pellet weapons, P_LineAttack calls this per-pellet.
+    range = st.ad_max - st.ad_min + 1;
+    dmg = st.ad_min + (range > 1 ? T_Roll(range) : 0);
+
+    // Crit. Lucky: every 3rd pistol shot is a guaranteed crit.
+    lucky = (mech & MECH_LUCKY) && weapon == wp_pistol
+            && (t_shots[wp_pistol] % 3 == 0);
+    if (lucky || T_Roll100() <= st.crit_chance)
+    {
+        dmg = dmg * st.crit_mult / 100;
+        t_last_crit = 1;
+    }
+
+    // Target armor mitigation.
+    dmg -= T_MonsterArmor(target->type);
+    if (dmg < 1)
+        dmg = 1;
+
+    t_last_damage = dmg;
+    return dmg;
+}
+
 // Time-based cadence: 1 "round" = 10 seconds = 350 tics.
 // Rocket charges: 1 per 3 seconds (105 tics).
 // Cooldowns (BFG/SSG): tick down 1 round per 350 tics.
@@ -468,6 +534,9 @@ void T_KitResetCadence(void)
         t_shots[w] = 0;
     }
     t_cadence_inited = true;
+    // Install the Diablo damage callback for natural simulation.
+    // Doom's hitscan/projectile determines hit/miss; this computes damage.
+    d_diablo_damage_cb = T_DiabloDamageCallback;
 }
 
 // Time-based cadence: called every game tic from T_Ticker.

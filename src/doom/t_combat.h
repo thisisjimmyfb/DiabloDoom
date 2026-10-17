@@ -128,6 +128,21 @@ int T_KitCooldown(weapontype_t w);          // current cooldown rounds left
 void T_KitSetCooldown(weapontype_t w, int rounds);
 void T_KitResetCadence(void);           // new game: zero cd/heat, full
                                         // charges and magazines
+
+// Diablo damage callback for turn-mode natural simulation.
+// When the player fires in turn mode, Doom's hitscan/projectile system
+// determines hit/miss naturally. On a hit, P_DamageMobj calls this to
+// compute Diablo AD/AP damage instead of vanilla damage.
+// - pl: the attacking player
+// - target: the mobj being damaged
+// - weapon: wp_* type that fired (for hitscan, from d_diablo_hitscan_weapon;
+//   for projectiles, from inflictor->diablo_weapon)
+// Returns the Diablo damage to apply.
+typedef int (*diablo_damage_cb_t)(player_t *pl, mobj_t *target, int weapon);
+extern diablo_damage_cb_t d_diablo_damage_cb;
+// Weapon for synchronous hitscan (set before P_LineAttack, cleared after).
+// Projectiles store it on the mobj instead (diablo_weapon field).
+extern int d_diablo_hitscan_weapon;
 // Per-weapon ammo magazines. Every weapon with ammo_max > 0 requires
 // ammo to fire; magazines replenish automatically by weapon type:
 // AD weapons regenerate attack-speed attacks' worth of ammo each round,

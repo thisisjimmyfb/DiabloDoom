@@ -281,6 +281,11 @@ typedef struct mobj_s
     // for MT_LOOT_* drops; D_NOITEM (-1) if not a specific item.
     int			diablo_loot_id;
 
+    // Diablo turn-mode (mod): weapon type (wp_*) that fired this projectile,
+    // for Diablo damage calculation on impact. -1 if not a player-fired
+    // turn-mode projectile.
+    int			diablo_weapon;
+
     // Diablo corpse system (mod): when a player dies, their inventory
     // is stored on the corpse mobj. Touching the corpse restores it.
     // Sizes match player_t diablo_* fields (see d_diablo.h).
