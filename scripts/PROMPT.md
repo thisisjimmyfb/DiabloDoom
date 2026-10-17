@@ -2,6 +2,13 @@
 
 This is the public strategy guide for teaching our AI agent to play DiabloDoom — a turn-based Diablo-style mod of Doom. The agent plays by looking at screenshots and deciding actions. If you have ideas for better tactics, we want to hear them!
 
+## KITING DEMO (temporary - for the next run only)
+**PRIORITY: Find a melee enemy (Flesh worm, Demon, Spectre) and KITE it for the camera.**
+- Kiting = back up (MOVE_BACK) when the melee enemy gets close, then ATTACK, repeat.
+- Keep your distance — don't let it touch you.
+- Capture a REPLAY while kiting.
+- This is a demo for the user. Prioritize this over other objectives.
+
 ## The Game
 
 DiabloDoom combines Doom's first-person shooting with Diablo's loot system and turn-based combat. The agent explores levels, fights monsters in turn-based mode, picks up loot, equips gear, and tries to survive.
