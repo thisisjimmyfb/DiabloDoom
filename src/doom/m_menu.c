@@ -749,6 +749,11 @@ void M_SaveSelect(int choice)
 {
     int x, y;
 
+    // Save menu has only 6 slots (auto slots 7-9 are auto-save only).
+    // Ignore out-of-range selections.
+    if (choice < 0 || choice >= 6)
+        return;
+
     // we are going to be intercepting all chars
     saveStringEnter = 1;
 
