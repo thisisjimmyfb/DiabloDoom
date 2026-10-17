@@ -85,30 +85,16 @@ static unsigned int ProgressChecksum(unsigned char *data, unsigned int len)
 // slot >= 1 -> progress_slotN.dat (user-selectable slots)
 static void ProgressGetPathForSlot(char *buf, size_t buflen, int slot)
 {
-    const char *home = getenv("HOME");
-    const char *fmt;
+    // Use the current working directory (repo root). The game is run
+    // from the repo root, so ./progress.dat is the right location on
+    // any machine, regardless of where the repo is checked out.
     if (slot <= 0)
-        fmt = "%s/workspace/DiabloDoom/" PROGRESS_FILENAME;
-    else
-        fmt = "%s/workspace/DiabloDoom/" PROGRESS_SLOT_FILENAME_FMT;
-
-    if (home != NULL)
-    {
-        if (slot <= 0)
-            M_snprintf(buf, buflen, fmt, home);
-        else
-            M_snprintf(buf, buflen, fmt, home, slot);
-    }
+        M_snprintf(buf, buflen, "./" PROGRESS_FILENAME);
     else
     {
-        if (slot <= 0)
-            M_snprintf(buf, buflen, "./" PROGRESS_FILENAME);
-        else
-        {
-            char tmp[64];
-            M_snprintf(tmp, sizeof(tmp), PROGRESS_SLOT_FILENAME_FMT, slot);
-            M_snprintf(buf, buflen, "./%s", tmp);
-        }
+        char tmp[64];
+        M_snprintf(tmp, sizeof(tmp), PROGRESS_SLOT_FILENAME_FMT, slot);
+        M_snprintf(buf, buflen, "./%s", tmp);
     }
 }
 
