@@ -1517,10 +1517,13 @@ static boolean T_ExecAttack(mobj_t *target, int cost)
                     player->message = "CRITICAL HIT!";
                 else
                     player->message = "HIT!";
+                // Untargeted attacks: don't touch target (NULL). The hit
+                // was on a wall or untracked mobj; no kill resolution.
                 // Barrels (and other non-monster shootables) explode but
                 // don't count as kills — skip T_ResolveKill to avoid
                 // use-after-free on the removed mobj.
-                if (target->type != MT_BARREL && target->health <= 0)
+                if (!untargeted && target->type != MT_BARREL &&
+                    target->health <= 0)
                 {
                     T_ResolveKill(player, target, t_last_damage, kit->name);
                 }
