@@ -93,6 +93,13 @@ unsigned int T_GetCombatSeed(void);
 // readyweapon. Rockets/BFG are enemy-targeted: pick an enemy, splash is
 // centered on them and previewed. No ground targeting, ever.
 
+// Ammo replenish model: what drives the trickle rate.
+typedef enum
+{
+    REPLENISH_AS,  // attack-speed driven (tp_cost * 2 tics)
+    REPLENISH_CD,  // cooldown driven (effective cooldown * 12 tics)
+} replenish_model_t;
+
 typedef struct
 {
     const char *name;   // display name
@@ -112,6 +119,7 @@ typedef struct
     int max_charges;    // charge capacity (rocket); 0 = no charge system
     int leech;          // inherent lifesteal % (chainsaw); stacks with gear
     int knockback;      // tiles to shove target on hit (SSG); 0 = none
+    replenish_model_t replenish; // what drives ammo trickle rate
 } t_kitdef_t;
 
 const t_kitdef_t *T_KitForWeapon(weapontype_t w);

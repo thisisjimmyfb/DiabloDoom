@@ -299,30 +299,29 @@ static int T_MonsterArmor(mobjtype_t type)
 
 static const t_kitdef_t t_kits[NUMWEAPONS] = {
     // wp_fist (fallback; not a real kit)
-    { "PISTOL",   1,  3,  3, 0,   0,  0, 1, false, 0,  0,  0,  0, 0 },
+    { "PISTOL",   1,  3,  3, 0,   0,  0, 1, false, 0,  0,  0,  0, 0, 0, REPLENISH_AS },
     // Base kits are deliberately weak: item stats are the real damage
     // source, so hunting better gear is the progression.
     // Ammo: every weapon with a magazine requires ammo to fire.
-    // AD weapons regenerate attack-speed attacks' worth of ammo per
-    // round; AP weapons refill on cooldown completion (SSG/BFG) or
-    // charge regen (rocket). Plasma is heat-gated instead of ammo-gated.
+    // Replenish model is explicit per-weapon (see replenish_model_t):
+    // AS = attack-speed driven, CD = cooldown driven (CDR gear speeds it up).
     // wp_pistol: balanced AD sidearm
-    { "SIDEARM",  2,  4,  4, 0,   0,  0, 1, false, 1, 10,  0,  0, 0,  0, 0 },
+    { "SIDEARM",  2,  4,  4, 0,   0,  0, 1, false, 1, 10,  0,  0, 0,  0, 0, REPLENISH_AS },
     // wp_shotgun: close-range burst, 4 pellets
-    { "SHOTGUN",  2,  3,  5, 0,   0,  0, 4, false, 2, 20,  0,  0, 0,  0, 0 },
+    { "SHOTGUN",  2,  3,  5, 0,   0,  0, 4, false, 2, 20,  0,  0, 0,  0, 0, REPLENISH_AS },
     // wp_chaingun: 3-round burst
-    { "CHAINGUN", 1,  3,  5, 0,   0,  0, 3, false, 1, 10,  0,  0, 0,  0, 0 },
+    { "CHAINGUN", 1,  3,  5, 0,   0,  0, 3, false, 1, 10,  0,  0, 0,  0, 0, REPLENISH_AS },
     // wp_missile: AP rockets, enemy-targeted splash, charge-gated
-    { "ROCKET",   5,  9,  6, 0, 128, 50, 1, true, 10, 20,  0,  0, 3,  0, 0 },
+    { "ROCKET",   5,  9,  6, 0, 128, 50, 1, true, 10, 20,  0,  0, 3,  0, 0, REPLENISH_AS },
     // wp_plasma: AP energy. Heat is inverse ammo: free to spam while
     // heat < 100, vents 40/round.
-    { "PULSE",    2,  4,  4, 0,   0,  0, 1, true,  0,  0, 25, 40, 0,  0, 0 },
-    // wp_bfg: AP ultimate, cooldown + full-magazine reload on cooldown
-    { "BFG",     10, 18,  8, 3, 192, 60, 1, true, 20, 20,  0,  0, 0,  0, 0 },
+    { "PULSE",    2,  4,  4, 0,   0,  0, 1, true,  0,  0, 25, 40, 0,  0, 0, REPLENISH_AS },
+    // wp_bfg: AP ultimate, cooldown-driven replenish
+    { "BFG",     10, 18,  8, 3, 192, 60, 1, true, 20, 20,  0,  0, 0,  0, 0, REPLENISH_CD },
     // wp_chainsaw: AD melee with inherent leech (sustain for close range)
-    { "SAW",      1,  2,  3, 0,   0,  0, 1, false, 1,  6,  0,  0, 0, 30, 0 },
+    { "SAW",      1,  2,  3, 0,   0,  0, 1, false, 1,  6,  0,  0, 0, 30, 0, REPLENISH_AS },
     // wp_supershotgun: AP double-barrel, breach reload, natural knockback
-    { "SSG",      4,  8,  6, 2,   0,  0, 8, true,  8,  8,  0,  0, 0,  0, 1 },
+    { "SSG",      4,  8,  6, 2,   0,  0, 8, true,  8,  8,  0,  0, 0,  0, 1, REPLENISH_CD },
 };
 
 const t_kitdef_t *T_KitForWeapon(weapontype_t w)
@@ -735,11 +734,11 @@ void T_KitTrickleAmmo(void)
         return;
     if (t_ammo[w] >= kit->ammo_max)
         return;
-    // Determine interval based on cooldown or attack speed.
-    if (kit->cooldown > 0)
+    // Determine interval from the explicit replenish model.
+    if (kit->replenish == REPLENISH_CD)
     {
-        // Cooldown-gated: slower trickle. Uses EFFECTIVE cooldown
-        // (after Haste % and flat CDR), so CDR gear speeds up replenish.
+        // Cooldown-driven: uses EFFECTIVE cooldown (after Haste % and
+        // flat CDR), so CDR gear speeds up replenish.
         // BFG (cd=3) -> 36 tics/ammo base.
         int eff_cd = kit->cooldown;
         {
@@ -752,7 +751,7 @@ void T_KitTrickleAmmo(void)
         }
         interval = eff_cd * 12;
     }
-    else
+    else // REPLENISH_AS
     {
         // Attack speed: tp_cost scales the interval.
         // Pistol (4) -> 8 tics, Shotgun (2) -> 4, Chaingun (1) -> 3 (min).

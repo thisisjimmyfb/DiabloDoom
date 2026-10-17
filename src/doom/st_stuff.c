@@ -1230,9 +1230,9 @@ static void ST_drawTurnKits(void)
     }
     snprintf(cdlab, sizeof(cdlab), "CD");
     snprintf(cdval, sizeof(cdval), "%d", cd);
-    // For non-cooldown weapons (pistol, shotgun, etc.), show attack speed
+    // For AS-replenish weapons (pistol, shotgun, etc.), show attack speed
     // instead of a meaningless "CD 0".
-    if (kit->cooldown <= 0)
+    if (kit->replenish == REPLENISH_AS)
     {
         snprintf(cdlab, sizeof(cdlab), "AS");
         snprintf(cdval, sizeof(cdval), "%d", kit->tp_cost);
