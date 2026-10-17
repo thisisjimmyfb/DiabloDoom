@@ -534,12 +534,28 @@ void D_SyncDoomWeapon(struct player_s *pl)
     }
 
     // Fallback: if the WAD lacks this weapon's sprites (e.g. super shotgun
-    // in Doom 1 WADs), fall back to pistol to avoid R_ProjectSprite crashes.
+    // in Doom 1 WADs), use the normal shotgun sprite to avoid R_ProjectSprite
+    // crashes. The weapon still functions as a super shotgun (20 pellets);
+    // only the viewmodel sprite is swapped.
     if (w == wp_supershotgun)
     {
         // Check if SHT2A0 exists in the WAD
         if (W_CheckNumForName("SHT2A0") < 0)
-            w = wp_pistol; // Doom 1 WAD: no SSG sprites, use pistol
+        {
+            // Doom 1 WAD: no SSG sprites. Use shotgun sprite states.
+            // Keep readyweapon as supershotgun for the firing pattern;
+            // just override the psprite to use shotgun frames.
+            player->weaponowned[wp_supershotgun] = true;
+            player->weaponowned[wp_shotgun] = true;
+            if (player->readyweapon != wp_supershotgun)
+            {
+                player->readyweapon = wp_supershotgun;
+                player->pendingweapon = wp_nochange;
+                // Use shotgun's readystate for the viewmodel sprite.
+                P_SetPsprite(player, ps_weapon, weaponinfo[wp_shotgun].readystate);
+            }
+            return;
+        }
     }
 
     player->weaponowned[w] = true;
