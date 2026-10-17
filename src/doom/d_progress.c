@@ -494,19 +494,31 @@ void D_ProgressLoadAutoSlot(int auto_slot)
                         + PROGRESS_SLOT_SIZE;
 
     // If the auto-save was from a different level, warp there.
+    // On the title screen (gamemap == 0), start a new game on the saved
+    // map instead of warping.
     {
         extern int gamemap;
         int saved_map = (int)progress_hdr->reserved[0];
-        if (saved_map >= 1 && saved_map <= 32 && saved_map != gamemap)
+        if (saved_map >= 1 && saved_map <= 32)
         {
             extern void G_DeferedInitNew(int skill, int episode, int map);
             extern int gameskill;
             extern int gameepisode;
-            printf("[AUTOSAVE] warping from MAP%02d to MAP%02d\n",
-                   gamemap, saved_map);
-            // Preserve Diablo progress across the warp (it's in the mmap,
-            // not reset by G_DeferedInitNew).
-            G_DeferedInitNew(gameskill, gameepisode, saved_map);
+            if (gamemap == 0)
+            {
+                // Title screen: start new game on the saved map.
+                printf("[AUTOSAVE] starting new game on MAP%02d\n",
+                       saved_map);
+                G_DeferedInitNew(gameskill, gameepisode, saved_map);
+            }
+            else if (saved_map != gamemap)
+            {
+                printf("[AUTOSAVE] warping from MAP%02d to MAP%02d\n",
+                       gamemap, saved_map);
+                // Preserve Diablo progress across the warp (it's in the
+                // mmap, not reset by G_DeferedInitNew).
+                G_DeferedInitNew(gameskill, gameepisode, saved_map);
+            }
         }
     }
 
