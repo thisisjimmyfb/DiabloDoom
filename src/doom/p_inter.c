@@ -539,11 +539,11 @@ P_TouchSpecialThing
             P_RemoveMobj(special);
             printf("[LOOT] picked up tier=%d idx=%d\n", tier, idx);
             // Auto-save after loot pickup: don't lose the new item.
+            // NOTE: D_AutoSaveGame disabled (see t_turn.c) — exceeds vanilla
+            // savegame size limit.
             {
                 extern void D_ProgressSaveNow(void);
-                extern void D_AutoSaveGame(void);
                 D_ProgressSaveNow();
-                D_AutoSaveGame();
             }
         }
         else
