@@ -1322,10 +1322,35 @@ void ST_drawWidgets(boolean refresh)
         // become the kit status panel.
         const t_kitdef_t *turnkit = T_KitForWeapon(plyr->readyweapon);
         static int st_turn_ammo;
+        // Preview: during planning, subtract ammo that queued attacks will
+        // consume, so the player can see when further attacks would be no-ops.
+        // The actual deduction happens on execute; this is display-only.
+        int queued_attacks = 0;
+        if (!turnctrl.executing)
+        {
+            int i;
+            for (i = 0; i < turnctrl.queue_len; i++)
+            {
+                if (turnctrl.queue[i].action == TA_ATTACK)
+                    queued_attacks++;
+            }
+        }
         if (turnkit->heat_per_shot > 0)
-            st_turn_ammo = T_KitHeatMax() - T_KitHeat(plyr->readyweapon);
+        {
+            int heat_after = T_KitHeat(plyr->readyweapon)
+                           + queued_attacks * turnkit->heat_per_shot;
+            if (heat_after > T_KitHeatMax())
+                heat_after = T_KitHeatMax();
+            st_turn_ammo = T_KitHeatMax() - heat_after;
+        }
         else
-            st_turn_ammo = T_KitAmmo(plyr->readyweapon);
+        {
+            int ammo_after = T_KitAmmo(plyr->readyweapon)
+                           - queued_attacks * turnkit->ammo_cost;
+            if (ammo_after < 0)
+                ammo_after = 0;
+            st_turn_ammo = ammo_after;
+        }
         w_ready.num = &st_turn_ammo;
         STlib_updateNum(&w_ready, refresh);
         ST_drawTurnKits();
