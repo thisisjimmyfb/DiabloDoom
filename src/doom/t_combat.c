@@ -299,29 +299,29 @@ static int T_MonsterArmor(mobjtype_t type)
 
 static const t_kitdef_t t_kits[NUMWEAPONS] = {
     // wp_fist (fallback; not a real kit)
-    { "PISTOL",   1,  3,  3, 0,   0,  0, 1, false, 0,  0,  0,  0, 0, 0, REPLENISH_AS },
+    { "PISTOL",   1,  3,  3, 0,   0,  0, 1, false, 0,  0,  0,  0, 0, 0, 0, 10, REPLENISH_AS },
     // Base kits are deliberately weak: item stats are the real damage
     // source, so hunting better gear is the progression.
     // Ammo: every weapon with a magazine requires ammo to fire.
     // Replenish model is explicit per-weapon (see replenish_model_t):
     // AS = attack-speed driven, CD = cooldown driven (CDR gear speeds it up).
     // wp_pistol: balanced AD sidearm
-    { "SIDEARM",  2,  4,  4, 0,   0,  0, 1, false, 1, 10,  0,  0, 0,  0, 0, REPLENISH_AS },
+    { "SIDEARM",  2,  4,  4, 0,   0,  0, 1, false, 1, 10,  0,  0, 0,  0, 0, 10, REPLENISH_AS },
     // wp_shotgun: close-range burst, 4 pellets
-    { "SHOTGUN",  2,  3,  5, 0,   0,  0, 4, false, 2, 20,  0,  0, 0,  0, 0, REPLENISH_AS },
+    { "SHOTGUN",  2,  3,  5, 0,   0,  0, 4, false, 2, 20,  0,  0, 0,  0, 0, 20, REPLENISH_AS },
     // wp_chaingun: 3-round burst
-    { "CHAINGUN", 1,  3,  5, 0,   0,  0, 3, false, 1, 10,  0,  0, 0,  0, 0, REPLENISH_AS },
+    { "CHAINGUN", 1,  3,  5, 0,   0,  0, 3, false, 1, 10,  0,  0, 0,  0, 0,  8, REPLENISH_AS },
     // wp_missile: AP rockets, enemy-targeted splash, charge-gated
-    { "ROCKET",   5,  9,  6, 0, 128, 50, 1, true, 10, 20,  0,  0, 3,  0, 0, REPLENISH_AS },
+    { "ROCKET",   5,  9,  6, 0, 128, 50, 1, true, 10, 20,  0,  0, 3,  0, 0, 30, REPLENISH_AS },
     // wp_plasma: AP energy. Heat is inverse ammo: free to spam while
     // heat < 100, vents 40/round.
-    { "PULSE",    2,  4,  4, 0,   0,  0, 1, true,  0,  0, 25, 40, 0,  0, 0, REPLENISH_AS },
+    { "PULSE",    2,  4,  4, 0,   0,  0, 1, true,  0,  0, 25, 40, 0,  0, 0,  8, REPLENISH_AS },
     // wp_bfg: AP ultimate, cooldown-driven replenish
-    { "BFG",     10, 18,  8, 3, 192, 60, 1, true, 20, 20,  0,  0, 0,  0, 0, REPLENISH_CD },
+    { "BFG",     10, 18,  8, 3, 192, 60, 1, true, 20, 20,  0,  0, 0,  0, 0, 40, REPLENISH_CD },
     // wp_chainsaw: AD melee with inherent leech (sustain for close range)
-    { "SAW",      1,  2,  3, 0,   0,  0, 1, false, 1,  6,  0,  0, 0, 30, 0, REPLENISH_AS },
+    { "SAW",      1,  2,  3, 0,   0,  0, 1, false, 1,  6,  0,  0, 0, 30, 0,  6, REPLENISH_AS },
     // wp_supershotgun: AP double-barrel, breach reload, natural knockback
-    { "SSG",      4,  8,  6, 2,   0,  0, 8, true,  8,  8,  0,  0, 0,  0, 1, REPLENISH_CD },
+    { "SSG",      4,  8,  6, 2,   0,  0, 8, true,  8,  8,  0,  0, 0,  0, 1, 25, REPLENISH_CD },
 };
 
 const t_kitdef_t *T_KitForWeapon(weapontype_t w)
@@ -463,18 +463,9 @@ void T_KitOnFire(player_t *player)
     }
     if (kit->max_charges > 0 && t_charges[w] > 0)
         t_charges[w]--;
-    if (kit->cooldown > 0)
-    {
-        // Haste (%) then flat reduction (min 1 round).
-        t_combatstats_t st;
-        int cd = kit->cooldown;
-        T_DeriveStats(player, &st);
-        cd -= cd * st.haste / 100;
-        cd -= player->diablo_stats[DSTAT_CD_FLAT];
-        if (cd < 1)
-            cd = 1;
-        T_KitSetCooldown(w, cd);
-    }
+    // NOTE: Firing does NOT set a cooldown. CD is just the ammo replenish
+    // rate (see T_KitTrickleAmmo). Ammo is the limiter, not a separate CD
+    // resource.
 }
 
 int T_KitHeat(weapontype_t w)
@@ -687,8 +678,8 @@ void T_KitTickCooldowns(void)
 boolean T_KitCanFire(weapontype_t w)
 {
     const t_kitdef_t *kit = T_KitForWeapon(w);
-    if (T_KitCooldown(w) > 0)
-        return false;
+    // CD does NOT block firing — it's just the ammo replenish rate.
+    // Ammo is the limiter.
     if (kit->max_charges > 0 && T_KitCharges(w) <= 0)
         return false;
     // Heat is inverse ammo: usable while below the overheat threshold.
@@ -700,14 +691,7 @@ boolean T_KitCanFire(weapontype_t w)
 const char *T_KitDenyReason(weapontype_t w)
 {
     const t_kitdef_t *kit = T_KitForWeapon(w);
-    static char cooldown_msg[32];
-    if (T_KitCooldown(w) > 0)
-    {
-        // Show rounds remaining so slow weapons (BFG) don't feel broken.
-        M_snprintf(cooldown_msg, sizeof(cooldown_msg),
-                   "COOLDOWN (%d)", T_KitCooldown(w));
-        return cooldown_msg;
-    }
+    // CD does NOT block firing — no cooldown message needed.
     if (kit->max_charges > 0 && T_KitCharges(w) <= 0)
         return "NO CHARGES";
     if (kit->heat_per_shot > 0 && T_KitHeat(w) >= T_KitHeatMax())

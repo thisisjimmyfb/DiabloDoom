@@ -119,6 +119,7 @@ typedef struct
     int max_charges;    // charge capacity (rocket); 0 = no charge system
     int leech;          // inherent lifesteal % (chainsaw); stacks with gear
     int knockback;      // tiles to shove target on hit (SSG); 0 = none
+    int attack_tics;    // command execution delay in tics (attack speed)
     replenish_model_t replenish; // what drives ammo trickle rate
 } t_kitdef_t;
 

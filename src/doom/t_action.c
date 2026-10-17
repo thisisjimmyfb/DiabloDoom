@@ -1546,6 +1546,13 @@ static boolean T_ExecAttack(mobj_t *target, int cost)
         T_DumpState("exec-attack-kill");
         return true;
     }
+    // Attack speed delay: each command execution takes time based on the
+    // weapon's attack_tics. This represents the fire animation duration.
+    {
+        const t_kitdef_t *kit = T_KitForWeapon(player->readyweapon);
+        if (kit->attack_tics > 0)
+            T_BeginPulse(kit->attack_tics, true, false);
+    }
     T_DumpState("exec-attack");
     return false;
 }
