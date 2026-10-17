@@ -61,8 +61,14 @@ if [ "$CLEAN" -eq 1 ]; then
     rm -rf "$BUILD_DIR"
 fi
 
+if [ "$BUILD_TYPE" = "Debug" ]; then
+    C_FLAGS="-g -fno-omit-frame-pointer"
+else
+    C_FLAGS=""
+fi
+
 cmake -S . -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
-    -DCMAKE_C_FLAGS="-g -fno-omit-frame-pointer" \
+    -DCMAKE_C_FLAGS="$C_FLAGS" \
     -DCMAKE_EXE_LINKER_FLAGS="-rdynamic"
 cmake --build "$BUILD_DIR" --parallel "$(nproc)"
 
