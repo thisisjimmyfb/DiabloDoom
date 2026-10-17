@@ -1,14 +1,13 @@
-// d_replay.h - Instant replay buffer: last 60 seconds of gameplay.
+// d_replay.h - Instant replay buffer: last 15 seconds of gameplay.
 #ifndef D_REPLAY_H
 #define D_REPLAY_H
 
 #include <stdint.h>
 
-// 60 seconds at 35 FPS (Doom tick rate). Long buffer so agents with
-// 10-20s vision latency can still capture the moment they reacted to.
+// 15 seconds at 35 FPS (Doom tick rate)
 #define REPLAY_FPS 35
-#define REPLAY_SECONDS 60
-#define REPLAY_MAXFRAMES (REPLAY_FPS * REPLAY_SECONDS)  // 2100 frames
+#define REPLAY_SECONDS 15
+#define REPLAY_MAXFRAMES (REPLAY_FPS * REPLAY_SECONDS)  // 525 frames
 #define REPLAY_WIDTH 320
 #define REPLAY_HEIGHT 200
 #define REPLAY_FRAME_SIZE (REPLAY_WIDTH * REPLAY_HEIGHT)  // paletted, 64KB

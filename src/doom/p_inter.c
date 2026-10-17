@@ -31,6 +31,7 @@
 
 #include "m_random.h"
 #include "i_system.h"
+#include "d_replay.h"
 
 // Manual respawn: corpse waiting for RESPAWN command confirmation.
 mobj_t *pending_corpse = NULL;
@@ -1210,6 +1211,28 @@ P_DamageMobj
 	    // Without this, the HUD shows 0% but the player never actually dies.
 	    if (target)
 		target->health = 0;
+	}
+
+	// Auto-capture: when HP drops below 50%, save a replay automatically.
+	// The agent's 10-20s vision latency means it can't time captures reliably.
+	// This fires once per low-HP event (resets when HP recovers above 60%).
+	{
+	    static boolean replay_lowhp_triggered = false;
+	    if (player->health < 50 && !replay_lowhp_triggered && player->health > 0)
+	    {
+		char filename[256];
+		D_ReplayNextFilename(filename, sizeof(filename));
+		if (D_ReplaySaveMP4(filename) == 0)
+		{
+		    printf("[REPLAY] auto-captured low-HP (health=%d): %s\n",
+		           player->health, filename);
+		}
+		replay_lowhp_triggered = true;
+	    }
+	    else if (player->health >= 60)
+	    {
+		replay_lowhp_triggered = false;
+	    }
 	}
 	
 	player->attacker = source;
