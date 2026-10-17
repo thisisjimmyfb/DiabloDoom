@@ -1154,6 +1154,40 @@ void T_ConfirmCtrlTarget(void)
     T_ValidateSelection();
     if (turnctrl.selected_target < 0)
     {
+        // Mini-combat with no target: allow firing in the facing direction.
+        // This lets the player shoot walls (secrets), barrels, etc. that
+        // aren't in the target list. The vanilla hitscan will hit whatever
+        // is in front.
+        if (was_mini)
+        {
+            // Queue an untargeted attack.
+            if (!T_KitCanFire(player->readyweapon))
+            {
+                player->message = T_KitDenyReason(player->readyweapon);
+                turnctrl.mini_combat = false;
+                turnctrl.state = TS_EXPLORE;
+                return;
+            }
+            if (!T_CanAfford(TA_ATTACK))
+            {
+                T_RefuseTP(TA_ATTACK);
+                turnctrl.mini_combat = false;
+                turnctrl.state = TS_EXPLORE;
+                return;
+            }
+            if (!T_HasAmmoForKit(player->readyweapon))
+            {
+                T_RefuseMana(player->readyweapon);
+                turnctrl.mini_combat = false;
+                turnctrl.state = TS_EXPLORE;
+                return;
+            }
+            T_Enqueue(TA_ATTACK, T_CostFor(TA_ATTACK), 0, NULL);
+            player->message = "Firing...";
+            // Auto-end the mini-combat turn immediately.
+            T_DoEndTurn();
+            return;
+        }
         if (was_mini) { turnctrl.mini_combat = false; turnctrl.state = TS_EXPLORE; }
         else turnctrl.state = TS_PLANNING;
         return;
@@ -1389,17 +1423,22 @@ void T_DoAttack(void)
 static boolean T_ExecAttack(mobj_t *target, int cost)
 {
     player_t *player = &players[consoleplayer];
+    boolean untargeted = (target == NULL);
 
-    if (target == NULL || target->health <= 0
-        || !(target->flags & MF_SHOOTABLE))
+    if (!untargeted)
     {
-        players[consoleplayer].message = "Target down - attack skipped.";
-        printf("[TURN] queued attack skipped: target invalid (+%d TP)\n",
-               cost);
-        turnctrl.tp += cost;
-        T_DumpState("exec-attack-skip");
-        return false;
+        if (target->health <= 0 || !(target->flags & MF_SHOOTABLE))
+        {
+            players[consoleplayer].message = "Target down - attack skipped.";
+            printf("[TURN] queued attack skipped: target invalid (+%d TP)\n",
+                   cost);
+            turnctrl.tp += cost;
+            T_DumpState("exec-attack-skip");
+            return false;
+        }
     }
+    // Untargeted attacks (mini-combat, no target) skip validation and fire
+    // in the facing direction. Used for shootable walls/secrets.
     if (!T_KitCanFire(player->readyweapon))
     {
         players[consoleplayer].message = T_KitDenyReason(player->readyweapon);
@@ -1436,8 +1475,9 @@ static boolean T_ExecAttack(mobj_t *target, int cost)
     T_KitOnFire(player);
 
     // Face the target (instant for aiming; the smooth visual turn is
-    // a follow-up).
-    T_FaceTarget(target);
+    // a follow-up). Untargeted attacks fire in the current facing.
+    if (!untargeted)
+        T_FaceTarget(target);
 
     // Natural simulation: Doom's hitscan/projectile determines hit/miss.
     // The Diablo damage callback (installed in T_KitResetCadence) computes
