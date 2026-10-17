@@ -370,6 +370,12 @@ void D_AutoSaveGame(void)
     // Write the current progress to the rotating auto-save slot.
     // This is independent of the player's manual slot; auto-saves
     // rotate through progress_auto1/2/3.dat.
+    // Store the current level in the header's reserved bytes so loading
+    // can warp back to the right map.
+    {
+        extern int gamemap;
+        progress_hdr->reserved[0] = (unsigned char)gamemap;
+    }
     M_snprintf(tmp, sizeof(tmp), PROGRESS_AUTO_FILENAME_FMT,
                progress_auto_slot + 1);
     M_snprintf(path, sizeof(path), "./%s", tmp);
@@ -431,6 +437,23 @@ void D_ProgressLoadAutoSlot(int auto_slot)
     progress_slots[0] = (unsigned char *)progress_map + PROGRESS_HEADER_SIZE;
     progress_slots[1] = (unsigned char *)progress_map + PROGRESS_HEADER_SIZE
                         + PROGRESS_SLOT_SIZE;
+
+    // If the auto-save was from a different level, warp there.
+    {
+        extern int gamemap;
+        int saved_map = (int)progress_hdr->reserved[0];
+        if (saved_map >= 1 && saved_map <= 32 && saved_map != gamemap)
+        {
+            extern void G_DeferedInitNew(int skill, int episode, int map);
+            extern int gameskill;
+            extern int gameepisode;
+            printf("[AUTOSAVE] warping from MAP%02d to MAP%02d\n",
+                   gamemap, saved_map);
+            // Preserve Diablo progress across the warp (it's in the mmap,
+            // not reset by G_DeferedInitNew).
+            G_DeferedInitNew(gameskill, gameepisode, saved_map);
+        }
+    }
 
     // Next auto-save goes to the slot after the one just loaded.
     progress_auto_slot = auto_slot % PROGRESS_NUM_AUTO_SLOTS;
