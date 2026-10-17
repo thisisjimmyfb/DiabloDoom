@@ -44,7 +44,7 @@ When the turn-based UI is visible (TURN MODE banner):
 - **Check ammo first:** Never queue more attacks than your current ammo. If you see "NO AMMO" skips in the log, you're queuing too many.
 - **Kill ranged first:** Serpentipedes and Imps out-DPS the pistol at range. If multiple enemies are visible, target the ranged ones before melee — or break LOS and force them to come to you.
 - **Use cover:** Peek around corners and doors. Move out, queue 2-3 attacks, move back behind cover, END turn. Repeat. Don't stand in the open against ranged enemies.
-- **Captures are automatic:** The game auto-saves a replay when your HP drops below 50%. You don't need to time it — just play. The replay file will be in the doomshots folder.
+- **Captures are automatic:** The game auto-saves a replay when your HP drops below 50%. Every SCREENSHOT also saves a paired 15s video automatically. After you see a screenshot, decide whether the paired video is worth sharing — you don't need to send a separate REPLAY command.
 
 ### Gear Check
 - You are NEVER unarmed — you always have the pistol, even with no Diablo weapon equipped. "No weapon" means no Diablo weapon in the WEAPON slot. Don't avoid combat thinking you're defenseless.
