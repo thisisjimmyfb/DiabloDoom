@@ -921,22 +921,27 @@ static void cmd_dispatch(const char *cmd)
     else if (!strcmp(cmd, "SCREENSHOT"))
     {
         extern void G_ScreenShot(void);
-        // Save the replay FIRST, before the screenshot. G_ScreenShot draws
+        G_ScreenShot();
+    }
+    else if (!strcmp(cmd, "CAPTURE"))
+    {
+        // Dedicated capture: 15s replay video + screenshot in one command.
+        // Saves the replay FIRST, before the screenshot. G_ScreenShot draws
         // a "captured" message on screen; if we screenshot first, that text
         // lands in the replay buffer and appears in the video.
-        // The agent's vision takes 10-20s; by pairing every screenshot with
-        // the last 15s of video, the agent can share the video if the
-        // screenshot looks interesting without needing to time a separate
-        // REPLAY command.
+        extern void G_ScreenShot(void);
+        extern int D_ReplaySaveMP4(const char *filename);
+        extern void D_ReplayNextFilename(char *buf, size_t bufsz);
         {
             char filename[256];
             D_ReplayNextFilename(filename, sizeof(filename));
             if (D_ReplaySaveMP4(filename) == 0)
             {
-                printf("[REPLAY] paired with screenshot: %s\n", filename);
+                printf("[CAPTURE] video: %s\n", filename);
             }
         }
         G_ScreenShot();
+        printf("[CAPTURE] screenshot taken\n");
     }
     else if (!strcmp(cmd, "INVENTORY"))
     {
