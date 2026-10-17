@@ -18,8 +18,8 @@ is discrete; every drop develops one named hero across levels and sessions.
 **Keep:** Doom maps, first-person presentation, the Diablo
 inventory/equipment system.
 
-**Add:** numbered targets, Tempo turns, XP levels, persistent loadouts,
-tactical reactions.
+**Add:** numbered targets, Tempo turns, equipment-based progression,
+persistent loadouts, tactical reactions.
 
 **Prove first:** one complete map, six weapons, one named hero, one public
 character history.
@@ -54,7 +54,7 @@ one panel at a time. The bar stays; only the panels change.
    explain how a gun plays.
 3. **Loot changes tactics.** Affixes alter costs, scaling, reactions, or
    cooldown timing — not just damage.
-4. **One persistent hero.** Name, XP, attributes, equipment, inventory, and
+4. **One persistent hero.** Name, equipment, inventory, and
    lifetime feats survive every session.
 5. **Doom remains Doom.** First-person camera, maps, monsters, and
    sounds stay intact.
@@ -246,12 +246,15 @@ Tooltip order (ground loot, backpack, equipped — all identical):
 damage range; AD/AP ratios; TP cost; attack speed; charge/heat state;
 cooldown; crit; special trait.
 
-### Level-up attributes (the existing four)
+### Hero attributes (the existing four)
 
 - **Strength** — AD, knockback resistance, heavy-weapon handling.
 - **Dexterity** — hit chance, attack-speed TP cost, dodge.
 - **Energy** — AP, charge efficiency, potion and status power.
 - **Vitality** — max health, physical resilience, recovery.
+
+Level-ups are gone (see XP and levels below): the four attributes keep
+their base values and shift only through gear.
 
 ---
 
@@ -277,6 +280,13 @@ equipped), not loot.
 values (e.g. BFG 10–18 instead of 30–50, Pistol 2–4 instead of 6–13), so
 the looted gun's Diablo stats are the real damage source. Hunting better
 gear is the progression; a naked gun does chip damage.
+
+**Two-handed weapons.** The BFG9000, rocket launcher, chaingun, and
+super shotgun occupy both hands: no shield slot while one is equipped
+(`D_IsTwoHandedWeapon`, `src/doom/d_diablo.c`). Equipping a two-handed
+gun unequips the shield (stashed in the backpack on direct equip, or
+held on the cursor in the inventory UI); equipping a shield while a
+two-handed gun is equipped unequips the gun the same way.
 
 Damage model:
 
@@ -308,14 +318,24 @@ Cadence plumbing:
 weapon with a magazine requires ammo to fire (`T_KitCanFire` checks it;
 `NO AMMO` deny). Costs are validated when the attack is queued
 (`NEED n AMMO (HAVE m).` on failure) and deducted when it executes
-(`T_KitSpendAmmo`); `T_HasAmmoForKit` is the affordability check.
+(`T_KitSpendAmmo`); `T_HasAmmoForKit` is the affordability check. During
+planning, the AMMO display previews the deduction queued attacks will
+cause (display-only; the actual spend happens on execute), so the player
+can see when further attacks would be no-ops — heat weapons preview
+similarly.
 
 - **AD weapons** replenish from **attack speed**: each round the
   magazine regenerates attack-speed attacks' worth of ammo
   (`T_KitRegenAmmo`). Ranged attacks cost 0 TP -- ammo is the limiter,
   so a round can dump the whole magazine; the magazine is a burst
   buffer (e.g. Reaper TP refunds). Melee (fists, chainsaw) still costs
-  TP per attack, reduced by attack speed.
+  TP per attack, reduced by attack speed. Ammo also **trickles visibly
+  during the progress phase** (`T_KitTrickleAmmo`, per-tic): +1 to the
+  ready weapon's magazine at a weapon-tied interval — cooldown-gated
+  weapons trickle 1 per `cooldown` × 12 tics, attack-speed weapons 1 per
+  `tp_cost` × 2 tics (clamped 3–20 tics: pistol 8, shotgun 4, chaingun
+  3). The trickle applies to magazine weapons (AD); AP weapons still
+  refill only via cooldown completion / charge regen, as above.
 - **AP weapons** replenish from **cooldown**: SSG/BFG refill to full
   the moment their cooldown completes (`T_RefillOnCooldownReady`,
   hooked in the wall-clock `T_TickCadence`); the rocket loads one attack's
@@ -557,7 +577,7 @@ magnitude, crosshair overlap, or a manually chosen world coordinate.
 ### NG+ loop (New Game+)
 
 Beating the final map (MAP30) loops back to MAP01 with stronger enemies —
-the Diablo endgame. The player's gear, stats, and XP are kept; only the
+the Diablo endgame. The player's gear and stats are kept; only the
 world resets.
 
 - `d_loop` counter: 0 = first playthrough, 1 = NG+, 2 = NG++, etc.
@@ -579,7 +599,8 @@ previous valid profile and shows a clear error.
 ```
 profile_version
 name
-level, current_xp, unspent_points
+level, current_xp, unspent_points   (kept for save compatibility; unused —
+                                    progression is equipment-only)
 base_stats {str, dex, energy, vit}
 allocated_points {str, dex, energy, vit}
 equipment[10]
@@ -594,23 +615,18 @@ Item instances reuse the Phase 4 equipment/backpack serialization
 turn state but must never silently replace the newer standalone
 character. Profile reconciliation is explicit, versioned, and tested.
 
-### XP and levels
+### XP and levels (removed 2026-10-16)
 
-- Each monster definition supplies a tier and base XP; higher tiers award
-  more.
-- A monotonic, data-driven `level_thresholds[]` table defines cumulative
-  XP requirements.
-- Crossing multiple thresholds grants every missed level and its points in
-  one transaction.
-- Each level grants allocatable points for Strength / Dexterity / Energy /
-  Vitality; derived AD, AP, accuracy, crit, health, and defenses recalculate
-  immediately.
+The XP/leveling system was scrapped: progression is now purely
+equipment-based — the Diablo loot grind is the character growth.
 
-```
-new_xp = current_xp + monster_base_xp[tier]
-while new_xp >= level_thresholds[level + 1]:
-    level_up()
-```
+- `T_GainXP` is a no-op: no XP accumulation, no level-ups.
+- `T_AddStatPoint` is disabled (prints that progression is
+  equipment-based).
+- `T_CountKill` only increments the kill counter; kills no longer
+  award XP.
+- The `xp`, `level`, `stat_points` fields remain in the save struct for
+  compatibility but are unused.
 
 ---
 
@@ -625,12 +641,12 @@ profile-bio edits are not.
   is stored in the profile and used in posts, screenshots, save
   diagnostics, and the generated bio. Renaming requires an explicit later
   vote.
-- **Publish triggers:** session end, level-up, unique drop. Write a
-  character-sheet snapshot and queue one post (hero name, level, equipped
+- **Publish triggers:** session end, unique drop. Write a
+  character-sheet snapshot and queue one post (hero name, equipped
   weapon, armor summary, total kills). Aggregate same-action events into
   one snapshot/post. Event IDs prevent duplicate publication.
-- **Post payload:** `event_id, event_type, timestamp, name, level,
-  current_xp, weapon, armor_summary, total_kills, uniques_found,
+- **Post payload:** `event_id, event_type, timestamp, name,
+  weapon, armor_summary, total_kills, uniques_found,
   session_number, screenshot_path`. The game exports the package; a
   separate publisher formats and posts it. Combat never waits on the
   network.

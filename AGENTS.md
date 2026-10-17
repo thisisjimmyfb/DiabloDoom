@@ -97,7 +97,13 @@ sends `SCREENSHOT`, collects the PNG, and upscales 3x nearest-neighbor to
    ammo. AD weapons regen attack-speed attacks' worth of ammo per round
    (`T_KitRegenAmmo`, called from `T_EndPulse`); AP weapons reload on
    cooldown completion (SSG/BFG, `T_RefillOnCooldownReady`) or charge regen
-   (rocket). Ammo pickups half-fill every magazine and vent half the plasma
+   (rocket). AD magazine weapons also trickle +1 ammo per-tic interval
+   during the progress phase (`T_KitTrickleAmmo`; weapon-tied rate: 1 per
+   `tp_cost` × 2 tics for attack-speed weapons, 1 per `cooldown` × 12 tics
+   for cooldown-gated ones). During planning the HUD AMMO readout previews
+   the deduction queued attacks will cause (display-only; the spend happens
+   on execute), so players can see when further attacks would be no-ops.
+   Ammo pickups half-fill every magazine and vent half the plasma
    heat; at full magazines pickups stay on the ground. Mana Potions fully
    refill magazines and vent all plasma heat. Weapon cadence is wall-clock,
    not round-bound: cooldowns tick down 1 round per 10 s (BFG = 30 s, SSG =
@@ -147,7 +153,7 @@ text display for now).
 
 ## NG+ loop
 
-Beating MAP30 warps to MAP01 keeping gear/XP. `d_loop` increments;
+Beating MAP30 warps to MAP01 keeping gear. `d_loop` increments;
 enemies get +50% HP / +25% damage per loop; +10% magic find per loop.
 See SPEC.md "NG+ loop".
 
