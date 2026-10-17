@@ -508,18 +508,50 @@ void M_ReadSaveStrings(void)
     for (i = 0;i < load_end;i++)
     {
         int retval;
+        // Auto-save slots (6-8): read description from progress_autoN.dat.
+        // Menu positions 0-2 display these slots.
+        if (i >= 6 && i <= 8)
+        {
+            char auto_path[512];
+            char tmp[64];
+            FILE *af;
+            unsigned char hdr[64];
+            int map = 0;
+            int menu_pos = i - 6; // 0, 1, 2
+            M_snprintf(tmp, sizeof(tmp), "progress_auto%d.dat", i - 6 + 1);
+            M_snprintf(auto_path, sizeof(auto_path), "./%s", tmp);
+            af = M_fopen(auto_path, "rb");
+            if (af == NULL)
+            {
+                M_StringCopy(savegamestrings[i], EMPTYSTRING, SAVESTRINGSIZE);
+                LoadMenu[menu_pos].status = 0;
+                continue;
+            }
+            // Read the header to get the level (reserved[0]).
+            if (fread(hdr, 1, sizeof(hdr), af) == sizeof(hdr))
+                map = (int)hdr[48]; // reserved[0] offset in header
+            fclose(af);
+            if (map >= 1 && map <= 32)
+                M_snprintf(savegamestrings[i], SAVESTRINGSIZE,
+                           "AUTO %d - MAP%02d", i - 6 + 1, map);
+            else
+                M_snprintf(savegamestrings[i], SAVESTRINGSIZE,
+                           "AUTO %d", i - 6 + 1);
+            LoadMenu[menu_pos].status = 1;
+            continue;
+        }
         M_StringCopy(name, P_SaveGameFile(i), sizeof(name));
 
 	handle = M_fopen(name, "rb");
         if (handle == NULL)
         {
             M_StringCopy(savegamestrings[i], EMPTYSTRING, SAVESTRINGSIZE);
-            LoadMenu[i].status = 0;
+            LoadMenu[i + 3].status = 0; // menu pos 3-8 for slots 0-5
             continue;
         }
         retval = fread(&savegamestrings[i], 1, SAVESTRINGSIZE, handle);
 	fclose(handle);
-        LoadMenu[i].status = retval == SAVESTRINGSIZE;
+        LoadMenu[i + 3].status = retval == SAVESTRINGSIZE;
     }
 }
 
@@ -530,6 +562,8 @@ void M_ReadSaveStrings(void)
 void M_DrawLoad(void)
 {
     int             i;
+    // Map menu position to save slot: auto slots (6-8) first, then 0-5.
+    static const int slot_map[9] = {6, 7, 8, 0, 1, 2, 3, 4, 5};
 	
     V_DrawPatchDirect(72, 28, 
                       W_CacheLumpName(DEH_String("M_LOADG"), PU_CACHE));
@@ -537,7 +571,8 @@ void M_DrawLoad(void)
     for (i = 0;i < load_end; i++)
     {
 	M_DrawSaveLoadBorder(LoadDef.x,LoadDef.y+LINEHEIGHT*i);
-	M_WriteText(LoadDef.x,LoadDef.y+LINEHEIGHT*i,savegamestrings[i]);
+	M_WriteText(LoadDef.x,LoadDef.y+LINEHEIGHT*i,
+                    savegamestrings[slot_map[i]]);
     }
 }
 
