@@ -738,8 +738,19 @@ void T_KitTrickleAmmo(void)
     // Determine interval based on cooldown or attack speed.
     if (kit->cooldown > 0)
     {
-        // Cooldown-gated: slower trickle. BFG (cd=3) -> 36 tics/ammo.
-        interval = kit->cooldown * 12;
+        // Cooldown-gated: slower trickle. Uses EFFECTIVE cooldown
+        // (after Haste % and flat CDR), so CDR gear speeds up replenish.
+        // BFG (cd=3) -> 36 tics/ammo base.
+        int eff_cd = kit->cooldown;
+        {
+            t_combatstats_t st;
+            T_DeriveStats(player, &st);
+            eff_cd -= eff_cd * st.haste / 100;
+            eff_cd -= player->diablo_stats[DSTAT_CD_FLAT];
+            if (eff_cd < 1)
+                eff_cd = 1;
+        }
+        interval = eff_cd * 12;
     }
     else
     {
