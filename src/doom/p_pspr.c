@@ -721,13 +721,9 @@ A_FireShotgun2
 
     DecreaseAmmo(player, weaponinfo[player->readyweapon].ammo, 2);
 
-    // Flash state fallback: if WAD lacks SSG sprites, use shotgun flash.
-    if (W_CheckNumForName("SHT2A0") < 0)
-        P_SetPsprite(player, ps_flash, weaponinfo[wp_shotgun].flashstate);
-    else
-        P_SetPsprite (player,
-		      ps_flash,
-		      weaponinfo[player->readyweapon].flashstate);
+    P_SetPsprite (player,
+		  ps_flash,
+		  weaponinfo[player->readyweapon].flashstate);
 
     P_BulletSlope (player->mo);
 	
