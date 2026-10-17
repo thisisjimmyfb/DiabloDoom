@@ -61,7 +61,9 @@ if [ "$CLEAN" -eq 1 ]; then
     rm -rf "$BUILD_DIR"
 fi
 
-cmake -S . -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE="$BUILD_TYPE"
+cmake -S . -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
+    -DCMAKE_C_FLAGS="-g -fno-omit-frame-pointer" \
+    -DCMAKE_EXE_LINKER_FLAGS="-rdynamic"
 cmake --build "$BUILD_DIR" --parallel "$(nproc)"
 
 echo

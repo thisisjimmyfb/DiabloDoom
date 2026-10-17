@@ -19,6 +19,8 @@
 //	and call the startup functions.
 //
 
+// _GNU_SOURCE for dladdr() used by the crash handler.
+#define _GNU_SOURCE
 
 #include <ctype.h>
 #include <stdio.h>
@@ -1319,6 +1321,7 @@ static void G_CheckDemoStatusAtExit (void)
 //
 #include <signal.h>
 #ifdef __linux__
+#include <dlfcn.h>
 #include <execinfo.h>
 #include <unistd.h>
 #endif
@@ -1334,7 +1337,52 @@ static void D_CrashHandler(int sig)
     {
         void *frames[32];
         int n = backtrace(frames, 32);
+        int i;
+        // Raw trace first, as before.
         backtrace_symbols_fd(frames, n, STDERR_FILENO);
+        // Symbolized trace via addr2line (needs -g; static functions
+        // need debug info since -rdynamic only exports dynamic symbols).
+        fprintf(stderr, "\n[FATAL] Symbolized backtrace:\n");
+        for (i = 0; i < n; ++i)
+        {
+            Dl_info info;
+            char addrbuf[32];
+            char cmd[512];
+            FILE *p;
+            char line[256];
+            // Resolve the address to the containing object + offset.
+            if (dladdr(frames[i], &info) && info.dli_fname)
+            {
+                unsigned long offset =
+                    (unsigned long)frames[i] -
+                    (unsigned long)info.dli_fbase;
+                snprintf(addrbuf, sizeof(addrbuf), "%lx", offset);
+                snprintf(cmd, sizeof(cmd), "addr2line -f -C -e '%s' %s 2>/dev/null",
+                         info.dli_fname, addrbuf);
+                p = popen(cmd, "r");
+                if (p)
+                {
+                    char func[128] = "??";
+                    char srcloc[128] = "??:?";
+                    if (fgets(line, sizeof(line), p))
+                    {
+                        line[strcspn(line, "\n")] = '\0';
+                        if (line[0])
+                            snprintf(func, sizeof(func), "%s", line);
+                    }
+                    if (fgets(line, sizeof(line), p))
+                    {
+                        line[strcspn(line, "\n")] = '\0';
+                        if (line[0])
+                            snprintf(srcloc, sizeof(srcloc), "%s", line);
+                    }
+                    pclose(p);
+                    fprintf(stderr, "  %s at %s\n", func, srcloc);
+                    continue;
+                }
+            }
+            fprintf(stderr, "  ?? at ??:?\n");
+        }
     }
 #else
     fprintf(stderr, "[FATAL] backtrace not available on this platform\n");
