@@ -30,8 +30,17 @@ When the turn-based UI is visible (TURN MODE banner):
 - Do NOT kite — backing up doesn't dodge projectiles.
 - Just ATTACK, or strafe sideways to dodge.
 
+### Staying Alive
+
+- **Retreat when hurt:** If HP drops below 40% and you're fighting a ranged enemy, STOP attacking. Move behind a wall, door, or corner to break line of sight. Let your HP recover or reposition — don't trade shots you'll lose.
+- **Don't over-queue:** Queue 2-3 attacks per round, END turn, assess. Dumping 10 attacks at once wastes ammo on misses and leaves you exposed if the enemy closes in.
+- **Check ammo first:** Never queue more attacks than your current ammo. If you see "NO AMMO" skips in the log, you're queuing too many.
+- **Kill ranged first:** Serpentipedes and Imps out-DPS the pistol at range. If multiple enemies are visible, target the ranged ones before melee — or break LOS and force them to come to you.
+- **Use cover:** Peek around corners and doors. Move out, queue 2-3 attacks, move back behind cover, END turn. Repeat. Don't stand in the open against ranged enemies.
+
 ### Gear Check
-- If you have no Diablo weapon equipped (vanilla pistol only): prioritize finding a Diablo weapon over fighting. Don't engage Flesh worms or tough enemies — explore, loot, equip first, then fight.
+- You are NEVER unarmed — you always have the pistol, even with no Diablo weapon equipped. "No weapon" means no Diablo weapon in the WEAPON slot. Don't avoid combat thinking you're defenseless.
+- If you have no Diablo weapon equipped (vanilla pistol only): prioritize finding a Diablo weapon over fighting tough enemies. But you CAN fight — just be cautious.
 
 ### Getting Unstuck
 - If your position doesn't change after a movement command, you're against a wall.
