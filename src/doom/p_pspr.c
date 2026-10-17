@@ -26,6 +26,7 @@
 #include "m_random.h"
 #include "p_local.h"
 #include "s_sound.h"
+#include "w_wad.h"
 
 // State.
 #include "doomstat.h"
@@ -711,7 +712,11 @@ A_FireShotgun2
     int		damage;
 		
 	
-    S_StartSound (player->mo, sfx_dshtgn);
+    // Fallback: if the WAD lacks the SSG sound (Doom 1), use shotgun sound.
+    if (W_CheckNumForName("DSDBOPN") < 0 && W_CheckNumForName("DSDSHTGN") < 0)
+        S_StartSound (player->mo, sfx_shotgn);
+    else
+        S_StartSound (player->mo, sfx_dshtgn);
     P_SetMobjState (player->mo, S_PLAY_ATK2);
 
     DecreaseAmmo(player, weaponinfo[player->readyweapon].ammo, 2);
