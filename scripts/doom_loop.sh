@@ -26,7 +26,12 @@ DOOM_WAD="${DOOM_WAD:-~/workspace/doom/freedoom1.wad}"
 LOG="${LOG:-~/workspace/doom_hourly.log}"
 GAME_LOG="${GAME_LOG:-/tmp/doom_hourly.log}"
 SCREEN_DIR="${SCREEN_DIR:-~/workspace/screenshots}"
-SHOTDIR="${SHOTDIR:-~/workspace/doomshots}"
+# Screenshots: /tmp on Muse VMs (ephemeral), $HOME/doomshots on local machines.
+if [[ "${JARVIS_FQDN:-}" == *"metaaivm.com"* ]]; then
+    SHOTDIR="${SHOTDIR:-/tmp/doomshots}"
+else
+    SHOTDIR="${SHOTDIR:-$HOME/doomshots}"
+fi
 CMDFILE="${CMDFILE:-/tmp/doom_cmd.txt}"
 PROMPT="${PROMPT:-$REPO/scripts/PROMPT.md}"
 FARM_SECONDS="${FARM_SECONDS:-300}"

@@ -27,15 +27,52 @@
 
 void D_EnsureDoomshotsDir(void)
 {
+    // On Muse VMs: /tmp/doomshots (ephemeral, won't fill persistent storage).
+    // On local machines: $HOME/doomshots (easy to find).
+    // The farm uploads interesting ones before they're lost on recycle.
     struct stat st;
-    if (stat("doomshots", &st) != 0)
+    const char *dir;
+    extern boolean D_OnMuseVM(void);
+    if (D_OnMuseVM())
+        dir = "/tmp/doomshots";
+    else
     {
-        if (mkdir("doomshots", 0755) != 0 && errno != EEXIST)
-            printf("[REPLAY] warning: cannot create doomshots/\n");
+        static char home_dir[512];
+        const char *home = getenv("HOME");
+        if (home)
+        {
+            snprintf(home_dir, sizeof(home_dir), "%s/doomshots", home);
+            dir = home_dir;
+        }
+        else
+            dir = "/tmp/doomshots";
+    }
+    if (stat(dir, &st) != 0)
+    {
+        if (mkdir(dir, 0755) != 0 && errno != EEXIST)
+            printf("[REPLAY] warning: cannot create %s/\n", dir);
     }
 }
 
-// Find an unused replay filename: doomshots/diablodoom_YYYYMMDD_HHMMSS.mp4,
+// Returns the doomshots directory for this machine.
+static const char *D_DoomshotsDir(void)
+{
+    extern boolean D_OnMuseVM(void);
+    if (D_OnMuseVM())
+        return "/tmp/doomshots";
+    {
+        static char home_dir[512];
+        const char *home = getenv("HOME");
+        if (home)
+        {
+            snprintf(home_dir, sizeof(home_dir), "%s/doomshots", home);
+            return home_dir;
+        }
+    }
+    return "/tmp/doomshots";
+}
+
+// Find an unused replay filename: /tmp/doomshots/diablodoom_YYYYMMDD_HHMMSS.mp4,
 // with a numeric suffix if the timestamp is taken.
 void D_ReplayNextFilename(char *buf, size_t bufsz)
 {
@@ -45,12 +82,15 @@ void D_ReplayNextFilename(char *buf, size_t bufsz)
     int i;
     for (i = 0; i < 100; i++)
     {
+        const char *dir = D_DoomshotsDir();
         if (i == 0)
-            snprintf(buf, bufsz, "doomshots/diablodoom_%04d%02d%02d_%02d%02d%02d.mp4",
+            snprintf(buf, bufsz, "%s/diablodoom_%04d%02d%02d_%02d%02d%02d.mp4",
+                     dir,
                      tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
                      tm->tm_hour, tm->tm_min, tm->tm_sec);
         else
-            snprintf(buf, bufsz, "doomshots/diablodoom_%04d%02d%02d_%02d%02d%02d_%02d.mp4",
+            snprintf(buf, bufsz, "%s/diablodoom_%04d%02d%02d_%02d%02d%02d_%02d.mp4",
+                     dir,
                      tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
                      tm->tm_hour, tm->tm_min, tm->tm_sec, i);
         if (stat(buf, &st) != 0)
