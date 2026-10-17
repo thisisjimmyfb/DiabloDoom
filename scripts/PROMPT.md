@@ -1,13 +1,18 @@
 # How to Play DiabloDoom (Agent Strategy Guide)
 
-This is the public strategy guide for teaching our AI agent to play DiabloDoom — a turn-based Diablo-style mod of Doom. The agent plays by looking at screenshots and deciding actions. If you have ideas for better tactics, we want to hear them!
+This is the public strategy guide for teaching our AI agent to play DiabloDoom — a turn-based Diablo-style mod of Doom. If you have ideas for better tactics, we want to hear them!
 
-## KITING DEMO (temporary - for the next run only)
-**PRIORITY: Find a melee enemy (Flesh worm, Demon, Spectre) and KITE it for the camera.**
-- Kiting = back up (MOVE_BACK) when the melee enemy gets close, then ATTACK, repeat.
-- Keep your distance — don't let it touch you.
-- Capture a REPLAY while kiting.
-- This is a demo for the user. Prioritize this over other objectives.
+## Observation Strategy
+
+**Explore mode: use REPLAY videos, not screenshots.**
+- Videos give temporal context — you can see movement, enemy behavior, and what's changing.
+- Use CAPTURE (15s video + screenshot) for exploration decisions.
+- Screenshots alone miss motion; a single frame can't tell you if that shape is an enemy or a wall texture.
+
+**Turn-based combat: use screenshots, refreshed after every queued command.**
+- Combat is discrete — the game state only changes when you queue and execute.
+- After every command you queue (MOVE, ATTACK, etc.), take a new SCREENSHOT to see the updated state: TP remaining, queue contents, target selection, enemy positions.
+- Don't rely on a stale screenshot from before you queued — the queue panel, TP, and target markers all change.
 
 ## The Game
 
