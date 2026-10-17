@@ -70,7 +70,7 @@ static int replay_count = 0;
 // Written by the SDL_mixer post-mix hook (audio thread), read when saving.
 #define REPLAY_AUDIO_RATE 44100
 #define REPLAY_AUDIO_CHANNELS 2
-#define REPLAY_AUDIO_SECS 15
+#define REPLAY_AUDIO_SECS 60
 #define REPLAY_AUDIO_SAMPLES (REPLAY_AUDIO_RATE * REPLAY_AUDIO_SECS)
 #define REPLAY_AUDIO_BYTES (REPLAY_AUDIO_SAMPLES * REPLAY_AUDIO_CHANNELS * 2)
 static int16_t *replay_audio_buf = NULL;
