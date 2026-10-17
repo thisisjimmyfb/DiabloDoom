@@ -127,7 +127,8 @@ target list so the player can still shoot them deliberately.
 
 **Voluntary fights:** hold Ctrl in explore mode to enter mini-combat
 targeting — a single-turn attack on a barrel, prop, or enemy without
-starting a full fight.
+starting a full fight. Releasing Ctrl with no target fires in the facing
+direction (for shootable walls/secrets that aren't targetable mobjs).
 
 **Design intent:** the Diablo farm loop (walk room to room, grab loot,
 build the character) stays frictionless; the XCOM tactical layer appears
@@ -195,7 +196,9 @@ through a bounded simulation pulse.
 - Attack entries snapshot the target actor; at execution the target is
   revalidated — if it died or became invalid, the attack skips gracefully,
   refunds its TP, and the drain continues.
-- Blocked movement retains partial-progress behavior.
+- Movement uses `P_XYMovement` (the normal game movement code) with wall
+  sliding (`P_SlideMove`), matching explore-mode behavior. Blocked moves
+  slide along walls instead of stopping dead.
 - Input locks while the queue drains.
 - Dying clears the queue immediately and ends the progress phase.
 
@@ -273,8 +276,15 @@ equipped), not loot.
 | Chainsaw | AD | **Magazine 6** (1/shot) + **30% inherent leech** | AS | High risk, constant uptime; leech sustains close-range fighting. |
 | Plasma Rifle | AP | **Heat** (inverse ammo) | — (heat) | Free to spam while heat < 100: +25 heat per shot, vents 40 per 10 s continuously (fractional accumulation). |
 | Rocket Launcher | AP | **Charges** (3, +1 per 3 s) + **Magazine 20** (10/shot) | AS | Punctuated splash; firing consumes 1 charge. Each regenerated charge also loads one attack's worth of ammo. |
-| Super Shotgun | AP | **Cooldown** (20 s breach reload) + **Magazine 8** (8/shot) + **knockback** | CD | Breach tool: shoves target 1 tile, forced reload rhythm. |
-| BFG9000 | AP | **Cooldown** (30 s) + **Magazine 20** (20/shot) | CD | Ultimate: highest damage, gated hardest. |
+| Super Shotgun | AP | **Magazine 8** (8/shot) + **knockback** | CD | Breach tool: shoves target 1 tile. Ammo replenishes on cooldown rate (CD=2). |
+| BFG9000 | AP | **Magazine 20** (20/shot) | CD | Ultimate: highest damage. Ammo replenishes on cooldown rate (CD=3). |
+
+**Cooldown is not a blocking resource.** The `cooldown` value in a kit
+definition only drives the ammo replenish rate for CD weapons
+(`REPLENISH_CD`). Firing never sets a cooldown and never blocks — ammo
+is the limiter. Attack speed is the command execution delay
+(`attack_tics` in the kit): pistol 10, shotgun 20, chaingun 8, rocket 30,
+plasma 8, BFG 40, chainsaw 6, SSG 25 tics (35 tics = 1 second).
 
 **Base kits are deliberately weak.** Kit damage is ~1/3 of the original
 values (e.g. BFG 10–18 instead of 30–50, Pistol 2–4 instead of 6–13), so

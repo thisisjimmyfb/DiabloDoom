@@ -18,7 +18,8 @@ real-time mode and no `-turnbased` flag.
 
 ```sh
 # from repo root
-scripts/build.sh                      # cmake build into ./build
+scripts/build.sh                      # cmake build into ./build (Debug by default)
+scripts/build.sh --release            # optimized Release build
 ./build/src/chocolate-doom -iwad <path-to-iwad>
 ```
 
