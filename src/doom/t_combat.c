@@ -589,22 +589,12 @@ void T_KitLoadCadence(const int *cool, const int *heat,
 }
 
 // AP magazine refill when a cooldown-gated weapon (SSG/BFG) finishes
-// its cooldown: ammo replenishes based on CD.
+// its cooldown. Now a no-op: the trickle (T_KitTrickleAmmo) handles
+// replenishment at a cooldown-driven rate, so weapons don't instant-refill.
 static void T_RefillOnCooldownReady(weapontype_t w)
 {
-    if (t_kits[w].cooldown > 0 && t_kits[w].ammo_max > 0)
-    {
-        t_ammo[w] = t_kits[w].ammo_max;
-        // Announce when a cooldown weapon refills, so the BFG doesn't
-        // feel broken during its long recharge.
-        if (w == players[consoleplayer].readyweapon)
-        {
-            static char msg[64];
-            M_snprintf(msg, sizeof(msg), "%s READY!",
-                       T_KitForWeapon(w)->name);
-            players[consoleplayer].message = msg;
-        }
-    }
+    (void)w;
+    // Intentionally empty. See T_KitTrickleAmmo for cooldown-rate replenish.
 }
 
 void T_KitTickCooldowns(void)
@@ -741,7 +731,7 @@ void T_KitTrickleAmmo(void)
     if (w < 0 || w >= NUMWEAPONS)
         return;
     kit = &t_kits[w];
-    if (kit->ap_weapon || kit->ammo_max <= 0 || kit->ammo_cost <= 0)
+    if (kit->ammo_max <= 0 || kit->ammo_cost <= 0)
         return;
     if (t_ammo[w] >= kit->ammo_max)
         return;
