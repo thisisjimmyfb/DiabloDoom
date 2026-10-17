@@ -33,4 +33,7 @@ void D_ProgressTick(void);
 void D_ProgressSaveNow(void);
 void D_AutoSaveGame(void);
 
+// Load Diablo progress from an auto-save slot (1-based).
+void D_ProgressLoadAutoSlot(int auto_slot);
+
 #endif

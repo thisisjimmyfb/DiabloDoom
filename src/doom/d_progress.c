@@ -28,9 +28,13 @@
 // typically launched from the repo root or we resolve it below.
 #define PROGRESS_FILENAME "progress.dat"
 #define PROGRESS_SLOT_FILENAME_FMT "progress_slot%d.dat"
+#define PROGRESS_AUTO_FILENAME_FMT "progress_auto%d.dat"
 
 // Number of user-selectable save slots (1-based for the UI).
 #define PROGRESS_NUM_SLOTS 3
+
+// Number of auto-save rotation slots.
+#define PROGRESS_NUM_AUTO_SLOTS 3
 
 // 4MB per slot is plenty for a Doom save (typically 100KB-1MB).
 #define PROGRESS_SLOT_SIZE (4 * 1024 * 1024)
@@ -60,6 +64,7 @@ static progress_header_t *progress_hdr = NULL;
 static unsigned char *progress_slots[2] = {NULL, NULL};
 static int progress_tic_count = 0;
 static boolean progress_initialized = false;
+static int progress_auto_slot = 0; // next auto-save slot (0..PROGRESS_NUM_AUTO_SLOTS-1)
 
 // Forward declaration
 static boolean D_ProgressLoadFromSlot(int slot);
@@ -353,10 +358,81 @@ void D_ProgressTick(void)
 // The Doom savegame slots 7-9 are not used; progress.dat is the save.
 void D_AutoSaveGame(void)
 {
+    char path[512];
+    char tmp[64];
+
     if (gamestate != GS_LEVEL)
         return;
 
-    // Save Diablo progress (progress.dat). This is the auto-save.
-    D_ProgressSaveNow();
-    printf("[AUTOSAVE] progress.dat updated\n");
+    if (!progress_initialized || progress_map == NULL)
+        return;
+
+    // Write the current progress to the rotating auto-save slot.
+    // This is independent of the player's manual slot; auto-saves
+    // rotate through progress_auto1/2/3.dat.
+    M_snprintf(tmp, sizeof(tmp), PROGRESS_AUTO_FILENAME_FMT,
+               progress_auto_slot + 1);
+    M_snprintf(path, sizeof(path), "./%s", tmp);
+
+    // Copy the entire progress file (header + slots) to the auto slot.
+    {
+        FILE *f = fopen(path, "wb");
+        if (f)
+        {
+            fwrite(progress_map, 1, PROGRESS_FILE_SIZE, f);
+            fclose(f);
+            printf("[AUTOSAVE] %s updated (slot %d)\n",
+                   tmp, progress_auto_slot + 1);
+        }
+        else
+        {
+            printf("[AUTOSAVE] failed to write %s\n", tmp);
+        }
+    }
+
+    // Rotate to the next auto-save slot.
+    progress_auto_slot = (progress_auto_slot + 1) % PROGRESS_NUM_AUTO_SLOTS;
+}
+
+// Load Diablo progress from an auto-save slot (1-based: 1..PROGRESS_NUM_AUTO_SLOTS).
+// Copies the auto-save file into the active mmap'd progress region, so the
+// game continues from the auto-save state. Sets the rotation so the next
+// auto-save overwrites the oldest slot, not the one just loaded.
+void D_ProgressLoadAutoSlot(int auto_slot)
+{
+    char path[512];
+    char tmp[64];
+    FILE *f;
+    size_t n;
+
+    if (auto_slot < 1 || auto_slot > PROGRESS_NUM_AUTO_SLOTS)
+        return;
+    if (!progress_initialized || progress_map == NULL)
+        return;
+
+    M_snprintf(tmp, sizeof(tmp), PROGRESS_AUTO_FILENAME_FMT, auto_slot);
+    M_snprintf(path, sizeof(path), "./%s", tmp);
+
+    f = fopen(path, "rb");
+    if (!f)
+    {
+        printf("[AUTOSAVE] no auto-save in slot %d\n", auto_slot);
+        return;
+    }
+    n = fread(progress_map, 1, PROGRESS_FILE_SIZE, f);
+    fclose(f);
+    if (n != PROGRESS_FILE_SIZE)
+    {
+        printf("[AUTOSAVE] auto-save slot %d is corrupt\n", auto_slot);
+        return;
+    }
+    // Re-point the header/slot pointers (mmap base unchanged, but be safe).
+    progress_hdr = (progress_header_t *)progress_map;
+    progress_slots[0] = (unsigned char *)progress_map + PROGRESS_HEADER_SIZE;
+    progress_slots[1] = (unsigned char *)progress_map + PROGRESS_HEADER_SIZE
+                        + PROGRESS_SLOT_SIZE;
+
+    // Next auto-save goes to the slot after the one just loaded.
+    progress_auto_slot = auto_slot % PROGRESS_NUM_AUTO_SLOTS;
+    printf("[AUTOSAVE] loaded from slot %d\n", auto_slot);
 }

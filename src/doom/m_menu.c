@@ -575,6 +575,14 @@ void M_LoadSelect(int choice)
     M_StringCopy(name, P_SaveGameFile(choice), sizeof(name));
 
     G_LoadGame (name);
+    // If loading from auto-save slots 7-9 (choice 6-8), also restore the
+    // Diablo progress from the corresponding auto-save slot. This keeps
+    // the auto-save rotation working after loading.
+    if (choice >= 6 && choice <= 8)
+    {
+        extern void D_ProgressLoadAutoSlot(int auto_slot);
+        D_ProgressLoadAutoSlot(choice - 6 + 1);
+    }
     M_ClearMenus ();
 }
 
