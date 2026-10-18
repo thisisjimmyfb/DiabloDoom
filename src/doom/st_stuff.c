@@ -1283,7 +1283,7 @@ static void ST_drawTurnKits(void)
         int n, i, j;
         boolean new_loot = false;
         V_DrawFilledBox(250, 160, 110, 10, 0);
-        ST_TurnDrawText(254, 161, "press G to loot");
+        ST_TurnDrawText(254, 161, "PRESS G TO LOOT");
         n = T_GetLootList(loot_list, LOOT_LOG_CACHE);
         for (i = 0; i < n; i++)
         {
