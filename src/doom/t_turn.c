@@ -675,6 +675,30 @@ static void T_EndPulse(void)
         }
         else
         {
+            // Continuous fire: if lock is active with a continuous weapon,
+            // keep firing instead of ending the phase. Respects attack_tics.
+            if (turnctrl.locked_target != NULL &&
+                T_IsContinuousWeapon(players[consoleplayer].readyweapon))
+            {
+                if (turnctrl.lock_fire_cooldown > 0)
+                {
+                    turnctrl.lock_fire_cooldown--;
+                    return;
+                }
+                T_AutoFireLocked();
+                if (turnctrl.queue_len > 0)
+                {
+                    T_ExecuteNext();
+                    {
+                        const t_kitdef_t *kit = T_KitForWeapon(
+                            players[consoleplayer].readyweapon);
+                        int t = kit->attack_tics;
+                        turnctrl.lock_fire_cooldown = t < 1 ? 1 : t;
+                    }
+                    return;
+                }
+                // Lock cleared: fall through to end phase.
+            }
             // End of progress phase. If the player died, stop here —
             // the death flow takes over. Otherwise back to planning.
             turnctrl.executing = false;

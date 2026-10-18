@@ -122,6 +122,7 @@ typedef struct
     // a target and keep firing until it dies or the player switches
     // targets. Movement does not break the lock.
     mobj_t *locked_target;
+    int lock_fire_cooldown; // tics until next continuous-fire shot
 } turnctrl_t;
 
 extern turnctrl_t turnctrl;

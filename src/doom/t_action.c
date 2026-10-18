@@ -1424,7 +1424,10 @@ void T_DoAttack(void)
     // Continuous weapons lock onto the target: keep firing until it
     // dies or the player switches targets. Movement does not break it.
     if (T_IsContinuousWeapon(player->readyweapon))
+    {
         turnctrl.locked_target = target;
+        turnctrl.lock_fire_cooldown = 0;
+    }
     turnctrl.selected_target = -1;
     turnctrl.state = TS_PLANNING;
 }
