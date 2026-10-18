@@ -337,17 +337,14 @@ static mobj_t *T_FindNearestLoot(mobj_t *player_mo)
     mobj_t *best = NULL;
     fixed_t best_dist = 0x7fffffff; // MAXINT
     thinker_t *th;
-    int scanned = 0, type_ok = 0;
 
     for (th = thinkercap.next; th != &thinkercap; th = th->next)
     {
         if (th->function.acp1 != (actionf_p1)P_MobjThinker)
             continue;
         mo = (mobj_t *)th;
-        scanned++;
         if (mo->type < MT_LOOT_NORMAL || mo->type > MT_LOOT_UNIQUE)
             continue;
-        type_ok++;
         // Skip if already picked up (removed)
         if (mo->health <= 0)
         {
@@ -367,9 +364,28 @@ static mobj_t *T_FindNearestLoot(mobj_t *player_mo)
             }
         }
     }
-    printf("[COLLECT] scan: %d mobjs, %d loot-type, best=%p\n",
-           scanned, type_ok, (void *)best);
     return best;
+}
+
+// Public: collect live Diablo loot mobjs into list (up to max). Returns count.
+int T_GetLootList(mobj_t **list, int max)
+{
+    thinker_t *th;
+    mobj_t *mo;
+    int count = 0;
+    for (th = thinkercap.next; th != &thinkercap; th = th->next)
+    {
+        if (th->function.acp1 != (actionf_p1)P_MobjThinker)
+            continue;
+        mo = (mobj_t *)th;
+        if (mo->type < MT_LOOT_NORMAL || mo->type > MT_LOOT_UNIQUE)
+            continue;
+        if (mo->health <= 0)
+            continue;
+        if (count < max)
+            list[count++] = mo;
+    }
+    return count;
 }
 
 // Public: check if any Diablo loot exists on the map (for the HUD prompt).
@@ -621,7 +637,13 @@ void T_DoCollect(void)
             mo->momz = 0;
             P_ZMovement(mo);
         }
-        printf("[COLLECT] moved %d steps toward loot\n", steps);
+        {
+            fixed_t dx = mo->x - loot->x;
+            fixed_t dy = mo->y - loot->y;
+            fixed_t dist = P_AproxDistance(dx, dy) / FRACUNIT;
+            printf("[COLLECT] moved %d steps; dist to loot now %d units (touch needs <32)\n",
+                   steps, dist);
+        }
     }
 
     {

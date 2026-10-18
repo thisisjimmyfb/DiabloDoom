@@ -1199,7 +1199,11 @@ static const char *st_icon_drop[8] = {
 // Turn-based kit status (Phase 5): replaces the right-side AMMO counts
 // with a persistent AD/AP stat block and a contextual cooldown line.
 // Text labels (AD/AP/CD) instead of icons for clarity.
-static boolean loot_alert_logged = false; // tracks [LOOT] available log transition
+// Cache of loot mobj pointers we've already logged "[LOOT] available" for,
+// so we don't spam the log about the same drops.
+#define LOOT_LOG_CACHE 32
+static mobj_t *loot_logged[LOOT_LOG_CACHE];
+static int loot_logged_count = 0;
 static void ST_drawTurnKits(void)
 {
     t_combatstats_t st;
@@ -1271,21 +1275,41 @@ static void ST_drawTurnKits(void)
 
     // Loot alert: persistent prompt when drops are on the map.
     // Drawn at the top of the AD/AP panel area (y=160, above the stats).
-    // Also logs to stdout on false->true transition so agents watching
+    // Also logs to stdout for new loot (by mobj identity) so agents watching
     // the log can react (issue COLLECT) even without seeing the HUD.
     if (T_LootAvailable())
     {
+        mobj_t *loot_list[LOOT_LOG_CACHE];
+        int n, i, j;
+        boolean new_loot = false;
         V_DrawFilledBox(250, 160, 110, 10, 0);
         ST_TurnDrawText(254, 161, "press G to loot");
-        if (!loot_alert_logged)
+        n = T_GetLootList(loot_list, LOOT_LOG_CACHE);
+        for (i = 0; i < n; i++)
         {
-            printf("[LOOT] available on map - press G to loot\n");
-            loot_alert_logged = true;
+            boolean seen = false;
+            for (j = 0; j < loot_logged_count; j++)
+            {
+                if (loot_logged[j] == loot_list[i])
+                {
+                    seen = true;
+                    break;
+                }
+            }
+            if (!seen)
+            {
+                new_loot = true;
+                if (loot_logged_count < LOOT_LOG_CACHE)
+                    loot_logged[loot_logged_count++] = loot_list[i];
+            }
         }
+        if (new_loot)
+            printf("[LOOT] available on map - press G to loot\n");
     }
     else
     {
-        loot_alert_logged = false;
+        // No loot: clear the cache so next drops log again.
+        loot_logged_count = 0;
     }
 }
 
