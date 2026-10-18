@@ -550,6 +550,7 @@ void D_SyncDoomWeapon(struct player_s *pl)
     // Defensive: validate weapon index before touching psprites.
     if (w < 0 || w >= NUMWEAPONS)
         return;
+    printf("[DIABLO] equip: readyweapon %d -> %d\n", player->readyweapon, w);
     player->readyweapon = w;
     player->pendingweapon = wp_nochange;
     // Snap the first-person sprite immediately. Turn mode is frozen
