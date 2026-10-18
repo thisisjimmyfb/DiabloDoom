@@ -18,6 +18,7 @@
 
 #include "doomtype.h"
 #include "doomstat.h"
+#include "t_turn.h"
 #include "d_progress.h"
 #include "p_saveg.h"
 #include "g_game.h"
@@ -152,6 +153,93 @@ void D_AutosaveTeleportCheck(void)
                 }
                 printf("[AUTOSAVE] re-killed %d/%d dead enemies\n",
                        killed, count);
+            }
+            fclose(f);
+        }
+    }
+    // Restore player state (HP, armor, ammo, heat) and live enemy HP.
+    {
+        char state_path[512];
+        char auto_dir[512];
+        ProgressGetAutoDir(auto_dir, sizeof(auto_dir));
+        M_snprintf(state_path, sizeof(state_path),
+                   "%s/progress_auto_state.dat", auto_dir);
+        FILE *f = fopen(state_path, "rb");
+        if (f)
+        {
+            extern player_t players[];
+            extern int consoleplayer;
+            player_t *pl = &players[consoleplayer];
+            int hp, armor;
+            if (fread(&hp, sizeof(int), 1, f) == 1 &&
+                fread(&armor, sizeof(int), 1, f) == 1)
+            {
+                pl->health = hp;
+                if (pl->mo)
+                    pl->mo->health = hp;
+                pl->armortype = armor / 100;
+                pl->armorpoints = armor % 100;
+                printf("[AUTOSAVE] restored HP=%d armor=%d\n", hp, armor);
+            }
+            int i;
+            for (i = 0; i < NUMAMMO; i++)
+            {
+                int a;
+                if (fread(&a, sizeof(int), 1, f) == 1)
+                    pl->ammo[i] = a;
+            }
+            {
+                int heat;
+                if (fread(&heat, sizeof(int), 1, f) == 1)
+                {
+                    extern turnctrl_t turnctrl;
+                    turnctrl.heat = heat;
+                }
+            }
+            // Live enemies: restore their HP.
+            {
+                int count;
+                if (fread(&count, sizeof(int), 1, f) == 1 && count > 0 &&
+                    count < 10000)
+                {
+                    extern thinker_t thinkercap;
+                    extern void *P_MobjThinker;
+                    int i;
+                    int restored = 0;
+                    for (i = 0; i < count; i++)
+                    {
+                        int x, y, type, h;
+                        if (fread(&x, sizeof(int), 1, f) != 1) break;
+                        if (fread(&y, sizeof(int), 1, f) != 1) break;
+                        if (fread(&type, sizeof(int), 1, f) != 1) break;
+                        if (fread(&h, sizeof(int), 1, f) != 1) break;
+                        // Find the enemy and set its HP.
+                        thinker_t *th;
+                        for (th = thinkercap.next; th != &thinkercap;
+                             th = th->next)
+                        {
+                            if (th->function.acp1 != (actionf_p1)P_MobjThinker)
+                                continue;
+                            mobj_t *mo = (mobj_t *)th;
+                            if ((mo->flags & MF_SHOOTABLE) &&
+                                mo->health > 0 && (int)mo->type == type)
+                            {
+                                int dx = (int)mo->x - x;
+                                int dy = (int)mo->y - y;
+                                if (dx < 0) dx = -dx;
+                                if (dy < 0) dy = -dy;
+                                if (dx < 64*65536 && dy < 64*65536)
+                                {
+                                    mo->health = h;
+                                    restored++;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    printf("[AUTOSAVE] restored HP for %d/%d live enemies\n",
+                           restored, count);
+                }
             }
             fclose(f);
         }
@@ -620,6 +708,78 @@ void D_AutoSaveGame(void)
             }
             fclose(f);
             printf("[AUTOSAVE] saved %d dead enemies\n", count);
+        }
+    }
+
+    // Save player state (HP, armor, ammo) and live enemies.
+    {
+        char state_path[512];
+        char auto_dir[512];
+        ProgressGetAutoDir(auto_dir, sizeof(auto_dir));
+        M_snprintf(state_path, sizeof(state_path),
+                   "%s/progress_auto_state.dat", auto_dir);
+        FILE *f = fopen(state_path, "wb");
+        if (f)
+        {
+            extern player_t players[];
+            extern int consoleplayer;
+            player_t *pl = &players[consoleplayer];
+            // Player HP, armor.
+            int hp = pl->health;
+            int armor = pl->armortype * 100 + pl->armorpoints;
+            fwrite(&hp, sizeof(int), 1, f);
+            fwrite(&armor, sizeof(int), 1, f);
+            // Ammo (all types).
+            int i;
+            for (i = 0; i < NUMAMMO; i++)
+            {
+                int a = pl->ammo[i];
+                fwrite(&a, sizeof(int), 1, f);
+            }
+            // Plasma heat (from turn controller).
+            {
+                extern turnctrl_t turnctrl;
+                int heat = turnctrl.heat;
+                fwrite(&heat, sizeof(int), 1, f);
+            }
+            // Live enemies: count, then x, y, type, health.
+            {
+                extern thinker_t thinkercap;
+                extern void *P_MobjThinker;
+                int count = 0;
+                thinker_t *th;
+                for (th = thinkercap.next; th != &thinkercap; th = th->next)
+                {
+                    if (th->function.acp1 != (actionf_p1)P_MobjThinker)
+                        continue;
+                    mobj_t *mo = (mobj_t *)th;
+                    if ((mo->flags & MF_SHOOTABLE) && mo->health > 0 &&
+                        (mo->flags & MF_COUNTKILL) && mo != pl->mo)
+                        count++;
+                }
+                fwrite(&count, sizeof(int), 1, f);
+                for (th = thinkercap.next; th != &thinkercap; th = th->next)
+                {
+                    if (th->function.acp1 != (actionf_p1)P_MobjThinker)
+                        continue;
+                    mobj_t *mo = (mobj_t *)th;
+                    if ((mo->flags & MF_SHOOTABLE) && mo->health > 0 &&
+                        (mo->flags & MF_COUNTKILL) && mo != pl->mo)
+                    {
+                        int x = (int)mo->x;
+                        int y = (int)mo->y;
+                        int type = (int)mo->type;
+                        int h = mo->health;
+                        fwrite(&x, sizeof(int), 1, f);
+                        fwrite(&y, sizeof(int), 1, f);
+                        fwrite(&type, sizeof(int), 1, f);
+                        fwrite(&h, sizeof(int), 1, f);
+                    }
+                }
+                printf("[AUTOSAVE] saved player HP=%d armor=%d, %d live enemies\n",
+                       hp, armor, count);
+            }
+            fclose(f);
         }
     }
 
