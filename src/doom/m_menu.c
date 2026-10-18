@@ -435,8 +435,6 @@ menu_t  SoundDef =
 //
 enum
 {
-    load1,
-    load2,
     load_auto1,
     load_auto2,
     load_auto3,
