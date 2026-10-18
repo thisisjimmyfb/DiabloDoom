@@ -582,12 +582,12 @@ void M_ReadSaveStrings(void)
         if (handle == NULL)
         {
             M_StringCopy(savegamestrings[i], EMPTYSTRING, SAVESTRINGSIZE);
-            LoadMenu[i + 3].status = 0; // menu pos 3-8 for slots 0-5
+            LoadMenu[i].status = 0;
             continue;
         }
         retval = fread(&savegamestrings[i], 1, SAVESTRINGSIZE, handle);
 	fclose(handle);
-        LoadMenu[i + 3].status = retval == SAVESTRINGSIZE;
+        LoadMenu[i].status = retval == SAVESTRINGSIZE;
     }
 }
 
