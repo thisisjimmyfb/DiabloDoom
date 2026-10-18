@@ -1541,15 +1541,6 @@ static boolean T_ExecAttack(mobj_t *target, int cost)
     T_NativeFire(player);
     d_diablo_hitscan_weapon = -1;
 
-    // Snap the player to the floor after firing: on stairs, the Z can
-    // go stale during the frozen planning phase, causing the view to
-    // clip through the sector plane.
-    if (player->mo)
-    {
-        player->mo->momz = 0;
-        P_ZMovement(player->mo);
-    }
-
     // For hitscan, the callback ran synchronously; t_last_damage > 0 means hit.
     // For projectiles, the hit happens later (callback fires on impact).
     {
