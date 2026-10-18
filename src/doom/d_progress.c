@@ -439,6 +439,7 @@ void D_AutoSaveGame(void)
     }
 
     // Copy the entire progress file (header + slots) to the auto slot.
+    // Single slot (no rotation) per user preference.
     {
         FILE *f = fopen(path, "wb");
         if (f)
@@ -454,8 +455,8 @@ void D_AutoSaveGame(void)
         }
     }
 
-    // Rotate to the next auto-save slot.
-    progress_auto_slot = (progress_auto_slot + 1) % PROGRESS_NUM_AUTO_SLOTS;
+    // Single slot (no rotation) per user preference.
+    // progress_auto_slot stays at 0.
 }
 
 // Load Diablo progress from an auto-save slot (1-based: 1..PROGRESS_NUM_AUTO_SLOTS).
@@ -529,7 +530,6 @@ void D_ProgressLoadAutoSlot(int auto_slot)
         }
     }
 
-    // Next auto-save goes to the slot after the one just loaded.
-    progress_auto_slot = auto_slot % PROGRESS_NUM_AUTO_SLOTS;
+    // Single slot (no rotation): keep progress_auto_slot at 0.
     printf("[AUTOSAVE] loaded from slot %d\n", auto_slot);
 }
