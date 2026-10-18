@@ -74,3 +74,4 @@ third_party/x264/*.o
 third_party/x264/config.*
 third_party/x264/x264
 progress.dat
+progress_auto*.dat
