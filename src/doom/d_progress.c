@@ -419,9 +419,16 @@ void D_AutoSaveGame(void)
     // rotate through progress_auto1/2/3.dat.
     // Store the current level in the header's reserved bytes so loading
     // can warp back to the right map.
+    // If a new-game warp is pending (gameaction == ga_newgame), use the
+    // target map (d_map), not the stale gamemap.
     {
         extern int gamemap;
-        progress_hdr->reserved[0] = (unsigned char)gamemap;
+        extern int d_map;
+        extern gameaction_t gameaction;
+        int map_to_store = gamemap;
+        if (gameaction == ga_newgame && d_map >= 1 && d_map <= 32)
+            map_to_store = d_map;
+        progress_hdr->reserved[0] = (unsigned char)map_to_store;
     }
     M_snprintf(tmp, sizeof(tmp), PROGRESS_AUTO_FILENAME_FMT,
                progress_auto_slot + 1);
