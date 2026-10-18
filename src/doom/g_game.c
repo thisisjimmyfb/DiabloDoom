@@ -84,9 +84,9 @@
 
 #define SAVEGAMESIZE	0x2c000
 // DiabloDoom: Diablo save data exceeds vanilla's 180KB limit.
-// Expanded to 16MB for modded savegames.
+// Expanded to 4MB for modded savegames.
 #undef SAVEGAMESIZE
-#define SAVEGAMESIZE	0x1000000
+#define SAVEGAMESIZE	0x400000
 
 void	G_ReadDemoTiccmd (ticcmd_t* cmd); 
 void	G_WriteDemoTiccmd (ticcmd_t* cmd); 
