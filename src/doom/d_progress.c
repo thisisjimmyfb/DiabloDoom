@@ -62,6 +62,44 @@ typedef struct
 static void *progress_map = NULL;
 static progress_header_t *progress_hdr = NULL;
 static unsigned char *progress_slots[2] = {NULL, NULL};
+
+// Pending player teleport after auto-save load warp.
+// Set by D_ProgressLoadAutoSlot, consumed by G_DoLoadLevel.
+static boolean autosave_teleport_pending = false;
+static int autosave_teleport_x = 0;
+static int autosave_teleport_y = 0;
+static int autosave_teleport_angle = 0;
+
+void D_AutosaveTeleportCheck(void)
+{
+    if (!autosave_teleport_pending)
+        return;
+    autosave_teleport_pending = false;
+    {
+        extern player_t players[];
+        extern int consoleplayer;
+        player_t *pl = &players[consoleplayer];
+        if (pl->mo)
+        {
+            // Teleport the player to the saved position.
+            // Use P_Teleport or direct position set with P_TryMove check.
+            extern boolean P_TeleportMove(mobj_t *thing, fixed_t x, fixed_t y);
+            fixed_t x = (fixed_t)autosave_teleport_x;
+            fixed_t y = (fixed_t)autosave_teleport_y;
+            if (P_TeleportMove(pl->mo, x, y))
+            {
+                pl->mo->angle = (angle_t)autosave_teleport_angle;
+                printf("[AUTOSAVE] teleported to (%d,%d)\n",
+                       autosave_teleport_x, autosave_teleport_y);
+            }
+            else
+            {
+                printf("[AUTOSAVE] teleport blocked at (%d,%d)\n",
+                       autosave_teleport_x, autosave_teleport_y);
+            }
+        }
+    }
+}
 static int progress_tic_count = 0;
 static boolean progress_initialized = false;
 static int progress_auto_slot = 0; // next auto-save slot (0..PROGRESS_NUM_AUTO_SLOTS-1)
@@ -417,8 +455,8 @@ void D_AutoSaveGame(void)
     // Write the current progress to the rotating auto-save slot.
     // This is independent of the player's manual slot; auto-saves
     // rotate through progress_auto1/2/3.dat.
-    // Store the current level (episode + map) in the header's reserved
-    // bytes so loading can warp back to the right map.
+    // Store the current level (episode + map) and player position in the
+    // header's reserved bytes so loading can restore them.
     // If a new-game warp is pending (gameaction == ga_newgame), use the
     // target map (d_map), not the stale gamemap.
     {
@@ -436,9 +474,25 @@ void D_AutoSaveGame(void)
         }
         progress_hdr->reserved[0] = (unsigned char)map_to_store;
         progress_hdr->reserved[1] = (unsigned char)episode_to_store;
-        printf("[AUTOSAVE] storing level E%dM%d (gamemap=%d, gameepisode=%d, gameaction=%d, d_map=%d, d_episode=%d)\n",
-               episode_to_store, map_to_store, gamemap, gameepisode,
-               (int)gameaction, d_map, d_episode);
+        // Store player position (x, y, angle as 32-bit ints).
+        {
+            extern player_t players[];
+            extern int consoleplayer;
+            player_t *pl = &players[consoleplayer];
+            if (pl->mo)
+            {
+                int x = (int)pl->mo->x;
+                int y = (int)pl->mo->y;
+                int angle = (int)pl->mo->angle;
+                memcpy(&progress_hdr->reserved[2], &x, 4);
+                memcpy(&progress_hdr->reserved[6], &y, 4);
+                memcpy(&progress_hdr->reserved[10], &angle, 4);
+            }
+        }
+        printf("[AUTOSAVE] storing level E%dM%d pos=(%d,%d) (gamemap=%d, gameepisode=%d, gameaction=%d, d_map=%d, d_episode=%d)\n",
+               episode_to_store, map_to_store,
+               (int)progress_hdr->reserved[2], (int)progress_hdr->reserved[6],
+               gamemap, gameepisode, (int)gameaction, d_map, d_episode);
     }
     M_snprintf(tmp, sizeof(tmp), PROGRESS_AUTO_FILENAME_FMT,
                progress_auto_slot + 1);
@@ -514,13 +568,28 @@ void D_ProgressLoadAutoSlot(int auto_slot)
     // If the auto-save was from a different level, warp there.
     // On the title screen (gamemap == 0), start a new game on the saved
     // map instead of warping.
+    // Player position is restored via D_AutosaveTeleportCheck after the
+    // level loads.
     {
         extern int gamemap;
         extern int gameepisode;
         int saved_map = (int)progress_hdr->reserved[0];
         int saved_episode = (int)progress_hdr->reserved[1];
-        printf("[AUTOSAVE] loaded header: map=%d episode=%d (current E%dM%d)\n",
-               saved_map, saved_episode, gameepisode, gamemap);
+        int saved_x, saved_y, saved_angle;
+        memcpy(&saved_x, &progress_hdr->reserved[2], 4);
+        memcpy(&saved_y, &progress_hdr->reserved[6], 4);
+        memcpy(&saved_angle, &progress_hdr->reserved[10], 4);
+        printf("[AUTOSAVE] loaded header: map=%d episode=%d pos=(%d,%d) (current E%dM%d)\n",
+               saved_map, saved_episode, saved_x, saved_y,
+               gameepisode, gamemap);
+        // Queue the teleport (happens after level load).
+        if (saved_x != 0 || saved_y != 0)
+        {
+            autosave_teleport_pending = true;
+            autosave_teleport_x = saved_x;
+            autosave_teleport_y = saved_y;
+            autosave_teleport_angle = saved_angle;
+        }
         if (saved_map >= 1 && saved_map <= 32)
         {
             extern void G_DeferedInitNew(int skill, int episode, int map);

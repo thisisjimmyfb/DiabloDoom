@@ -764,6 +764,13 @@ void G_DoLoadLevel (void)
 
     T_NewGame ();  // turn-based controller reset
 
+    // If we just loaded an auto-save with a pending teleport, move the
+    // player to the saved position now that the level is loaded.
+    {
+        extern void D_AutosaveTeleportCheck(void);
+        D_AutosaveTeleportCheck();
+    }
+
     if (testcontrols)
     {
         players[consoleplayer].message = "Press escape to quit.";
