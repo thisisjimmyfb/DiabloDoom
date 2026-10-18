@@ -16,6 +16,11 @@
 #include "d_player.h"
 #include "g_game.h"
 #include "i_system.h"
+
+// Baseline movement execution delay, in tics (35/sec). Each queued
+// step holds the progress phase this long; the movespeed modifier
+// scales it down. Tune for game feel.
+#define T_MOVE_BASE_TICS 12
 #include "p_local.h"
 #include "p_saveg.h"
 #include "r_main.h"
@@ -721,16 +726,18 @@ static boolean T_ExecMove(angle_t moveangle)
     // Settle pulse: sector effects, in-flight odds and ends. Monsters
     // stay frozen — they act on their own phase.
     // Movement speed modifier reduces the pulse duration.
+    // Baseline: T_MOVE_BASE_TICS per step, drained 1:1 (not fast), so
+    // each step takes ~1/3s at base. Tune T_MOVE_BASE_TICS for feel.
     {
         extern int D_MoveSpeed(struct player_s *pl);
         int movespeed = D_MoveSpeed(player);
-        int tics = 6;
+        int tics = T_MOVE_BASE_TICS;
         if (movespeed > 0)
         {
-            tics = (6 * 100) / (100 + movespeed);
+            tics = (T_MOVE_BASE_TICS * 100) / (100 + movespeed);
             if (tics < 1) tics = 1;
         }
-        T_BeginPulse(tics, true, true);
+        T_BeginPulse(tics, true, false);
     }
     T_DumpState("exec-move");
     return true;
