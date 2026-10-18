@@ -419,6 +419,35 @@ void P_SpawnDiabloLootAt(fixed_t x, fixed_t y, int item_id)
     mo->frame |= FF_FULLBRIGHT;
 }
 
+// Readable monster name for loot-drop logging.
+static const char *P_MonsterName(mobjtype_t type)
+{
+    switch (type)
+    {
+        case MT_POSSESSED: return "Zombieman";
+        case MT_SHOTGUY:   return "ShotgunGuy";
+        case MT_CHAINGUY:  return "Chaingunner";
+        case MT_VILE:      return "Archvile";
+        case MT_UNDEAD:    return "Revenant";
+        case MT_FATSO:     return "Mancubus";
+        case MT_TROOP:     return "Imp";
+        case MT_SERGEANT:  return "Demon";
+        case MT_SHADOWS:   return "Spectre";
+        case MT_HEAD:      return "Cacodemon";
+        case MT_BRUISER:   return "Baron";
+        case MT_KNIGHT:    return "HellKnight";
+        case MT_SKULL:     return "LostSoul";
+        case MT_SPIDER:    return "Spiderdemon";
+        case MT_BABY:      return "Arachnotron";
+        case MT_CYBORG:    return "Cyberdemon";
+        case MT_PAIN:      return "PainElemental";
+        case MT_WOLFSS:    return "WolfSS";
+        case MT_KEEN:      return "Keen";
+        case MT_BOSSBRAIN: return "BossBrain";
+        default:           return "unknown";
+    }
+}
+
 // Roll a random Diablo item id using the kill-drop rarity table
 // (unique ~6%, set ~9%, rare ~20%, magic ~40%, normal ~25%).
 // magic_find shifts the rarity roll. Returns -1 if nothing is valid.
@@ -474,9 +503,17 @@ static void P_DropDiabloLoot(mobj_t *target, mobj_t *source)
         return;
 
     P_SpawnDiabloLootAt(target->x, target->y, item_id);
-    printf("[LOOT] dropped tier=%d idx=%d at (%d,%d)\n",
-           D_ITEMTIER(item_id), D_ITEMIDX(item_id),
-           target->x >> 16, target->y >> 16);
+    {
+        // Log what dropped, from whom: answers "which enemy dropped
+        // which item" without digging through the save.
+        const diablo_itemdef_t *def =
+            D_GetItemDef(D_ITEMTIER(item_id), D_ITEMIDX(item_id));
+        printf("[LOOT] dropped \"%s\" tier=%d idx=%d by %s at (%d,%d)\n",
+               def ? def->name : "?",
+               D_ITEMTIER(item_id), D_ITEMIDX(item_id),
+               P_MonsterName(target->type),
+               target->x >> 16, target->y >> 16);
+    }
 }
 
 // Give the player a random item of the given rarity tier (0-4).

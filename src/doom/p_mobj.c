@@ -40,6 +40,23 @@
 
 
 void G_PlayerReborn (int player);
+// Readable ammo-pickup name for loot-spawn logging.
+static const char *P_AmmoName(mobjtype_t type)
+{
+    switch (type)
+    {
+        case MT_CLIP:   return "clip";
+        case MT_MISC17: return "bullet box";
+        case MT_MISC18: return "rocket";
+        case MT_MISC19: return "rocket box";
+        case MT_MISC20: return "cell";
+        case MT_MISC21: return "cell pack";
+        case MT_MISC22: return "shells";
+        case MT_MISC23: return "shell box";
+        default:        return "ammo";
+    }
+}
+
 void P_SpawnMapThing (mapthing_t*	mthing);
 
 
@@ -866,8 +883,18 @@ void P_SpawnMapThing (mapthing_t* mthing)
     {
         int item_id = P_RollDiabloItemDrop(D_LoopMagicFind());
         if (item_id >= 0)
+        {
+            // Log what spawned and what it replaced: distinguishes
+            // map-spawn loot from enemy drops in the log.
+            const diablo_itemdef_t *def =
+                D_GetItemDef(D_ITEMTIER(item_id), D_ITEMIDX(item_id));
+            printf("[LOOT] map-spawn \"%s\" tier=%d idx=%d at (%d,%d) (was %s)\n",
+                   def ? def->name : "?",
+                   D_ITEMTIER(item_id), D_ITEMIDX(item_id),
+                   mthing->x, mthing->y, P_AmmoName(i));
             P_SpawnDiabloLootAt(mthing->x << FRACBITS, mthing->y << FRACBITS,
                                 item_id);
+        }
         return;
     }
 
