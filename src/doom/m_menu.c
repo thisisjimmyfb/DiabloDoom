@@ -598,8 +598,6 @@ void M_ReadSaveStrings(void)
 void M_DrawLoad(void)
 {
     int             i;
-    // Map menu position to save slot: auto slots (6-8) first, then 0-5.
-    static const int slot_map[9] = {6, 7, 8, 0, 1, 2, 3, 4, 5};
 	
     V_DrawPatchDirect(72, 28, 
                       W_CacheLumpName(DEH_String("M_LOADG"), PU_CACHE));
@@ -608,7 +606,7 @@ void M_DrawLoad(void)
     {
 	M_DrawSaveLoadBorder(LoadDef.x,LoadDef.y+LINEHEIGHT*i);
 	M_WriteText(LoadDef.x,LoadDef.y+LINEHEIGHT*i,
-                    savegamestrings[slot_map[i]]);
+                    savegamestrings[i]);
     }
 }
 
