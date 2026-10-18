@@ -63,6 +63,9 @@ static void *progress_map = NULL;
 static progress_header_t *progress_hdr = NULL;
 static unsigned char *progress_slots[2] = {NULL, NULL};
 
+// Forward declaration.
+static void ProgressGetAutoDir(char *buf, size_t buflen);
+
 // Pending player teleport after auto-save load warp.
 // Set by D_ProgressLoadAutoSlot, consumed by G_DoLoadLevel.
 static boolean autosave_teleport_pending = false;
@@ -81,8 +84,6 @@ void D_AutosaveTeleportCheck(void)
         player_t *pl = &players[consoleplayer];
         if (pl->mo)
         {
-            // Teleport the player to the saved position.
-            // Use P_Teleport or direct position set with P_TryMove check.
             extern boolean P_TeleportMove(mobj_t *thing, fixed_t x, fixed_t y);
             fixed_t x = (fixed_t)autosave_teleport_x;
             fixed_t y = (fixed_t)autosave_teleport_y;
@@ -97,6 +98,62 @@ void D_AutosaveTeleportCheck(void)
                 printf("[AUTOSAVE] teleport blocked at (%d,%d)\n",
                        autosave_teleport_x, autosave_teleport_y);
             }
+        }
+    }
+    // Kill the enemies that were dead when the auto-save was made.
+    {
+        char dead_path[512];
+        char auto_dir[512];
+        ProgressGetAutoDir(auto_dir, sizeof(auto_dir));
+        M_snprintf(dead_path, sizeof(dead_path), "%s/progress_auto_dead.dat",
+                   auto_dir);
+        FILE *f = fopen(dead_path, "rb");
+        if (f)
+        {
+            int count;
+            if (fread(&count, sizeof(int), 1, f) == 1 && count > 0 &&
+                count < 10000)
+            {
+                extern thinker_t thinkercap;
+                extern void *P_MobjThinker;
+                int i;
+                int killed = 0;
+                for (i = 0; i < count; i++)
+                {
+                    int x, y, type;
+                    if (fread(&x, sizeof(int), 1, f) != 1) break;
+                    if (fread(&y, sizeof(int), 1, f) != 1) break;
+                    if (fread(&type, sizeof(int), 1, f) != 1) break;
+                    // Find a living enemy of this type near the position.
+                    thinker_t *th;
+                    for (th = thinkercap.next; th != &thinkercap;
+                         th = th->next)
+                    {
+                        if (th->function.acp1 != (actionf_p1)P_MobjThinker)
+                            continue;
+                        mobj_t *mo = (mobj_t *)th;
+                        if ((mo->flags & MF_SHOOTABLE) &&
+                            mo->health > 0 && (int)mo->type == type)
+                        {
+                            int dx = (int)mo->x - x;
+                            int dy = (int)mo->y - y;
+                            if (dx < 0) dx = -dx;
+                            if (dy < 0) dy = -dy;
+                            if (dx < 64*65536 && dy < 64*65536)
+                            {
+                                extern void P_KillMobj(mobj_t *source,
+                                                       mobj_t *target);
+                                P_KillMobj(NULL, mo);
+                                killed++;
+                                break;
+                            }
+                        }
+                    }
+                }
+                printf("[AUTOSAVE] re-killed %d/%d dead enemies\n",
+                       killed, count);
+            }
+            fclose(f);
         }
     }
 }
@@ -516,6 +573,53 @@ void D_AutoSaveGame(void)
         else
         {
             printf("[AUTOSAVE] failed to write %s\n", tmp);
+        }
+    }
+
+    // Save the list of dead enemies (so loading doesn't revive them).
+    {
+        char dead_path[512];
+        char auto_dir[512];
+        ProgressGetAutoDir(auto_dir, sizeof(auto_dir));
+        M_snprintf(dead_path, sizeof(dead_path), "%s/progress_auto_dead.dat",
+                   auto_dir);
+        FILE *f = fopen(dead_path, "wb");
+        if (f)
+        {
+            extern thinker_t thinkercap;
+            extern void *P_MobjThinker;
+            int count = 0;
+            thinker_t *th;
+            // First pass: count dead shootable enemies.
+            for (th = thinkercap.next; th != &thinkercap; th = th->next)
+            {
+                if (th->function.acp1 != (actionf_p1)P_MobjThinker)
+                    continue;
+                mobj_t *mo = (mobj_t *)th;
+                if ((mo->flags & MF_SHOOTABLE) && mo->health <= 0 &&
+                    (mo->flags & MF_COUNTKILL))
+                    count++;
+            }
+            fwrite(&count, sizeof(int), 1, f);
+            // Second pass: write positions and types.
+            for (th = thinkercap.next; th != &thinkercap; th = th->next)
+            {
+                if (th->function.acp1 != (actionf_p1)P_MobjThinker)
+                    continue;
+                mobj_t *mo = (mobj_t *)th;
+                if ((mo->flags & MF_SHOOTABLE) && mo->health <= 0 &&
+                    (mo->flags & MF_COUNTKILL))
+                {
+                    int x = (int)mo->x;
+                    int y = (int)mo->y;
+                    int type = (int)mo->type;
+                    fwrite(&x, sizeof(int), 1, f);
+                    fwrite(&y, sizeof(int), 1, f);
+                    fwrite(&type, sizeof(int), 1, f);
+                }
+            }
+            fclose(f);
+            printf("[AUTOSAVE] saved %d dead enemies\n", count);
         }
     }
 
