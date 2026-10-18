@@ -517,6 +517,7 @@ void M_ReadSaveStrings(void)
             FILE *af;
             unsigned char hdr[64];
             int map = 0;
+            int episode = 0;
             int menu_pos = i - 6; // 0, 1, 2
             M_snprintf(tmp, sizeof(tmp), "progress_auto%d.dat", i - 6 + 1);
             {
@@ -559,13 +560,23 @@ void M_ReadSaveStrings(void)
                 LoadMenu[menu_pos].status = 0;
                 continue;
             }
-            // Read the header to get the level (reserved[0] at offset 40).
+            // Read the header to get the level (reserved[0]=map at 40,
+            // reserved[1]=episode at 41).
             if (fread(hdr, 1, sizeof(hdr), af) == sizeof(hdr))
+            {
                 map = (int)hdr[40];
+                episode = (int)hdr[41];
+            }
             fclose(af);
             if (map >= 1 && map <= 32)
-                M_snprintf(savegamestrings[i], SAVESTRINGSIZE,
-                           "AUTO %d - MAP%02d", i - 6 + 1, map);
+            {
+                if (episode >= 1 && episode <= 4)
+                    M_snprintf(savegamestrings[i], SAVESTRINGSIZE,
+                               "AUTO %d - E%dM%d", i - 6 + 1, episode, map);
+                else
+                    M_snprintf(savegamestrings[i], SAVESTRINGSIZE,
+                               "AUTO %d - MAP%02d", i - 6 + 1, map);
+            }
             else
                 M_snprintf(savegamestrings[i], SAVESTRINGSIZE,
                            "AUTO %d", i - 6 + 1);

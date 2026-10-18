@@ -417,18 +417,25 @@ void D_AutoSaveGame(void)
     // Write the current progress to the rotating auto-save slot.
     // This is independent of the player's manual slot; auto-saves
     // rotate through progress_auto1/2/3.dat.
-    // Store the current level in the header's reserved bytes so loading
-    // can warp back to the right map.
+    // Store the current level (episode + map) in the header's reserved
+    // bytes so loading can warp back to the right map.
     // If a new-game warp is pending (gameaction == ga_newgame), use the
     // target map (d_map), not the stale gamemap.
     {
         extern int gamemap;
+        extern int gameepisode;
         extern int d_map;
+        extern int d_episode;
         extern gameaction_t gameaction;
         int map_to_store = gamemap;
+        int episode_to_store = gameepisode;
         if (gameaction == ga_newgame && d_map >= 1 && d_map <= 32)
+        {
             map_to_store = d_map;
+            episode_to_store = d_episode;
+        }
         progress_hdr->reserved[0] = (unsigned char)map_to_store;
+        progress_hdr->reserved[1] = (unsigned char)episode_to_store;
     }
     M_snprintf(tmp, sizeof(tmp), PROGRESS_AUTO_FILENAME_FMT,
                progress_auto_slot + 1);
@@ -506,26 +513,29 @@ void D_ProgressLoadAutoSlot(int auto_slot)
     // map instead of warping.
     {
         extern int gamemap;
+        extern int gameepisode;
         int saved_map = (int)progress_hdr->reserved[0];
+        int saved_episode = (int)progress_hdr->reserved[1];
         if (saved_map >= 1 && saved_map <= 32)
         {
             extern void G_DeferedInitNew(int skill, int episode, int map);
             extern int gameskill;
-            extern int gameepisode;
+            if (saved_episode < 1 || saved_episode > 4)
+                saved_episode = gameepisode; // fallback for old saves
             if (gamemap == 0)
             {
                 // Title screen: start new game on the saved map.
-                printf("[AUTOSAVE] starting new game on MAP%02d\n",
-                       saved_map);
-                G_DeferedInitNew(gameskill, gameepisode, saved_map);
+                printf("[AUTOSAVE] starting new game on E%dM%d\n",
+                       saved_episode, saved_map);
+                G_DeferedInitNew(gameskill, saved_episode, saved_map);
             }
-            else if (saved_map != gamemap)
+            else if (saved_map != gamemap || saved_episode != gameepisode)
             {
-                printf("[AUTOSAVE] warping from MAP%02d to MAP%02d\n",
-                       gamemap, saved_map);
+                printf("[AUTOSAVE] warping from E%dM%d to E%dM%d\n",
+                       gameepisode, gamemap, saved_episode, saved_map);
                 // Preserve Diablo progress across the warp (it's in the
                 // mmap, not reset by G_DeferedInitNew).
-                G_DeferedInitNew(gameskill, gameepisode, saved_map);
+                G_DeferedInitNew(gameskill, saved_episode, saved_map);
             }
         }
     }
