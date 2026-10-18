@@ -1139,6 +1139,16 @@ void T_Ticker(void)
     // Floating combat text (MISS, etc.) ticks down.
     T_TickFloatText();
 
+    // World-space damage/MISS numbers (old target-marker system) tick down.
+    {
+        extern int t_last_hit_tics;
+        extern int t_last_miss_tics;
+        if (t_last_hit_tics > 0)
+            t_last_hit_tics--;
+        if (t_last_miss_tics > 0)
+            t_last_miss_tics--;
+    }
+
     // Time-based cadence (charges, cooldowns, heat): independent of rounds.
     T_TickCadence();
 
@@ -1816,6 +1826,41 @@ void T_DrawHUD(void)
 
     // Floating combat text (MISS, damage numbers, etc.).
     T_DrawFloatText();
+
+    // Last-hit damage number: projected above the target's head in
+    // world space, using the old target-marker projection system.
+    // Tracks the target as it moves.
+    {
+        extern int t_last_damage;
+        extern mobj_t *t_last_hit_mobj;
+        extern int t_last_hit_tics;
+        if (t_last_hit_mobj != NULL && t_last_damage > 0 && t_last_hit_tics > 0)
+        {
+            int sx, sy;
+            char line[16];
+            if (T_ProjectTarget(t_last_hit_mobj, &sx, &sy))
+            {
+                M_snprintf(line, sizeof(line), "%d", t_last_damage);
+                // Rise as it fades.
+                sy -= (70 - t_last_hit_tics) / 2;
+                T_DrawTextHi(sx - T_TextWidth(line) / 2, sy, line);
+            }
+        }
+        // MISS text: same system.
+        {
+            extern mobj_t *t_last_miss_mobj;
+            extern int t_last_miss_tics;
+            if (t_last_miss_mobj != NULL && t_last_miss_tics > 0)
+            {
+                int sx, sy;
+                if (T_ProjectTarget(t_last_miss_mobj, &sx, &sy))
+                {
+                    sy -= (70 - t_last_miss_tics) / 2;
+                    T_DrawTextHi(sx - T_TextWidth("MISS") / 2, sy, "MISS");
+                }
+            }
+        }
+    }
 
     // Target list (right side) and preview (bottom) while targeting.
     if (turnctrl.state == TS_TARGETING || turnctrl.state == TS_CONFIRM)

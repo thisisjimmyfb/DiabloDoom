@@ -13,6 +13,9 @@ int t_last_hit = -1;
 int t_last_damage = 0;
 int t_last_crit = 0;
 mobj_t *t_last_hit_mobj = NULL; // mobj hit by the last Diablo damage callback
+int t_last_hit_tics = 0; // countdown for floating damage number
+mobj_t *t_last_miss_mobj = NULL; // mobj missed by the last attack
+int t_last_miss_tics = 0; // countdown for floating MISS text
 static int t_last_kill = 0; // set when the resolved attack killed anything
 static int t_shots[NUMWEAPONS]; // shots fired per weapon (Lucky rhythm)
 
@@ -1154,11 +1157,16 @@ boolean T_ResolveAttack(player_t *player, mobj_t *target)
             extern void T_SpawnFloatText(mobj_t *mo, const char *text);
             T_SpawnFloatText(target, "MISS");
         }
+        // Also set the world-space MISS (old target-marker system).
+        t_last_miss_mobj = target;
+        t_last_miss_tics = 70;
         return false;
     }
 
     t_last_hit = 1;
     t_last_damage = total_dmg;
+    t_last_hit_mobj = target;
+    t_last_hit_tics = 70;
     printf("[TURN] attack resolved: hits=%d dmg=%d crit=%d ad=%d-%d\n",
            hits, total_dmg, t_last_crit, st.ad_min, st.ad_max);
 
