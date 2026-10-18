@@ -514,6 +514,13 @@ void T_DoCollect(void)
                T_InPulse(), turnctrl.executing);
         return;
     }
+    // COLLECT only works in explore mode, not during turn-based combat.
+    if (!T_InExplore())
+    {
+        printf("[COLLECT] blocked: not in explore mode (state=%d)\n",
+               turnctrl.state);
+        return;
+    }
 
     printf("[COLLECT] attempting: player at (%d,%d)\n",
            mo->x >> 16, mo->y >> 16);
@@ -590,54 +597,31 @@ void T_DoCollect(void)
         return;
     }
 
-    // Queue moves along the path. Convert world-space BFS dirs to
-    // facing-relative T_DoMove dirs.
-    // BFS: 0=N(+y),1=E(+x),2=S(-y),3=W(-x) in world coords.
-    // T_DoMove: 0=forward,1=right,2=back,3=left relative to facing.
-    // We compute the world angle for each BFS dir and find the closest
-    // facing-relative dir.
-    for (i = 0; i < steps; i++)
+    // Move along the path. In explore mode, move the player directly
+    // (the turn queue doesn't drain outside combat). Uses P_XYMovement
+    // for wall sliding and P_ZMovement for stairs, matching T_ExecMove.
+    // BFS dirs are world-space: 0=N(+y),1=E(+x),2=S(-y),3=W(-x).
     {
-        int world_dir = path_dirs[i];
-        angle_t target_angle;
-        angle_t facing = mo->angle;
-        int best_dir = 0;
-        angle_t best_diff = 0xffffffffu;
-        int d;
         static const angle_t world_angles[4] = {
             ANG90,      // N = +y = 90 degrees
             0,          // E = +x = 0 degrees
             ANG270,     // S = -y = 270 degrees
             ANG180      // W = -x = 180 degrees
         };
-        static const angle_t dir_offsets[4] = {
-            0, (angle_t)-ANG90, ANG180, ANG90
-        };
-
-        target_angle = world_angles[world_dir];
-
-        // Find facing-relative dir whose world angle is closest to target
-        for (d = 0; d < 4; d++)
+        for (i = 0; i < steps; i++)
         {
-            angle_t world = facing + dir_offsets[d];
-            angle_t diff = (world > target_angle) ?
-                (world - target_angle) : (target_angle - world);
-            if (diff > ANG180)
-                diff = 0xffffffffu - diff;
-            if (diff < best_diff)
-            {
-                best_diff = diff;
-                best_dir = d;
-            }
+            angle_t moveangle = world_angles[path_dirs[i]];
+            fixed_t dx, dy;
+            dx = FixedMul(STEP_LEN, finecosine[moveangle >> ANGLETOFINESHIFT]);
+            dy = FixedMul(STEP_LEN, finesine[moveangle >> ANGLETOFINESHIFT]);
+            mo->momx = dx * STEP_SUB;
+            mo->momy = dy * STEP_SUB;
+            P_XYMovement(mo);
+            mo->momx = mo->momy = 0;
+            mo->momz = 0;
+            P_ZMovement(mo);
         }
-
-        // Check TP before queueing each step
-        if (!T_CanAfford(TA_MOVE_N))
-        {
-            player->message = "NOT ENOUGH TP.";
-            break;
-        }
-        T_DoMove(best_dir);
+        printf("[COLLECT] moved %d steps toward loot\n", steps);
     }
 
     {
