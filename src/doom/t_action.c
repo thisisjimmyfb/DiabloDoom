@@ -1561,13 +1561,12 @@ static boolean T_ExecAttack(mobj_t *target, int cost)
                 {
                     extern int t_last_miss_tics;
                     extern mobj_t *t_last_miss_mobj;
-                    extern mobj_t *t_last_hit_mobj;
-                    // For a miss, use the targeted mobj if available.
-                    // t_last_hit_mobj may be NULL on a clean miss.
-                    if (t_last_hit_mobj != NULL)
+                    // Use the attack's target (not t_last_hit_mobj, which is
+                    // NULL on a clean miss).
+                    if (target != NULL)
                     {
-                        t_last_miss_mobj = t_last_hit_mobj;
-                        t_last_miss_tics = 26;
+                        t_last_miss_mobj = target;
+                        t_last_miss_tics = 25;
                     }
                 }
             }
@@ -1585,7 +1584,7 @@ static boolean T_ExecAttack(mobj_t *target, int cost)
                     extern mobj_t *t_last_hit_mobj;
                     // t_last_hit_mobj is set by the damage callback.
                     if (t_last_hit_mobj != NULL)
-                        t_last_hit_tics = 26;
+                        t_last_hit_tics = 25;
                 }
                 // Untargeted attacks: use the mobj actually hit (tracked by
                 // the damage callback). If it died, resolve the kill for
