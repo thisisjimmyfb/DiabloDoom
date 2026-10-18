@@ -104,9 +104,9 @@ sends `SCREENSHOT`, collects the PNG, and upscales 3x nearest-neighbor to
    for cooldown-gated ones). During planning the HUD AMMO readout previews
    the deduction queued attacks will cause (display-only; the spend happens
    on execute), so players can see when further attacks would be no-ops.
-   Ammo pickups half-fill every magazine and vent half the plasma
-   heat; at full magazines pickups stay on the ground. Mana Potions fully
-   refill magazines and vent all plasma heat. Weapon cadence is wall-clock,
+   Map-placed ammo pickups are replaced by random Diablo item drops
+   (kill-drop rarity table); Mana Potions no longer appear in the drop
+   pool. Weapon cadence is wall-clock,
    not round-bound: cooldowns tick down 1 round per 10 s (BFG = 30 s, SSG =
    20 s), rocket charges regen 1 per 3 s (max 3), plasma heat vents 40 per
    10 s continuously — all via `T_TickCadence` every game tic. Haste is a

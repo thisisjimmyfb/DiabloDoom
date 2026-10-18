@@ -81,9 +81,9 @@ rocket 20 (10/shot), Super Shotgun 8 (8/shot), BFG 20 (20/shot). Plasma
 has no magazine — its heat *is* the ammo. Magazines refill automatically
 by weapon type: AD weapons feed off your **attack speed** each round, AP
 weapons reload when their **cooldown** finishes (rocket reloads as
-charges regenerate). Ammo pickups half-fill every magazine (and vent
-half the plasma heat); a **Mana Potion** fully refills every magazine
-and vents all plasma heat. The status bar's left AMMO area shows your
+charges regenerate). Ammo pickups are gone entirely: every map-placed
+ammo pickup now spawns a random Diablo item instead, and Mana Potions
+no longer drop from kills (any you already carry still works). The status bar's left AMMO area shows your
 ready weapon's current magazine (remaining heat capacity for plasma).
 
 ## Explore / combat

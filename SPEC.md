@@ -352,9 +352,9 @@ similarly.
   hooked in the wall-clock `T_TickCadence`); the rocket loads one attack's
   worth of ammo per regenerated charge. Plasma has no magazine — heat is its
   ammo (inverse), venting 40 per 10 seconds continuously.
-- Ammo pickups half-fill every magazine and vent half the plasma heat;
-  at full magazines pickups stay on the ground. **Mana Potions** fully
-  refill every magazine and vent all plasma heat.
+- Map-placed ammo pickups are replaced by random Diablo item drops
+  (same rarity table as kill drops); Mana Potions no longer appear in
+  the drop pool (magazines replenish on their own).
 - The status bar's left AMMO readout shows the ready weapon's current
   magazine (remaining heat capacity for plasma); the FOCUS paperdoll
   slot (equippable ammo items granting passive weapon stats) is
