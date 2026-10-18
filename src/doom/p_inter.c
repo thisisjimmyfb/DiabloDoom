@@ -213,6 +213,8 @@ P_GiveWeapon
 	player->weaponowned[weapon] = true;
 	// Don't auto-switch: the Diablo inventory controls the equipped
 	// weapon, and the view model must reflect the inventory.
+	// Explicitly clear any pending switch (vanilla may have set it).
+	player->pendingweapon = wp_nochange;
 	printf("[LOOT] picked up weapon=%d\n", weapon);
     }
 	
