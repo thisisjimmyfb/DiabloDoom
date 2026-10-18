@@ -1159,14 +1159,14 @@ boolean T_ResolveAttack(player_t *player, mobj_t *target)
         }
         // Also set the world-space MISS (old target-marker system).
         t_last_miss_mobj = target;
-        t_last_miss_tics = 70;
+        t_last_miss_tics = 35;
         return false;
     }
 
     t_last_hit = 1;
     t_last_damage = total_dmg;
     t_last_hit_mobj = target;
-    t_last_hit_tics = 70;
+    t_last_hit_tics = 35;
     printf("[TURN] attack resolved: hits=%d dmg=%d crit=%d ad=%d-%d\n",
            hits, total_dmg, t_last_crit, st.ad_min, st.ad_max);
 

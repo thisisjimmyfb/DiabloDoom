@@ -1567,7 +1567,7 @@ static boolean T_ExecAttack(mobj_t *target, int cost)
                     if (t_last_hit_mobj != NULL)
                     {
                         t_last_miss_mobj = t_last_hit_mobj;
-                        t_last_miss_tics = 70;
+                        t_last_miss_tics = 35;
                     }
                 }
             }
@@ -1585,7 +1585,7 @@ static boolean T_ExecAttack(mobj_t *target, int cost)
                     extern mobj_t *t_last_hit_mobj;
                     // t_last_hit_mobj is set by the damage callback.
                     if (t_last_hit_mobj != NULL)
-                        t_last_hit_tics = 70;
+                        t_last_hit_tics = 35;
                 }
                 // Untargeted attacks: use the mobj actually hit (tracked by
                 // the damage callback). If it died, resolve the kill for

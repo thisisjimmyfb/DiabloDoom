@@ -1843,7 +1843,7 @@ void T_DrawHUD(void)
             {
                 M_snprintf(line, sizeof(line), "%d", t_last_damage);
                 // Rise as it fades.
-                sy -= (70 - t_last_hit_tics) / 2;
+                sy -= (35 - t_last_hit_tics) / 2;
                 T_DrawTextHi(sx - T_TextWidth(line) / 2, sy, line);
             }
         }
@@ -1856,7 +1856,7 @@ void T_DrawHUD(void)
                 int sx, sy;
                 if (T_ProjectTarget(t_last_miss_mobj, &sx, &sy))
                 {
-                    sy -= (70 - t_last_miss_tics) / 2;
+                    sy -= (35 - t_last_miss_tics) / 2;
                     T_DrawTextHi(sx - T_TextWidth("MISS") / 2, sy, "MISS");
                 }
             }
