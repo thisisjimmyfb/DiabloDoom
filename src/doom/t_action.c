@@ -337,17 +337,24 @@ static mobj_t *T_FindNearestLoot(mobj_t *player_mo)
     mobj_t *best = NULL;
     fixed_t best_dist = 0x7fffffff; // MAXINT
     thinker_t *th;
+    int scanned = 0, type_ok = 0;
 
     for (th = thinkercap.next; th != &thinkercap; th = th->next)
     {
         if (th->function.acp1 != (actionf_p1)P_MobjThinker)
             continue;
         mo = (mobj_t *)th;
+        scanned++;
         if (mo->type < MT_LOOT_NORMAL || mo->type > MT_LOOT_UNIQUE)
             continue;
+        type_ok++;
         // Skip if already picked up (removed)
         if (mo->health <= 0)
+        {
+            printf("[COLLECT] loot type=%d at (%d,%d) skipped: health=%d\n",
+                   mo->type, mo->x >> 16, mo->y >> 16, mo->health);
             continue;
+        }
         {
             fixed_t dx = mo->x - player_mo->x;
             fixed_t dy = mo->y - player_mo->y;
@@ -360,6 +367,8 @@ static mobj_t *T_FindNearestLoot(mobj_t *player_mo)
             }
         }
     }
+    printf("[COLLECT] scan: %d mobjs, %d loot-type, best=%p\n",
+           scanned, type_ok, (void *)best);
     return best;
 }
 
@@ -506,6 +515,8 @@ void T_DoCollect(void)
         return;
     }
 
+    printf("[COLLECT] attempting: player at (%d,%d)\n",
+           mo->x >> 16, mo->y >> 16);
     loot = T_FindNearestLoot(mo);
     if (loot == NULL)
     {
