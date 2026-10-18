@@ -237,7 +237,7 @@ void T_DamageRange(player_t *player, mobj_t *target,
                    const t_combatstats_t *st, int *minhp, int *maxhp)
 {
     const t_kitdef_t *kit;
-    int kmin, kmax, pellets;
+    int kmin, kmax;
     (void)target;
     kit = T_KitForWeapon(player->readyweapon);
     // Mirror the T_ResolveAttack formula: AD guns stack kit base onto the
@@ -254,17 +254,10 @@ void T_DamageRange(player_t *player, mobj_t *target,
     }
     if (kmax < kmin)
         kmax = kmin;
-    // Pellets: show per-pellet range x count (incl. Splitting).
-    pellets = kit->pellets;
-    if (D_EquippedWeaponMech(player) & MECH_SPLITTING)
-        pellets += 2;
+    // AD is damage per trigger pull (the resolver splits it across
+    // pellets): show the per-pull range with no pellet multiplier.
     *minhp = kmin;
     *maxhp = kmax;
-    if (pellets > 1)
-    {
-        *minhp = kmin * pellets;
-        *maxhp = kmax * pellets;
-    }
 }
 
 // Monster armor table: a little mitigation so Armor/MR aren't
