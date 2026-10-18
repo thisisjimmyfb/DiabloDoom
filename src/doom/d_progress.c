@@ -521,14 +521,18 @@ void D_AutoSaveGame(void)
         }
     }
 
-    // Single slot (no rotation) per user preference.
-    // progress_auto_slot stays at 0.
-    // Also write a full Doom savegame to the auto slot (slot 6).
+    // Auto slots are 0-2 (display 1-3); manual are 3-5 (display 4-6).
     // With SAVEGAMESIZE expanded to 4MB, Diablo data fits.
+    // Rotate through the 3 auto slots.
     {
         extern void G_DoSaveGameSlot(int slot, const char *desc);
-        G_DoSaveGameSlot(6, "AUTO 1");
-        printf("[AUTOSAVE] Doom savegame written to slot 6\n");
+        char desc[32];
+        M_snprintf(desc, sizeof(desc), "AUTO %d", progress_auto_slot + 1);
+        G_DoSaveGameSlot(progress_auto_slot, desc);
+        printf("[AUTOSAVE] Doom savegame written to slot %d\n",
+               progress_auto_slot);
+        progress_auto_slot = (progress_auto_slot + 1) %
+                             PROGRESS_NUM_AUTO_SLOTS;
     }
 }
 
@@ -548,20 +552,23 @@ void D_ProgressLoadAutoSlot(int auto_slot)
     if (!progress_initialized || progress_map == NULL)
         return;
 
-    // First, try to load the full Doom savegame (slot 6).
+    // First, try to load the full Doom savegame.
+    // Auto slots are 0-2 (display 1-3). auto_slot is 1-based.
     // This restores everything: position, enemies, doors, items.
     {
         extern char *P_SaveGameFile(int slot);
         extern void G_LoadGame(char *name);
         char dsg_path[512];
+        int doom_slot = auto_slot - 1; // 1-based to 0-based
         // Copy to local buffer: P_SaveGameFile uses a static buffer
         // that ProgressGetAutoDir overwrites via P_SaveGameFile(0).
-        M_StringCopy(dsg_path, P_SaveGameFile(6), sizeof(dsg_path));
+        M_StringCopy(dsg_path, P_SaveGameFile(doom_slot), sizeof(dsg_path));
         FILE *dsg = fopen(dsg_path, "rb");
         if (dsg)
         {
             fclose(dsg);
-            printf("[AUTOSAVE] loading Doom savegame from slot 6\n");
+            printf("[AUTOSAVE] loading Doom savegame from slot %d\n",
+                   doom_slot);
             // Load the Diablo progress first (gear), then the Doom state.
             // The Doom savegame has the level state; Diablo gear comes
             // from the progress file.

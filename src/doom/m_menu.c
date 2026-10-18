@@ -437,22 +437,18 @@ enum
 {
     load1,
     load2,
-    load3,
-    load4,
-    load5,
-    load6,
     load_auto1,
     load_auto2,
     load_auto3,
+    load4,
+    load5,
+    load6,
     load_end
 } load_e;
 
 menuitem_t LoadMenu[]=
 {
-    // Auto-save slots first (7-9), then manual slots (1-6).
-    {1,"", M_LoadSelect,'7'},
-    {1,"", M_LoadSelect,'8'},
-    {1,"", M_LoadSelect,'9'},
+    // Auto-save slots first (1-3), then manual slots (4-6).
     {1,"", M_LoadSelect,'1'},
     {1,"", M_LoadSelect,'2'},
     {1,"", M_LoadSelect,'3'},
@@ -476,9 +472,7 @@ menu_t  LoadDef =
 //
 menuitem_t SaveMenu[]=
 {
-    {1,"", M_SaveSelect,'1'},
-    {1,"", M_SaveSelect,'2'},
-    {1,"", M_SaveSelect,'3'},
+    // Manual slots only (4-6). Auto slots (1-3) are not manually saveable.
     {1,"", M_SaveSelect,'4'},
     {1,"", M_SaveSelect,'5'},
     {1,"", M_SaveSelect,'6'}
@@ -486,7 +480,7 @@ menuitem_t SaveMenu[]=
 
 menu_t  SaveDef =
 {
-    6,
+    3,
     &MainDef,
     SaveMenu,
     M_DrawSave,
@@ -508,9 +502,9 @@ void M_ReadSaveStrings(void)
     for (i = 0;i < load_end;i++)
     {
         int retval;
-        // Auto-save slots (6-8): read description from progress_autoN.dat.
-        // Menu positions 0-2 display these slots.
-        if (i >= 6 && i <= 8)
+        // Auto-save slots (0-2): read description from progress_autoN.dat.
+        // These are menu positions 0-2 (display 1-3).
+        if (i >= 0 && i <= 2)
         {
             char auto_path[512];
             char tmp[64];
@@ -518,8 +512,7 @@ void M_ReadSaveStrings(void)
             unsigned char hdr[64];
             int map = 0;
             int episode = 0;
-            int menu_pos = i - 6; // 0, 1, 2
-            M_snprintf(tmp, sizeof(tmp), "progress_auto%d.dat", i - 6 + 1);
+            M_snprintf(tmp, sizeof(tmp), "progress_auto%d.dat", i + 1);
             {
                 // Auto-saves: ~/workspace/chocolate-doom/savegames/doom.wad/
                 // on VM, savegames dir on local.
@@ -557,7 +550,7 @@ void M_ReadSaveStrings(void)
             if (af == NULL)
             {
                 M_StringCopy(savegamestrings[i], EMPTYSTRING, SAVESTRINGSIZE);
-                LoadMenu[menu_pos].status = 0;
+                LoadMenu[i].status = 0;
                 continue;
             }
             // Read the header to get the level (reserved[0]=map at 40,
@@ -579,8 +572,8 @@ void M_ReadSaveStrings(void)
             }
             else
                 M_snprintf(savegamestrings[i], SAVESTRINGSIZE,
-                           "AUTO %d", i - 6 + 1);
-            LoadMenu[menu_pos].status = 1;
+                           "AUTO %d", i + 1);
+            LoadMenu[i].status = 1;
             continue;
         }
         M_StringCopy(name, P_SaveGameFile(i), sizeof(name));
@@ -650,18 +643,15 @@ void M_DrawSaveLoadBorder(int x,int y)
 void M_LoadSelect(int choice)
 {
     char    name[256];
-    // Map menu position to actual save slot: auto slots (7-9) are first
-    // in the menu, then manual slots (1-6).
-    static const int slot_map[9] = {6, 7, 8, 0, 1, 2, 3, 4, 5};
-    int slot = slot_map[choice];
+    // Menu layout: auto slots 1-3 (Doom 0-2), manual slots 4-6 (Doom 3-5).
+    // Menu position maps directly to Doom slot.
+    int slot = choice;
 
-    // Auto-save slots (7-9): no Doom savegame exists (auto-save is Diablo
-    // progress only). Just restore the Diablo progress from the auto slot
-    // and continue from the current position.
-    if (slot >= 6 && slot <= 8)
+    // Auto-save slots (1-3): load Diablo progress + Doom savegame.
+    if (slot >= 0 && slot <= 2)
     {
         extern void D_ProgressLoadAutoSlot(int auto_slot);
-        D_ProgressLoadAutoSlot(slot - 6 + 1);
+        D_ProgressLoadAutoSlot(slot + 1);
         M_ClearMenus ();
         return;
     }
@@ -760,10 +750,12 @@ void M_SaveSelect(int choice)
 {
     int x, y;
 
-    // Save menu has only 6 slots (auto slots 7-9 are auto-save only).
-    // Ignore out-of-range selections.
-    if (choice < 0 || choice >= 6)
+    // Save menu has 3 manual slots (display 4-6, Doom slots 3-5).
+    if (choice < 0 || choice >= 3)
         return;
+
+    // Map menu choice (0-2) to Doom slot (3-5).
+    choice += 3;
 
     // we are going to be intercepting all chars
     saveStringEnter = 1;
