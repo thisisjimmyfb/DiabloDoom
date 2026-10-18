@@ -1767,11 +1767,14 @@ void G_LoadGame (char* name)
     gameaction = ga_loadgame; 
 } 
 
+boolean g_loading_savegame = false; // true while G_DoLoadGame runs (skip map loot spawn)
+
 void G_DoLoadGame (void) 
 { 
     int savedleveltime;
 	 
     gameaction = ga_nothing; 
+    g_loading_savegame = true;
 	 
     save_stream = M_fopen(savename, "rb");
 
@@ -1785,6 +1788,7 @@ void G_DoLoadGame (void)
     if (!P_ReadSaveGameHeader())
     {
         fclose(save_stream);
+        g_loading_savegame = false;
         return;
     }
 
@@ -1824,6 +1828,7 @@ void G_DoLoadGame (void)
     R_FillBackScreen ();
 
     T_OnLoad ();  // turn mode: land in PLANNING
+    g_loading_savegame = false;
 } 
  
 

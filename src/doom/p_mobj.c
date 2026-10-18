@@ -877,9 +877,13 @@ void P_SpawnMapThing (mapthing_t* mthing)
 
     // Diablo loot: map-placed ammo pickups become a random item drop.
     // Magazines replenish on their own, so ammo pickups are redundant.
-    if (i == MT_CLIP || i == MT_MISC17 || i == MT_MISC18 ||
+    // Skip during savegame load: the unarchive restores the saved loot;
+    // spawning new loot here would duplicate it every load/save cycle.
+    extern boolean g_loading_savegame;
+    if (!g_loading_savegame &&
+        (i == MT_CLIP || i == MT_MISC17 || i == MT_MISC18 ||
         i == MT_MISC19 || i == MT_MISC20 || i == MT_MISC21 ||
-        i == MT_MISC22 || i == MT_MISC23)
+        i == MT_MISC22 || i == MT_MISC23))
     {
         int item_id = P_RollDiabloItemDrop(D_LoopMagicFind());
         if (item_id >= 0)
