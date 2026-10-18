@@ -26,6 +26,8 @@
 #include "t_turn.h"
 #include "t_combat.h"
 #include "p_local.h"
+#include "p_inter.h"
+#include "d_diablo.h"
 #include "sounds.h"
 
 #include "st_stuff.h"
@@ -855,7 +857,20 @@ void P_SpawnMapThing (mapthing_t* mthing)
     {
 	return;
     }
-    
+
+    // Diablo loot: map-placed ammo pickups become a random item drop.
+    // Magazines replenish on their own, so ammo pickups are redundant.
+    if (i == MT_CLIP || i == MT_MISC17 || i == MT_MISC18 ||
+        i == MT_MISC19 || i == MT_MISC20 || i == MT_MISC21 ||
+        i == MT_MISC22 || i == MT_MISC23)
+    {
+        int item_id = P_RollDiabloItemDrop(D_LoopMagicFind());
+        if (item_id >= 0)
+            P_SpawnDiabloLootAt(mthing->x << FRACBITS, mthing->y << FRACBITS,
+                                item_id);
+        return;
+    }
+
     // spawn it
     x = mthing->x << FRACBITS;
     y = mthing->y << FRACBITS;

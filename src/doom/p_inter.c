@@ -419,25 +419,16 @@ void P_SpawnDiabloLootAt(fixed_t x, fixed_t y, int item_id)
     mo->frame |= FF_FULLBRIGHT;
 }
 
-// Roll loot for a dead monster and spawn the pickup.
-static void P_DropDiabloLoot(mobj_t *target, mobj_t *source)
+// Roll a random Diablo item id using the kill-drop rarity table
+// (unique ~6%, set ~9%, rare ~20%, magic ~40%, normal ~25%).
+// magic_find shifts the rarity roll. Returns -1 if nothing is valid.
+// Shared by kill drops and map-ammo conversion (both want "a random
+// item drop"; only the 70% kill gate differs).
+int P_RollDiabloItemDrop(int magic_find)
 {
-    int r, roll, tier, index;
-    int magic_find = 0;
+    int roll, tier, index;
 
-    // 70% chance that a kill drops something at all.
-    r = P_Random();
-    if (r >= 179)
-        return;
-
-    // Magic find from the killer (if a player) shifts the rarity roll.
-    // NG+ loop adds bonus magic find.
-    if (source && source->player)
-        magic_find = source->player->diablo_stats[DSTAT_MAGICFIND] +
-                     D_LoopMagicFind();
-
-    // Rarity roll (generous odds), improved by magic find:
-    //   unique ~6%, set ~9%, rare ~20%, magic ~40%, normal ~25%
+    // Rarity roll (generous odds), improved by magic find.
     roll = P_Random() - magic_find / 2;
     if (roll < 0)
         roll = 0;
@@ -456,10 +447,35 @@ static void P_DropDiabloLoot(mobj_t *target, mobj_t *source)
     // Higher difficulties unlock stronger affix tiers.
     index = D_RollItemForDifficulty(tier);
     if (index < 0)
-        return; // no valid items for this difficulty (shouldn't happen)
+        return -1; // no valid items for this difficulty (shouldn't happen)
 
-    P_SpawnDiabloLootAt(target->x, target->y, D_MAKEITEM(tier, index));
-    printf("[LOOT] dropped tier=%d idx=%d at (%d,%d)\n", tier, index,
+    return D_MAKEITEM(tier, index);
+}
+
+// Roll loot for a dead monster and spawn the pickup.
+static void P_DropDiabloLoot(mobj_t *target, mobj_t *source)
+{
+    int r, item_id;
+    int magic_find = 0;
+
+    // 70% chance that a kill drops something at all.
+    r = P_Random();
+    if (r >= 179)
+        return;
+
+    // Magic find from the killer (if a player) shifts the rarity roll.
+    // NG+ loop adds bonus magic find.
+    if (source && source->player)
+        magic_find = source->player->diablo_stats[DSTAT_MAGICFIND] +
+                     D_LoopMagicFind();
+
+    item_id = P_RollDiabloItemDrop(magic_find);
+    if (item_id < 0)
+        return;
+
+    P_SpawnDiabloLootAt(target->x, target->y, item_id);
+    printf("[LOOT] dropped tier=%d idx=%d at (%d,%d)\n",
+           D_ITEMTIER(item_id), D_ITEMIDX(item_id),
            target->x >> 16, target->y >> 16);
 }
 
