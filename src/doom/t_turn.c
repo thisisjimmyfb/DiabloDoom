@@ -1791,7 +1791,12 @@ void T_DrawHUD(void)
     if (turnctrl.state == TS_REACTION)
         T_DrawTextCentered(12, "ENEMY PHASE...");
     else if (turnctrl.state == TS_PULSE)
+    {
         T_DrawTextCentered(12, "RESOLVING");
+        // Keep the queue visible during the progress phase so commands
+        // visibly pop off one by one as they execute.
+        T_DrawQueuePanelAt(24);
+    }
     else if (turnctrl.state == TS_PLANNING)
         T_DrawPlanningUI();
     else
