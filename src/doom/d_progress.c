@@ -523,16 +523,11 @@ void D_AutoSaveGame(void)
 
     // Auto slots are 0-2 (display 1-3); manual are 3-5 (display 4-6).
     // With SAVEGAMESIZE expanded to 4MB, Diablo data fits.
-    // Rotate through the 3 auto slots.
+    // No rotation: auto-save always uses slot 1 (Doom slot 0).
     {
         extern void G_DoSaveGameSlot(int slot, const char *desc);
-        char desc[32];
-        M_snprintf(desc, sizeof(desc), "AUTO %d", progress_auto_slot + 1);
-        G_DoSaveGameSlot(progress_auto_slot, desc);
-        printf("[AUTOSAVE] Doom savegame written to slot %d\n",
-               progress_auto_slot);
-        progress_auto_slot = (progress_auto_slot + 1) %
-                             PROGRESS_NUM_AUTO_SLOTS;
+        G_DoSaveGameSlot(0, "AUTO 1");
+        printf("[AUTOSAVE] Doom savegame written to slot 0\n");
     }
 }
 
