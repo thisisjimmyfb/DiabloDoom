@@ -559,9 +559,9 @@ void M_ReadSaveStrings(void)
                 LoadMenu[menu_pos].status = 0;
                 continue;
             }
-            // Read the header to get the level (reserved[0] at offset 36).
+            // Read the header to get the level (reserved[0] at offset 40).
             if (fread(hdr, 1, sizeof(hdr), af) == sizeof(hdr))
-                map = (int)hdr[36];
+                map = (int)hdr[40];
             fclose(af);
             if (map >= 1 && map <= 32)
                 M_snprintf(savegamestrings[i], SAVESTRINGSIZE,
