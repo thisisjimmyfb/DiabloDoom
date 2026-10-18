@@ -86,7 +86,7 @@ launch_game() {
     rm -f "$CMDFILE"
     SDL_VIDEODRIVER=x11 nohup "$GAME" -iwad "$DOOM_WAD" \
         -width "$GAME_WIDTH" -height "$GAME_HEIGHT" -warp $WARP \
-        > "$GAME_LOG" 2>&1 &
+        -nosound > "$GAME_LOG" 2>&1 &
     disown
     sleep 15
 }
