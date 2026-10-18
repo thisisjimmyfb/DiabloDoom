@@ -300,7 +300,7 @@ static const t_kitdef_t t_kits[NUMWEAPONS] = {
     // Replenish model is explicit per-weapon (see replenish_model_t):
     // AS = attack-speed driven, CD = cooldown driven (CDR gear speeds it up).
     // wp_pistol: balanced AD sidearm
-    { "SIDEARM",    2,   4,   4,    0,    0,   0,      1, false,    1,   10,   0,   0,   0,   0,   0,  20, REPLENISH_AS },
+    { "SIDEARM",    2,   4,   4,    0,    0,   0,      1, false,    1,   10,   0,   0,   0,   0,   0,  15, REPLENISH_AS },
     // wp_shotgun: close-range burst, 4 pellets
     { "SHOTGUN",    2,   3,   5,    0,    0,   0,      4, false,    2,   20,   0,   0,   0,   0,   0,  40, REPLENISH_AS },
     // wp_chaingun: 3-round burst
