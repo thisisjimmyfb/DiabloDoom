@@ -1557,6 +1557,19 @@ static boolean T_ExecAttack(mobj_t *target, int cost)
             {
                 player->message = "MISS!";
                 printf("[TURN] attack resolved: MISS (natural)\n");
+                // World-space floating MISS (old target-marker system).
+                {
+                    extern int t_last_miss_tics;
+                    extern mobj_t *t_last_miss_mobj;
+                    extern mobj_t *t_last_hit_mobj;
+                    // For a miss, use the targeted mobj if available.
+                    // t_last_hit_mobj may be NULL on a clean miss.
+                    if (t_last_hit_mobj != NULL)
+                    {
+                        t_last_miss_mobj = t_last_hit_mobj;
+                        t_last_miss_tics = 70;
+                    }
+                }
             }
             else
             {
@@ -1566,6 +1579,14 @@ static boolean T_ExecAttack(mobj_t *target, int cost)
                     player->message = "CRITICAL HIT!";
                 else
                     player->message = "HIT!";
+                // World-space floating damage number (old target-marker system).
+                {
+                    extern int t_last_hit_tics;
+                    extern mobj_t *t_last_hit_mobj;
+                    // t_last_hit_mobj is set by the damage callback.
+                    if (t_last_hit_mobj != NULL)
+                        t_last_hit_tics = 70;
+                }
                 // Untargeted attacks: use the mobj actually hit (tracked by
                 // the damage callback). If it died, resolve the kill for
                 // loot. Walls have no mobj, so no kill resolution.
