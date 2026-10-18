@@ -436,6 +436,9 @@ void D_AutoSaveGame(void)
         }
         progress_hdr->reserved[0] = (unsigned char)map_to_store;
         progress_hdr->reserved[1] = (unsigned char)episode_to_store;
+        printf("[AUTOSAVE] storing level E%dM%d (gamemap=%d, gameepisode=%d, gameaction=%d, d_map=%d, d_episode=%d)\n",
+               episode_to_store, map_to_store, gamemap, gameepisode,
+               (int)gameaction, d_map, d_episode);
     }
     M_snprintf(tmp, sizeof(tmp), PROGRESS_AUTO_FILENAME_FMT,
                progress_auto_slot + 1);
@@ -516,6 +519,8 @@ void D_ProgressLoadAutoSlot(int auto_slot)
         extern int gameepisode;
         int saved_map = (int)progress_hdr->reserved[0];
         int saved_episode = (int)progress_hdr->reserved[1];
+        printf("[AUTOSAVE] loaded header: map=%d episode=%d (current E%dM%d)\n",
+               saved_map, saved_episode, gameepisode, gamemap);
         if (saved_map >= 1 && saved_map <= 32)
         {
             extern void G_DeferedInitNew(int skill, int episode, int map);
