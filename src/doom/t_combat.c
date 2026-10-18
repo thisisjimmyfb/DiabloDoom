@@ -1162,6 +1162,14 @@ boolean T_ResolveAttack(player_t *player, mobj_t *target)
     printf("[TURN] attack resolved: hits=%d dmg=%d crit=%d ad=%d-%d\n",
            hits, total_dmg, t_last_crit, st.ad_min, st.ad_max);
 
+    // Floating damage number above the target.
+    {
+        extern void T_SpawnFloatText(mobj_t *mo, const char *text);
+        static char dmg_text[16];
+        snprintf(dmg_text, sizeof(dmg_text), "%d", total_dmg);
+        T_SpawnFloatText(target, dmg_text);
+    }
+
     // Phase 8: lifetime counters.
     T_CountDamage(total_dmg);
     // Check if the target died (kill credit).
