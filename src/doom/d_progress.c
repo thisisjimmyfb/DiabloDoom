@@ -785,6 +785,13 @@ void D_AutoSaveGame(void)
 
     // Single slot (no rotation) per user preference.
     // progress_auto_slot stays at 0.
+    // Also write a full Doom savegame to the auto slot (slot 6).
+    // With SAVEGAMESIZE expanded to 4MB, Diablo data fits.
+    {
+        extern void G_DoSaveGameSlot(int slot, const char *desc);
+        G_DoSaveGameSlot(6, "AUTO 1");
+        printf("[AUTOSAVE] Doom savegame written to slot 6\n");
+    }
 }
 
 // Load Diablo progress from an auto-save slot (1-based: 1..PROGRESS_NUM_AUTO_SLOTS).
@@ -802,6 +809,52 @@ void D_ProgressLoadAutoSlot(int auto_slot)
         return;
     if (!progress_initialized || progress_map == NULL)
         return;
+
+    // First, try to load the full Doom savegame (slot 6).
+    // This restores everything: position, enemies, doors, items.
+    {
+        extern char *P_SaveGameFile(int slot);
+        extern void G_LoadGame(char *name);
+        char *dsg_path = P_SaveGameFile(6);
+        FILE *dsg = fopen(dsg_path, "rb");
+        if (dsg)
+        {
+            fclose(dsg);
+            printf("[AUTOSAVE] loading Doom savegame from slot 6\n");
+            // Load the Diablo progress first (gear), then the Doom state.
+            // The Doom savegame has the level state; Diablo gear comes
+            // from the progress file.
+            M_snprintf(tmp, sizeof(tmp), PROGRESS_AUTO_FILENAME_FMT,
+                       auto_slot);
+            {
+                char auto_dir[512];
+                ProgressGetAutoDir(auto_dir, sizeof(auto_dir));
+                M_snprintf(path, sizeof(path), "%s/%s", auto_dir, tmp);
+            }
+            f = fopen(path, "rb");
+            if (f)
+            {
+                n = fread(progress_map, 1, PROGRESS_FILE_SIZE, f);
+                fclose(f);
+                if (n == PROGRESS_FILE_SIZE)
+                {
+                    progress_hdr = (progress_header_t *)progress_map;
+                    progress_slots[0] = (unsigned char *)progress_map +
+                                        PROGRESS_HEADER_SIZE;
+                    progress_slots[1] = (unsigned char *)progress_map +
+                                        PROGRESS_HEADER_SIZE +
+                                        PROGRESS_SLOT_SIZE;
+                    printf("[AUTOSAVE] Diablo progress loaded\n");
+                }
+            }
+            // Now load the Doom savegame (full level state).
+            G_LoadGame(dsg_path);
+            printf("[AUTOSAVE] loaded from slot %d (full savegame)\n",
+                   auto_slot);
+            return;
+        }
+        printf("[AUTOSAVE] no Doom savegame in slot 6, using warp fallback\n");
+    }
 
     M_snprintf(tmp, sizeof(tmp), PROGRESS_AUTO_FILENAME_FMT, auto_slot);
     {
