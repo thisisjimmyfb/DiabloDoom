@@ -1199,6 +1199,7 @@ static const char *st_icon_drop[8] = {
 // Turn-based kit status (Phase 5): replaces the right-side AMMO counts
 // with a persistent AD/AP stat block and a contextual cooldown line.
 // Text labels (AD/AP/CD) instead of icons for clarity.
+static boolean loot_alert_logged = false; // tracks [LOOT] available log transition
 static void ST_drawTurnKits(void)
 {
     t_combatstats_t st;
@@ -1270,10 +1271,21 @@ static void ST_drawTurnKits(void)
 
     // Loot alert: persistent prompt when drops are on the map.
     // Drawn at the top of the AD/AP panel area (y=160, above the stats).
+    // Also logs to stdout on false->true transition so agents watching
+    // the log can react (issue COLLECT) even without seeing the HUD.
     if (T_LootAvailable())
     {
         V_DrawFilledBox(250, 160, 110, 10, 0);
         ST_TurnDrawText(254, 161, "press G to loot");
+        if (!loot_alert_logged)
+        {
+            printf("[LOOT] available on map - press G to loot\n");
+            loot_alert_logged = true;
+        }
+    }
+    else
+    {
+        loot_alert_logged = false;
     }
 }
 
