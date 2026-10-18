@@ -157,11 +157,11 @@ if(FluidSynth_FOUND)
     list(APPEND EXTRA_LIBS FluidSynth::libfluidsynth)
 endif()
 
-# Vendored runtime libs: DISABLED for testing.
-# The .so files in third_party/runtime-libs/ are NOT used.
-# (Revert this to re-enable: set CMAKE_INSTALL_RPATH to $ORIGIN-relative path)
-# set(CMAKE_INSTALL_RPATH "$ORIGIN/../../third_party/runtime-libs")
-# set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
+# Vendored runtime libs: survive VM recycles.
+# The .so files in third_party/runtime-libs/ are used via rpath.
+# $ORIGIN makes it relative to the binary location (portable).
+set(CMAKE_INSTALL_RPATH "$ORIGIN/../../third_party/runtime-libs")
+set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
 if(WIN32)
 	list(APPEND EXTRA_LIBS winmm shlwapi)
 endif()

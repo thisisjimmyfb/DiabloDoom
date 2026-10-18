@@ -565,10 +565,10 @@ void M_ReadSaveStrings(void)
             {
                 if (episode >= 1 && episode <= 4)
                     M_snprintf(savegamestrings[i], SAVESTRINGSIZE,
-                               "AUTO %d - E%dM%d", i - 6 + 1, episode, map);
+                               "AUTO %d - E%dM%d", i + 1, episode, map);
                 else
                     M_snprintf(savegamestrings[i], SAVESTRINGSIZE,
-                               "AUTO %d - MAP%02d", i - 6 + 1, map);
+                               "AUTO %d - MAP%02d", i + 1, map);
             }
             else
                 M_snprintf(savegamestrings[i], SAVESTRINGSIZE,
