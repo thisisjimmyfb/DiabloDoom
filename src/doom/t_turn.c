@@ -1461,8 +1461,9 @@ void T_DrawFloatText(void)
         // if tics are fresh (< 35, i.e. spawned this second).
         if (!T_ProjectTarget(t_floattexts[i].mo, &sx, &sy))
             continue;
-        // Rise as it fades: offset up by (18 - tics) / 2 pixels.
-        sy -= (18 - t_floattexts[i].tics) / 2;
+        // Rise as it fades: offset up by (70 - tics) / 2 pixels.
+        // tics starts at 70, ends at 0.
+        sy -= (70 - t_floattexts[i].tics) / 2;
         T_DrawTextHi(sx - T_TextWidth(t_floattexts[i].text) / 2, sy,
                      t_floattexts[i].text);
     }
