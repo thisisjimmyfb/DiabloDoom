@@ -553,7 +553,10 @@ void D_ProgressLoadAutoSlot(int auto_slot)
     {
         extern char *P_SaveGameFile(int slot);
         extern void G_LoadGame(char *name);
-        char *dsg_path = P_SaveGameFile(6);
+        char dsg_path[512];
+        // Copy to local buffer: P_SaveGameFile uses a static buffer
+        // that ProgressGetAutoDir overwrites via P_SaveGameFile(0).
+        M_StringCopy(dsg_path, P_SaveGameFile(6), sizeof(dsg_path));
         FILE *dsg = fopen(dsg_path, "rb");
         if (dsg)
         {
