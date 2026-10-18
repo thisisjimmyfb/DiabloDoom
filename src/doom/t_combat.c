@@ -403,6 +403,16 @@ static int T_DiabloDamageCallback(player_t *pl, mobj_t *target, int weapon)
             st.ad_max = st.ad_min;
     }
 
+    // Multi-pellet weapons (shotgun, chaingun) split AD across pellets.
+    // The full AD is the gun's damage per trigger pull, not per bullet.
+    if (kit->pellets > 1)
+    {
+        st.ad_min = (st.ad_min + kit->pellets - 1) / kit->pellets;
+        st.ad_max = (st.ad_max + kit->pellets - 1) / kit->pellets;
+        if (st.ad_max < st.ad_min)
+            st.ad_max = st.ad_min;
+    }
+
     // Single damage roll (no hit chance; Doom simulation determined hit).
     // For multi-pellet weapons, P_LineAttack calls this per-pellet.
     range = st.ad_max - st.ad_min + 1;
