@@ -779,52 +779,55 @@ void T_KitRegenAmmo(void)
 void T_KitTrickleAmmo(void)
 {
     player_t *player = &players[consoleplayer];
-    weapontype_t w = player->readyweapon;
     const t_kitdef_t *kit;
-    static int trickle_tick = 0;
-    int interval;
+    static int trickle_tick[NUMWEAPONS] = {0};
+    int w, interval;
     if (!t_cadence_inited)
         T_KitResetCadence();
-    if (w < 0 || w >= NUMWEAPONS)
-        return;
-    kit = &t_kits[w];
-    if (kit->ammo_max <= 0 || kit->ammo_cost <= 0)
-        return;
-    if (t_ammo[w] >= kit->ammo_max)
-        return;
-    // Determine interval from the explicit replenish model.
-    if (kit->replenish == REPLENISH_CD)
+    // Trickle all weapons, not just the ready one: if the ready weapon
+    // ran dry, vanilla falls back to fist (ammo_max=0) and the real
+    // weapon would never refill.
+    for (w = 0; w < NUMWEAPONS; w++)
     {
-        // Cooldown-driven: uses EFFECTIVE cooldown (after Haste % and
-        // flat CDR), so CDR gear speeds up replenish.
-        // BFG (cd=3) -> 36 tics/ammo base.
-        int eff_cd = kit->cooldown;
+        kit = &t_kits[w];
+        if (kit->ammo_max <= 0 || kit->ammo_cost <= 0)
+            continue;
+        if (t_ammo[w] >= kit->ammo_max)
+            continue;
+        // Determine interval from the explicit replenish model.
+        if (kit->replenish == REPLENISH_CD)
         {
-            t_combatstats_t st;
-            T_DeriveStats(player, &st);
-            eff_cd -= eff_cd * st.haste / 100;
-            eff_cd -= player->diablo_stats[DSTAT_CD_FLAT];
-            if (eff_cd < 1)
-                eff_cd = 1;
+            // Cooldown-driven: uses EFFECTIVE cooldown (after Haste % and
+            // flat CDR), so CDR gear speeds up replenish.
+            // BFG (cd=3) -> 36 tics/ammo base.
+            int eff_cd = kit->cooldown;
+            {
+                t_combatstats_t st;
+                T_DeriveStats(player, &st);
+                eff_cd -= eff_cd * st.haste / 100;
+                eff_cd -= player->diablo_stats[DSTAT_CD_FLAT];
+                if (eff_cd < 1)
+                    eff_cd = 1;
+            }
+            interval = eff_cd * 12;
         }
-        interval = eff_cd * 12;
+        else // REPLENISH_AS
+        {
+            // Attack speed: tp_cost scales the interval.
+            // Pistol (4) -> 8 tics, Shotgun (2) -> 4, Chaingun (1) -> 3 (min).
+            interval = kit->tp_cost * 2;
+            if (interval < 3)
+                interval = 3;
+            if (interval > 20)
+                interval = 20;
+        }
+        if (++trickle_tick[w] < interval)
+            continue;
+        trickle_tick[w] = 0;
+        t_ammo[w]++;
+        if (t_ammo[w] > kit->ammo_max)
+            t_ammo[w] = kit->ammo_max;
     }
-    else // REPLENISH_AS
-    {
-        // Attack speed: tp_cost scales the interval.
-        // Pistol (4) -> 8 tics, Shotgun (2) -> 4, Chaingun (1) -> 3 (min).
-        interval = kit->tp_cost * 2;
-        if (interval < 3)
-            interval = 3;
-        if (interval > 20)
-            interval = 20;
-    }
-    if (++trickle_tick < interval)
-        return;
-    trickle_tick = 0;
-    t_ammo[w]++;
-    if (t_ammo[w] > kit->ammo_max)
-        t_ammo[w] = kit->ammo_max;
 }
 
 // Ammo pickup: half-fill every magazine, vent half the plasma heat.
