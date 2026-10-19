@@ -117,6 +117,7 @@ typedef struct
     // player sees where the queue goes. Turn start is the anchor.
     fixed_t turn_start_x;
     fixed_t turn_start_y;
+    fixed_t turn_start_z;
     angle_t turn_start_angle;
     // Hold-Ctrl targeting: hold Ctrl to enter targeting mode, arrows
     // navigate, release Ctrl to confirm. Camera snaps to each target.

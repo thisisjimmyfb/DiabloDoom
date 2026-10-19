@@ -1089,6 +1089,7 @@ void T_DoEndTurn(void)
             P_UnsetThingPosition(player->mo);
             player->mo->x = turnctrl.turn_start_x;
             player->mo->y = turnctrl.turn_start_y;
+            player->mo->z = turnctrl.turn_start_z;
             player->mo->angle = turnctrl.turn_start_angle;
             P_SetThingPosition(player->mo);
             turnctrl.replay_start_x = turnctrl.turn_start_x;
@@ -1260,6 +1261,7 @@ void T_DoClearQueue(void)
         P_UnsetThingPosition(mo);
         mo->x = turnctrl.turn_start_x;
         mo->y = turnctrl.turn_start_y;
+        mo->z = turnctrl.turn_start_z;
         mo->angle = turnctrl.turn_start_angle;
         P_SetThingPosition(mo);
     }
@@ -1349,6 +1351,7 @@ void T_StartCtrlTargeting(void)
         {
             turnctrl.turn_start_x = players[consoleplayer].mo->x;
             turnctrl.turn_start_y = players[consoleplayer].mo->y;
+            turnctrl.turn_start_z = players[consoleplayer].mo->z;
             turnctrl.turn_start_angle = players[consoleplayer].mo->angle;
         }
         players[consoleplayer].message = "Mini-combat: targeting...";
