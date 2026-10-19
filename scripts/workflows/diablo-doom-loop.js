@@ -88,7 +88,9 @@ const report = await agent(
   "and prints JSON {replay_path, log_tail, kills}. If it reports an error (game not running), run: bash " +
   SCRIPT + " --subagent setup, then retry observe once. If still failing, record hung_at={iteration, stage:'observe'} and stop.\n" +
   "2. VISION: Extract 4 frames: ffmpeg -y -i \"<replay_path>\" -vf fps=1/4 /tmp/vf/f%02d.png (mkdir -p /tmp/vf first). " +
-  "View them, decide driver commands per PROMPT.md, write one command per line to " + CMD_FILE + ".\n" +
+  "View them, decide driver commands per PROMPT.md, write one command per line to " + CMD_FILE + ". " +
+  "Queue aggressively: batch 6-12 commands per iteration (moves + attacks + END), never just 1-2. " +
+  "A half-empty queue wastes the round.\n" +
   "3. ACT: Run: bash " + SCRIPT + " --subagent act --file " + CMD_FILE + ". It writes the commands to the game's FIFO.\n" +
   "Target ~30-45 seconds per iteration. If a step hangs beyond its natural time, note which stage hung: " +
   "skip to the next iteration, or stop the run if the game is dead (record hung_at).\n" +

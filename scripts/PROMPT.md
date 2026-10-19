@@ -45,10 +45,10 @@ When the turn-based UI is visible (TURN MODE banner):
 ### Staying Alive
 
 - **Retreat when hurt:** If HP drops below 40% and you're fighting a ranged enemy, STOP attacking. Move behind a wall, door, or corner to break line of sight. Let your HP recover or reposition — don't trade shots you'll lose.
-- **Don't over-queue:** Queue 2-3 attacks per round, END turn, assess. Dumping 10 attacks at once wastes ammo on misses and leaves you exposed if the enemy closes in.
+- **Queue aggressively:** Fill the turn queue every round — batch 6-10 actions (moves + attacks) per iteration, then END turn. A half-empty queue wastes the round. The old "2-3 attacks" caution is retired: more actions per loop means more progress per minute.
 - **Check ammo first:** Never queue more attacks than your current ammo. If you see "NO AMMO" skips in the log, you're queuing too many.
 - **Kill ranged first:** Serpentipedes and Imps out-DPS the pistol at range. If multiple enemies are visible, target the ranged ones before melee — or break LOS and force them to come to you.
-- **Use cover:** Peek around corners and doors. Move out, queue 2-3 attacks, move back behind cover, END turn. Repeat. Don't stand in the open against ranged enemies.
+- **Use cover:** Peek around corners and doors. Move out, queue a full batch of attacks, move back behind cover, END turn. Repeat. Don't stand in the open against ranged enemies.
 - **Captures are automatic:** The game auto-saves a replay when your HP drops below 50%. Use CAPTURE (not SCREENSHOT) when you want both a 15s video and a screenshot — it's one command that does both cleanly. After you see the screenshot, decide whether the paired video is worth sharing.
 
 ### Gear Check
