@@ -1170,6 +1170,11 @@ void D_UnequipAll(struct player_s *pl)
         player->diablo_recent = -1;
         D_Msg(player, "Unequipped all (%d item%s).", moved,
               moved == 1 ? "" : "s");
+        // Autosave: inventory changed.
+        {
+            extern void D_AutoSaveGame(void);
+            D_AutoSaveGame();
+        }
     }
 }
 

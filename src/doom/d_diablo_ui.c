@@ -330,6 +330,11 @@ static boolean UIStashHeld(player_t *player)
     UIAppendAt(player, ui_held, gx, gy);
     ui_held = D_NOITEM;
     ui_held_from = -1;
+    // Autosave: inventory changed (item moved).
+    {
+        extern void D_AutoSaveGame(void);
+        D_AutoSaveGame();
+    }
     return true;
 }
 
@@ -874,6 +879,11 @@ static void UIKbSalvage(player_t *player)
     UIMsg(msg);
     printf("[ESSENCE] salvaged tier %d -> +%d (total %d)\n",
            tier, essence, player->diablo_essence);
+    // Autosave: inventory changed.
+    {
+        extern void D_AutoSaveGame(void);
+        D_AutoSaveGame();
+    }
 }
 
 // R: reroll (reforge) the held item (or kb-selected backpack item) into a
@@ -957,6 +967,11 @@ static void UIKbReroll(player_t *player)
     UIMsg(msg);
     printf("[ESSENCE] rerolled tier %d -> -%d (total %d)\n",
            tier, cost, player->diablo_essence);
+    // Autosave: inventory changed.
+    {
+        extern void D_AutoSaveGame(void);
+        D_AutoSaveGame();
+    }
 }
 
 // ---------------------------------------------------------------------------
