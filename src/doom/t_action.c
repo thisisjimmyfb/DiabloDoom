@@ -883,7 +883,9 @@ static boolean T_ExecMove(angle_t moveangle)
         turnctrl.move_tx = mo->x + dx;
         turnctrl.move_ty = mo->y + dy;
         turnctrl.move_tics = tics * 3; // failsafe: 3x the nominal duration
-        mo->angle = moveangle;
+        // Note: do NOT touch mo->angle here. The move direction is already
+        // baked into move_tx/move_ty; facing stays as the player set it.
+        // Strafing and backing up must not rotate the view.
     }
 
     // Run z-physics (stairs, floor snap, smooth viewheight). P_TryMove
