@@ -858,9 +858,11 @@ static boolean T_ExecMove(angle_t moveangle)
     dx = FixedMul(STEP_LEN, finecosine[moveangle >> ANGLETOFINESHIFT]);
     dy = FixedMul(STEP_LEN, finesine[moveangle >> ANGLETOFINESHIFT]);
 
-    // Smooth movement: don't teleport. Move at keyboard speed
-    // (8 units/tic, matching P_Thrust terminal velocity) for the
-    // movespeed-dictated duration. T_PulseOneTic applies it per-tic.
+    // Smooth movement: don't teleport. Store the destination (where the
+    // planning preview lands: STEP_LEN in the move direction). T_PulseOneTic
+    // moves toward it each tick at keyboard speed, easing out as it arrives,
+    // and finishes when within epsilon. The pulse lasts until arrival (or
+    // the failsafe cap), so the player loses control for the full move.
     {
         extern int D_MoveSpeed(struct player_s *pl);
         int movespeed = D_MoveSpeed(player);
@@ -870,9 +872,9 @@ static boolean T_ExecMove(angle_t moveangle)
             tics = (T_MOVE_BASE_TICS * 100) / (100 + movespeed);
             if (tics < 1) tics = 1;
         }
-        turnctrl.move_dx = FixedMul(8 * FRACUNIT, finecosine[moveangle >> ANGLETOFINESHIFT]);
-        turnctrl.move_dy = FixedMul(8 * FRACUNIT, finesine[moveangle >> ANGLETOFINESHIFT]);
-        turnctrl.move_tics = tics;
+        turnctrl.move_tx = mo->x + FixedMul(STEP_LEN, finecosine[moveangle >> ANGLETOFINESHIFT]);
+        turnctrl.move_ty = mo->y + FixedMul(STEP_LEN, finesine[moveangle >> ANGLETOFINESHIFT]);
+        turnctrl.move_tics = tics * 3; // failsafe: 3x the nominal duration
         mo->angle = moveangle;
     }
 
@@ -881,11 +883,9 @@ static boolean T_ExecMove(angle_t moveangle)
     // and the 24-unit step check fails.
     P_ZMovement(mo);
 
-    // Settle pulse: sector effects, in-flight odds and ends. Monsters
-    // stay frozen — they act on their own phase.
-    // Movement speed modifier reduces the pulse duration.
-    // Baseline: T_MOVE_BASE_TICS per step, drained 1:1 (not fast), so
-    // each step takes ~1/3s at base. Tune T_MOVE_BASE_TICS for feel.
+    // Settle pulse: lasts until the smooth move arrives (T_PulseOneTic ends
+    // it early on arrival) or the failsafe cap hits. Monsters stay frozen.
+    // Movement speed modifier shortens the cap.
     {
         extern int D_MoveSpeed(struct player_s *pl);
         int movespeed = D_MoveSpeed(player);
@@ -895,7 +895,7 @@ static boolean T_ExecMove(angle_t moveangle)
             tics = (T_MOVE_BASE_TICS * 100) / (100 + movespeed);
             if (tics < 1) tics = 1;
         }
-        T_BeginPulse(tics, true, false);
+        T_BeginPulse(tics * 3, true, false);
     }
     T_DumpState("exec-move");
     return true;

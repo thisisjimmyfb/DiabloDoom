@@ -96,12 +96,13 @@ typedef struct
     boolean pulse_enemy;    // this pulse is the enemy phase
     boolean sync;           // run pulses synchronously (script harness)
     boolean firing;         // hold BT_ATTACK during the current pulse
-    // Smooth combat movement: T_ExecMove stores the per-tic delta here;
-    // T_PulseOneTic applies it each tick so the step animates over the
-    // pulse instead of teleporting.
-    fixed_t move_dx;        // per-tic x step remaining
-    fixed_t move_dy;        // per-tic y step remaining
-    int move_tics;          // tics of smooth movement left
+    // Smooth combat movement: T_ExecMove stores the destination (where the
+    // planning preview lands); T_PulseOneTic moves toward it each tick and
+    // finishes when within epsilon, giving a natural ease-out. move_tics is
+    // a failsafe cap so a blocked path can't stall the pulse forever.
+    fixed_t move_tx;        // target x (destination)
+    fixed_t move_ty;        // target y (destination)
+    int move_tics;          // failsafe tics remaining
     // Keys held when combat started: ignore their keydown repeats until
     // released. Prevents a held W (explore movement) from queueing a
     // full turn of steps the moment combat triggers.

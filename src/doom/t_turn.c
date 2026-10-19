@@ -504,36 +504,60 @@ static void T_PulseOneTic(boolean freeze_monsters)
     if (paused)
         return;
 
-    // Smooth combat movement: apply the per-tic delta stored by T_ExecMove.
-    // This animates the step over the pulse instead of teleporting.
-    // Use P_TryMove directly (not P_XYMovement) to avoid friction eating
-    // the delta; fall back to P_SlideMove for wall sliding.
+    // Smooth combat movement: step toward the destination stored by
+    // T_ExecMove. Speed eases out as we arrive (keyboard speed when far,
+    // proportional when close) for a natural friction feel. Finishes when
+    // within epsilon of the target; the failsafe cap prevents a stall.
     if (turnctrl.move_tics > 0)
     {
         player_t *pl = &players[consoleplayer];
         if (pl->mo != NULL)
         {
-            fixed_t nx = pl->mo->x + turnctrl.move_dx;
-            fixed_t ny = pl->mo->y + turnctrl.move_dy;
-            if (!P_TryMove(pl->mo, nx, ny))
+            fixed_t dx = turnctrl.move_tx - pl->mo->x;
+            fixed_t dy = turnctrl.move_ty - pl->mo->y;
+            fixed_t dist = P_AproxDistance(dx, dy);
+
+            if (dist < 4 * FRACUNIT)
             {
-                // Blocked: try sliding along the wall.
-                pl->mo->momx = turnctrl.move_dx;
-                pl->mo->momy = turnctrl.move_dy;
-                P_SlideMove(pl->mo);
-                pl->mo->momx = pl->mo->momy = 0;
+                // Arrived: snap to target, finish the move and end the pulse.
+                P_TryMove(pl->mo, turnctrl.move_tx, turnctrl.move_ty);
+                P_ZMovement(pl->mo);
+                turnctrl.move_tics = 0;
+                turnctrl.pulse_left = 0;
             }
-            P_ZMovement(pl->mo);
-            turnctrl.move_tics--;
-            if (turnctrl.move_tics <= 0)
+            else
             {
-                turnctrl.move_dx = turnctrl.move_dy = 0;
+                fixed_t speed;
+                fixed_t nx, ny;
+                // Ease-out: full keyboard speed (8u/tic) when far,
+                // proportional slowdown within 16 units.
+                if (dist > 16 * FRACUNIT)
+                    speed = 8 * FRACUNIT;
+                else
+                    speed = dist / 2;
+                if (speed < FRACUNIT)
+                    speed = FRACUNIT;
+                nx = pl->mo->x + FixedDiv(FixedMul(dx, speed), dist);
+                ny = pl->mo->y + FixedDiv(FixedMul(dy, speed), dist);
+                if (!P_TryMove(pl->mo, nx, ny))
+                {
+                    pl->mo->momx = nx - pl->mo->x;
+                    pl->mo->momy = ny - pl->mo->y;
+                    P_SlideMove(pl->mo);
+                    pl->mo->momx = pl->mo->momy = 0;
+                }
+                P_ZMovement(pl->mo);
+                turnctrl.move_tics--;
+                if (turnctrl.move_tics <= 0)
+                {
+                    // Failsafe: stop where we are.
+                    turnctrl.move_tics = 0;
+                }
             }
         }
         else
         {
             turnctrl.move_tics = 0;
-            turnctrl.move_dx = turnctrl.move_dy = 0;
         }
     }
 
