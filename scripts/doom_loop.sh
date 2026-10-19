@@ -38,6 +38,7 @@ else
     SHOTDIR="${SHOTDIR:-$HOME/doomshots}"
 fi
 CMDFILE="${CMDFILE:-/tmp/doom_cmd.txt}"
+SETUP_LOCK="${SETUP_LOCK:-/tmp/doom_setup.lock}"
 PROMPT="${PROMPT:-$REPO/scripts/PROMPT.md}"
 FARM_SECONDS="${FARM_SECONDS:-300}"
 
@@ -109,15 +110,20 @@ launch_game() {
     cd "$SHOTDIR"
     # Clear stale FIFO (game recreates it; avoids worker-written regular file race).
     rm -f "$CMDFILE"
+    # Close the setup-lock fd in the game child so the lock releases when
+    # this script exits (not when the game dies).
     SDL_VIDEODRIVER=${SDL_VIDEODRIVER:-dummy} nohup "$GAME" -iwad "$DOOM_WAD" \
         -width "$GAME_WIDTH" -height "$GAME_HEIGHT" -warp $WARP \
-        -nosound > "$GAME_LOG" 2>&1 &
+        -nosound 9>&- > "$GAME_LOG" 2>&1 &
     disown
     sleep 15
 }
 
 # 3. Kill old game, start fresh (KEEP progress.dat for continuous progress).
 # Use bracket trick to avoid pkill matching our own shell.
+# Singleton lock: serialize with any concurrent --subagent setup.
+exec 9>"$SETUP_LOCK"
+flock 9
 pkill -9 -f "chocolate-doo[m]" 2>/dev/null || true
 sleep 2
 launch_game
@@ -212,13 +218,29 @@ capture_replay() {
 # LOAD 0 if autosave slot 1 exists, else SAVE 0 to initialize it.
 subagent_setup() {
     local game_count launched save_status
+    # Singleton: only one setup/launch at a time. A second concurrent setup
+    # would interleave pkill/rm/launch and create FIFO ghosts + duplicate
+    # games. Non-blocking: fail fast so the caller can retry or stand down.
+    exec 9>"$SETUP_LOCK"
+    if ! flock -n 9; then
+        echo '{"ok": false, "error": "another setup is already in progress"}'
+        exit 1
+    fi
     game_count=$(pgrep -c -f "chocolate-doo[m]" 2>/dev/null || true); game_count=${game_count:-0}
     if [ "$game_count" -gt 0 ]; then
         # A game is already running (possibly stale: stuck pre-GS_LEVEL or
         # holding a deleted FIFO). Kill all and launch fresh for a clean
-        # command channel.
+        # command channel. Poll until actually dead before touching the FIFO.
         pkill -9 -f "chocolate-doo[m]" 2>/dev/null || true
-        sleep 2
+        local waits=0
+        while pgrep -f "chocolate-doo[m]" > /dev/null && [ $waits -lt 10 ]; do
+            sleep 1
+            waits=$((waits+1))
+        done
+        if pgrep -f "chocolate-doo[m]" > /dev/null; then
+            echo '{"ok": false, "error": "could not kill existing game"}'
+            exit 1
+        fi
     fi
     launch_game
     launched=1
