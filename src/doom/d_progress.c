@@ -447,11 +447,18 @@ void D_AutoSaveGame(void)
 {
     char path[512];
     char tmp[64];
+    extern gameaction_t gameaction;
 
     if (gamestate != GS_LEVEL)
         return;
 
     if (!progress_initialized || progress_map == NULL)
+        return;
+
+    // Don't autosave while a savegame load is pending (ga_loadgame).
+    // The load reads the autosave slot; writing to it first would corrupt
+    // the pending load with a half-new/half-old state.
+    if (gameaction == ga_loadgame)
         return;
 
     // Write the current progress to the rotating auto-save slot.
