@@ -9,7 +9,7 @@ export const meta = {
 };
 
 const inputs = args ?? {};
-const iterations = inputs.iterations ?? 8;
+const iterations = inputs.iterations ?? 40;
 const SCRIPT = "~/workspace/DiabloDoom/scripts/doom_loop.sh";
 const CMD_FILE = "/tmp/doom_next_cmds.txt";
 
