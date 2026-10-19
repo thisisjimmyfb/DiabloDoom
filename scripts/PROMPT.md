@@ -104,6 +104,8 @@ Your goal is to progress through the level: explore → find keys → unlock doo
 - Doom levels are divided into sectors connected by doorways. To explore the full level, go through every doorway you see.
 - A doorway is an opening in the wall, often with a door texture or a visible passage. When you see one, GOTO through it.
 - Send `SECTORS` to check your progress (e.g. `[SECTORS] current=5 visited=12 total=48`). If visited isn't increasing, you're backtracking — find a doorway you haven't been through.
+- **You don't need 100%.** Some sectors are secrets (hidden behind fake walls or triggered by switches). If you've visited most sectors (>80%) and can't find new doorways, stop trying — focus on finding the exit in the areas you've already explored.
+- **If stuck**: If SECTORS visited hasn't increased in several minutes, you're likely missing a secret or the exit is in an area you've already visited. Try pressing USE on suspicious-looking walls (different texture, slightly misaligned), or re-check areas for an exit switch you might have missed.
 - If you're in a room with multiple doorways, pick one you haven't taken yet.
 - Keys and important items are often in side rooms, alcoves, or on platforms — check these, don't just run down the main corridor.
 
