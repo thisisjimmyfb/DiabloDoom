@@ -680,9 +680,27 @@ void T_GotoTick(void)
             }
             else
             {
-                // Blocked: abort the path rather than grinding a wall.
-                printf("[GOTO] blocked at waypoint %d, aborting\n", goto_wp_index);
-                T_GotoCancel();
+                // Blocked: try a smaller step (half). If that also fails,
+                // skip to the next waypoint — the straight-line path to this
+                // one may clip a wall corner even though the cell is walkable.
+                fixed_t half_step = step >> 1;
+                fixed_t hx = mo->x + FixedDiv(FixedMul(dx, half_step), dist);
+                fixed_t hy = mo->y + FixedDiv(FixedMul(dy, half_step), dist);
+                if (P_TryMove(mo, hx, hy))
+                {
+                    mo->angle = R_PointToAngle2(mo->x, mo->y, hx, hy);
+                }
+                else
+                {
+                    printf("[GOTO] blocked at waypoint %d, skipping\n", goto_wp_index);
+                    goto_wp_index++;
+                    // If we've skipped past the end, we're done.
+                    if (goto_wp_index >= goto_wp_count)
+                    {
+                        printf("[GOTO] arrived (via skip)\n");
+                        T_GotoCancel();
+                    }
+                }
                 return;
             }
         }
