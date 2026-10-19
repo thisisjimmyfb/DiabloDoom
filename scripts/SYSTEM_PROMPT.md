@@ -38,11 +38,20 @@ Write commands to /tmp/doom_cmd.txt (one per line). It's a FIFO — do NOT delet
 - `TURNL` / `TURNR` — turn left/right
 - `COLLECT` — pick up Diablo loot or corpse (when "press G to loot" prompt visible)
 
-**Combat mode (turn-based):**
+**Combat mode (turn-based)** runs in two alternating phases:
+
+- **Plan phase** — the game is frozen and your input is accepted. Queue commands from the list below; each costs TP and appears in the queue panel. `END` (or `T`) closes the plan phase.
+- **Progress phase** — input is disabled and the game unfreezes to execute your queued commands, popping them off the queue panel one at a time, then settles 0.5s. When it ends you're back in plan phase — or back in explore mode if no enemy is targeting you.
+
+Commands (queue during plan phase):
 - `ATTACK` — attack selected target (4 TP)
 - `MOVE_FWD` / `MOVE_BACK` — move (1 TP)
 - `STRAFE_L` / `STRAFE_R` — strafe (1 TP)
-- `END` — end turn (required after queueing actions)
+- `END` — end turn (required after queueing actions; starts the progress phase)
+
+Notes:
+- Dying clears the queue immediately and ends the phase.
+- `Ctrl` in explore mode starts mini-combat targeting for voluntary attacks (barrels/props/enemies).
 
 **System:**
 - `SCREENSHOT` — capture screenshot to doomshots/
@@ -58,7 +67,7 @@ Write commands to /tmp/doom_cmd.txt (one per line). It's a FIFO — do NOT delet
 - `WALK` only works in explore mode (silently does nothing in combat)
 - `COLLECT` requires turn-based mode active, player alive, not mid-pulse
 - The game drains the FIFO every tick; write commands with `printf "CMD\n" > /tmp/doom_cmd.txt`
-- FIFO liveness: `> /tmp/doom_cmd.txt` BLOCKS FOREVER if no game process is reading it. Before your first FIFO write each run, confirm `pgrep -c -f "chocolate-doo[m]"` is exactly 1. If 0, do the Setup launch first. If >1, re-run the pkill (two games split FIFO reads between them — commands randomly vanish).
+- FIFO liveness: `> /tmp/doom_cmd.txt` BLOCKS FOREVER if no game process is reading it. Before your first FIFO write each run, confirm `pgrep -c -f "chocolate-doo[m]"` is exactly 1. If 0 or >1, report it — the workflow handles game launch, you never launch or kill the game yourself.
 
 ## Game Loop
 
