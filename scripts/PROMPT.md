@@ -8,10 +8,12 @@ This is the public strategy guide for teaching our AI agent to play DiabloDoom �
 - Videos give temporal context — you can see movement, enemy behavior, and what's changing.
 - Use CAPTURE (15s video + screenshot) for exploration decisions.
 - Screenshots alone miss motion; a single frame can't tell you if that shape is an enemy or a wall texture.
+- Batch movement: queue a long run of WALK commands per cycle, don't observe after every few steps. One replay covers a lot of ground — observe, queue 8-12 moves, let them play out, then observe again.
 
-**Turn-based combat: use screenshots, refreshed after every queued command.**
+**Turn-based combat: use screenshots, refreshed after every single movement command.**
 - Combat is discrete — the game state only changes when you queue and execute.
-- After every command you queue (MOVE, ATTACK, etc.), take a new SCREENSHOT to see the updated state: TP remaining, queue contents, target selection, enemy positions.
+- Movement especially: queue ONE move, take a new SCREENSHOT, see where you landed, then queue the next. Never chain multiple moves blind — you can't see walls, enemies, or hazards between steps without a fresh frame.
+- After attacks, refresh the screenshot to check TP remaining, queue contents, target selection, enemy positions.
 - Don't rely on a stale screenshot from before you queued — the queue panel, TP, and target markers all change.
 
 ## The Game
