@@ -79,6 +79,12 @@ pull_and_rebuild() {
         if [ "$before" != "$after" ] || [ "$after" != "$last_built" ]; then
             echo "[$(date)] Binary stale (built=$last_built, HEAD=$after), rebuilding..." >> "$LOG"
             cp "$GAME" ~/workspace/chocolate-doom.farm-backup 2>/dev/null || true
+            # Install vendored dev headers (third_party/dev-debs) if the system
+            # lost them (VM recycle wipes /usr). SDL2 itself falls back to
+            # third_party/ via CMakeLists.txt; FluidSynth/SampleRate need debs.
+            if [ ! -f /usr/include/fluidsynth.h ]; then
+                sudo dpkg -i "$REPO/third_party/dev-debs/"*.deb >> "$LOG" 2>&1 || true
+            fi
             cd "$REPO/build"
             # Re-run cmake (link.txt goes stale across VM recycles).
             cmake . >> "$LOG" 2>&1 || echo "cmake failed" >> "$LOG"
