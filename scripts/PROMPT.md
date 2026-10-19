@@ -4,11 +4,15 @@ This is the public strategy guide for teaching our AI agent to play DiabloDoom �
 
 ## Observation Strategy
 
+**The loop is: ACT → REPLAY → THINK → ACT → REPLAY → THINK...**
+
+The replay always comes *after* your commands play out, never before. This guarantees the video shows real gameplay, not idle thinking time.
+
 **Explore mode: use REPLAY videos.**
 - Videos give temporal context — you can see movement, enemy behavior, and what's changing.
-- Use REPLAY for vision — it dumps the 15s ring buffer fast.
-- Batch movement: queue a long run of WALK commands per cycle, don't observe after every few steps. One replay covers a lot of ground — observe, queue 8-12 moves, let them play out, then observe again.
-- Timing matters: REPLAY captures the last 15 seconds. Send your commands, wait ~5 seconds for them to start playing out, then capture the replay — that keeps the video in the moment. Don't wait 15-20s; by then the action is over and the replay shows trailing idle time.
+- Send your WALK commands, wait ~5 seconds for them to start playing out, then REPLAY. The 15s buffer captures your movement in the moment.
+- Batch movement: queue 8-12 WALK commands per cycle. One replay covers a lot of ground.
+- After the replay, view the frames, decide your next batch of moves, and send them. Then replay again.
 
 **Turn-based combat: use screenshots, refreshed after every single movement command.**
 - Combat is discrete — the game state only changes when you queue and execute.

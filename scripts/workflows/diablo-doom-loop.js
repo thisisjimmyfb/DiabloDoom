@@ -83,18 +83,34 @@ const report = await agent(
   "You are the DiabloDoom farm driver. This is a LONG-RUNNING task: you stay alive for the whole run, " +
   "no respawning. Read ~/workspace/DiabloDoom/scripts/SYSTEM_PROMPT.md (command reference and mechanics) " +
   "and ~/workspace/DiabloDoom/scripts/PROMPT.md (strategy) ONCE at the start, then run " + iterations + " iterations. " +
-  "Each iteration, do all three steps yourself in order:\n" +
-  "1. OBSERVE: Run: bash " + SCRIPT + " --subagent observe. It sends REPLAY (dumps the 15s ring buffer, fast) " +
-  "and prints JSON {replay_path, log_tail, kills}. If it reports an error (game not running), run: bash " +
-  SCRIPT + " --subagent setup, then retry observe once. If still failing, record hung_at={iteration, stage:'observe'} and stop.\n" +
-  "2. VISION: Extract 4 frames: ffmpeg -y -i \"<replay_path>\" -vf fps=1/4 /tmp/vf/f%02d.png (mkdir -p /tmp/vf first). " +
-  "View them, decide driver commands per PROMPT.md, write one command per line to " + CMD_FILE + ". " +
-  "Queue aggressively: batch 6-12 commands per iteration (moves + attacks + END), never just 1-2. " +
-  "A half-empty queue wastes the round.\n" +
-  "3. ACT: Run: bash " + SCRIPT + " --subagent act --file " + CMD_FILE + ". It writes the commands to the game's FIFO. " +
-  "After ACT, wait ~5 seconds for your commands to start playing out, then run the next OBSERVE. " +
-  "The replay captures the last 15 seconds, so observing ~5s after acting keeps the video in the moment. " +
-  "Don't wait 15-20s; by then the action is over and the replay shows trailing idle time.\n" +
+  "The loop is flipped: ACT -> REPLAY -> THINK, repeated. The replay always follows your commands, " +
+
+  "so the video shows real gameplay, never idle thinking time.\n" +
+
+  "First iteration: OBSERVE once to see the starting state (bash " + SCRIPT + " --subagent observe, " +
+
+  "which sends REPLAY and prints JSON {replay_path, log_tail, kills}), then enter the loop.\n" +
+
+  "Each iteration:\n" +
+
+  "1. ACT: Write your commands (one per line) to " + CMD_FILE + " and run: bash " + SCRIPT + " --subagent act --file " + CMD_FILE + ". " +
+
+  "Queue aggressively: batch 6-12 commands (moves + attacks + END), never just 1-2.\n" +
+
+  "2. REPLAY: Wait ~5 seconds for your commands to start playing out, then run: bash " + SCRIPT + " --subagent observe. " +
+
+  "It sends REPLAY (dumps the 15s ring buffer) and prints JSON {replay_path, log_tail, kills}. " +
+
+  "This replay shows what your commands just did.\n" +
+
+  "3. THINK: Extract 4 frames: ffmpeg -y -i \\"<replay_path>\\" -vf fps=1/4 /tmp/vf/f%02d.png (mkdir -p /tmp/vf first). " +
+
+  "View them, decide your next batch of commands per PROMPT.md. Then loop back to ACT.\n" +
+
+  "If observe reports an error (game not running), run: bash " + SCRIPT + " --subagent setup, then retry once. " +
+
+  "If still failing, record hung_at={iteration, stage:'observe'} and stop.\n" +
+
   "Target ~30-45 seconds per iteration. If a step hangs beyond its natural time, note which stage hung: " +
   "skip to the next iteration, or stop the run if the game is dead (record hung_at).\n" +
   "After all iterations (or on stop), SAVE the game: write the single line SAVE 0 to " + CMD_FILE +
