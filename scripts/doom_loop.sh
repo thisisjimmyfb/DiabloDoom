@@ -128,7 +128,10 @@ if [ -f ~/.local/share/chocolate-doom/doomsav0.dsg ]; then
     send_cmd "LOAD 0\n"
     sleep 5
 else
-    echo "[$(date)] No autosave found, starting fresh" >> "$LOG"
+    echo "[$(date)] No autosave found, starting new game with autosave slot 1" >> "$LOG"
+    # Initialize autosave slot 1 immediately.
+    send_cmd "SAVE 0\n"
+    sleep 5
 fi
 
 take_screenshot() {
