@@ -66,40 +66,47 @@ GAME_HEIGHT="${GAME_HEIGHT:-600}"
 VISION_CMD="${VISION_CMD:-}"
 # ================== END CONFIG ==================
 
+pull_and_rebuild() {
+    cd "$REPO"
+    local before after
+    before=$(git rev-parse HEAD)
+    echo "[$(date)] Pulling from GitHub..." >> "$LOG"
+    if git pull --rebase 2>> "$LOG"; then
+        after=$(git rev-parse HEAD)
+        if [ "$before" != "$after" ]; then
+            echo "[$(date)] New changes pulled ($before -> $after), rebuilding..." >> "$LOG"
+            cp "$GAME" ~/workspace/chocolate-doom.farm-backup 2>/dev/null || true
+            cd "$REPO/build"
+            # Re-run cmake (link.txt goes stale across VM recycles).
+            cmake . >> "$LOG" 2>&1 || echo "cmake failed" >> "$LOG"
+            if make -j2 chocolate-doom >> "$LOG" 2>&1; then
+                echo "[$(date)] Rebuild successful" >> "$LOG"
+                cp "$GAME" ~/workspace/chocolate-doom.farm-backup
+            else
+                echo "[$(date)] Rebuild FAILED, restoring backup" >> "$LOG"
+                cp ~/workspace/chocolate-doom.farm-backup "$GAME" 2>/dev/null || true
+            fi
+            cd "$REPO"
+        else
+            echo "[$(date)] Already up to date ($after)" >> "$LOG"
+        fi
+    else
+        echo "[$(date)] git pull failed, continuing with existing binary" >> "$LOG"
+    fi
+}
+
+
 mkdir -p "$SCREEN_DIR" "$SHOTDIR"
 echo "[$(date)] Starting DiabloDoom Ralph loop" >> "$LOG"
 
 # 1. Pull latest from GitHub; rebuild if changed.
 # Skipped entirely in --subagent mode (never pull, never rebuild).
 if [ "$SUBAGENT" != true ]; then
-cd "$REPO"
-BEFORE=$(git rev-parse HEAD)
-echo "[$(date)] Pulling from GitHub..." >> "$LOG"
-if git pull --rebase 2>> "$LOG"; then
-    AFTER=$(git rev-parse HEAD)
-    if [ "$BEFORE" != "$AFTER" ]; then
-        echo "[$(date)] New changes pulled ($BEFORE -> $AFTER), rebuilding..." >> "$LOG"
-        # Backup live binary before rebuild (failed link can destroy it).
-        cp "$GAME" ~/workspace/chocolate-doom.farm-backup 2>/dev/null || true
-        cd "$REPO/build"
-        # Re-run cmake (link.txt goes stale across VM recycles).
-        cmake . >> "$LOG" 2>&1 || echo "cmake failed" >> "$LOG"
-        if make -j2 chocolate-doom >> "$LOG" 2>&1; then
-            echo "[$(date)] Rebuild successful" >> "$LOG"
-            cp "$GAME" ~/workspace/chocolate-doom.farm-backup
-        else
-            echo "[$(date)] Rebuild FAILED, restoring backup" >> "$LOG"
-            cp ~/workspace/chocolate-doom.farm-backup "$GAME" 2>/dev/null || true
-        fi
-        cd "$REPO"
-    else
-        echo "[$(date)] Already up to date ($AFTER)" >> "$LOG"
-    fi
-else
-    echo "[$(date)] git pull failed, continuing with existing binary" >> "$LOG"
-fi
-fi # end: skip pull/rebuild in --subagent mode
+    pull_and_rebuild
+fi # end: skip pull/rebuild in --subagent mode (except setup, see below)
 
+# Pull from GitHub; rebuild the binary if anything changed.
+# Backs up the live binary first (a failed link step can destroy it).
 # 2. Check binary exists.
 if [ ! -f "$GAME" ]; then
     echo "Game binary missing at $GAME" >> "$LOG"
@@ -226,6 +233,9 @@ subagent_setup() {
         echo '{"ok": false, "error": "another setup is already in progress"}'
         exit 1
     fi
+    # Pull latest and rebuild if anything changed, so the fresh game
+    # always runs the newest binary.
+    pull_and_rebuild
     game_count=$(pgrep -c -f "chocolate-doo[m]" 2>/dev/null || true); game_count=${game_count:-0}
     if [ "$game_count" -gt 0 ]; then
         # A game is already running (possibly stale: stuck pre-GS_LEVEL or

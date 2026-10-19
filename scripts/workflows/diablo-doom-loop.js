@@ -56,11 +56,12 @@ const reportSchema = {
 async function runSetup(key) {
   return await agent(
     "Run: bash " + SCRIPT + " --subagent setup. " +
-    "It kills any existing DiabloDoom game processes, launches a fresh game, " +
+    "It pulls the latest from GitHub and rebuilds the binary if anything changed, " +
+    "kills any existing DiabloDoom game processes, launches a fresh game, " +
     "then LOADs autosave slot 1 if it exists or SAVE 0 to initialize it. " +
-    "NEVER pull from git, NEVER rebuild the binary, NEVER delete progress.dat. " +
+    "NEVER delete progress.dat. " +
     "Return the JSON it prints.",
-    { key: key, label: "Game setup", schema: setupSchema, timeoutMs: 120000 }
+    { key: key, label: "Game setup", schema: setupSchema, timeoutMs: 600000 }
   );
 }
 
@@ -93,7 +94,7 @@ const report = await agent(
   "skip to the next iteration, or stop the run if the game is dead (record hung_at).\n" +
   "After all iterations (or on stop), SAVE the game: write the single line SAVE 0 to " + CMD_FILE +
   " and run the act script once more.\n" +
-  "NEVER pull from git, NEVER rebuild the binary, NEVER delete progress.dat. " +
+  "NEVER delete progress.dat. Only the setup script pulls/rebuilds; never do it yourself. " +
   "Never kill the game yourself; only the setup script may do that. " +
   "Return JSON {iterations_completed, kills (last cumulative count), hung_at (or null), " +
   "notes, cycles: [{iteration, commands, kills}]}.",
