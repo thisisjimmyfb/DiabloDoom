@@ -928,17 +928,42 @@ void T_DoTurn(int dir)
         return;
     if (!T_ActorAlive())
         return;
-    if (T_InPulse())
+    if (T_InPulse() || turnctrl.executing)
         return;
 
+    // Queue the turn: it costs 0 TP (view control) but participates in the
+    // turn order. Execution is instant (no smooth animation).
+    // Preview: apply the angle immediately so planning shows the result;
+    // execution resets to turn_start and re-applies in order.
+    T_Enqueue(dir < 0 ? TA_TURN_L : TA_TURN_R, 0, 0, NULL);
     if (dir < 0)
+        mo->angle += ANG45;
+    else
+        mo->angle -= ANG45;
+    T_RefreshTargets();
+    T_ValidateSelection();
+    T_DumpState("turn-queued");
+}
+
+// Executor: instant 45-degree turn. No pulse, no animation — the view
+// snaps, matching the planning preview.
+static boolean T_ExecTurn(boolean left)
+{
+    player_t *player = &players[consoleplayer];
+    mobj_t *mo = player->mo;
+
+    if (mo == NULL)
+        return false;
+
+    if (left)
         mo->angle += ANG45; // counterclockwise = left
     else
         mo->angle -= ANG45; // clockwise = right
 
     T_RefreshTargets();
     T_ValidateSelection();
-    T_DumpState("turn");
+    T_DumpState("exec-turn");
+    return false; // no pulse: instant
 }
 
 // ------------------------------------------------------------------
@@ -1102,6 +1127,12 @@ boolean T_ExecuteOne(void)
       case TA_MOVE_E: case TA_MOVE_W:
         pulsed = T_ExecMove(e.moveangle);
         break;
+      case TA_TURN_L:
+        pulsed = T_ExecTurn(true);
+        break;
+      case TA_TURN_R:
+        pulsed = T_ExecTurn(false);
+        break;
       case TA_ATTACK:
         pulsed = T_ExecAttack(e.target, e.cost);
         break;
@@ -1160,6 +1191,14 @@ void T_DoUndoQueue(void)
     if (e->action == TA_MOVE_N || e->action == TA_MOVE_S
         || e->action == TA_MOVE_E || e->action == TA_MOVE_W)
         T_PreviewMove(e->moveangle + ANG180);
+    // Preview: reverse the undone turn.
+    if (players[consoleplayer].mo != NULL)
+    {
+        if (e->action == TA_TURN_L)
+            players[consoleplayer].mo->angle -= ANG45;
+        else if (e->action == TA_TURN_R)
+            players[consoleplayer].mo->angle += ANG45;
+    }
     T_DumpState("undo");
 }
 
