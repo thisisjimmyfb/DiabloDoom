@@ -117,7 +117,9 @@ for (let i = 0; i < iterations; i++) {
     // 2. Vision: watch replay, decide commands, write command file.
     rec.stage = "vision";
     const vision = await agent(
-      "You are the DiabloDoom farm worker. Read ~/workspace/DiabloDoom/scripts/PROMPT.md and follow it. " +
+      "You are the DiabloDoom farm worker. Read ~/workspace/DiabloDoom/scripts/SYSTEM_PROMPT.md " +
+      "for the command reference and mechanics, and ~/workspace/DiabloDoom/scripts/PROMPT.md for strategy. " +
+      "Follow both. " +
       "A 15-second replay video was captured at: " + obs.replay_path + " " +
       "Extract frames with ffmpeg (e.g. ffmpeg -y -i \"" + obs.replay_path + "\" -vf fps=1 /tmp/vision_frames/f%02d.png) " +
       "and view them to understand the game state (HUD, enemies, loot, 'press G to loot' prompt). " +
