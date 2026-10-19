@@ -239,10 +239,86 @@ capture_replay() {
 }
 
 # ---------------- subagent subcommands ----------------
+# Restore stub shared libraries wiped by VM recycles. The farm's vendored
+# audio libs (fluidsynth, SDL_mixer) need libinstpatch, libopusfile, and
+# libpipewire, which don't survive in /usr. Regenerate functional stubs
+# from the vendored libs' undefined symbols (the game never calls these).
+restore_stub_libs() {
+    local bindir="$HOME/workspace/DiabloDoom/build/src"
+    local vendored="$HOME/workspace/DiabloDoom/third_party/runtime-libs"
+    local needed=0
+
+    # Check if binary loads cleanly
+    if ! ldd "$bindir/chocolate-doom" 2>/dev/null | grep -q "not found"; then
+        # Also verify no symbol lookup errors on the vendored libs
+        if "$bindir/chocolate-doom" --help 2>&1 | grep -q "symbol lookup error"; then
+            needed=1
+        fi
+    else
+        needed=1
+    fi
+    [ "$needed" -eq 0 ] && return 0
+
+    # Generate libinstpatch stub (fluidsynth needs ipatch_* + pw_* symbols)
+    if [ -f "$vendored/libfluidsynth.so.3" ]; then
+        nm -D "$vendored/libfluidsynth.so.3" 2>/dev/null | grep " U " | \
+            grep -E "ipatch|pw_" | awk '{print $2}' > /tmp/inst_syms.txt
+        if [ -s /tmp/inst_syms.txt ]; then
+            python3 -c "
+import sys
+with open('/tmp/inst_syms.txt') as f:
+    syms = [l.strip() for l in f if l.strip()]
+with open('/tmp/stub_inst.c', 'w') as out:
+    for s in syms:
+        out.write(f'void* {s}(void) {{ return 0; }}\n')
+"
+            gcc -shared -fPIC -o /usr/lib/x86_64-linux-gnu/libinstpatch-1.0.so.2 \
+                /tmp/stub_inst.c 2>/dev/null || \
+            sudo gcc -shared -fPIC -o /usr/lib/x86_64-linux-gnu/libinstpatch-1.0.so.2 \
+                /tmp/stub_inst.c 2>/dev/null || true
+        fi
+    fi
+
+    # Generate libopusfile stub (SDL_mixer needs op_* symbols)
+    if [ -f "$vendored/libSDL2_mixer-2.0.so.0" ]; then
+        nm -D "$vendored/libSDL2_mixer-2.0.so.0" 2>/dev/null | grep " U " | \
+            grep "op_" | awk '{print $2}' > /tmp/opus_syms.txt
+        if [ -s /tmp/opus_syms.txt ]; then
+            python3 -c "
+with open('/tmp/opus_syms.txt') as f:
+    syms = [l.strip() for l in f if l.strip()]
+with open('/tmp/stub_opus.c', 'w') as out:
+    for s in syms:
+        out.write(f'void* {s}(void) {{ return 0; }}\n')
+"
+            gcc -shared -fPIC -o /usr/lib/x86_64-linux-gnu/libopusfile.so.0 \
+                /tmp/stub_opus.c 2>/dev/null || \
+            sudo gcc -shared -fPIC -o /usr/lib/x86_64-linux-gnu/libopusfile.so.0 \
+                /tmp/stub_opus.c 2>/dev/null || true
+        fi
+    fi
+
+    # Empty libpipewire stub (fluidsynth links it, never used)
+    echo '// empty' > /tmp/stub_pw.c
+    gcc -shared -fPIC -o /usr/lib/x86_64-linux-gnu/libpipewire-0.3.so.0 \
+        /tmp/stub_pw.c 2>/dev/null || \
+    sudo gcc -shared -fPIC -o /usr/lib/x86_64-linux-gnu/libpipewire-0.3.so.0 \
+        /tmp/stub_pw.c 2>/dev/null || true
+
+    # Reinstall libmodplug from saved deb if missing
+    if ! ldconfig -p 2>/dev/null | grep -q "libmodplug.so.1"; then
+        sudo dpkg -i --force-all "$HOME/workspace/doom/modplug.deb" 2>/dev/null || true
+    fi
+
+    sudo ldconfig 2>/dev/null || true
+}
+
 # setup: ensure the game is running (launch only if needed), then
 # LOAD 0 if autosave slot 1 exists, else SAVE 0 to initialize it.
 subagent_setup() {
     local game_count launched save_status
+    # Restore stub libs wiped by VM recycles before anything else.
+    restore_stub_libs
     # Singleton: only one setup/launch at a time. A second concurrent setup
     # would interleave pkill/rm/launch and create FIFO ghosts + duplicate
     # games. Non-blocking: fail fast so the caller can retry or stand down.
