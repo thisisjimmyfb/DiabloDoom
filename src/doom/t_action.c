@@ -554,6 +554,39 @@ void T_GotoStart(fixed_t tx, fixed_t ty)
     if (pl->mo == NULL)
         return;
 
+    // Clamp target to nearest walkable position: if (tx,ty) is inside a
+    // wall, step back along the ray from player to target until walkable.
+    // This lets the worker say "GOTO 1000 0" (move far forward) without
+    // needing to know where the wall is.
+    {
+        int clamp_steps;
+        fixed_t cx = tx, cy = ty;
+        int tgx, tgy;
+        T_WorldToGrid(cx, cy, &tgx, &tgy);
+        for (clamp_steps = 0; clamp_steps < 32; clamp_steps++)
+        {
+            if (T_GridWalkable(pl->mo, tgx, tgy))
+                break;
+            // Step back 16 units toward player
+            {
+                fixed_t dx = pl->mo->x - cx;
+                fixed_t dy = pl->mo->y - cy;
+                fixed_t dist = P_AproxDistance(dx, dy);
+                if (dist <= 0)
+                    break;
+                cx += FixedDiv(FixedMul(dx, 16 * FRACUNIT), dist);
+                cy += FixedDiv(FixedMul(dy, 16 * FRACUNIT), dist);
+                T_WorldToGrid(cx, cy, &tgx, &tgy);
+            }
+        }
+        if (clamp_steps > 0)
+        {
+            printf("[GOTO] target clamped to (%d,%d)\n", cx >> 16, cy >> 16);
+            tx = cx;
+            ty = cy;
+        }
+    }
+
     steps = T_FindPathTo(pl->mo, tx, ty, path_dirs, GOTO_MAX_WP);
     if (steps < 0)
     {
