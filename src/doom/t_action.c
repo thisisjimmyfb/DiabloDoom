@@ -857,7 +857,14 @@ static void T_PreviewMove(angle_t moveangle)
         mo->momx = mo->momy = 0;
     }
     mo->momz = 0;
-    // Run z-physics for stairs/floor snap (see T_ExecMove).
+    // Snap z to the new floor: P_TryMove updates floorz but not z, so without
+    // this the preview floats over declining slopes/stairs. The smooth
+    // execution eases down over its tics; the preview shows the landing spot.
+    if (mo->z != mo->floorz)
+    {
+        mo->z = mo->floorz;
+    }
+    // Run z-physics for good measure (viewheight smoothing).
     P_ZMovement(mo);
 }
 
