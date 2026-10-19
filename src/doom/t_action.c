@@ -858,22 +858,33 @@ static boolean T_ExecMove(angle_t moveangle)
     dx = FixedMul(STEP_LEN, finecosine[moveangle >> ANGLETOFINESHIFT]);
     dy = FixedMul(STEP_LEN, finesine[moveangle >> ANGLETOFINESHIFT]);
 
-    // Smooth movement: don't teleport. Store the destination (where the
-    // planning preview lands: STEP_LEN in the move direction). T_PulseOneTic
-    // moves toward it each tick at keyboard speed, easing out as it arrives,
-    // and finishes when within epsilon. The pulse lasts until arrival (or
-    // the failsafe cap), so the player loses control for the full move.
+    // Smooth movement: don't teleport. The destination is where the planning
+    // preview (T_PreviewMove) lands — simulate it here so execution matches
+    // the preview exactly, including wall sliding. T_PulseOneTic animates
+    // toward that spot and finishes on arrival.
     {
         extern int D_MoveSpeed(struct player_s *pl);
         int movespeed = D_MoveSpeed(player);
         int tics = T_MOVE_BASE_TICS;
+        fixed_t savex, savey;
+        fixed_t dx, dy;
         if (movespeed > 0)
         {
             tics = (T_MOVE_BASE_TICS * 100) / (100 + movespeed);
             if (tics < 1) tics = 1;
         }
-        turnctrl.move_tx = mo->x + FixedMul(STEP_LEN, finecosine[moveangle >> ANGLETOFINESHIFT]);
-        turnctrl.move_ty = mo->y + FixedMul(STEP_LEN, finesine[moveangle >> ANGLETOFINESHIFT]);
+        // Simulate the preview to find the landing spot.
+        savex = mo->x; savey = mo->y;
+        dx = FixedMul(STEP_LEN, finecosine[moveangle >> ANGLETOFINESHIFT]);
+        dy = FixedMul(STEP_LEN, finesine[moveangle >> ANGLETOFINESHIFT]);
+        mo->momx = dx * STEP_SUB;
+        mo->momy = dy * STEP_SUB;
+        P_XYMovement(mo);
+        mo->momx = mo->momy = 0;
+        turnctrl.move_tx = mo->x;
+        turnctrl.move_ty = mo->y;
+        // Restore: the smooth animation will get us there.
+        mo->x = savex; mo->y = savey;
         turnctrl.move_tics = tics * 3; // failsafe: 3x the nominal duration
         mo->angle = moveangle;
     }
