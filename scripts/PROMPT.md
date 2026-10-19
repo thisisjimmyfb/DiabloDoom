@@ -84,7 +84,7 @@ When in EXPLORE mode (not in combat), priority order:
 
 4. **Colored door** (red/blue/yellow markings on a door) → You need the matching key. Send `KEYS` to check which keys you have:
    - If you have the key: walk through the door (GOTO toward it)
-   - If not: you need to find it. Keys are small colored cards (red/blue/yellow) usually in side rooms, alcoves, or on platforms. Explore systematically — visit every room, check corners. When you see a key, GOTO toward it and walk over it to pick up.
+   - If not: send `SCAN` to get the direction/distance to nearby keys (e.g. `[SCAN] red_key: 150 fwd, 30 right`). Then use GOTO to move toward it. If SCAN finds no keys, explore systematically — visit every room, check corners, alcoves, platforms.
 
 5. **Key visible** (small red/blue/yellow card on ground or pedestal) → GOTO toward it immediately. Walk over it to pick up. This is high priority.
 
