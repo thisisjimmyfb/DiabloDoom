@@ -1102,6 +1102,28 @@ static void cmd_dispatch(const char *cmd)
                pl->cards[it_bluecard] || pl->cards[it_blueskull],
                pl->cards[it_yellowcard] || pl->cards[it_yellowskull]);
     }
+    else if (!strcmp(cmd, "SECTORS"))
+    {
+        // Log sector traversal progress: current sector, visited count, total.
+        // Helps the worker know if it's exploring new areas or backtracking.
+        player_t *pl = &players[consoleplayer];
+        if (pl->mo != NULL && pl->mo->subsector != NULL)
+        {
+            static int visited[4096];
+            static int visit_epoch = 0;
+            int cur;
+            int i, count = 0;
+            // Simple epoch-based visited tracking (reset on map change would
+            // be ideal; for now just track within this session).
+            cur = pl->mo->subsector->sector - sectors;
+            if (cur >= 0 && cur < 4096)
+                visited[cur] = 1;
+            for (i = 0; i < numsectors && i < 4096; i++)
+                if (visited[i]) count++;
+            printf("[SECTORS] current=%d visited=%d total=%d\n",
+                   cur, count, numsectors);
+        }
+    }
     else if (!strcmp(cmd, "SCAN"))
     {
         // List nearby keys with relative direction/distance (facing-relative).
