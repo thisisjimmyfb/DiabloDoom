@@ -13,6 +13,7 @@ The replay always comes *after* your commands play out, never before. This guara
 - Send your WALK commands, wait ~5 seconds for them to start playing out, then REPLAY. The 15s buffer captures your movement in the moment.
 - Batch movement: queue 8-12 WALK commands per cycle. One replay covers a lot of ground.
 - After the replay, view the frames, decide your next batch of moves, and send them. Then replay again.
+- Keep vision fast: extract only 2 frames at half resolution (`-vf fps=1/8,scale=480:300` as JPEG). You don't need 4 full-res PNGs — 2 small frames show position, enemies, and loot just fine.
 
 **Turn-based combat: use screenshots, refreshed after every single movement command.**
 - Combat is discrete — the game state only changes when you queue and execute.
