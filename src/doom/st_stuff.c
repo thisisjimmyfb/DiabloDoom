@@ -1280,14 +1280,33 @@ static void ST_drawTurnKits(void)
 // the log can react (issue COLLECT) even without seeing the HUD.
 static void ST_drawLootAlert(void)
 {
-    if (T_LootAvailable())
+    /* DEBUG: remove once loot prompt is confirmed working. */
+    static boolean dbg_last_avail = false;
+    static int dbg_last_n = -1;
+    boolean avail = T_LootAvailable();
+    if (avail != dbg_last_avail)
+    {
+        printf("[DIABLO] loot alert: available %d -> %d (explore branch)\n",
+               dbg_last_avail, avail);
+        dbg_last_avail = avail;
+    }
+    if (avail)
     {
         mobj_t *loot_list[LOOT_LOG_CACHE];
         int n, i, j;
         boolean new_loot = false;
+        n = T_GetLootList(loot_list, LOOT_LOG_CACHE);
+        if (n != dbg_last_n)
+        {
+            printf("[DIABLO] loot alert: drawing prompt, n=%d\n", n);
+            if (n > 0)
+                printf("[DIABLO] loot alert: first item id=%d type=%d health=%d\n",
+                       loot_list[0]->diablo_loot_id, loot_list[0]->type,
+                       loot_list[0]->health);
+            dbg_last_n = n;
+        }
         V_DrawFilledBox(250, 160, 110, 10, 0);
         ST_TurnDrawText(254, 161, "PRESS G TO LOOT");
-        n = T_GetLootList(loot_list, LOOT_LOG_CACHE);
         for (i = 0; i < n; i++)
         {
             boolean seen = false;
