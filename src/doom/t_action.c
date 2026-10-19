@@ -34,6 +34,17 @@
 #define STEP_SUB 4
 #define STEP_LEN (24 * FRACUNIT)
 
+// Movespeed-scaled step distance: higher movespeed = longer steps.
+// Used by both T_PreviewMove and T_ExecMove so preview matches execution.
+static fixed_t T_StepLen(player_t *player)
+{
+    extern int D_MoveSpeed(struct player_s *pl);
+    int movespeed = D_MoveSpeed(player);
+    if (movespeed <= 0)
+        return STEP_LEN;
+    return (STEP_LEN * (100 + movespeed)) / 100;
+}
+
 // ------------------------------------------------------------------
 // Phase 2: Tempo economy.
 //
@@ -831,10 +842,13 @@ static void T_PreviewMove(angle_t moveangle)
 
     if (mo == NULL)
         return;
-    dx = FixedMul(STEP_LEN, finecosine[moveangle >> ANGLETOFINESHIFT]);
-    dy = FixedMul(STEP_LEN, finesine[moveangle >> ANGLETOFINESHIFT]);
-    // Preview the destination T_ExecMove will animate toward: STEP_LEN in
-    // the move direction, with wall sliding. Matches the smooth execution.
+    {
+        fixed_t step = T_StepLen(player);
+        dx = FixedMul(step, finecosine[moveangle >> ANGLETOFINESHIFT]);
+        dy = FixedMul(step, finesine[moveangle >> ANGLETOFINESHIFT]);
+    }
+    // Preview the destination T_ExecMove will animate toward: scaled STEP_LEN
+    // in the move direction, with wall sliding. Matches the smooth execution.
     if (!P_TryMove(mo, mo->x + dx, mo->y + dy))
     {
         mo->momx = dx;
@@ -878,8 +892,8 @@ static boolean T_ExecMove(angle_t moveangle)
             tics = (T_MOVE_BASE_TICS * 100) / (100 + movespeed);
             if (tics < 1) tics = 1;
         }
-        dx = FixedMul(STEP_LEN, finecosine[moveangle >> ANGLETOFINESHIFT]);
-        dy = FixedMul(STEP_LEN, finesine[moveangle >> ANGLETOFINESHIFT]);
+        dx = FixedMul(T_StepLen(player), finecosine[moveangle >> ANGLETOFINESHIFT]);
+        dy = FixedMul(T_StepLen(player), finesine[moveangle >> ANGLETOFINESHIFT]);
         turnctrl.move_tx = mo->x + dx;
         turnctrl.move_ty = mo->y + dy;
         turnctrl.move_tics = tics * 3; // failsafe: 3x the nominal duration
