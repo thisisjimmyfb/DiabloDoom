@@ -28,9 +28,9 @@ The workflow feeds you a screenshot per iteration (captured via the game's `CAPT
 Write commands to /tmp/doom_cmd.txt (one per line). It's a FIFO — do NOT delete it.
 
 **Explore mode:**
-- `GOTO x y` — pathfind to map coordinates (e.g. `GOTO 1436 573`). The game
-  walks the path over multiple tics; a new GOTO overrides. This is the
-  walks the path over multiple tics; a new GOTO overrides. Explore mode only.
+- `GOTO dx dy` — move relative to your position (e.g. `GOTO 0 100` = 100 units
+  north, `GOTO 50 0` = 50 units east). The game pathfinds and walks there
+  over multiple tics. Explore mode only.
 - `TURNL` / `TURNR` — turn left/right
 - `COLLECT` — pick up Diablo loot or corpse (when "press G to loot" prompt visible)
 

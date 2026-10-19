@@ -970,17 +970,20 @@ static void cmd_dispatch(const char *cmd)
     }
     else if (!strncmp(cmd, "GOTO", 4))
     {
-        // GOTO x y: pathfind to map position (explore mode only).
-        // The game walks the path over multiple tics; the worker just
-        // sends the destination and waits for [GOTO] arrived (or a new
-        // observation). A new GOTO overrides; WALK cancels.
+        // GOTO dx dy: pathfind to a position relative to the player
+        // (explore mode only). E.g. "GOTO 0 100" moves 100 units north,
+        // "GOTO -50 0" moves 50 units west. The game walks the path over
+        // multiple tics; the worker just sends the offset and waits for
+        // [GOTO] arrived (or a new observation). A new GOTO overrides.
         player_t *pl = &players[consoleplayer];
         if (pl->mo != NULL && T_InExplore())
         {
-            int x, y;
-            if (sscanf(cmd + 4, "%d %d", &x, &y) == 2)
+            int dx, dy;
+            if (sscanf(cmd + 4, "%d %d", &dx, &dy) == 2)
             {
-                T_GotoStart((fixed_t)x * FRACUNIT, (fixed_t)y * FRACUNIT);
+                fixed_t tx = pl->mo->x + (fixed_t)dx * FRACUNIT;
+                fixed_t ty = pl->mo->y + (fixed_t)dy * FRACUNIT;
+                T_GotoStart(tx, ty);
             }
             else
             {
