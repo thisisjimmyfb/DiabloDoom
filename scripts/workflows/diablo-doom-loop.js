@@ -1,5 +1,5 @@
 export const meta = {
-  name: "diablodoom-farm-loop",
+  name: "diablo-doom-loop",
   description: "DiabloDoom farm loop: each cycle a worker reads PROMPT.md/SYSTEM_PROMPT.md, plays the existing binary, and reports kills + screenshot.",
   phases: [{ name: "cycle", title: "Farm cycle" }, { name: "report", title: "Report" }]
 };
