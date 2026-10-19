@@ -50,47 +50,11 @@ option(ENABLE_SDL2_NET "Enable SDL2_net" On)
 option(ENABLE_SDL2_MIXER "Enable SDL2_mixer" On)
 
 if (NOT DEFINED EMSCRIPTEN)
-    # Fall back to vendored SDL2 (third_party/) when the system doesn't have
-    # it — e.g. after a VM recycle wipes /usr. Headers + static libs are
-    # committed so the build works with zero manual installs.
-    if(NOT SDL2_INCLUDE_DIR AND EXISTS "${CMAKE_SOURCE_DIR}/third_party/sdl-headers/SDL2/SDL.h")
-        # .../SDL2 for #include "SDL.h"
-        set(SDL2_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/third_party/sdl-headers/SDL2"
-            CACHE PATH "Vendored SDL2 headers")
-    endif()
-    # ... for <SDL2/_real_SDL_config.h> (Debian wrapper indirection)
-    if(EXISTS "${CMAKE_SOURCE_DIR}/third_party/sdl-headers/SDL2/_real_SDL_config.h")
-        include_directories("${CMAKE_SOURCE_DIR}/third_party/sdl-headers")
-    endif()
-    if(NOT SDL2_LIBRARY AND EXISTS "${CMAKE_SOURCE_DIR}/third_party/static-libs/usr/lib/x86_64-linux-gnu/libSDL2.a")
-        set(SDL2_LIBRARY "${CMAKE_SOURCE_DIR}/third_party/static-libs/usr/lib/x86_64-linux-gnu/libSDL2.a"
-            CACHE FILEPATH "Vendored SDL2 static lib")
-    endif()
-    if(NOT SDL2_MAIN_LIBRARY AND EXISTS "${CMAKE_SOURCE_DIR}/third_party/static-libs/usr/lib/x86_64-linux-gnu/libSDL2main.a")
-        set(SDL2_MAIN_LIBRARY "${CMAKE_SOURCE_DIR}/third_party/static-libs/usr/lib/x86_64-linux-gnu/libSDL2main.a"
-            CACHE FILEPATH "Vendored SDL2main static lib")
-    endif()
-    if(NOT SDL2_MIXER_INCLUDE_DIR AND EXISTS "${CMAKE_SOURCE_DIR}/third_party/sdl-headers/SDL2/SDL_mixer.h")
-        set(SDL2_MIXER_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/third_party/sdl-headers/SDL2"
-            CACHE PATH "Vendored SDL2_mixer headers")
-    endif()
-    if(NOT SDL2_MIXER_LIBRARY AND EXISTS "${CMAKE_SOURCE_DIR}/third_party/static-libs/usr/lib/x86_64-linux-gnu/libSDL2_mixer.a")
-        set(SDL2_MIXER_LIBRARY "${CMAKE_SOURCE_DIR}/third_party/static-libs/usr/lib/x86_64-linux-gnu/libSDL2_mixer.a"
-            CACHE FILEPATH "Vendored SDL2_mixer static lib")
-    endif()
-    if(NOT SDL2_NET_INCLUDE_DIR AND EXISTS "${CMAKE_SOURCE_DIR}/third_party/sdl-headers/SDL2/SDL_net.h")
-        set(SDL2_NET_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/third_party/sdl-headers/SDL2"
-            CACHE PATH "Vendored SDL2_net headers")
-    endif()
-    if(NOT SDL2_NET_LIBRARY AND EXISTS "${CMAKE_SOURCE_DIR}/third_party/static-libs/usr/lib/x86_64-linux-gnu/libSDL2_net.a")
-        set(SDL2_NET_LIBRARY "${CMAKE_SOURCE_DIR}/third_party/static-libs/usr/lib/x86_64-linux-gnu/libSDL2_net.a"
-            CACHE FILEPATH "Vendored SDL2_net static lib")
-    endif()
     find_package(SDL2 2.0.14)
 endif()
 if(ENABLE_SDL2_MIXER)
     if (NOT DEFINED EMSCRIPTEN)
-        find_package(SDL2_mixer 2.0.2)
+        find_package(SDL2_mixer 2.0.2 MODULE)
     endif()
 else()
     add_compile_definitions(DISABLE_SDL2MIXER=1)

@@ -1092,6 +1092,10 @@ void T_Ticker(void)
 {
     int i, n;
 
+    // VM automation driver: drain the FIFO first, before any early-return.
+    // If T_Active() is false we still want to process VERSION/LOAD/etc.
+    cmd_drain(cmd_dispatch);
+
     if (!T_Active())
         return;
 
@@ -1119,9 +1123,6 @@ void T_Ticker(void)
         extern void D_ProgressTick(void);
         D_ProgressTick();
     }
-
-    // VM automation driver: drain the FIFO (see cmd_drain above).
-    cmd_drain(cmd_dispatch);
 
     // Deferred test-harness startup: arena + script on first level tick.
     // Runs in both explore and combat modes.
