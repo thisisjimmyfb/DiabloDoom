@@ -857,11 +857,22 @@ static void T_PreviewMove(angle_t moveangle)
         mo->momx = mo->momy = 0;
     }
     mo->momz = 0;
-    // Snap z to the new floor: P_TryMove updates floorz but not z, so without
-    // this the preview floats over declining slopes/stairs. The smooth
-    // execution eases down over its tics; the preview shows the landing spot.
-    if (mo->z != mo->floorz)
+    // Snap z to the new floor, but limited to one step (24 units). P_TryMove
+    // updates floorz but not z; without a snap the preview floats over
+    // declining slopes. But snapping the full drop teleports through
+    // multi-step stairs and wedges the player inside stair geometry.
+    // A single-step snap handles slopes and one stair; larger drops are left
+    // for the execution's gravity (P_ZMovement) to settle naturally.
+    if (mo->z > mo->floorz)
     {
+        fixed_t drop = mo->z - mo->floorz;
+        if (drop <= 24 * FRACUNIT)
+            mo->z = mo->floorz;
+        // else: leave z; the smooth execution will fall during its tics.
+    }
+    else if (mo->z < mo->floorz)
+    {
+        // Stepping up: snap up (P_TryMove already validated the step).
         mo->z = mo->floorz;
     }
     // Run z-physics for good measure (viewheight smoothing).
