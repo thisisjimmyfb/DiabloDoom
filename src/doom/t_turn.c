@@ -1102,6 +1102,48 @@ static void cmd_dispatch(const char *cmd)
                pl->cards[it_bluecard] || pl->cards[it_blueskull],
                pl->cards[it_yellowcard] || pl->cards[it_yellowskull]);
     }
+    else if (!strcmp(cmd, "SCAN"))
+    {
+        // List nearby keys with relative direction/distance (facing-relative).
+        // Format: [SCAN] <color>_key: <fwd> fwd, <strafe> right (<dist> units)
+        player_t *pl = &players[consoleplayer];
+        if (pl->mo != NULL)
+        {
+            thinker_t *th;
+            angle_t ang = pl->mo->angle;
+            fixed_t fx = finecosine[ang >> ANGLETOFINESHIFT];
+            fixed_t fy = finesine[ang >> ANGLETOFINESHIFT];
+            fixed_t rx = finecosine[(ang - ANG90) >> ANGLETOFINESHIFT];
+            fixed_t ry = finesine[(ang - ANG90) >> ANGLETOFINESHIFT];
+            int found = 0;
+            for (th = thinkercap.next; th != &thinkercap; th = th->next)
+            {
+                if (th->function.acp1 != (actionf_p1)P_MobjThinker)
+                    continue;
+                {
+                    mobj_t *mo = (mobj_t *)th;
+                    const char *name = NULL;
+                    if (mo->sprite == SPR_RKEY) name = "red_key";
+                    else if (mo->sprite == SPR_BKEY) name = "blue_key";
+                    else if (mo->sprite == SPR_YKEY) name = "yellow_key";
+                    if (name != NULL)
+                    {
+                        fixed_t dx = mo->x - pl->mo->x;
+                        fixed_t dy = mo->y - pl->mo->y;
+                        // Project onto facing (fwd) and right (strafe) axes
+                        int fwd = (FixedMul(dx, fx) + FixedMul(dy, fy)) >> 16;
+                        int strafe = (FixedMul(dx, rx) + FixedMul(dy, ry)) >> 16;
+                        int dist = P_AproxDistance(dx, dy) >> 16;
+                        printf("[SCAN] %s: %d fwd, %d right (%d units)\n",
+                               name, fwd, strafe, dist);
+                        found++;
+                    }
+                }
+            }
+            if (!found)
+                printf("[SCAN] no keys found\n");
+        }
+    }
     else if (!strncmp(cmd, "EQUIP ", 6))
     {
         // EQUIP <backpack_index> <slot>: equip item from backpack to paperdoll.
