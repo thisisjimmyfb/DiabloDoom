@@ -32,7 +32,7 @@
 // Step length: 4 sub-steps of 8 units = 32 units total, collision-aware
 // (sub-steps avoid tunneling through thin lines).
 #define STEP_SUB 4
-#define STEP_LEN (16 * FRACUNIT)
+#define STEP_LEN (24 * FRACUNIT)
 
 // ------------------------------------------------------------------
 // Phase 2: Tempo economy.
