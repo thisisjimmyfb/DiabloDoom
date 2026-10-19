@@ -2125,17 +2125,13 @@ void D_DoomMain (void)
     // On Muse VMs only; skipped on local machines. If a save was loaded,
     // gameaction is ga_loadgame and the loop will handle it, so we skip
     // the normal new-game/title startup.
+    // NOTE: Do NOT call G_InitNew/D_StartTitle here — the block above already
+    // handled game startup (autostart/warp or title). Calling G_InitNew twice
+    // hangs the game. D_ProgressInit only manages the progress file.
     {
         extern boolean D_ProgressInit(void);
         boolean resumed = D_ProgressInit();
-        if (!resumed)
-        {
-            if (autostart || netgame)
-                G_InitNew (startskill, startepisode, startmap);
-            else
-                D_StartTitle ();                // start up intro loop
-        }
-        else
+        if (resumed)
         {
             printf("[PROGRESS] resuming from saved progress, skipping title\n");
         }
