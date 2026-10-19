@@ -6,7 +6,7 @@ This is the public strategy guide for teaching our AI agent to play DiabloDoom �
 
 **Explore mode: use REPLAY videos, not screenshots.**
 - Videos give temporal context — you can see movement, enemy behavior, and what's changing.
-- Use CAPTURE (15s video + screenshot) for exploration decisions.
+- Use REPLAY for vision — it dumps the 15s ring buffer fast. Don't use CAPTURE for vision; the screenshot it takes is unnecessary overhead.
 - Screenshots alone miss motion; a single frame can't tell you if that shape is an enemy or a wall texture.
 - Batch movement: queue a long run of WALK commands per cycle, don't observe after every few steps. One replay covers a lot of ground — observe, queue 8-12 moves, let them play out, then observe again.
 
