@@ -506,17 +506,18 @@ static void T_PulseOneTic(boolean freeze_monsters)
 
     // Smooth combat movement: apply the per-tic delta stored by T_ExecMove.
     // This animates the step over the pulse instead of teleporting.
+    // Use P_XYMovement (not raw P_TryMove) so wall sliding works —
+    // a straight-line step that clips a corner should slide, not stop.
     if (turnctrl.move_tics > 0)
     {
         player_t *pl = &players[consoleplayer];
         if (pl->mo != NULL)
         {
-            fixed_t nx = pl->mo->x + turnctrl.move_dx;
-            fixed_t ny = pl->mo->y + turnctrl.move_dy;
-            if (P_TryMove(pl->mo, nx, ny))
-            {
-                P_ZMovement(pl->mo);
-            }
+            pl->mo->momx = turnctrl.move_dx;
+            pl->mo->momy = turnctrl.move_dy;
+            P_XYMovement(pl->mo);
+            pl->mo->momx = pl->mo->momy = 0;
+            P_ZMovement(pl->mo);
             turnctrl.move_tics--;
             if (turnctrl.move_tics <= 0)
             {
