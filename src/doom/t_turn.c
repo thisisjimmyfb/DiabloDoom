@@ -189,6 +189,8 @@ void T_ExploreTick(void)
     mobj_t *spotter;
 
     P_Ticker();
+    // GOTO path stepping (explore mode only; cancelled on combat entry).
+    T_GotoTick();
     if (++explore_sight_tic >= 7)
     {
         explore_sight_tic = 0;
@@ -349,6 +351,8 @@ void T_EnterExplore(void)
 void T_EnterCombat(mobj_t *spotter)
 {
     static char msg[96];
+    // GOTO paths are explore-mode only; cancel on combat entry.
+    T_GotoCancel();
     // Auto-save before combat: don't lose the pre-fight state.
     // Saves both the Doom savegame (slots 7-9) and progress.dat.
     {
@@ -850,9 +854,35 @@ static void cmd_dispatch(const char *cmd)
             // normal P_XYMovement physics (friction, collision, item pickup)
             // carry the player over subsequent tics. No teleport.
             // Impulses accumulate, so batching WALKs sustains movement.
+            // A manual WALK cancels any active GOTO path.
+            T_GotoCancel();
             angle_t ang = pl->mo->angle;
             pl->mo->momx += FixedMul(FRACUNIT / 2, finecosine[ang >> ANGLETOFINESHIFT]);
             pl->mo->momy += FixedMul(FRACUNIT / 2, finesine[ang >> ANGLETOFINESHIFT]);
+        }
+    }
+    else if (!strncmp(cmd, "GOTO", 4))
+    {
+        // GOTO x y: pathfind to map position (explore mode only).
+        // The game walks the path over multiple tics; the worker just
+        // sends the destination and waits for [GOTO] arrived (or a new
+        // observation). A new GOTO overrides; WALK cancels.
+        player_t *pl = &players[consoleplayer];
+        if (pl->mo != NULL && T_InExplore())
+        {
+            int x, y;
+            if (sscanf(cmd + 4, "%d %d", &x, &y) == 2)
+            {
+                T_GotoStart((fixed_t)x * FRACUNIT, (fixed_t)y * FRACUNIT);
+            }
+            else
+            {
+                printf("[GOTO] usage: GOTO x y\n");
+            }
+        }
+        else
+        {
+            printf("[GOTO] blocked: explore mode only\n");
         }
     }
     else if (!strcmp(cmd, "TURNL"))

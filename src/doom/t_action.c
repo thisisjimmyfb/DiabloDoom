@@ -410,9 +410,10 @@ boolean T_LootAvailable(void)
     return false;
 }
 
-// BFS from player to target. Returns number of steps in path, or -1 if
-// no path. Fills path_dirs with directions (0=N,1=E,2=S,3=W).
-static int T_FindPath(mobj_t *player_mo, mobj_t *target, int *path_dirs, int max_steps)
+// BFS from player to target coords. Returns number of steps in path, or -1
+// if no path. Fills path_dirs with directions (0=N,1=E,2=S,3=W).
+static int T_FindPathTo(mobj_t *player_mo, fixed_t tx, fixed_t ty,
+                        int *path_dirs, int max_steps)
 {
     int pgx, pgy, tgx, tgy;
     int qhead = 0, qtail = 0;
@@ -423,7 +424,7 @@ static int T_FindPath(mobj_t *player_mo, mobj_t *target, int *path_dirs, int max
     static const int dy[4] = { 1, 0, -1, 0 };
 
     T_WorldToGrid(player_mo->x, player_mo->y, &pgx, &pgy);
-    T_WorldToGrid(target->x, target->y, &tgx, &tgy);
+    T_WorldToGrid(tx, ty, &tgx, &tgy);
 
     // Clear visited (offset by 128 to handle negative coords)
     memset(bfs_visited, 0, sizeof(bfs_visited));
@@ -494,6 +495,137 @@ static int T_FindPath(mobj_t *player_mo, mobj_t *target, int *path_dirs, int max
             for (i = 0; i < n; i++)
                 path_dirs[i] = rev_dirs[path_len - 1 - i];
             return n;
+        }
+    }
+}
+
+// ------------------------------------------------------------------
+// GOTO driver command: pathfind to (x,y) and walk there over multiple
+// tics. The worker sends "GOTO x y" (map units); the game BFS-pathfinds
+// on the 32-unit grid and steps through waypoints using P_TryMove for
+// collision. A new GOTO overrides; reaching the target clears the state.
+// ------------------------------------------------------------------
+
+#define GOTO_MAX_WP 64
+
+static fixed_t goto_wp_x[GOTO_MAX_WP];
+static fixed_t goto_wp_y[GOTO_MAX_WP];
+static int goto_wp_count = 0;
+static int goto_wp_index = 0;
+static boolean goto_active = false;
+
+void T_GotoStart(fixed_t tx, fixed_t ty)
+{
+    player_t *pl = &players[consoleplayer];
+    int path_dirs[GOTO_MAX_WP];
+    int steps, i;
+    int gx, gy;
+
+    goto_active = false;
+    goto_wp_count = 0;
+    goto_wp_index = 0;
+
+    if (pl->mo == NULL)
+        return;
+
+    steps = T_FindPathTo(pl->mo, tx, ty, path_dirs, GOTO_MAX_WP);
+    if (steps < 0)
+    {
+        printf("[GOTO] no path to (%d,%d)\n", tx >> 16, ty >> 16);
+        return;
+    }
+
+    // Convert direction steps to world-coordinate waypoints.
+    T_WorldToGrid(pl->mo->x, pl->mo->y, &gx, &gy);
+    {
+        static const int dx[4] = { 0, 1, 0, -1 };
+        static const int dy[4] = { 1, 0, -1, 0 };
+        for (i = 0; i < steps; i++)
+        {
+            gx += dx[path_dirs[i]];
+            gy += dy[path_dirs[i]];
+            goto_wp_x[i] = (fixed_t)gx * LOOT_GRID + LOOT_GRID / 2;
+            goto_wp_y[i] = (fixed_t)gy * LOOT_GRID + LOOT_GRID / 2;
+        }
+    }
+    goto_wp_count = steps;
+    goto_wp_index = 0;
+    goto_active = true;
+    printf("[GOTO] path to (%d,%d): %d waypoints\n", tx >> 16, ty >> 16, steps);
+}
+
+void T_GotoCancel(void)
+{
+    goto_active = false;
+    goto_wp_count = 0;
+    goto_wp_index = 0;
+}
+
+boolean T_GotoActive(void)
+{
+    return goto_active;
+}
+
+// Called each tick in explore mode. Steps toward the current waypoint.
+void T_GotoTick(void)
+{
+    player_t *pl = &players[consoleplayer];
+    mobj_t *mo;
+    fixed_t wx, wy, dx, dy;
+    fixed_t dist_sq;
+    fixed_t step = 8 * FRACUNIT; // units per tic
+    fixed_t nx, ny;
+
+    if (!goto_active)
+        return;
+    if (pl->mo == NULL)
+    {
+        T_GotoCancel();
+        return;
+    }
+    mo = pl->mo;
+
+    if (goto_wp_index >= goto_wp_count)
+    {
+        printf("[GOTO] arrived\n");
+        T_GotoCancel();
+        return;
+    }
+
+    wx = goto_wp_x[goto_wp_index];
+    wy = goto_wp_y[goto_wp_index];
+    dx = wx - mo->x;
+    dy = wy - mo->y;
+    dist_sq = (dx >> 16) * (dx >> 16) + (dy >> 16) * (dy >> 16);
+
+    // Within 16 units: advance to next waypoint.
+    if (dist_sq < 256)
+    {
+        goto_wp_index++;
+        return;
+    }
+
+    // Step toward waypoint (normalized to `step` length).
+    {
+        fixed_t dist = P_AproxDistance(dx, dy);
+        if (dist > 0)
+        {
+            nx = mo->x + FixedDiv(FixedMul(dx, step), dist);
+            ny = mo->y + FixedDiv(FixedMul(dy, step), dist);
+            // P_TryMove handles collision and sliding; also triggers
+            // P_TouchSpecialThing for item pickup via the normal path.
+            if (P_TryMove(mo, nx, ny))
+            {
+                // Face movement direction for the viewmodel/HUD.
+                mo->angle = R_PointToAngle2(mo->x, mo->y, nx, ny);
+            }
+            else
+            {
+                // Blocked: abort the path rather than grinding a wall.
+                printf("[GOTO] blocked at waypoint %d, aborting\n", goto_wp_index);
+                T_GotoCancel();
+                return;
+            }
         }
     }
 }
@@ -592,7 +724,7 @@ void T_DoCollect(void)
         steps = -1;
         for (li = 0; li < loot_count; li++)
         {
-            steps = T_FindPath(mo, loot_list[li], path_dirs, 64);
+            steps = T_FindPathTo(mo, loot_list[li]->x, loot_list[li]->y, path_dirs, 64);
             if (steps >= 0)
             {
                 loot = loot_list[li];
