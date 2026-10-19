@@ -15,11 +15,10 @@
 # command(s) to send (e.g. "WALK\n", "ATTACK\n", "COLLECT\n").
 # Default: a subagent worker (see PROMPT.md) provides vision.
 #
-# Sub-agent mode: invoke with --subagent to run one bounded farm cycle
-# and print a JSON summary to stdout at the end:
-#   {"kills": N, "deaths": N, "iterations": N,
-#    "screenshot_path": "...", "replay_path": "...", "notes": "..."}
-# Designed for workflow child agents (see scripts/workflows/diablo-doom-loop.js).
+# Sub-agent mode: --subagent {setup|observe|act} [--file path].
+# The workflow (scripts/workflows/diablo-doom-loop.js) drives the loop:
+# the script only captures (observe) or sends (act) — it never decides.
+# Subagent mode never pulls, rebuilds, or kills the game.
 #
 # Override paths via environment variables.
 
@@ -42,13 +41,21 @@ CMDFILE="${CMDFILE:-/tmp/doom_cmd.txt}"
 PROMPT="${PROMPT:-$REPO/scripts/PROMPT.md}"
 FARM_SECONDS="${FARM_SECONDS:-300}"
 
-# Subagent mode: when invoked with --subagent, output a JSON summary
-# to stdout at the end for the calling agent to parse.
+# Subagent mode: --subagent {setup|observe|act} [--file path]
+# The workflow (scripts/workflows/diablo-doom-loop.js) orchestrates:
+#   setup   - ensure game running (launch only if needed), LOAD/SAVE slot 1
+#   observe - REPLAY capture + log tail -> JSON {replay_path, log_tail, kills}
+#   act     - write driver commands from --file to the game FIFO -> JSON {ok}
+# Subagent mode never pulls, rebuilds, or kills the game.
 SUBAGENT=false
+SUBCMD=""
+ACT_FILE=""
 for arg in "$@"; do
-    if [ "$arg" = "--subagent" ]; then
-        SUBAGENT=true
-    fi
+    case "$arg" in
+        --subagent) SUBAGENT=true ;;
+        setup|observe|act) SUBCMD="$arg" ;;
+        --file=*) ACT_FILE="${arg#--file=}" ;;
+    esac
 done
 WARP="${WARP:-1 1}"
 GAME_WIDTH="${GAME_WIDTH:-960}"
@@ -170,6 +177,98 @@ capture_replay() {
     fi
 }
 
+# ---------------- subagent subcommands ----------------
+# setup: ensure the game is running (launch only if needed), then
+# LOAD 0 if autosave slot 1 exists, else SAVE 0 to initialize it.
+subagent_setup() {
+    local game_count launched save_status
+    game_count=$(pgrep -c -f "chocolate-doo[m]" 2>/dev/null || echo 0)
+    launched=0
+    if [ "$game_count" -eq 0 ]; then
+        launch_game
+        launched=1
+        game_count=1
+    fi
+    save_status="fresh"
+    if [ -f ~/.local/share/chocolate-doom/doomsav0.dsg ]; then
+        send_cmd "LOAD 0\n"
+        sleep 5
+        save_status="loaded"
+    else
+        send_cmd "SAVE 0\n"
+        sleep 5
+        save_status="initialized"
+    fi
+    LAUNCHED="$launched" GAME_COUNT="$game_count" SAVE_STATUS="$save_status" python3 - <<'PYEOF'
+import json, os
+print(json.dumps({
+    "ok": True,
+    "launched": os.environ.get("LAUNCHED") == "1",
+    "game_count": int(os.environ.get("GAME_COUNT", 0) or 0),
+    "save": os.environ.get("SAVE_STATUS", ""),
+    "notes": "setup complete"
+}))
+PYEOF
+}
+
+# observe: REPLAY capture + recent log tail -> JSON.
+subagent_observe() {
+    local game_count ts out newest replay_path log_tail kills
+    game_count=$(pgrep -c -f "chocolate-doo[m]" 2>/dev/null || echo 0)
+    if [ "$game_count" -eq 0 ]; then
+        echo '{"error": "game not running", "game_count": 0}'
+        exit 1
+    fi
+    ts=$(date +%Y%m%d_%H%M%S)
+    out="$SCREEN_DIR/doom_ralph_${ts}_obs.mp4"
+    send_cmd "REPLAY\n"
+    sleep 18
+    newest=$(ls -t "$SHOTDIR"/*.mp4 2>/dev/null | head -1)
+    replay_path=""
+    if [ -n "$newest" ]; then
+        mv "$newest" "$out"
+        replay_path="$out"
+    fi
+    log_tail=$(tail -50 "$GAME_LOG" 2>/dev/null)
+    kills=$(grep -ac "exec-attack-kill" "$GAME_LOG" 2>/dev/null || echo 0)
+    REPLAY_PATH="$replay_path" LOG_TAIL="$log_tail" KILLS="$kills" python3 - <<'PYEOF'
+import json, os
+print(json.dumps({
+    "replay_path": os.environ.get("REPLAY_PATH", ""),
+    "log_tail": os.environ.get("LOG_TAIL", ""),
+    "kills": int(os.environ.get("KILLS", 0) or 0),
+}))
+PYEOF
+}
+
+# act: write driver commands from --file to the game FIFO -> JSON.
+subagent_act() {
+    if [ -z "$ACT_FILE" ] || [ ! -f "$ACT_FILE" ]; then
+        echo '{"ok": false, "error": "no command file"}'
+        exit 1
+    fi
+    if ! pgrep -f "chocolate-doo[m]" > /dev/null; then
+        echo '{"ok": false, "error": "game not running"}'
+        exit 1
+    fi
+    cat "$ACT_FILE" > "$CMDFILE"
+    sleep 2
+    echo '{"ok": true}'
+}
+
+if [ "$SUBAGENT" = true ]; then
+    case "$SUBCMD" in
+        setup) subagent_setup ;;
+        observe) subagent_observe ;;
+        act) subagent_act ;;
+        *)
+            echo "usage: $0 --subagent {setup|observe|act} [--file path]" >&2
+            exit 1
+            ;;
+    esac
+    exit 0
+fi
+
 while [ $(date +%s) -lt $END_TIME ]; do
     ITER=$((ITER + 1))
     echo "[$(date)] --- Iteration $ITER ---" >> "$LOG"
@@ -240,21 +339,3 @@ echo "[$(date)] Ralph loop complete: $ITER iterations, $KILLS kills" >> "$LOG"
 # Rotate screenshots: keep newest 500.
 ls -t "$SCREEN_DIR"/doom_ralph_*.png 2>/dev/null | tail -n +501 | xargs -r rm -f
 ls -t "$SCREEN_DIR"/doom_ralph_*.mp4 2>/dev/null | tail -n +101 | xargs -r rm -f
-
-# Subagent mode: JSON summary to stdout for the calling agent.
-if [ "$SUBAGENT" = true ]; then
-    DEATHS=$(grep -ac "PLAYER_DIED" "$GAME_LOG" 2>/dev/null || true)
-    LAST_SHOT=$(ls -t "$SCREEN_DIR"/doom_ralph_*.png 2>/dev/null | head -1)
-    LAST_REPLAY=$(ls -t "$SCREEN_DIR"/doom_ralph_*.mp4 2>/dev/null | head -1)
-    python3 - <<PYEOF
-import json
-print(json.dumps({
-    "kills": int("$KILLS" or 0),
-    "deaths": int("$DEATHS" or 0),
-    "iterations": int("$ITER" or 0),
-    "screenshot_path": "$LAST_SHOT",
-    "replay_path": "$LAST_REPLAY",
-    "notes": "farm cycle complete"
-}))
-PYEOF
-fi
