@@ -683,6 +683,34 @@ void T_BeginEnemyPhase(void)
 // Round bookkeeping when a pulse finishes.
 static void T_EndPulse(void)
 {
+    // Fast-forward death animations: monsters killed during the pulse may
+    // be mid-death-animation when the pulse ends. During planning the world
+    // is frozen, so they'd stick in a half-fallen pose. Advance any dying
+    // monster to its final corpse state (tics == -1) now.
+    {
+        extern thinker_t thinkercap;
+        thinker_t *th;
+        for (th = thinkercap.next; th != &thinkercap; th = th->next)
+        {
+            if (th->function.acp1 == (actionf_p1)P_MobjThinker)
+            {
+                mobj_t *mo = (mobj_t *)th;
+                if (mo->health <= 0 && mo->state != NULL && mo->state->tics != -1)
+                {
+                    int guard = 0;
+                    // Advance through death states until the permanent corpse
+                    // frame. Cap iterations to prevent a hang on malformed
+                    // state cycles.
+                    while (mo->state != NULL && mo->state->tics != -1 && guard++ < 32)
+                    {
+                        P_SetMobjState(mo, mo->state->nextstate);
+                    }
+                    mo->tics = -1;
+                }
+            }
+        }
+    }
+
     if (turnctrl.pulse_enemy)
     {
         // Enemy phase done: tick cooldowns (phase 5), new round.
