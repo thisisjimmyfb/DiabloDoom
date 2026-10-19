@@ -30,7 +30,7 @@ Write commands to /tmp/doom_cmd.txt (one per line). It's a FIFO — do NOT delet
 **Explore mode:**
 - `GOTO x y` — pathfind to map coordinates (e.g. `GOTO 1436 573`). The game
   walks the path over multiple tics; a new GOTO overrides. This is the
-  ONLY movement command — do NOT use WALK. Explore mode only.
+  walks the path over multiple tics; a new GOTO overrides. Explore mode only.
 - `TURNL` / `TURNR` — turn left/right
 - `COLLECT` — pick up Diablo loot or corpse (when "press G to loot" prompt visible)
 
@@ -61,7 +61,7 @@ Notes:
 - `SALVAGE <backpack_idx>` — convert item to essence
 
 **Important quirks:**
-- `GOTO` only works in explore mode (blocked in combat, cancelled on combat entry). Use GOTO for all movement; WALK is deprecated, do not use it.
+- `GOTO` only works in explore mode (blocked in combat, cancelled on combat entry)
 - `COLLECT` requires turn-based mode active, player alive, not mid-pulse
 - The game drains the FIFO every tick; write commands with `printf "CMD\n" > /tmp/doom_cmd.txt`
 - FIFO liveness: `> /tmp/doom_cmd.txt` BLOCKS FOREVER if no game process is reading it. Before your first FIFO write each run, confirm `pgrep -c -f "chocolate-doo[m]"` is exactly 1. If 0 or >1, report it — the workflow handles game launch, you never launch or kill the game yourself.
