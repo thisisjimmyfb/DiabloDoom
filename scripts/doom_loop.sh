@@ -68,19 +68,23 @@ VISION_CMD="${VISION_CMD:-}"
 
 pull_and_rebuild() {
     cd "$REPO"
-    local before after
+    local before after last_built
+    last_built=$(cat "$REPO/build/.built_head" 2>/dev/null || echo "none")
     before=$(git rev-parse HEAD)
     echo "[$(date)] Pulling from GitHub..." >> "$LOG"
     if git pull --rebase 2>> "$LOG"; then
         after=$(git rev-parse HEAD)
-        if [ "$before" != "$after" ]; then
-            echo "[$(date)] New changes pulled ($before -> $after), rebuilding..." >> "$LOG"
+        # Rebuild if the pull moved HEAD, OR if local commits (pushed from this
+        # VM) left the binary behind — pull never moves HEAD for those.
+        if [ "$before" != "$after" ] || [ "$after" != "$last_built" ]; then
+            echo "[$(date)] Binary stale (built=$last_built, HEAD=$after), rebuilding..." >> "$LOG"
             cp "$GAME" ~/workspace/chocolate-doom.farm-backup 2>/dev/null || true
             cd "$REPO/build"
             # Re-run cmake (link.txt goes stale across VM recycles).
             cmake . >> "$LOG" 2>&1 || echo "cmake failed" >> "$LOG"
             if make -j2 chocolate-doom >> "$LOG" 2>&1; then
                 echo "[$(date)] Rebuild successful" >> "$LOG"
+                echo "$after" > "$REPO/build/.built_head"
                 cp "$GAME" ~/workspace/chocolate-doom.farm-backup
             else
                 echo "[$(date)] Rebuild FAILED, restoring backup" >> "$LOG"
@@ -88,7 +92,7 @@ pull_and_rebuild() {
             fi
             cd "$REPO"
         else
-            echo "[$(date)] Already up to date ($after)" >> "$LOG"
+            echo "[$(date)] Binary already current ($after)" >> "$LOG"
         fi
     else
         echo "[$(date)] git pull failed, continuing with existing binary" >> "$LOG"
