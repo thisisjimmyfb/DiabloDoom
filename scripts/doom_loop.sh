@@ -121,6 +121,16 @@ send_cmd() {
     sleep 2
 }
 
+# Load autosave slot 1 if it exists (resume where the last cycle left off).
+# Doom savegame slot 0 + progress_auto1.dat.
+if [ -f ~/.local/share/chocolate-doom/doomsav0.dsg ]; then
+    echo "[$(date)] Autosave found, loading slot 0" >> "$LOG"
+    send_cmd "LOAD 0\n"
+    sleep 5
+else
+    echo "[$(date)] No autosave found, starting fresh" >> "$LOG"
+fi
+
 take_screenshot() {
     local ts=$(date +%Y%m%d_%H%M%S)
     local out="$SCREEN_DIR/doom_ralph_${ts}_${ITER}.png"
