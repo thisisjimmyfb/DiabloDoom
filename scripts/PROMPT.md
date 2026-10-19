@@ -20,7 +20,7 @@ DiabloDoom combines Doom's first-person shooting with Diablo's loot system and t
 
 ## Objective
 
-Play well — explore the level, engage enemies in turn-based combat, pick up loot. Play like a competent player, not a bot grinding a specific drop.
+Play well — explore the level, engage enemies in turn-based combat, pick up loot. The goal is loot progression: collect better and better gear over time and equip upgrades. Play like a competent player, not a bot grinding a specific drop.
 
 ## Combat Strategy
 
