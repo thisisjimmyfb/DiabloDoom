@@ -21,13 +21,7 @@ Game lifecycle (launch, save/load) is handled by `scripts/doom_loop.sh --subagen
 
 ## Video Capture
 
-The workflow feeds you a 15-second replay video per iteration (H.264 + AAC, captured via the game's `REPLAY` driver command). To view it, extract frames:
-
-```
-ffmpeg -y -i <replay_path> -vf fps=1 /tmp/vision_frames/f%02d.png
-```
-
-then read the PNGs. The video gives temporal context screenshots lack — movement, enemy behavior, what's changing.
+The workflow feeds you a screenshot per iteration (captured via the game's `CAPTURE` driver command, which also saves a 15-second replay video for the user report). Read the screenshot directly with vision — no video frame extraction needed. The screenshot is the vision input; the replay video is only for the user-facing report link.
 
 ## Command Reference
 
@@ -59,6 +53,7 @@ Notes:
 **System:**
 - `SCREENSHOT` — capture screenshot to doomshots/
 - `REPLAY` — capture 15-second replay video (H.264 + AAC)
+- `CAPTURE` — capture 15s replay video + screenshot in one command (use this for the vision loop; the screenshot is your vision input, the video is for the user report)
 - `INVENTORY` — toggle inventory screen
 - `RESPAWN` — respawn after death (only after capturing death evidence)
 - `VERSION` — print binary version hash to log
@@ -78,8 +73,8 @@ Notes:
 Play for ~4 minutes. The 10-minute cron window is the gaming session — within it, make decisions frequently.
 
 **Decision cadence: Take a fresh screenshot every 5 seconds.** Do not reuse a stale screenshot for multiple decisions. The loop is:
-1. Screenshot (SCREENSHOT command, sleep 4, copy to /tmp/farm_view.png)
-2. Read it with vision, decide action based on PROMPT.md strategy
+1. Capture (CAPTURE command: saves 15s replay video + screenshot; sleep 4, copy newest PNG to /tmp/farm_view.png)
+2. Read the screenshot with vision, decide action based on PROMPT.md strategy
 3. Send command(s) via FIFO
 4. Sleep 1-2 seconds (so total cycle is ~5-6 seconds), then repeat from step 1
 

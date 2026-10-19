@@ -301,7 +301,7 @@ PYEOF
 
 # observe: REPLAY capture + recent log tail -> JSON.
 subagent_observe() {
-    local game_count ts out newest replay_path log_tail kills
+    local game_count ts out newest replay_path screenshot_path log_tail kills
     game_count=$(pgrep -c -f "chocolate-doo[m]" 2>/dev/null || true); game_count=${game_count:-0}
     if [ "$game_count" -eq 0 ]; then
         echo '{"error": "game not running", "game_count": 0}'
@@ -309,15 +309,16 @@ subagent_observe() {
     fi
     ts=$(date +%Y%m%d_%H%M%S)
     out="$SCREEN_DIR/doom_ralph_${ts}_obs.mp4"
-    # REPLAY dumps the 15s ring buffer synchronously; poll for the new file
-    # instead of sleeping a fixed 18s.
-    before=$(ls -t "$SHOTDIR"/*.mp4 2>/dev/null | head -1)
-    send_cmd "REPLAY\n"
+    # CAPTURE saves the 15s replay video first, then a screenshot.
+    # Poll for both new files instead of sleeping a fixed time.
+    before_mp4=$(ls -t "$SHOTDIR"/*.mp4 2>/dev/null | head -1)
+    before_png=$(ls -t "$SHOTDIR"/*.png "$SHOTDIR"/doomshots/*.png 2>/dev/null | head -1)
+    send_cmd "CAPTURE\n"
     newest=""
     for i in $(seq 1 16); do
         sleep 1
         newest=$(ls -t "$SHOTDIR"/*.mp4 2>/dev/null | head -1)
-        if [ -n "$newest" ] && [ "$newest" != "$before" ]; then
+        if [ -n "$newest" ] && [ "$newest" != "$before_mp4" ]; then
             break
         fi
         newest=""
@@ -327,12 +328,23 @@ subagent_observe() {
         mv "$newest" "$out"
         replay_path="$out"
     fi
+    # Screenshot lands after the video; poll for the new PNG.
+    screenshot_path=""
+    for i in $(seq 1 8); do
+        sleep 1
+        newest_png=$(ls -t "$SHOTDIR"/*.png "$SHOTDIR"/doomshots/*.png 2>/dev/null | head -1)
+        if [ -n "$newest_png" ] && [ "$newest_png" != "$before_png" ]; then
+            screenshot_path="$newest_png"
+            break
+        fi
+    done
     log_tail=$(tail -50 "$GAME_LOG" 2>/dev/null)
     kills=$(grep -ac "exec-attack-kill" "$GAME_LOG" 2>/dev/null || true); kills=${kills:-0}
-    REPLAY_PATH="$replay_path" LOG_TAIL="$log_tail" KILLS="$kills" python3 - <<'PYEOF'
+    REPLAY_PATH="$replay_path" SCREENSHOT_PATH="$screenshot_path" LOG_TAIL="$log_tail" KILLS="$kills" python3 - <<'PYEOF'
 import json, os
 print(json.dumps({
     "replay_path": os.environ.get("REPLAY_PATH", ""),
+    "screenshot_path": os.environ.get("SCREENSHOT_PATH", ""),
     "log_tail": os.environ.get("LOG_TAIL", ""),
     "kills": int(os.environ.get("KILLS", 0) or 0),
 }))
