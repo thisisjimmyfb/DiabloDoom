@@ -92,9 +92,9 @@ const report = await agent(
   "Queue aggressively: batch 6-12 commands per iteration (moves + attacks + END), never just 1-2. " +
   "A half-empty queue wastes the round.\n" +
   "3. ACT: Run: bash " + SCRIPT + " --subagent act --file " + CMD_FILE + ". It writes the commands to the game's FIFO. " +
-  "After ACT, WAIT 15-20 seconds for your commands to play out before the next OBSERVE. " +
-  "Critical: the replay captures the last 15 seconds, so observing right after thinking shows an idle game. " +
-  "Always let commands execute first, then observe.\n" +
+  "After ACT, wait ~5 seconds for your commands to start playing out, then run the next OBSERVE. " +
+  "The replay captures the last 15 seconds, so observing ~5s after acting keeps the video in the moment. " +
+  "Don't wait 15-20s; by then the action is over and the replay shows trailing idle time.\n" +
   "Target ~30-45 seconds per iteration. If a step hangs beyond its natural time, note which stage hung: " +
   "skip to the next iteration, or stop the run if the game is dead (record hung_at).\n" +
   "After all iterations (or on stop), SAVE the game: write the single line SAVE 0 to " + CMD_FILE +
