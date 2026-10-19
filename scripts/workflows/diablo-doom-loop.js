@@ -1,6 +1,6 @@
 export const meta = {
   name: "diablo-doom-loop",
-  description: "DiabloDoom farm loop: each cycle a worker reads PROMPT.md/SYSTEM_PROMPT.md, plays the existing binary, and reports kills + screenshot.",
+  description: "DiabloDoom farm loop: each cycle a worker runs doom_loop.sh --subagent and reports the JSON result.",
   phases: [{ name: "cycle", title: "Farm cycle" }, { name: "report", title: "Report" }]
 };
 
@@ -12,15 +12,13 @@ const results = [];
 for (let i = 0; i < cycles; i++) {
   phase("cycle", `Farm cycle ${i + 1} of ${cycles}`);
   const r = await agent(
-    "You are the DiabloDoom farm worker. " +
-    "Read ~/workspace/DiabloDoom/scripts/SYSTEM_PROMPT.md and ~/workspace/DiabloDoom/scripts/PROMPT.md and follow them exactly. " +
+    "Run the DiabloDoom farm cycle by executing: bash ~/workspace/DiabloDoom/scripts/doom_loop.sh --subagent " +
     "This is farm cycle " + (i + 1) + " of " + cycles + ". " +
-    "Setup: verify the game process is running (pgrep -f 'chocolate-doo[m]'); launch per SYSTEM_PROMPT.md if needed. " +
+    "The script handles game launch, vision-driven play per PROMPT.md/SYSTEM_PROMPT.md (it reads them itself), and save/resume. " +
     "NEVER pull from git, NEVER rebuild the binary, NEVER delete progress.dat. " +
-    "Play: ~4 minutes of vision-driven play per PROMPT.md (explore, fight in turn-based combat, COLLECT loot on the 'press G to loot' prompt). " +
-    "Use the game's SCREENSHOT driver command for observations (write SCREENSHOT to /tmp/doom_cmd.txt). " +
-    "Save/resume: send LOAD 0 first after boot, SAVE 0 ~1 min before you finish. " +
-    "Report back JSON only.",
+    "Wait for the script to finish (it runs ~5 minutes). " +
+    "The script prints a JSON summary to stdout at the end. Parse it and return it as your result. " +
+    "If the script fails, return what you observed: {\"kills\": 0, \"deaths\": 0, \"iterations\": 0, \"screenshot_path\": \"\", \"replay_path\": \"\", \"notes\": \"<what happened>\"}.",
     {
       key: "farm-cycle-" + (i + 1),
       label: "Farm cycle " + (i + 1),
@@ -29,11 +27,12 @@ for (let i = 0; i < cycles; i++) {
         properties: {
           kills: { type: "number" },
           deaths: { type: "number" },
-          hp: { type: "number" },
+          iterations: { type: "number" },
           screenshot_path: { type: "string" },
+          replay_path: { type: "string" },
           notes: { type: "string" }
         },
-        required: ["kills", "screenshot_path", "notes"]
+        required: ["kills", "notes"]
       },
       timeoutMs: 600000
     }

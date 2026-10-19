@@ -5,15 +5,21 @@
 #   1. git pull --rebase from GitHub; if new changes, rebuild the game.
 #   2. Launch the game.
 #   3. Loop until timeout or game ends:
-#      - Take screenshot via SCREENSHOT driver command
-#      - Feed screenshot + PROMPT.md + game log to vision LLM
+#      - Capture replay video via REPLAY driver command (15s H.264 + AAC)
+#      - Feed replay video + PROMPT.md + game log to vision LLM
 #      - Vision LLM decides action(s); send via FIFO
 #      - Repeat
 #
 # The vision LLM integration is via the VISION_CMD env var: a command that
-# takes (screenshot_path, prompt_path, log_path) and outputs the driver
+# takes (replay_path, prompt_path, log_path) and outputs the driver
 # command(s) to send (e.g. "WALK\n", "ATTACK\n", "COLLECT\n").
 # Default: a subagent worker (see PROMPT.md) provides vision.
+#
+# Sub-agent mode: invoke with --subagent to run one bounded farm cycle
+# and print a JSON summary to stdout at the end:
+#   {"kills": N, "deaths": N, "iterations": N,
+#    "screenshot_path": "...", "replay_path": "...", "notes": "..."}
+# Designed for workflow child agents (see scripts/workflows/diablo-doom-loop.js).
 #
 # Override paths via environment variables.
 
@@ -35,6 +41,15 @@ fi
 CMDFILE="${CMDFILE:-/tmp/doom_cmd.txt}"
 PROMPT="${PROMPT:-$REPO/scripts/PROMPT.md}"
 FARM_SECONDS="${FARM_SECONDS:-300}"
+
+# Subagent mode: when invoked with --subagent, output a JSON summary
+# to stdout at the end for the calling agent to parse.
+SUBAGENT=false
+for arg in "$@"; do
+    if [ "$arg" = "--subagent" ]; then
+        SUBAGENT=true
+    fi
+done
 WARP="${WARP:-1 1}"
 GAME_WIDTH="${GAME_WIDTH:-960}"
 GAME_HEIGHT="${GAME_HEIGHT:-600}"
@@ -128,6 +143,20 @@ PYEOF
     fi
 }
 
+capture_replay() {
+    local ts=$(date +%Y%m%d_%H%M%S)
+    local out="$SCREEN_DIR/doom_ralph_${ts}_${ITER}.mp4"
+    send_cmd "REPLAY\n"
+    sleep 18
+    local newest=$(ls -t "$SHOTDIR"/*.mp4 2>/dev/null | head -1)
+    if [ -n "$newest" ]; then
+        mv "$newest" "$out"
+        echo "$out"
+    else
+        echo ""
+    fi
+}
+
 while [ $(date +%s) -lt $END_TIME ]; do
     ITER=$((ITER + 1))
     echo "[$(date)] --- Iteration $ITER ---" >> "$LOG"
@@ -145,10 +174,10 @@ while [ $(date +%s) -lt $END_TIME ]; do
         break
     fi
 
-    # Take screenshot for vision.
-    SHOT=$(take_screenshot)
-    if [ -z "$SHOT" ]; then
-        echo "Screenshot failed, skipping iteration" >> "$LOG"
+    # Capture replay video for vision.
+    REPLAY=$(capture_replay)
+    if [ -z "$REPLAY" ]; then
+        echo "Replay capture failed, skipping iteration" >> "$LOG"
         sleep 5
         continue
     fi
@@ -158,9 +187,9 @@ while [ $(date +%s) -lt $END_TIME ]; do
 
     # Vision LLM decides action.
     if [ -n "$VISION_CMD" ]; then
-        # VISION_CMD takes: screenshot_path prompt_path log_context
+        # VISION_CMD takes: replay_path prompt_path log_context
         # Outputs: driver command(s) to send (e.g. "WALK\nATTACK\n")
-        ACTION=$($VISION_CMD "$SHOT" "$PROMPT" "$LOGCTX" 2>> "$LOG")
+        ACTION=$($VISION_CMD "$REPLAY" "$PROMPT" "$LOGCTX" 2>> "$LOG")
         if [ -n "$ACTION" ]; then
             echo "[$(date)] Vision action: $(echo "$ACTION" | tr '\n' ' ')" >> "$LOG"
             send_cmd "$ACTION"
@@ -169,15 +198,15 @@ while [ $(date +%s) -lt $END_TIME ]; do
             send_cmd "WALK\n"
         fi
     else
-        # No vision command configured: save screenshot + context for
+        # No vision command configured: save replay + context for
         # external vision agent (e.g. cron worker subagent reads PROMPT.md).
         # Default to a safe exploratory action.
-        echo "[$(date)] No VISION_CMD; screenshot $SHOT awaiting external vision" >> "$LOG"
+        echo "[$(date)] No VISION_CMD; replay $REPLAY awaiting external vision" >> "$LOG"
         # Write state file for external agent pickup.
         cat > /tmp/doom_ralph_state.json <<EOF
 {
     "iteration": $ITER,
-    "screenshot": "$SHOT",
+    "replay": "$REPLAY",
     "prompt": "$PROMPT",
     "log_tail": $(echo "$LOGCTX" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))"),
     "timestamp": "$(date -Iseconds)"
@@ -197,3 +226,22 @@ echo "[$(date)] Ralph loop complete: $ITER iterations, $KILLS kills" >> "$LOG"
 
 # Rotate screenshots: keep newest 500.
 ls -t "$SCREEN_DIR"/doom_ralph_*.png 2>/dev/null | tail -n +501 | xargs -r rm -f
+ls -t "$SCREEN_DIR"/doom_ralph_*.mp4 2>/dev/null | tail -n +101 | xargs -r rm -f
+
+# Subagent mode: JSON summary to stdout for the calling agent.
+if [ "$SUBAGENT" = true ]; then
+    DEATHS=$(grep -ac "PLAYER_DIED" "$GAME_LOG" 2>/dev/null || true)
+    LAST_SHOT=$(ls -t "$SCREEN_DIR"/doom_ralph_*.png 2>/dev/null | head -1)
+    LAST_REPLAY=$(ls -t "$SCREEN_DIR"/doom_ralph_*.mp4 2>/dev/null | head -1)
+    python3 - <<PYEOF
+import json
+print(json.dumps({
+    "kills": int("$KILLS" or 0),
+    "deaths": int("$DEATHS" or 0),
+    "iterations": int("$ITER" or 0),
+    "screenshot_path": "$LAST_SHOT",
+    "replay_path": "$LAST_REPLAY",
+    "notes": "farm cycle complete"
+}))
+PYEOF
+fi
