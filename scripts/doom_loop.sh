@@ -127,8 +127,35 @@ END_TIME=$(($(date +%s) + FARM_SECONDS))
 ITER=0
 
 send_cmd() {
-    printf "%b" "$1" > "$CMDFILE"
+    # Never block forever: a readerless FIFO (ghost) would hang the caller.
+    if ! timeout 10 bash -c 'printf "%b" "$1" > "$2"' _ "$1" "$CMDFILE"; then
+        echo "[$(date)] send_cmd timed out (FIFO not draining): $1" >> "$LOG"
+        return 1
+    fi
     sleep 2
+}
+
+# Wait until the game is actually draining the command FIFO (up to ~60s).
+# Checks the path is a FIFO AND a live game process holds that exact inode
+# open — this also detects the deleted-inode ghost (path inode won't match).
+wait_for_fifo() {
+    local timeout_s=${1:-60}
+    local tries=0
+    while [ $tries -lt $timeout_s ]; do
+        if [ -p "$CMDFILE" ]; then
+            local ino=$(stat -c %i "$CMDFILE" 2>/dev/null)
+            if [ -n "$ino" ]; then
+                for pid in $(pgrep -f "chocolate-doo[m]" 2>/dev/null); do
+                    if ls -l /proc/$pid/fd 2>/dev/null | grep -q "pipe:\[$ino\]"; then
+                        return 0
+                    fi
+                done
+            fi
+        fi
+        sleep 1
+        tries=$((tries+1))
+    done
+    return 1
 }
 
 # Load autosave slot 1 if it exists (resume where the last cycle left off).
@@ -195,6 +222,11 @@ subagent_setup() {
     fi
     launch_game
     launched=1
+    # Don't touch the FIFO until the game is confirmed draining it.
+    if ! wait_for_fifo 60; then
+        echo '{"ok": false, "error": "game launched but FIFO never became live (stuck boot or ghost)"}'
+        exit 1
+    fi
     save_status="fresh"
     if [ -f ~/.local/share/chocolate-doom/doomsav0.dsg ]; then
         send_cmd "LOAD 0\n"
@@ -267,7 +299,11 @@ subagent_act() {
         echo '{"ok": false, "error": "game not running"}'
         exit 1
     fi
-    cat "$ACT_FILE" > "$CMDFILE"
+    # timeout: never block forever on a readerless FIFO (ghost).
+    if ! timeout 10 bash -c 'cat "$1" > "$2"' _ "$ACT_FILE" "$CMDFILE"; then
+        echo '{"ok": false, "error": "FIFO write blocked (not draining)"}'
+        exit 1
+    fi
     sleep 2
     echo '{"ok": true}'
 }
