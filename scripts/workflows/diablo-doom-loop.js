@@ -1,9 +1,9 @@
 export const meta = {
   name: "diablo-doom-loop",
-  description: "DiabloDoom farm: setup once, then loop {observe replay -> vision subagent -> act via FIFO}. Reports which stage hangs.",
+  description: "DiabloDoom farm: one long-lived driver agent runs all observe->vision->act iterations.",
   phases: [
     { name: "setup", title: "Game setup" },
-    { name: "loop", title: "Observe/vision/act loop" },
+    { name: "farm", title: "Farm run" },
     { name: "report", title: "Report" }
   ]
 };
@@ -25,32 +25,32 @@ const setupSchema = {
   required: ["ok", "notes"]
 };
 
-const observeSchema = {
+const reportSchema = {
   type: "object",
   properties: {
-    replay_path: { type: "string" },
-    log_tail: { type: "string" },
+    iterations_completed: { type: "number" },
     kills: { type: "number" },
-    notes: { type: "string" }
+    hung_at: {
+      type: ["object", "null"],
+      properties: {
+        iteration: { type: "number" },
+        stage: { type: "string" }
+      }
+    },
+    notes: { type: "string" },
+    cycles: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          iteration: { type: "number" },
+          commands: { type: "array", items: { type: "string" } },
+          kills: { type: "number" }
+        }
+      }
+    }
   },
-  required: ["replay_path", "log_tail"]
-};
-
-const visionSchema = {
-  type: "object",
-  properties: {
-    commands: { type: "array", items: { type: "string" } },
-    notes: { type: "string" }
-  },
-  required: ["commands", "notes"]
-};
-
-const actSchema = {
-  type: "object",
-  properties: {
-    ok: { type: "boolean" }
-  },
-  required: ["ok"]
+  required: ["iterations_completed", "kills", "notes"]
 };
 
 async function runSetup(key) {
@@ -61,17 +61,6 @@ async function runSetup(key) {
     "NEVER pull from git, NEVER rebuild the binary, NEVER delete progress.dat, NEVER kill the game. " +
     "Return the JSON it prints.",
     { key: key, label: "Game setup", schema: setupSchema, timeoutMs: 120000 }
-  );
-}
-
-async function runObserve(key) {
-  return await agent(
-    "Run: bash " + SCRIPT + " --subagent observe. " +
-    "It sends REPLAY to the running game, waits for the 15s video, and prints JSON " +
-    "with replay_path, log_tail, and kills. " +
-    "If it reports an error, return {\"replay_path\": \"\", \"log_tail\": \"\", \"kills\": 0, \"notes\": \"<the error>\"}. " +
-    "Otherwise return the JSON it printed.",
-    { key: key, label: "Observe", schema: observeSchema, timeoutMs: 120000 }
   );
 }
 
@@ -87,85 +76,39 @@ if (!setup.ok) {
   };
 }
 
-// ---- loop ----
-const history = [];
-let hung_at = null;
-
-for (let i = 0; i < iterations; i++) {
-  phase("loop", "Iteration " + (i + 1) + " of " + iterations);
-  const rec = { iteration: i + 1, stage: "observe", commands: [], kills: 0, notes: "" };
-
-  // 1. Observe: REPLAY capture + log tail.
-  try {
-    let obs = await runObserve("observe-" + (i + 1));
-    // Game died mid-loop: re-run setup once, then re-observe.
-    if (!obs.replay_path) {
-      log("Observe failed (" + (obs.notes || "no replay") + "); re-running setup.");
-      await runSetup("setup-retry-" + (i + 1));
-      obs = await runObserve("observe-retry-" + (i + 1));
-      if (!obs.replay_path) {
-        rec.stage = "observe";
-        rec.notes = "observe failed after setup retry: " + (obs.notes || "unknown");
-        history.push(rec);
-        hung_at = { iteration: i + 1, stage: "observe" };
-        log("Hung at iteration " + (i + 1) + ", stage: observe");
-        break;
-      }
-    }
-    rec.kills = obs.kills || 0;
-
-    // 2. Vision: watch replay, decide commands, write command file.
-    rec.stage = "vision";
-    const vision = await agent(
-      "You are the DiabloDoom farm worker. Read ~/workspace/DiabloDoom/scripts/SYSTEM_PROMPT.md " +
-      "for the command reference and mechanics, and ~/workspace/DiabloDoom/scripts/PROMPT.md for strategy. " +
-      "Follow both. " +
-      "A 15-second replay video was captured at: " + obs.replay_path + " " +
-      "Extract frames with ffmpeg (e.g. ffmpeg -y -i \"" + obs.replay_path + "\" -vf fps=1 /tmp/vision_frames/f%02d.png) " +
-      "and view them to understand the game state (HUD, enemies, loot, 'press G to loot' prompt). " +
-      "Recent game log:\n" + obs.log_tail + "\n" +
-      "Decide the next driver commands per PROMPT.md " +
-      "(explore: WALK, TURNL, TURNR, COLLECT; combat: ATTACK, MOVE_FWD, MOVE_BACK, STRAFE_L, STRAFE_R, END; system: INVENTORY). " +
-      "Write one command per line to " + CMD_FILE + " (plain text, real newlines). " +
-      "Return JSON {\"commands\": [\"WALK\", ...], \"notes\": \"...\"}.",
-      { key: "vision-" + (i + 1), label: "Vision " + (i + 1), schema: visionSchema, timeoutMs: 180000 }
-    );
-    rec.commands = vision.commands;
-    rec.notes = vision.notes;
-
-    // 3. Act: drive the game via FIFO.
-    rec.stage = "act";
-    const act = await agent(
-      "Run: bash " + SCRIPT + " --subagent act --file " + CMD_FILE + ". " +
-      "It writes the commands to the game's FIFO. Return the JSON it prints.",
-      { key: "act-" + (i + 1), label: "Act " + (i + 1), schema: actSchema, timeoutMs: 60000 }
-    );
-    rec.stage = "done";
-    if (!act.ok) {
-      rec.notes = rec.notes + " [act reported not-ok]";
-    }
-  } catch (e) {
-    rec.notes = "hung/failed at stage '" + rec.stage + "': " + (e && e.message ? e.message : e);
-    history.push(rec);
-    hung_at = { iteration: i + 1, stage: rec.stage };
-    log("Hung at iteration " + (i + 1) + ", stage: " + rec.stage);
-    break;
-  }
-
-  history.push(rec);
-  log("Iter " + (i + 1) + ": [" + rec.commands.join(", ") + "] kills=" + rec.kills);
-}
+// ---- farm: one long-lived driver agent, no per-iteration respawn ----
+phase("farm", "Farm run (" + iterations + " iterations)");
+const report = await agent(
+  "You are the DiabloDoom farm driver. This is a LONG-RUNNING task: you stay alive for the whole run, " +
+  "no respawning. Read ~/workspace/DiabloDoom/scripts/SYSTEM_PROMPT.md (command reference and mechanics) " +
+  "and ~/workspace/DiabloDoom/scripts/PROMPT.md (strategy) ONCE at the start, then run " + iterations + " iterations. " +
+  "Each iteration, do all three steps yourself in order:\n" +
+  "1. OBSERVE: Run: bash " + SCRIPT + " --subagent observe. It sends REPLAY (dumps the 15s ring buffer, fast) " +
+  "and prints JSON {replay_path, log_tail, kills}. If it reports an error (game not running), run: bash " +
+  SCRIPT + " --subagent setup, then retry observe once. If still failing, record hung_at={iteration, stage:'observe'} and stop.\n" +
+  "2. VISION: Extract 4 frames: ffmpeg -y -i \"<replay_path>\" -vf fps=1/4 /tmp/vf/f%02d.png (mkdir -p /tmp/vf first). " +
+  "View them, decide driver commands per PROMPT.md, write one command per line to " + CMD_FILE + ".\n" +
+  "3. ACT: Run: bash " + SCRIPT + " --subagent act --file " + CMD_FILE + ". It writes the commands to the game's FIFO.\n" +
+  "Target ~30-45 seconds per iteration. If a step hangs beyond its natural time, note which stage hung: " +
+  "skip to the next iteration, or stop the run if the game is dead (record hung_at).\n" +
+  "After all iterations (or on stop), SAVE the game: write the single line SAVE 0 to " + CMD_FILE +
+  " and run the act script once more.\n" +
+  "NEVER pull from git, NEVER rebuild the binary, NEVER delete progress.dat, NEVER kill the game. " +
+  "Return JSON {iterations_completed, kills (last cumulative count), hung_at (or null), " +
+  "notes, cycles: [{iteration, commands, kills}]}.",
+  { key: "driver", label: "Farm driver", schema: reportSchema, timeoutMs: 3600000 }
+);
 
 // ---- report ----
 phase("report", "Final report");
-const lastKills = history.length > 0 ? history[history.length - 1].kills : 0;
-let message = "Farm loop complete: " + history.length + " iteration(s), " + lastKills + " kills (log cumulative).";
-if (hung_at) {
-  message += " Hung at iteration " + hung_at.iteration + " (stage: " + hung_at.stage + ").";
+let message = "Farm run: " + report.iterations_completed + " iteration(s), " + report.kills + " kills.";
+if (report.hung_at) {
+  message += " Hung at iteration " + report.hung_at.iteration + " (stage: " + report.hung_at.stage + ").";
 }
+message += " " + report.notes;
 
 return {
   message: message,
-  hung_at: hung_at,
-  cycles: history
+  hung_at: report.hung_at || null,
+  cycles: report.cycles || []
 };
