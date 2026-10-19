@@ -25,12 +25,12 @@
 set -e
 
 # ==================== CONFIG ====================
-REPO="${REPO:-~/workspace/DiabloDoom}"
+REPO="${REPO:-$HOME/workspace/DiabloDoom}"
 GAME="${GAME:-$REPO/build/src/chocolate-doom}"
-DOOM_WAD="${DOOM_WAD:-~/workspace/doom/freedoom1.wad}"
-LOG="${LOG:-~/workspace/doom_hourly.log}"
+DOOM_WAD="${DOOM_WAD:-$HOME/workspace/doom/freedoom1.wad}"
+LOG="${LOG:-$HOME/workspace/doom_hourly.log}"
 GAME_LOG="${GAME_LOG:-/tmp/doom_hourly.log}"
-SCREEN_DIR="${SCREEN_DIR:-~/workspace/screenshots}"
+SCREEN_DIR="${SCREEN_DIR:-$HOME/workspace/screenshots}"
 # Screenshots: /tmp on Muse VMs (ephemeral), $HOME/doomshots on local machines.
 if [[ "${JARVIS_FQDN:-}" == *"metaaivm.com"* ]]; then
     SHOTDIR="${SHOTDIR:-/tmp/doomshots}"
@@ -69,6 +69,8 @@ mkdir -p "$SCREEN_DIR" "$SHOTDIR"
 echo "[$(date)] Starting DiabloDoom Ralph loop" >> "$LOG"
 
 # 1. Pull latest from GitHub; rebuild if changed.
+# Skipped entirely in --subagent mode (never pull, never rebuild).
+if [ "$SUBAGENT" != true ]; then
 cd "$REPO"
 BEFORE=$(git rev-parse HEAD)
 echo "[$(date)] Pulling from GitHub..." >> "$LOG"
@@ -95,6 +97,7 @@ if git pull --rebase 2>> "$LOG"; then
 else
     echo "[$(date)] git pull failed, continuing with existing binary" >> "$LOG"
 fi
+fi # end: skip pull/rebuild in --subagent mode
 
 # 2. Check binary exists.
 if [ ! -f "$GAME" ]; then
@@ -240,7 +243,7 @@ subagent_observe() {
         replay_path="$out"
     fi
     log_tail=$(tail -50 "$GAME_LOG" 2>/dev/null)
-    kills=$(grep -ac "exec-attack-kill" "$GAME_LOG" 2>/dev/null || echo 0)
+    kills=$(grep -ac "exec-attack-kill" "$GAME_LOG" 2>/dev/null || true); kills=${kills:-0}
     REPLAY_PATH="$replay_path" LOG_TAIL="$log_tail" KILLS="$kills" python3 - <<'PYEOF'
 import json, os
 print(json.dumps({
