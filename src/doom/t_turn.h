@@ -223,6 +223,8 @@ void T_GotoStart(fixed_t tx, fixed_t ty); // GOTO x y: pathfind and walk there
 void T_GotoCancel(void);
 boolean T_GotoActive(void);
 void T_GotoTick(void);      // step along the GOTO path (explore mode)
+struct player_s;
+fixed_t T_MoveSpeedPerTic(struct player_s *player); // units/tic, movespeed-scaled
 boolean T_LootAvailable(void); // true if any Diablo loot is on the map
 int T_GetLootList(mobj_t **list, int max); // fill with live loot mobjs, returns count
 void T_DoEndTurn(void);

@@ -38,11 +38,26 @@
 // Used by both T_PreviewMove and T_ExecMove so preview matches execution.
 static fixed_t T_StepLen(player_t *player)
 {
+    // Shared movespeed multiplier: STEP_LEN scaled by the player's
+    // movespeed stat. Used by turn-based movement (T_PreviewMove,
+    // T_ExecMove) and real-time GOTO (via T_MoveSpeedPerTic).
     extern int D_MoveSpeed(struct player_s *pl);
     int movespeed = D_MoveSpeed(player);
     if (movespeed <= 0)
         return STEP_LEN;
     return (STEP_LEN * (100 + movespeed)) / 100;
+}
+
+// Public: units per tic for real-time movement (GOTO), scaled by the
+// same movespeed modifier as T_StepLen. Base 16 matches keyboard run.
+fixed_t T_MoveSpeedPerTic(struct player_s *player)
+{
+    extern int D_MoveSpeed(struct player_s *pl);
+    int movespeed = D_MoveSpeed(player);
+    fixed_t base = 16 * FRACUNIT;
+    if (movespeed <= 0)
+        return base;
+    return (base * (100 + movespeed)) / 100;
 }
 
 // ------------------------------------------------------------------
@@ -584,7 +599,7 @@ void T_GotoTick(void)
     mobj_t *mo;
     fixed_t wx, wy, dx, dy;
     fixed_t dist_sq;
-    fixed_t step = 16 * FRACUNIT; // units per tic (matches keyboard run speed)
+    fixed_t step = T_MoveSpeedPerTic(pl); // units per tic, movespeed-scaled
     fixed_t nx, ny;
 
     if (!goto_active)
