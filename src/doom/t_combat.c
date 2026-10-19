@@ -434,10 +434,10 @@ static int T_DiabloDamageCallback(player_t *pl, mobj_t *target, int weapon)
 }
 
 // Time-based cadence: 1 "round" = 10 seconds = 350 tics.
-// Rocket charges: 1 per 3 seconds (105 tics).
+// Rocket charges: 1 per 2 seconds (70 tics).
 // Cooldowns (BFG/SSG): tick down 1 round per 350 tics.
 // Plasma heat: vents continuously (heat_vent per 350 tics).
-#define ROCKET_REGEN_TICS 105
+#define ROCKET_REGEN_TICS 70
 #define TICS_PER_ROUND 350
 
 int T_KitCooldown(weapontype_t w)
@@ -539,7 +539,7 @@ void T_KitResetCadence(void)
 }
 
 // Time-based cadence: called every game tic from T_Ticker.
-// - Rocket charges: 1 per ROCKET_REGEN_TICS (3 seconds)
+// - Rocket charges: 1 per ROCKET_REGEN_TICS (2 seconds)
 // - Cooldowns (BFG/SSG): 1 round per TICS_PER_ROUND (10 seconds)
 // - Plasma heat: vents heat_vent per TICS_PER_ROUND, continuously
 // All independent of round boundaries.
