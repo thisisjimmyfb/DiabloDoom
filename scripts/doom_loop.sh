@@ -186,12 +186,15 @@ capture_replay() {
 subagent_setup() {
     local game_count launched save_status
     game_count=$(pgrep -c -f "chocolate-doo[m]" 2>/dev/null || true); game_count=${game_count:-0}
-    launched=0
-    if [ "$game_count" -eq 0 ]; then
-        launch_game
-        launched=1
-        game_count=1
+    if [ "$game_count" -gt 0 ]; then
+        # A game is already running (possibly stale: stuck pre-GS_LEVEL or
+        # holding a deleted FIFO). Kill all and launch fresh for a clean
+        # command channel.
+        pkill -9 -f "chocolate-doo[m]" 2>/dev/null || true
+        sleep 2
     fi
+    launch_game
+    launched=1
     save_status="fresh"
     if [ -f ~/.local/share/chocolate-doom/doomsav0.dsg ]; then
         send_cmd "LOAD 0\n"
@@ -202,12 +205,12 @@ subagent_setup() {
         sleep 5
         save_status="initialized"
     fi
-    LAUNCHED="$launched" GAME_COUNT="$game_count" SAVE_STATUS="$save_status" python3 - <<'PYEOF'
+    LAUNCHED="$launched" KILLED="$game_count" SAVE_STATUS="$save_status" python3 - <<'PYEOF'
 import json, os
 print(json.dumps({
     "ok": True,
     "launched": os.environ.get("LAUNCHED") == "1",
-    "game_count": int(os.environ.get("GAME_COUNT", 0) or 0),
+    "killed": int(os.environ.get("KILLED", 0) or 0),
     "save": os.environ.get("SAVE_STATUS", ""),
     "notes": "setup complete"
 }))
