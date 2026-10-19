@@ -833,11 +833,15 @@ static void T_PreviewMove(angle_t moveangle)
         return;
     dx = FixedMul(STEP_LEN, finecosine[moveangle >> ANGLETOFINESHIFT]);
     dy = FixedMul(STEP_LEN, finesine[moveangle >> ANGLETOFINESHIFT]);
-    // Use P_XYMovement for wall sliding, matching T_ExecMove.
-    mo->momx = dx * STEP_SUB;
-    mo->momy = dy * STEP_SUB;
-    P_XYMovement(mo);
-    mo->momx = mo->momy = 0;
+    // Preview the destination T_ExecMove will animate toward: STEP_LEN in
+    // the move direction, with wall sliding. Matches the smooth execution.
+    if (!P_TryMove(mo, mo->x + dx, mo->y + dy))
+    {
+        mo->momx = dx;
+        mo->momy = dy;
+        P_SlideMove(mo);
+        mo->momx = mo->momy = 0;
+    }
     mo->momz = 0;
     // Run z-physics for stairs/floor snap (see T_ExecMove).
     P_ZMovement(mo);
@@ -858,33 +862,26 @@ static boolean T_ExecMove(angle_t moveangle)
     dx = FixedMul(STEP_LEN, finecosine[moveangle >> ANGLETOFINESHIFT]);
     dy = FixedMul(STEP_LEN, finesine[moveangle >> ANGLETOFINESHIFT]);
 
-    // Smooth movement: don't teleport. The destination is where the planning
-    // preview (T_PreviewMove) lands — simulate it here so execution matches
-    // the preview exactly, including wall sliding. T_PulseOneTic animates
-    // toward that spot and finishes on arrival.
+    // Smooth movement: don't teleport. Destination is STEP_LEN in the move
+    // direction from the current position — the same target T_PreviewMove
+    // shows during planning. T_PulseOneTic animates toward it each tick at
+    // keyboard speed, easing out on arrival, and ends the pulse when within
+    // epsilon. The pulse lasts until arrival (or the failsafe cap), so the
+    // player loses control for the full move.
     {
         extern int D_MoveSpeed(struct player_s *pl);
         int movespeed = D_MoveSpeed(player);
         int tics = T_MOVE_BASE_TICS;
-        fixed_t savex, savey;
         fixed_t dx, dy;
         if (movespeed > 0)
         {
             tics = (T_MOVE_BASE_TICS * 100) / (100 + movespeed);
             if (tics < 1) tics = 1;
         }
-        // Simulate the preview to find the landing spot.
-        savex = mo->x; savey = mo->y;
         dx = FixedMul(STEP_LEN, finecosine[moveangle >> ANGLETOFINESHIFT]);
         dy = FixedMul(STEP_LEN, finesine[moveangle >> ANGLETOFINESHIFT]);
-        mo->momx = dx * STEP_SUB;
-        mo->momy = dy * STEP_SUB;
-        P_XYMovement(mo);
-        mo->momx = mo->momy = 0;
-        turnctrl.move_tx = mo->x;
-        turnctrl.move_ty = mo->y;
-        // Restore: the smooth animation will get us there.
-        mo->x = savex; mo->y = savey;
+        turnctrl.move_tx = mo->x + dx;
+        turnctrl.move_ty = mo->y + dy;
         turnctrl.move_tics = tics * 3; // failsafe: 3x the nominal duration
         mo->angle = moveangle;
     }
