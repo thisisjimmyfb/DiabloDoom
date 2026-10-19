@@ -926,6 +926,25 @@ static void cmd_drain(void (*dispatch)(const char *))
 // Dispatch a single driver command line from the FIFO.
 static void cmd_dispatch(const char *cmd)
 {
+    // Log every command with the current mode for debugging.
+    {
+        const char *mode_str = "UNKNOWN";
+        if (T_InExplore())
+            mode_str = "EXPLORE";
+        else if (turnctrl.state == TS_PLANNING)
+            mode_str = "PLANNING";
+        else if (turnctrl.state == TS_PULSE)
+            mode_str = "PULSE";
+        else if (turnctrl.state == TS_TARGETING)
+            mode_str = "TARGETING";
+        else if (turnctrl.state == TS_CONFIRM)
+            mode_str = "CONFIRM";
+        else if (turnctrl.state == TS_REACTION)
+            mode_str = "REACTION";
+        else if (turnctrl.state == TS_OFF)
+            mode_str = "OFF";
+        printf("[CMD] %s (mode=%s)\n", cmd, mode_str);
+    }
     if (!strcmp(cmd, "ATTACK"))
     {
         T_StartCtrlTargeting();
