@@ -127,13 +127,13 @@ launch_game() {
 }
 
 # 3. Kill old game, start fresh (KEEP progress.dat for continuous progress).
+# Full-loop mode only: --subagent dispatches below and must NOT kill here.
 # Use bracket trick to avoid pkill matching our own shell.
-# Singleton lock: serialize with any concurrent --subagent setup.
-exec 9>"$SETUP_LOCK"
-flock 9
+if [ "$SUBAGENT" != true ]; then
 pkill -9 -f "chocolate-doo[m]" 2>/dev/null || true
 sleep 2
 launch_game
+fi
 
 # 4. Ralph loop: screenshot -> vision -> act -> repeat.
 END_TIME=$(($(date +%s) + FARM_SECONDS))
@@ -159,9 +159,14 @@ wait_for_fifo() {
             local ino=$(stat -c %i "$CMDFILE" 2>/dev/null)
             if [ -n "$ino" ]; then
                 for pid in $(pgrep -f "chocolate-doo[m]" 2>/dev/null); do
-                    if ls -l /proc/$pid/fd 2>/dev/null | grep -q "pipe:\[$ino\]"; then
-                        return 0
-                    fi
+                    # Named-FIFO fds show as "-> /tmp/doom_cmd.txt", not
+                    # "pipe:[ino]" (that pattern only matches anonymous
+                    # pipes), so compare each fd's target inode instead.
+                    for fd in /proc/$pid/fd/*; do
+                        if [ "$(stat -L -c %i "$fd" 2>/dev/null)" = "$ino" ]; then
+                            return 0
+                        fi
+                    done
                 done
             fi
         fi
@@ -173,6 +178,8 @@ wait_for_fifo() {
 
 # Load autosave slot 1 if it exists (resume where the last cycle left off).
 # Doom savegame slot 0 + progress_auto1.dat.
+# Full-loop mode only: --subagent dispatches below and must NOT send here.
+if [ "$SUBAGENT" != true ]; then
 if [ -f ~/.local/share/chocolate-doom/doomsav0.dsg ]; then
     echo "[$(date)] Autosave found, loading slot 0" >> "$LOG"
     send_cmd "LOAD 0\n"
@@ -182,6 +189,7 @@ else
     # Initialize autosave slot 1 immediately.
     send_cmd "SAVE 0\n"
     sleep 5
+fi
 fi
 
 take_screenshot() {
@@ -352,6 +360,11 @@ if [ "$SUBAGENT" = true ]; then
     esac
     exit 0
 fi
+
+# Full-loop mode owns the game for its run: take the setup lock (blocking)
+# so a concurrent --subagent setup fails fast instead of racing our launch.
+exec 9>"$SETUP_LOCK"
+flock 9
 
 while [ $(date +%s) -lt $END_TIME ]; do
     ITER=$((ITER + 1))
