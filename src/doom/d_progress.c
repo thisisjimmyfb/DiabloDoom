@@ -448,6 +448,7 @@ void D_AutoSaveGame(void)
     char path[512];
     char tmp[64];
     extern gameaction_t gameaction;
+    extern boolean g_loading_savegame;
 
     if (gamestate != GS_LEVEL)
         return;
@@ -459,6 +460,12 @@ void D_AutoSaveGame(void)
     // The load reads the autosave slot; writing to it first would corrupt
     // the pending load with a half-new/half-old state.
     if (gameaction == ga_loadgame)
+        return;
+
+    // Don't autosave DURING a load (G_DoLoadGame). The load uses the global
+    // save_stream; a reentrant save would reassign it for writing and
+    // segfault the in-progress load when it tries to read.
+    if (g_loading_savegame)
         return;
 
     // Write the current progress to the rotating auto-save slot.
