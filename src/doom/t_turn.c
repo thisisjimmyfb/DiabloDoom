@@ -787,6 +787,7 @@ static void T_EndPulse(void)
                 {
                     turnctrl.turn_start_x = players[consoleplayer].mo->x;
                     turnctrl.turn_start_y = players[consoleplayer].mo->y;
+                    turnctrl.turn_start_z = players[consoleplayer].mo->z;
                     turnctrl.turn_start_angle = players[consoleplayer].mo->angle;
                 }
                 T_AutoFireLocked();
