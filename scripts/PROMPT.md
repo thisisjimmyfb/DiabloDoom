@@ -87,6 +87,8 @@ When in EXPLORE mode (not in combat), priority order:
    - If not: send `SCAN` to get the direction/distance to nearby keys (e.g. `[SCAN] red_key: 150 fwd, 30 right`). Then use GOTO to move toward it. If SCAN finds no keys, explore systematically — visit every room, check corners, alcoves, platforms.
 
 5. **Key visible** (small red/blue/yellow card on ground or pedestal) → GOTO toward it immediately. Walk over it to pick up. This is high priority.
+   - You don't need precise coordinates. Estimate the direction (ahead/left/right) and a rough distance: close (~50), medium (~150), far (~300). Send e.g. `GOTO 150 0` for a key that looks medium-distance ahead.
+   - The game will clamp if you overshoot into a wall. After moving, take a new screenshot: if the key is still visible, send another GOTO to get closer. Repeat until you walk over it. Iterative correction beats one-shot precision.
 
 6. **Enemy visible in distance** → Walk toward it to engage
 
