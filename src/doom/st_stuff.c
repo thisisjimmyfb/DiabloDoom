@@ -1429,10 +1429,13 @@ void ST_drawWidgets(boolean refresh)
             STlib_updateNum(&w_ammo[i], refresh);
             STlib_updateNum(&w_maxammo[i], refresh);
         }
-
-        // Explore mode only: loot prompt + log.
-        ST_drawLootAlert();
     }
+
+    // Loot prompt: shown in explore mode (turn-based) or vanilla mode.
+    // Was previously only in the non-turn branch, so it never appeared
+    // during turn-based explore.
+    if (T_InExplore() || !T_Active())
+        ST_drawLootAlert();
 
     STlib_updatePercent(&w_health, refresh);
     STlib_updatePercent(&w_armor, refresh);

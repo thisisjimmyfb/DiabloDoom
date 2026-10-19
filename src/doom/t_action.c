@@ -786,6 +786,28 @@ void T_DoCollect(void)
             fixed_t dist = P_AproxDistance(dx, dy) / FRACUNIT;
             printf("[COLLECT] moved %d steps; dist to loot now %d units (touch needs <32)\n",
                    steps, dist);
+            // Final approach: BFS stops at adjacent cell (up to ~45 units
+            // away), but touch needs <32. Walk directly toward the loot.
+            if (dist >= 32)
+            {
+                int approach;
+                for (approach = 0; approach < 8 && dist >= 24; approach++)
+                {
+                    angle_t ang = R_PointToAngle2(mo->x, mo->y, loot->x, loot->y);
+                    fixed_t adx = FixedMul(STEP_LEN, finecosine[ang >> ANGLETOFINESHIFT]);
+                    fixed_t ady = FixedMul(STEP_LEN, finesine[ang >> ANGLETOFINESHIFT]);
+                    mo->momx = adx * STEP_SUB;
+                    mo->momy = ady * STEP_SUB;
+                    P_XYMovement(mo);
+                    mo->momx = mo->momy = 0;
+                    mo->momz = 0;
+                    P_ZMovement(mo);
+                    dx = mo->x - loot->x;
+                    dy = mo->y - loot->y;
+                    dist = P_AproxDistance(dx, dy) / FRACUNIT;
+                }
+                printf("[COLLECT] final approach: dist now %d units\n", dist);
+            }
         }
     }
 
