@@ -17,13 +17,17 @@ Each decision starts with a fresh screenshot. Assess:
 
 ## Setup
 
-1. No X display exists on this VM — launch the game with the dummy video driver (no Xvfb — never start it).
-2. Kill any stale game: `pkill -9 -f "chocolate-doo[m]"` (bracket trick avoids suicide). **CRITICAL: Run pkill in its own exec call, launch the game in a SEPARATE exec call. Never put the literal binary path (e.g. `.../chocolate-doom`) in the same shell command as the pkill — the pkill regex matches your own command line and kills your shell.**
-3. Launch from ~/workspace/diablodoom: `cd ~/workspace/diablodoom && SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy nohup ~/workspace/DiabloDoom/build/src/chocolate-doom -iwad ~/workspace/doom/freedoom1.wad -width 960 -height 600 -warp 1 1 > /tmp/doom_hourly.log 2>&1 &` then sleep 15. Verify with `pgrep -a -f "chocolate-doo[m]"` (bracket trick avoids suicide).
-   - SDL_AUDIODRIVER=dummy: VM has no audio hardware; dummy driver still mixes audio so the replay AAC capture hook gets data.
-   - NEVER pull from git, NEVER rebuild. Use the existing binary only.
-   - Stale binary check: send `VERSION\n` to /tmp/doom_cmd.txt, then check /tmp/doom_hourly.log for `[VERSION] <hash>`. Compare with `git -C ~/workspace/DiabloDoom rev-parse --short HEAD`. If they differ, the binary is stale — report it to the main agent, do not try to rebuild.
-4. Screenshot: use the game's built-in SCREENSHOT driver command. Write `SCREENSHOT\n` to /tmp/doom_cmd.txt, sleep 4, then find the newest `diablodoom_*.png` in `~/workspace/diablodoom/doomshots/` and copy it to /tmp/farm_view.png. Move the diablodoom_*.png files out afterward so the game's timestamped name cycle never fills up.
+Game lifecycle (launch, save/load) is handled by `scripts/doom_loop.sh --subagent setup` — the workflow runs it before the loop. You never launch or kill the game yourself.
+
+## Video Capture
+
+The workflow feeds you a 15-second replay video per iteration (H.264 + AAC, captured via the game's `REPLAY` driver command). To view it, extract frames:
+
+```
+ffmpeg -y -i <replay_path> -vf fps=1 /tmp/vision_frames/f%02d.png
+```
+
+then read the PNGs. The video gives temporal context screenshots lack — movement, enemy behavior, what's changing.
 
 ## Command Reference
 
