@@ -333,8 +333,13 @@ subagent_setup() {
     game_count=$(pgrep -c -f "chocolate-doo[m]" 2>/dev/null || true); game_count=${game_count:-0}
     if [ "$game_count" -gt 0 ]; then
         # A game is already running (possibly stale: stuck pre-GS_LEVEL or
-        # holding a deleted FIFO). Kill all and launch fresh for a clean
-        # command channel. Poll until actually dead before touching the FIFO.
+        # holding a deleted FIFO). Try to save its state first if the FIFO
+        # is live, then kill all and launch fresh for a clean command
+        # channel. Poll until actually dead before touching the FIFO.
+        if [ -p "$CMDFILE" ]; then
+            send_cmd "SAVE 0\n" 2>/dev/null || true
+            sleep 3
+        fi
         pkill -9 -f "chocolate-doo[m]" 2>/dev/null || true
         local waits=0
         while pgrep -f "chocolate-doo[m]" > /dev/null && [ $waits -lt 10 ]; do
