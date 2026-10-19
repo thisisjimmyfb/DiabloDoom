@@ -970,24 +970,33 @@ static void cmd_dispatch(const char *cmd)
     }
     else if (!strncmp(cmd, "GOTO", 4))
     {
-        // GOTO dx dy: pathfind to a position relative to the player
-        // (explore mode only). E.g. "GOTO 0 100" moves 100 units north,
-        // "GOTO -50 0" moves 50 units west. The game walks the path over
-        // multiple tics; the worker just sends the offset and waits for
-        // [GOTO] arrived (or a new observation). A new GOTO overrides.
+        // GOTO fwd strafe: move relative to facing (explore mode only).
+        // E.g. "GOTO 100 0" = 100 units forward, "GOTO 0 50" = 50 units
+        // right, "GOTO -30 -20" = 30 back, 20 left. The game converts to
+        // map coordinates, pathfinds, and walks the path over multiple
+        // tics. A new GOTO overrides.
         player_t *pl = &players[consoleplayer];
         if (pl->mo != NULL && T_InExplore())
         {
-            int dx, dy;
-            if (sscanf(cmd + 4, "%d %d", &dx, &dy) == 2)
+            int fwd, strafe;
+            if (sscanf(cmd + 4, "%d %d", &fwd, &strafe) == 2)
             {
-                fixed_t tx = pl->mo->x + (fixed_t)dx * FRACUNIT;
-                fixed_t ty = pl->mo->y + (fixed_t)dy * FRACUNIT;
+                angle_t ang = pl->mo->angle;
+                // Forward vector (facing direction)
+                fixed_t fx = finecosine[ang >> ANGLETOFINESHIFT];
+                fixed_t fy = finesine[ang >> ANGLETOFINESHIFT];
+                // Right vector (90 deg clockwise from facing)
+                fixed_t rx = finecosine[(ang - ANG90) >> ANGLETOFINESHIFT];
+                fixed_t ry = finesine[(ang - ANG90) >> ANGLETOFINESHIFT];
+                fixed_t tx = pl->mo->x + FixedMul((fixed_t)fwd * FRACUNIT, fx)
+                                       + FixedMul((fixed_t)strafe * FRACUNIT, rx);
+                fixed_t ty = pl->mo->y + FixedMul((fixed_t)fwd * FRACUNIT, fy)
+                                       + FixedMul((fixed_t)strafe * FRACUNIT, ry);
                 T_GotoStart(tx, ty);
             }
             else
             {
-                printf("[GOTO] usage: GOTO x y\n");
+                printf("[GOTO] usage: GOTO fwd strafe\n");
             }
         }
         else
