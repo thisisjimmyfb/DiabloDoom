@@ -82,11 +82,17 @@ When in EXPLORE mode (not in combat), priority order:
 
 3. **Vanilla pickup on ground** (weapon, ammo, health, armor) → Walk toward it. These are walk-over pickups, no key needed.
 
-4. **Enemy visible in distance** → Walk toward it to engage
+4. **Colored door** (red/blue/yellow markings on a door) → You need the matching key. Send `KEYS` to check which keys you have:
+   - If you have the key: walk through the door (GOTO toward it)
+   - If not: you need to find it. Keys are small colored cards (red/blue/yellow) usually in side rooms, alcoves, or on platforms. Explore systematically — visit every room, check corners. When you see a key, GOTO toward it and walk over it to pick up.
 
-5. **Facing wall** → Turn left or right (alternate to avoid spinning)
+5. **Key visible** (small red/blue/yellow card on ground or pedestal) → GOTO toward it immediately. Walk over it to pick up. This is high priority.
 
-6. **Open area** → Walk forward, explore
+6. **Enemy visible in distance** → Walk toward it to engage
+
+7. **Facing wall** → Turn left or right (alternate to avoid spinning)
+
+8. **Open area** → Walk forward, explore
 
 ## Death and Corpse Recovery
 

@@ -1093,6 +1093,15 @@ static void cmd_dispatch(const char *cmd)
         else
             D_UIOpen();
     }
+    else if (!strcmp(cmd, "KEYS"))
+    {
+        // Log which keycards the player possesses (for door/key logic).
+        player_t *pl = &players[consoleplayer];
+        printf("[KEYS] red=%d blue=%d yellow=%d\n",
+               pl->cards[it_redcard] || pl->cards[it_redskull],
+               pl->cards[it_bluecard] || pl->cards[it_blueskull],
+               pl->cards[it_yellowcard] || pl->cards[it_yellowskull]);
+    }
     else if (!strncmp(cmd, "EQUIP ", 6))
     {
         // EQUIP <backpack_index> <slot>: equip item from backpack to paperdoll.
