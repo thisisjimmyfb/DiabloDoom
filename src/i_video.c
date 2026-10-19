@@ -713,6 +713,23 @@ void I_FinishUpdate (void)
     if (noblit)
         return;
 
+    // Diagnostic guard: if the SDL texture is invalid (NULL or destroyed),
+    // log instead of segfaulting in SDL_LockTexture. This catches video
+    // state corruption (e.g. from inventory UI heap corruption) and turns
+    // it into a diagnosable log line rather than a crash.
+    if (texture == NULL || renderer == NULL)
+    {
+        static int null_tex_warned = 0;
+        if (!null_tex_warned)
+        {
+            fprintf(stderr, "[DIAG] I_FinishUpdate: texture=%p renderer=%p "
+                            "(skipping frame; video state invalid)\n",
+                    (void *)texture, (void *)renderer);
+            null_tex_warned = 1;
+        }
+        return;
+    }
+
     if (need_resize)
     {
         if (SDL_GetTicks() > last_resize_time + RESIZE_DELAY)
