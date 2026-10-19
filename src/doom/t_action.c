@@ -858,14 +858,23 @@ static boolean T_ExecMove(angle_t moveangle)
     dx = FixedMul(STEP_LEN, finecosine[moveangle >> ANGLETOFINESHIFT]);
     dy = FixedMul(STEP_LEN, finesine[moveangle >> ANGLETOFINESHIFT]);
 
-    // Use P_XYMovement (the normal game movement) instead of manual
-    // P_TryMove loop. This gives us wall sliding (P_SlideMove) for free,
-    // matching how the player moves in explore mode.
-    mo->momx = dx * STEP_SUB;
-    mo->momy = dy * STEP_SUB;
-    P_XYMovement(mo);
-    mo->momx = mo->momy = 0;
-    mo->momz = 0;
+    // Smooth movement: don't teleport. Store the total displacement and
+    // let T_PulseOneTic apply it incrementally over the pulse tics,
+    // like GOTO in explore mode. P_TryMove each tic gives collision.
+    {
+        extern int D_MoveSpeed(struct player_s *pl);
+        int movespeed = D_MoveSpeed(player);
+        int tics = T_MOVE_BASE_TICS;
+        if (movespeed > 0)
+        {
+            tics = (T_MOVE_BASE_TICS * 100) / (100 + movespeed);
+            if (tics < 1) tics = 1;
+        }
+        turnctrl.move_dx = dx / tics;
+        turnctrl.move_dy = dy / tics;
+        turnctrl.move_tics = tics;
+        mo->angle = moveangle;
+    }
 
     // Run z-physics (stairs, floor snap, smooth viewheight). P_TryMove
     // updates floorz but not z; without this, z lags behind on stairs

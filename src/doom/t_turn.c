@@ -504,6 +504,32 @@ static void T_PulseOneTic(boolean freeze_monsters)
     if (paused)
         return;
 
+    // Smooth combat movement: apply the per-tic delta stored by T_ExecMove.
+    // This animates the step over the pulse instead of teleporting.
+    if (turnctrl.move_tics > 0)
+    {
+        player_t *pl = &players[consoleplayer];
+        if (pl->mo != NULL)
+        {
+            fixed_t nx = pl->mo->x + turnctrl.move_dx;
+            fixed_t ny = pl->mo->y + turnctrl.move_dy;
+            if (P_TryMove(pl->mo, nx, ny))
+            {
+                P_ZMovement(pl->mo);
+            }
+            turnctrl.move_tics--;
+            if (turnctrl.move_tics <= 0)
+            {
+                turnctrl.move_dx = turnctrl.move_dy = 0;
+            }
+        }
+        else
+        {
+            turnctrl.move_tics = 0;
+            turnctrl.move_dx = turnctrl.move_dy = 0;
+        }
+    }
+
     for (i = 0; i < MAXPLAYERS; i++)
         if (playeringame[i])
         {
