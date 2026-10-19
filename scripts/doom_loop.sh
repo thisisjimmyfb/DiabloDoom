@@ -106,7 +106,7 @@ launch_game() {
     cd "$SHOTDIR"
     # Clear stale FIFO (game recreates it; avoids worker-written regular file race).
     rm -f "$CMDFILE"
-    SDL_VIDEODRIVER=x11 nohup "$GAME" -iwad "$DOOM_WAD" \
+    SDL_VIDEODRIVER=${SDL_VIDEODRIVER:-dummy} nohup "$GAME" -iwad "$DOOM_WAD" \
         -width "$GAME_WIDTH" -height "$GAME_HEIGHT" -warp $WARP \
         -nosound > "$GAME_LOG" 2>&1 &
     disown
@@ -182,7 +182,7 @@ capture_replay() {
 # LOAD 0 if autosave slot 1 exists, else SAVE 0 to initialize it.
 subagent_setup() {
     local game_count launched save_status
-    game_count=$(pgrep -c -f "chocolate-doo[m]" 2>/dev/null || echo 0)
+    game_count=$(pgrep -c -f "chocolate-doo[m]" 2>/dev/null || true); game_count=${game_count:-0}
     launched=0
     if [ "$game_count" -eq 0 ]; then
         launch_game
@@ -214,16 +214,26 @@ PYEOF
 # observe: REPLAY capture + recent log tail -> JSON.
 subagent_observe() {
     local game_count ts out newest replay_path log_tail kills
-    game_count=$(pgrep -c -f "chocolate-doo[m]" 2>/dev/null || echo 0)
+    game_count=$(pgrep -c -f "chocolate-doo[m]" 2>/dev/null || true); game_count=${game_count:-0}
     if [ "$game_count" -eq 0 ]; then
         echo '{"error": "game not running", "game_count": 0}'
         exit 1
     fi
     ts=$(date +%Y%m%d_%H%M%S)
     out="$SCREEN_DIR/doom_ralph_${ts}_obs.mp4"
+    # REPLAY dumps the 15s ring buffer synchronously; poll for the new file
+    # instead of sleeping a fixed 18s.
+    before=$(ls -t "$SHOTDIR"/*.mp4 2>/dev/null | head -1)
     send_cmd "REPLAY\n"
-    sleep 18
-    newest=$(ls -t "$SHOTDIR"/*.mp4 2>/dev/null | head -1)
+    newest=""
+    for i in $(seq 1 16); do
+        sleep 1
+        newest=$(ls -t "$SHOTDIR"/*.mp4 2>/dev/null | head -1)
+        if [ -n "$newest" ] && [ "$newest" != "$before" ]; then
+            break
+        fi
+        newest=""
+    done
     replay_path=""
     if [ -n "$newest" ]; then
         mv "$newest" "$out"
