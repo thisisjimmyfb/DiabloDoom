@@ -1855,6 +1855,14 @@ void P_UnArchiveSpecials (void)
 	    saveg_read_pad();
 	    ceiling = Z_Malloc (sizeof(*ceiling), PU_LEVEL, NULL);
             saveg_read_ceiling_t(ceiling);
+	    // Defensive: corrupted save may have out-of-bounds sector index.
+	    // Skip instead of crashing.
+	    if (ceiling->sector < sectors || ceiling->sector >= &sectors[numsectors])
+	    {
+		printf("[SAVE] warning: ceiling with invalid sector skipped\n");
+		Z_Free(ceiling);
+		break;
+	    }
 	    ceiling->sector->specialdata = ceiling;
 
 	    if (ceiling->thinker.function.acp1)
@@ -1868,6 +1876,12 @@ void P_UnArchiveSpecials (void)
 	    saveg_read_pad();
 	    door = Z_Malloc (sizeof(*door), PU_LEVEL, NULL);
             saveg_read_vldoor_t(door);
+	    if (door->sector < sectors || door->sector >= &sectors[numsectors])
+	    {
+		printf("[SAVE] warning: door with invalid sector skipped\n");
+		Z_Free(door);
+		break;
+	    }
 	    door->sector->specialdata = door;
 	    door->thinker.function.acp1 = (actionf_p1)T_VerticalDoor;
 	    P_AddThinker (&door->thinker);
@@ -1877,6 +1891,12 @@ void P_UnArchiveSpecials (void)
 	    saveg_read_pad();
 	    floor = Z_Malloc (sizeof(*floor), PU_LEVEL, NULL);
             saveg_read_floormove_t(floor);
+	    if (floor->sector < sectors || floor->sector >= &sectors[numsectors])
+	    {
+		printf("[SAVE] warning: floor with invalid sector skipped\n");
+		Z_Free(floor);
+		break;
+	    }
 	    floor->sector->specialdata = floor;
 	    floor->thinker.function.acp1 = (actionf_p1)T_MoveFloor;
 	    P_AddThinker (&floor->thinker);
@@ -1886,6 +1906,12 @@ void P_UnArchiveSpecials (void)
 	    saveg_read_pad();
 	    plat = Z_Malloc (sizeof(*plat), PU_LEVEL, NULL);
             saveg_read_plat_t(plat);
+	    if (plat->sector < sectors || plat->sector >= &sectors[numsectors])
+	    {
+		printf("[SAVE] warning: plat with invalid sector skipped\n");
+		Z_Free(plat);
+		break;
+	    }
 	    plat->sector->specialdata = plat;
 
 	    if (plat->thinker.function.acp1)
