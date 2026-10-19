@@ -91,7 +91,10 @@ const report = await agent(
   "View them, decide driver commands per PROMPT.md, write one command per line to " + CMD_FILE + ". " +
   "Queue aggressively: batch 6-12 commands per iteration (moves + attacks + END), never just 1-2. " +
   "A half-empty queue wastes the round.\n" +
-  "3. ACT: Run: bash " + SCRIPT + " --subagent act --file " + CMD_FILE + ". It writes the commands to the game's FIFO.\n" +
+  "3. ACT: Run: bash " + SCRIPT + " --subagent act --file " + CMD_FILE + ". It writes the commands to the game's FIFO. " +
+  "After ACT, WAIT 15-20 seconds for your commands to play out before the next OBSERVE. " +
+  "Critical: the replay captures the last 15 seconds, so observing right after thinking shows an idle game. " +
+  "Always let commands execute first, then observe.\n" +
   "Target ~30-45 seconds per iteration. If a step hangs beyond its natural time, note which stage hung: " +
   "skip to the next iteration, or stop the run if the game is dead (record hung_at).\n" +
   "After all iterations (or on stop), SAVE the game: write the single line SAVE 0 to " + CMD_FILE +
