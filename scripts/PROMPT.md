@@ -101,8 +101,10 @@ When in EXPLORE mode (not in combat), priority order:
 Your goal is to progress through the level: explore → find keys → unlock doors → reach the exit.
 
 **Exploration strategy:**
-- Move through doorways and openings into new areas. Don't backtrack through areas you've already cleared unless you're looking for a key.
-- If you're in a room with multiple exits, pick one you haven't taken yet.
+- Doom levels are divided into sectors connected by doorways. To explore the full level, go through every doorway you see.
+- A doorway is an opening in the wall, often with a door texture or a visible passage. When you see one, GOTO through it.
+- Send `SECTORS` to check your progress (e.g. `[SECTORS] current=5 visited=12 total=48`). If visited isn't increasing, you're backtracking — find a doorway you haven't been through.
+- If you're in a room with multiple doorways, pick one you haven't taken yet.
 - Keys and important items are often in side rooms, alcoves, or on platforms — check these, don't just run down the main corridor.
 
 **Finding the exit:**
