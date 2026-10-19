@@ -584,7 +584,7 @@ void T_GotoTick(void)
     mobj_t *mo;
     fixed_t wx, wy, dx, dy;
     fixed_t dist_sq;
-    fixed_t step = 8 * FRACUNIT; // units per tic
+    fixed_t step = 16 * FRACUNIT; // units per tic (matches keyboard run speed)
     fixed_t nx, ny;
 
     if (!goto_active)
