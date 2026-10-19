@@ -846,51 +846,13 @@ static void cmd_dispatch(const char *cmd)
         player_t *pl = &players[consoleplayer];
         if (pl->mo != NULL && T_InExplore())
         {
+            // Smooth movement like a key press: inject momentum and let the
+            // normal P_XYMovement physics (friction, collision, item pickup)
+            // carry the player over subsequent tics. No teleport.
+            // Impulses accumulate, so batching WALKs sustains movement.
             angle_t ang = pl->mo->angle;
-            pl->mo->x += FixedMul(64 * FRACUNIT, finecosine[ang >> ANGLETOFINESHIFT]);
-            pl->mo->y += FixedMul(64 * FRACUNIT, finesine[ang >> ANGLETOFINESHIFT]);
-            P_UnsetThingPosition(pl->mo);
-            P_SetThingPosition(pl->mo);
-            // WALK bypasses P_TryMove, so item pickup
-            // (P_TouchSpecialThing) never fires. Check
-            // for overlapping special things manually.
-            {
-                mobj_t *mo = pl->mo;
-                int bx = (mo->x - bmaporgx) >> MAPBLOCKSHIFT;
-                int by = (mo->y - bmaporgy) >> MAPBLOCKSHIFT;
-                int bx0 = bx - 1, bx1 = bx + 1;
-                int by0 = by - 1, by1 = by + 1;
-                int x, y;
-                extern void P_TouchSpecialThing(mobj_t *, mobj_t *);
-                if (bx0 < 0) bx0 = 0;
-                if (by0 < 0) by0 = 0;
-                if (bx1 >= bmapwidth) bx1 = bmapwidth - 1;
-                if (by1 >= bmapheight) by1 = bmapheight - 1;
-                for (y = by0; y <= by1; y++)
-                    for (x = bx0; x <= bx1; x++)
-                    {
-                        mobj_t *th;
-                        for (th = blocklinks[y * bmapwidth + x];
-                             th != NULL; th = th->bnext)
-                        {
-                            if (th == mo)
-                                continue;
-                            if (!(th->flags & MF_SPECIAL))
-                                continue;
-                            // Rough overlap check
-                            {
-                                fixed_t dx = th->x - mo->x;
-                                fixed_t dy = th->y - mo->y;
-                                fixed_t r = mo->radius + th->radius;
-                                if (dx > -r && dx < r &&
-                                    dy > -r && dy < r)
-                                {
-                                    P_TouchSpecialThing(th, mo);
-                                }
-                            }
-                        }
-                    }
-            }
+            pl->mo->momx += FixedMul(FRACUNIT / 2, finecosine[ang >> ANGLETOFINESHIFT]);
+            pl->mo->momy += FixedMul(FRACUNIT / 2, finesine[ang >> ANGLETOFINESHIFT]);
         }
     }
     else if (!strcmp(cmd, "TURNL"))
