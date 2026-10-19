@@ -858,9 +858,9 @@ static boolean T_ExecMove(angle_t moveangle)
     dx = FixedMul(STEP_LEN, finecosine[moveangle >> ANGLETOFINESHIFT]);
     dy = FixedMul(STEP_LEN, finesine[moveangle >> ANGLETOFINESHIFT]);
 
-    // Smooth movement: don't teleport. Store the total displacement and
-    // let T_PulseOneTic apply it incrementally over the pulse tics,
-    // like GOTO in explore mode. P_TryMove each tic gives collision.
+    // Smooth movement: don't teleport. Move at keyboard speed
+    // (8 units/tic, matching P_Thrust terminal velocity) for the
+    // movespeed-dictated duration. T_PulseOneTic applies it per-tic.
     {
         extern int D_MoveSpeed(struct player_s *pl);
         int movespeed = D_MoveSpeed(player);
@@ -870,8 +870,8 @@ static boolean T_ExecMove(angle_t moveangle)
             tics = (T_MOVE_BASE_TICS * 100) / (100 + movespeed);
             if (tics < 1) tics = 1;
         }
-        turnctrl.move_dx = dx / tics;
-        turnctrl.move_dy = dy / tics;
+        turnctrl.move_dx = FixedMul(8 * FRACUNIT, finecosine[moveangle >> ANGLETOFINESHIFT]);
+        turnctrl.move_dy = FixedMul(8 * FRACUNIT, finesine[moveangle >> ANGLETOFINESHIFT]);
         turnctrl.move_tics = tics;
         mo->angle = moveangle;
     }
