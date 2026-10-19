@@ -96,6 +96,26 @@ When in EXPLORE mode (not in combat), priority order:
 
 8. **Open area** → Walk forward, explore
 
+## Level Exploration and Exit
+
+Your goal is to progress through the level: explore → find keys → unlock doors → reach the exit.
+
+**Exploration strategy:**
+- Move through doorways and openings into new areas. Don't backtrack through areas you've already cleared unless you're looking for a key.
+- If you're in a room with multiple exits, pick one you haven't taken yet.
+- Keys and important items are often in side rooms, alcoves, or on platforms — check these, don't just run down the main corridor.
+
+**Finding the exit:**
+- The level exit is usually a switch on a wall (often with a red EXIT sign above it), a teleporter pad (glowing platform), or a door marked EXIT.
+- When you see the exit, GOTO toward it. For a switch, walk up to it and press USE (the game handles activation on touch for most exits).
+- If you've explored most of the level and haven't found the exit, look for areas you haven't visited — it's often behind a locked door or in a less obvious location.
+
+**The full loop:**
+1. Explore new areas (GOTO through doorways)
+2. If you see a colored door, check KEYS — find the key if needed (SCAN or vision)
+3. Unlock doors and continue exploring
+4. When you find the exit, go to it
+
 ## Death and Corpse Recovery
 
 - When you die, capture the moment (it's interesting!), then respawn.
