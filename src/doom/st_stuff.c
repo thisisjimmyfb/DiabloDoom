@@ -1202,7 +1202,7 @@ static const char *st_icon_drop[8] = {
 // Cache of loot mobj pointers we've already logged "[LOOT] available" for,
 // so we don't spam the log about the same drops.
 #define LOOT_LOG_CACHE 32
-static mobj_t *loot_logged[LOOT_LOG_CACHE];
+static int loot_logged_ids[LOOT_LOG_CACHE];
 static int loot_logged_count = 0;
 static void ST_drawTurnKits(void)
 {
@@ -1272,11 +1272,14 @@ static void ST_drawTurnKits(void)
         ST_TurnDrawText(labx, 189, mechlab);
         ST_TurnDrawText(valright - STWepTextWidth(mechval), 189, mechval);
     }
+}
 
-    // Loot alert: persistent prompt when drops are on the map.
-    // Drawn at the top of the AD/AP panel area (y=160, above the stats).
-    // Also logs to stdout for new loot (by mobj identity) so agents watching
-    // the log can react (issue COLLECT) even without seeing the HUD.
+// Loot alert: persistent prompt when drops are on the map.
+// Explore mode only (per design: COLLECT works in explore).
+// Also logs to stdout for new loot (by item id, cached) so agents watching
+// the log can react (issue COLLECT) even without seeing the HUD.
+static void ST_drawLootAlert(void)
+{
     if (T_LootAvailable())
     {
         mobj_t *loot_list[LOOT_LOG_CACHE];
@@ -1290,7 +1293,7 @@ static void ST_drawTurnKits(void)
             boolean seen = false;
             for (j = 0; j < loot_logged_count; j++)
             {
-                if (loot_logged[j] == loot_list[i])
+                if (loot_logged_ids[j] == loot_list[i]->diablo_loot_id)
                 {
                     seen = true;
                     break;
@@ -1300,7 +1303,7 @@ static void ST_drawTurnKits(void)
             {
                 new_loot = true;
                 if (loot_logged_count < LOOT_LOG_CACHE)
-                    loot_logged[loot_logged_count++] = loot_list[i];
+                    loot_logged_ids[loot_logged_count++] = loot_list[i]->diablo_loot_id;
             }
         }
         if (new_loot)
@@ -1407,6 +1410,9 @@ void ST_drawWidgets(boolean refresh)
             STlib_updateNum(&w_ammo[i], refresh);
             STlib_updateNum(&w_maxammo[i], refresh);
         }
+
+        // Explore mode only: loot prompt + log.
+        ST_drawLootAlert();
     }
 
     STlib_updatePercent(&w_health, refresh);
