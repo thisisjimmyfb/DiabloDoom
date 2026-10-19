@@ -1838,7 +1838,6 @@ void T_DrawHUD(void)
         {
             int sx, sy;
             char line[16];
-            printf("[DIABLO] draw damage %d tics=%d\n", t_last_damage, t_last_hit_tics);
             if (T_ProjectTarget(t_last_hit_mobj, &sx, &sy))
             {
                 M_snprintf(line, sizeof(line), "%d", t_last_damage);
