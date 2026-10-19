@@ -1092,6 +1092,12 @@ void T_DoEndTurn(void)
             player->mo->z = turnctrl.turn_start_z;
             player->mo->angle = turnctrl.turn_start_angle;
             P_SetThingPosition(player->mo);
+            // Refresh cached floor/ceiling: P_SetThingPosition relinks the
+            // sector but leaves mo->floorz/ceilingz stale (from the planning
+            // end position). Stale floorz makes P_ZMovement think the player
+            // is airborne and fall through the real floor.
+            player->mo->floorz = player->mo->subsector->sector->floorheight;
+            player->mo->ceilingz = player->mo->subsector->sector->ceilingheight;
             turnctrl.replay_start_x = turnctrl.turn_start_x;
             turnctrl.replay_start_y = turnctrl.turn_start_y;
             turnctrl.replay_start_angle = turnctrl.turn_start_angle;
@@ -1264,6 +1270,9 @@ void T_DoClearQueue(void)
         mo->z = turnctrl.turn_start_z;
         mo->angle = turnctrl.turn_start_angle;
         P_SetThingPosition(mo);
+        // Refresh cached floor/ceiling (see T_DoEndTurn).
+        mo->floorz = mo->subsector->sector->floorheight;
+        mo->ceilingz = mo->subsector->sector->ceilingheight;
     }
     M_snprintf(msg, sizeof(msg), "Queue cleared (+%d TP).", refund);
     players[consoleplayer].message = msg;
