@@ -769,10 +769,20 @@ void T_WalkTick(void)
         {
             mobj_t *found = scan.nearest_loot != NULL ? scan.nearest_loot : scan.nearest_pickup;
             fixed_t d = scan.nearest_loot != NULL ? scan.loot_dist : scan.pickup_dist;
-            printf("[WALK] loot nearby (%d units), stopping [type=%d at (%d,%d)]\n",
-                   d >> 16, found->type, found->x >> 16, found->y >> 16);
-            T_WalkCancel();
-            return;
+            // Only stop for loot we can actually reach: the scan is
+            // straight-line, so loot behind a wall or in a pit would
+            // stop WALK even though COLLECT can never get to it (and
+            // the player would stand there looping). If the grid BFS
+            // finds no path, ignore this loot and keep walking.
+            int path_dirs[64];
+            int steps = T_FindPathTo(mo, found->x, found->y, path_dirs, 64);
+            if (steps >= 0)
+            {
+                printf("[WALK] loot nearby (%d units), stopping [type=%d at (%d,%d)]\n",
+                       d >> 16, found->type, found->x >> 16, found->y >> 16);
+                T_WalkCancel();
+                return;
+            }
         }
     }
 
