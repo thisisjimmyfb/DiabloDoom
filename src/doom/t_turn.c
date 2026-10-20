@@ -205,6 +205,9 @@ void T_ExploreTick(void)
 
 turnctrl_t turnctrl;
 
+// Forward declaration (definition lives with the targeting code below).
+static int t_numtargets;
+
 static boolean t_ready = false;
 static const char *t_script_path = NULL;
 static boolean t_script_done = false;
@@ -377,6 +380,19 @@ void T_EnterCombat(mobj_t *spotter)
     turnctrl.queue_tp = 0;
     turnctrl.selected_target = -1;
     turnctrl.executing = false;
+    // Debug: why did combat trigger, and can the player see the spotter?
+    // (Investigation 2026-10-19: combat re-triggering with no visible target.)
+    if (spotter != NULL && players[consoleplayer].mo != NULL)
+    {
+        mobj_t *pmo = players[consoleplayer].mo;
+        T_RefreshTargets();
+        printf("[COMBAT] enter: spotter type=%d at (%d,%d), player at (%d,%d), dist=%d, player_sees_spotter=%d, visible_targets=%d\n",
+               spotter->type, spotter->x >> 16, spotter->y >> 16,
+               pmo->x >> 16, pmo->y >> 16,
+               P_AproxDistance(spotter->x - pmo->x, spotter->y - pmo->y) >> 16,
+               P_CheckSight(pmo, spotter) ? 1 : 0,
+               t_numtargets);
+    }
     // Anchor the preview at combat entry.
     if (players[consoleplayer].mo != NULL)
     {
