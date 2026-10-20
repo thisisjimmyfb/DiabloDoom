@@ -86,6 +86,17 @@ ammo pickup now spawns a random Diablo item instead, and Mana Potions
 no longer drop from kills (any you already carry still works). The status bar's left AMMO area shows your
 ready weapon's current magazine (remaining heat capacity for plasma).
 
+## Weapon pickups
+
+Walking over a Doom weapon (map-placed or dropped by an enemy) also
+grants that weapon's plain base item into your backpack — first
+acquisition or duplicate alike — so it can be equipped and salvaged
+like any other drop. If the backpack has no room for it, the weapon
+stays on the ground. This matters because magazines auto-replenish:
+the classic "walk over a duplicate for its ammo" almost never
+applies here, so without the item grant a repeat pickup would do
+nothing at all.
+
 ## Explore / combat
 
 The game is not always turn-based. **Explore** freely with WASD + arrows
