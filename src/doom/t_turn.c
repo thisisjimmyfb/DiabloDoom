@@ -1496,6 +1496,94 @@ static void cmd_dispatch(const char *cmd)
         else
             printf("[REPLAY] failed\n");
     }
+    else if (!strncmp(cmd, "SAVE", 4)
+             && (cmd[4] == '\0' || cmd[4] == ' '))
+    {
+        // Driver save -- these handlers did not exist before, so the
+        // farm's SAVE 0 was silently ignored. Slot 0 is the farm's
+        // autosave: D_AutoSaveGame writes progress_auto1.dat plus
+        // doomsav0.dsg, the same save loot pickups and combat entry
+        // already trigger. Slots 3-5 are plain Doom savegames, like
+        // the menu's manual slots. Slots 1-2 have no writer: the
+        // autosave always uses slot 0 (no rotation, by design).
+        extern void D_AutoSaveGame(void);
+        extern void G_DoSaveGameSlot(int slot, const char *desc);
+        int n = 0;
+        if (sscanf(cmd + 4, "%d", &n) != 1)
+            n = 0;
+        if (n == 0)
+        {
+            D_AutoSaveGame();
+            printf("[SAVE] slot 0 saved (progress_auto1.dat + doomsav0.dsg)\n");
+        }
+        else if (n >= 3 && n <= 5 && gamestate == GS_LEVEL)
+        {
+            G_DoSaveGameSlot(n, "DRIVER");
+            printf("[SAVE] Doom savegame written to slot %d\n", n);
+        }
+        else
+        {
+            printf("[SAVE] slot %d not writable (0 = autosave, 3-5 = manual)\n",
+                   n);
+        }
+    }
+    else if (!strncmp(cmd, "LOAD", 4)
+             && (cmd[4] == '\0' || cmd[4] == ' '))
+    {
+        // Mirror of the load menu (M_LoadSelect): auto slots 0-2
+        // restore Diablo progress + the Doom savegame, manual slots
+        // 3-5 load the plain Doom savegame.
+        extern void D_ProgressLoadAutoSlot(int auto_slot);
+        extern char *P_SaveGameFile(int slot);
+        extern void G_LoadGame(char *name);
+        int n = 0;
+        if (sscanf(cmd + 4, "%d", &n) != 1)
+            n = 0;
+        if (n >= 0 && n <= 2)
+        {
+            printf("[LOAD] auto slot %d\n", n + 1);
+            D_ProgressLoadAutoSlot(n + 1);
+        }
+        else if (n >= 3 && n <= 5)
+        {
+            printf("[LOAD] manual slot %d\n", n);
+            G_LoadGame(P_SaveGameFile(n));
+        }
+        else
+        {
+            printf("[LOAD] slot %d out of range (0-5)\n", n);
+        }
+    }
+    else if (!strcmp(cmd, "QUIT") || !strncmp(cmd, "QUIT ", 5))
+    {
+        // Save + clean shutdown from inside the game (Jimmy's order,
+        // replacing the pkill -9 the farm used to rely on: SIGKILL
+        // throws away the buffered log and can lose state, while a
+        // clean exit flushes both). "QUIT" saves autosave slot 0;
+        // "QUIT n" (3-5) saves manual slot n instead.
+        //
+        // show_endoom must be off before I_Quit: the ENDOOM exit
+        // screen waits for a keypress (I_Endoom loops on TXT_GetChar),
+        // which a driver-run game never gets -- I_Quit would hang in
+        // its exit chain forever. A human quitting from the menu
+        // still sees ENDOOM; only this driver quit skips it.
+        extern void D_AutoSaveGame(void);
+        extern void G_DoSaveGameSlot(int slot, const char *desc);
+        extern void I_Quit(void);
+        extern int show_endoom;
+        int n = 0;
+        if (cmd[4] == ' ' && sscanf(cmd + 5, "%d", &n) != 1)
+            n = 0;
+        printf("[QUIT] saving slot %d and shutting down\n", n);
+        if (n >= 3 && n <= 5 && gamestate == GS_LEVEL)
+            G_DoSaveGameSlot(n, "DRIVER QUIT");
+        else
+            D_AutoSaveGame();
+        printf("[QUIT] save complete, goodbye\n");
+        fflush(NULL);
+        show_endoom = 0;
+        I_Quit();
+    }
     else
     {
         // No handler matched. Say so in the log: a command that was
