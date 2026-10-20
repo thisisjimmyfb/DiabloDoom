@@ -197,6 +197,9 @@ void T_ExploreTick(void)
     T_GotoTick();
     // WALK persistent movement (explore mode only; stops on enemy/loot/blocked).
     T_WalkTick();
+    // COLLECT autonomous walk to loot (explore mode only; cancelled
+    // on combat entry; blocks FIFO input while active).
+    T_CollectTick();
     if (++explore_sight_tic >= 7)
     {
         explore_sight_tic = 0;
@@ -373,9 +376,11 @@ void T_EnterExplore(void)
 void T_EnterCombat(mobj_t *spotter)
 {
     static char msg[96];
-    // GOTO paths and WALK are explore-mode only; cancel on combat entry.
+    // GOTO paths, WALK and the COLLECT walk are explore-mode only;
+    // cancel on combat entry.
     T_GotoCancel();
     T_WalkCancel();
+    T_CollectCancel();
     // Auto-save before combat: don't lose the pre-fight state.
     // Saves both the Doom savegame (slots 7-9) and progress.dat.
     {
@@ -1024,6 +1029,11 @@ static void cmd_drain(void (*dispatch)(const char *))
 
     if (cmd_q_count > 0)
     {
+        // While the COLLECT autonomous walk is running, input is
+        // blocked: queued commands wait and execute once the walk
+        // finishes (picked up, unreachable, timeout, or combat).
+        if (T_CollectActive() && T_InExplore())
+            return;
         dispatch(cmd_queue[cmd_q_head]);
         cmd_q_head = (cmd_q_head + 1) % CMD_QUEUE_MAX;
         cmd_q_count--;

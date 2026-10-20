@@ -218,7 +218,10 @@ boolean T_InSelection(void);
 void T_DoMove(int dir);   // 0=N(fwd) 1=E(right) 2=S(back) 3=W(left)
 void T_DoTurn(int dir);   // -1=left, +1=right; free 45-degree view turn
 void T_DoUse(void);
-void T_DoCollect(void);   // G: auto-path to nearest loot and pick it up
+void T_DoCollect(void);   // G: set up an autonomous walk to the nearest loot
+void T_CollectTick(void);   // step the collect walk (explore mode)
+void T_CollectCancel(void);
+boolean T_CollectActive(void);
 void T_GotoStart(fixed_t tx, fixed_t ty); // GOTO x y: pathfind and walk there
 void T_GotoCancel(void);
 boolean T_GotoActive(void);
