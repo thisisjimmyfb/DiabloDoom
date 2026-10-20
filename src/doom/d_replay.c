@@ -9,6 +9,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <errno.h>
+#include <pthread.h>
 #ifdef NO_X264
 // No H.264 support: D_ReplaySaveMP4 will report unavailability.
 #else
@@ -235,38 +236,22 @@ static void rgb_to_yuv420p(byte *rgb, x264_picture_t *pic, int w, int h)
 // fills outputs; the caller owns each aframes[i].data, the aframes array,
 // and the asc copy. Returns 0 when no audio is available or encoding
 // failed (caller should fall back to video-only).
-static int replay_encode_audio(mem_buf_t **aframes_out,
-                               uint8_t **asc_out, uint32_t *asc_len_out,
-                               uint32_t *samples_per_chan_out)
+// Main-thread helper: snapshot the audio ring into a freshly malloc'd
+// contiguous PCM buffer (15s window, oldest -> newest, silence-padded if
+// the game has run less than 15s). Returns NULL when audio capture is
+// not running. Caller owns the buffer.
+static int16_t *replay_snapshot_pcm(void)
 {
-    int16_t *pcm = NULL;
-    faac_encoder *enc = NULL;
-    faac_encoder_info info;
-    const uint8_t *asc;
-    uint32_t asc_len;
-    uint8_t *outbuf = NULL;
-    mem_buf_t *aframes = NULL;
-    int aframes_cap = 0, aframes_n = 0;
     int total = REPLAY_AUDIO_SAMPLES * REPLAY_AUDIO_CHANNELS; // int16 count
-    int wpos, i;
-    uint32_t samples_per_chan = REPLAY_AUDIO_SAMPLES; // 661500
-    uint32_t frames_needed;
-
-    *aframes_out = NULL;
-    *asc_out = NULL;
-    *asc_len_out = 0;
-    *samples_per_chan_out = 0;
+    int wpos;
+    int16_t *pcm;
 
     if (!replay_audio_buf)
-        return 0;
-
-    // Snapshot the write position, then extract a contiguous 15s window
-    // (oldest -> newest). Pad with leading silence if the buffer isn't
-    // full yet (game ran less than 15s).
+        return NULL;
     wpos = replay_audio_write;
     pcm = malloc(REPLAY_AUDIO_BYTES);
     if (!pcm)
-        return 0;
+        return NULL;
     memset(pcm, 0, REPLAY_AUDIO_BYTES);
     if (wpos >= total) {
         int start = wpos % total;
@@ -276,6 +261,33 @@ static int replay_encode_audio(mem_buf_t **aframes_out,
     } else if (wpos > 0) {
         memcpy(pcm + (total - wpos), replay_audio_buf, (size_t)wpos * 2);
     }
+    return pcm;
+}
+
+// Encode a PCM snapshot to AAC frames. Does NOT free pcm (caller owns).
+static int replay_encode_audio_pcm(int16_t *pcm,
+                               mem_buf_t **aframes_out,
+                               uint8_t **asc_out, uint32_t *asc_len_out,
+                               uint32_t *samples_per_chan_out)
+{
+    faac_encoder *enc = NULL;
+    faac_encoder_info info;
+    const uint8_t *asc;
+    uint32_t asc_len;
+    uint8_t *outbuf = NULL;
+    mem_buf_t *aframes = NULL;
+    int aframes_cap = 0, aframes_n = 0;
+    int i;
+    uint32_t samples_per_chan = REPLAY_AUDIO_SAMPLES; // 661500
+    uint32_t frames_needed;
+
+    *aframes_out = NULL;
+    *asc_out = NULL;
+    *asc_len_out = 0;
+    *samples_per_chan_out = 0;
+
+    if (!pcm)
+        return 0;
 
     {
         faac_params params;
@@ -373,7 +385,6 @@ adone:
     if (enc)
         faac_encoder_close(&enc);
     free(outbuf);
-    free(pcm);
     if (aframes) {
         for (i = 0; i < aframes_n; i++)
             free(aframes[i].data);
@@ -387,15 +398,35 @@ adone:
 }
 #endif
 
-int D_ReplaySaveMP4(const char *filename)
+// ------------------------------------------------------------------
+// Async replay encode. The game thread snapshots the ring buffers
+// (a few memcpy's); a detached worker thread runs the whole encode +
+// MP4 mux and rename()s the finished file into place. A stalled encode
+// can no longer freeze the tick loop or the FIFO driver.
+// ------------------------------------------------------------------
+
+typedef struct {
+    byte *video;          // n frames in display order (REPLAY_FRAME_SIZE each)
+    int n;
+    int16_t *pcm;         // audio snapshot, owned (may be NULL)
+    byte palette[256 * 3];
+    char filename[256];
+    char tmpname[264];
+} replay_job_t;
+
+static volatile int replay_encode_busy = 0;
+
+static void *replay_encode_worker(void *arg)
 {
+    replay_job_t *job = (replay_job_t *)arg;
+    const char *filename = job->filename;
 #ifdef NO_X264
-    printf("[REPLAY] H.264 support not compiled in (no x264)\n");
-    return 1;
+    (void)job;
+    (void)filename;
+    return NULL;
 #else
-    extern byte *W_CacheLumpName(const char *name, int tag);
     FILE *f = NULL;
-    byte *rgb = NULL, *palette;
+    byte *rgb = NULL, *palette = job->palette;
     mem_buf_t *frames = NULL;
     int *frame_sizes = NULL;
     unsigned long long *chunk_offsets = NULL;
@@ -418,20 +449,13 @@ int D_ReplaySaveMP4(const char *filename)
     int timescale = 90000;
     int frame_duration = timescale / REPLAY_FPS;
 
-    D_EnsureDoomshotsDir();
-
-    n = replay_count;
-    if (!replay_buffer || n == 0) {
-        printf("[REPLAY] buffer empty\n");
-        return 1;
-    }
+    n = job->n;
     printf("[REPLAY] encoding %d frames to H.264 MP4...\n", n);
 
     rgb = malloc(REPLAY_OUT_WIDTH * REPLAY_OUT_HEIGHT * 3);
     frames = calloc(n, sizeof(mem_buf_t));
     frame_sizes = malloc(n * sizeof(int));
     chunk_offsets = malloc(n * sizeof(unsigned long long));
-    palette = W_CacheLumpName("PLAYPAL", 1);
     if (!rgb || !frames || !frame_sizes || !chunk_offsets || !palette)
         goto fail;
 
@@ -512,9 +536,8 @@ int D_ReplaySaveMP4(const char *filename)
     pic_allocated = 1;
 
     for (i = 0; i < n; i++) {
-        idx = (replay_head - n + i + REPLAY_MAXFRAMES*2) % REPLAY_MAXFRAMES;
         {
-            byte *src = replay_buffer + idx * REPLAY_FRAME_SIZE;
+            byte *src = job->video + (size_t)i * REPLAY_FRAME_SIZE;
             int x, y;
             x264_nal_t *nals;
             int num_nals, pts;
@@ -588,8 +611,8 @@ int D_ReplaySaveMP4(const char *filename)
 
     // ---- AAC audio from the ring buffer (video-only fallback on failure)
 #ifndef NO_FAAC
-    naframes = replay_encode_audio(&aframes, &audio_asc, &audio_asc_len,
-                                   &audio_samples);
+    naframes = replay_encode_audio_pcm(job->pcm, &aframes, &audio_asc,
+                                       &audio_asc_len, &audio_samples);
     if (naframes > 0 && audio_asc && audio_asc_len > 0) {
         audio_sizes = malloc((size_t)naframes * sizeof(int));
         audio_offsets = malloc((size_t)naframes * sizeof(unsigned long long));
@@ -620,7 +643,7 @@ int D_ReplaySaveMP4(const char *filename)
     }
 #endif
 
-    f = fopen(filename, "wb");
+    f = fopen(job->tmpname, "wb");
     if (!f) {
         printf("[REPLAY] cannot open %s\n", filename);
         goto fail;
@@ -1071,13 +1094,14 @@ int D_ReplaySaveMP4(const char *filename)
     free(audio_offsets);
     free(audio_asc);
     fclose(f);
+    rename(job->tmpname, filename);
     printf("[REPLAY] saved %s (%d frames, H.264%s MP4)\n",
            filename, n, has_audio ? "+AAC" : "");
-    // Clear the buffer after saving. Otherwise old frames (including
-    // screenshot "captured" text) persist and appear at the start of
-    // the next replay.
-    replay_count = 0;
-    return 0;
+    free(job->video);
+    free(job->pcm);
+    free(job);
+    replay_encode_busy = 0;
+    return NULL;
 
 fail:
     if (pic_allocated) x264_picture_clean(&pic_in);
@@ -1099,6 +1123,79 @@ fail:
     free(audio_sizes);
     free(audio_offsets);
     free(audio_asc);
+    remove(job->tmpname);
+    free(job->video);
+    free(job->pcm);
+    free(job);
+    replay_encode_busy = 0;
+    return NULL;
+#endif
+}
+
+// Game-thread entry point: snapshot the ring buffers and hand the encode
+// to a detached worker thread. Returns 0 when the encode was queued,
+// 1 when skipped (busy / empty buffer). The finished MP4 appears at
+// `filename` atomically (written to <filename>.tmp, renamed on success).
+int D_ReplaySaveMP4(const char *filename)
+{
+#ifdef NO_X264
+    printf("[REPLAY] H.264 support not compiled in (no x264)\n");
     return 1;
+#else
+    replay_job_t *job;
+    pthread_t th;
+    int n, i;
+
+    if (replay_encode_busy) {
+        printf("[REPLAY] encode already in progress, skipping\n");
+        return 1;
+    }
+    n = replay_count;
+    if (!replay_buffer || n == 0) {
+        printf("[REPLAY] buffer empty\n");
+        return 1;
+    }
+    D_EnsureDoomshotsDir();
+    job = (replay_job_t *)calloc(1, sizeof(*job));
+    if (!job)
+        return 1;
+    job->n = n;
+    job->video = (byte *)malloc((size_t)n * REPLAY_FRAME_SIZE);
+    if (!job->video) {
+        free(job);
+        return 1;
+    }
+    for (i = 0; i < n; i++) {
+        int idx = (replay_head - n + i + REPLAY_MAXFRAMES * 2) % REPLAY_MAXFRAMES;
+        memcpy(job->video + (size_t)i * REPLAY_FRAME_SIZE,
+               replay_buffer + (size_t)idx * REPLAY_FRAME_SIZE,
+               REPLAY_FRAME_SIZE);
+    }
+#ifndef NO_FAAC
+    job->pcm = replay_snapshot_pcm();
+#endif
+    {
+        extern byte *W_CacheLumpName(const char *name, int tag);
+        byte *pal = W_CacheLumpName("PLAYPAL", 1);
+        if (pal)
+            memcpy(job->palette, pal, 256 * 3);
+    }
+    snprintf(job->filename, sizeof(job->filename), "%s", filename);
+    snprintf(job->tmpname, sizeof(job->tmpname), "%s.tmp", filename);
+    // Clear the ring now that the snapshot holds the frames: same net
+    // effect as the old post-encode clear, and frames captured during
+    // the background encode belong to the next replay.
+    replay_count = 0;
+    replay_encode_busy = 1;
+    if (pthread_create(&th, NULL, replay_encode_worker, job) != 0) {
+        replay_encode_busy = 0;
+        free(job->video);
+        free(job->pcm);
+        free(job);
+        return 1;
+    }
+    pthread_detach(th);
+    printf("[REPLAY] encoding %d frames in background\n", n);
+    return 0;
 #endif
 }

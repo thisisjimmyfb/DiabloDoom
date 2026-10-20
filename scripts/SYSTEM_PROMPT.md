@@ -73,7 +73,7 @@ Notes:
 Play for ~4 minutes. The 10-minute cron window is the gaming session — within it, make decisions frequently.
 
 **Decision cadence: Take a fresh screenshot every 5 seconds.** Do not reuse a stale screenshot for multiple decisions. The loop is:
-1. Capture (CAPTURE command: saves 15s replay video + screenshot; sleep 4, copy newest PNG to /tmp/farm_view.png)
+1. Capture (CAPTURE command: queues a 15s replay video encode — it runs in the background and the MP4 appears under /tmp/doomshots/ a few seconds later — plus an immediate screenshot; sleep 4, copy newest PNG to /tmp/farm_view.png)
 2. Read the screenshot with vision, decide action based on PROMPT.md strategy
 3. Send command(s) via FIFO
 4. Sleep 1-2 seconds (so total cycle is ~5-6 seconds), then repeat from step 1
