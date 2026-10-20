@@ -159,6 +159,10 @@ P_GiveAmmo
 }
 
 
+// The rarity half of a Diablo loot roll (defined with the loot
+// system below): generous odds, improved by magic find.
+static int P_RollRarityTier(int magic_find);
+
 //
 // P_GiveWeapon
 // The weapon name may have a MF_DROPPED flag ored in.
@@ -194,29 +198,42 @@ P_GiveWeapon
 	return false;
     }
 	
-    // Diablo: a weapon pickup also grants the weapon's plain item
-    // to the inventory -- first acquisition or duplicate alike -- so
-    // the weapon exists in the system that controls equipment (and
-    // duplicates become salvage fodder instead of dead walk-overs:
+    // Diablo: a weapon pickup grants a Diablo item of the same
+    // weapon type, rolled on the standard rarity table with the
+    // player's magic find -- first acquisition or duplicate alike
+    // -- so the weapon exists in the system that controls
+    // equipment (and duplicates are loot, not dead walk-overs:
     // with magazines auto-replenishing, the ammo half below almost
     // never fires in explore, which used to make every repeat
-    // pickup a silent no-op). If the item doesn't fit, the pickup
-    // is refused whole: the weapon stays on the ground.
+    // pickup a silent no-op). The tier tables have gaps (no
+    // unique pistol, say), so a rarity roll that lands on a tier
+    // with no weapon of this type is simply re-rolled. If the
+    // item doesn't fit, the pickup is refused whole: the weapon
+    // stays on the ground.
     {
-        int base = D_BaseItemForWeapon(weapon);
-        if (base != D_NOITEM)
+        int magic_find = player->diablo_stats[DSTAT_MAGICFIND]
+                       + D_LoopMagicFind();
+        int id = D_NOITEM;
+        int tries;
+
+        for (tries = 0; tries < 32 && id == D_NOITEM; tries++)
+            id = D_RollWeaponItem(P_RollRarityTier(magic_find), weapon);
+        if (id == D_NOITEM)
+            id = D_BaseItemForWeapon(weapon);
+
+        if (id != D_NOITEM)
         {
-            if (!D_BackpackAdd(player, D_ITEMTIER(base),
-                               D_ITEMIDX(base)))
+            if (!D_BackpackAdd(player, D_ITEMTIER(id),
+                               D_ITEMIDX(id)))
             {
                 D_BackpackFullMsg(player);
                 return false;
             }
             gaveitem = true;
             printf("[LOOT] weapon pickup: granted \"%s\" (tier=%d idx=%d)\n",
-                   D_GetItemDef(D_ITEMTIER(base),
-                                D_ITEMIDX(base))->name,
-                   D_ITEMTIER(base), D_ITEMIDX(base));
+                   D_GetItemDef(D_ITEMTIER(id),
+                                D_ITEMIDX(id))->name,
+                   D_ITEMTIER(id), D_ITEMIDX(id));
         }
     }
 
@@ -477,29 +494,37 @@ static const char *P_MonsterName(mobjtype_t type)
     }
 }
 
-// Roll a random Diablo item id using the kill-drop rarity table
-// (unique ~6%, set ~9%, rare ~20%, magic ~40%, normal ~25%).
+// The rarity half of a Diablo loot roll: generous odds (unique
+// ~6%, set ~9%, rare ~20%, magic ~40%, normal ~25%), improved by
+// magic find. Shared by full item drops and weapon pickups (which
+// roll rarity, then pick a weapon of the rolled tier).
+static int P_RollRarityTier(int magic_find)
+{
+    int roll;
+
+    roll = P_Random() - magic_find / 2;
+    if (roll < 0)
+        roll = 0;
+    if (roll < 15)
+        return TIER_UNIQUE;
+    if (roll < 38)
+        return TIER_SET;
+    if (roll < 89)
+        return TIER_RARE;
+    if (roll < 191)
+        return TIER_MAGIC;
+    return TIER_NORMAL;
+}
+
+// Roll a random Diablo item id using the kill-drop rarity table.
 // magic_find shifts the rarity roll. Returns -1 if nothing is valid.
 // Shared by kill drops and map-ammo conversion (both want "a random
 // item drop"; only the 70% kill gate differs).
 int P_RollDiabloItemDrop(int magic_find)
 {
-    int roll, tier, index;
+    int tier, index;
 
-    // Rarity roll (generous odds), improved by magic find.
-    roll = P_Random() - magic_find / 2;
-    if (roll < 0)
-        roll = 0;
-    if (roll < 15)
-        tier = TIER_UNIQUE;
-    else if (roll < 38)
-        tier = TIER_SET;
-    else if (roll < 89)
-        tier = TIER_RARE;
-    else if (roll < 191)
-        tier = TIER_MAGIC;
-    else
-        tier = TIER_NORMAL;
+    tier = P_RollRarityTier(magic_find);
 
     // Pick a specific item from the tier's table, filtered by difficulty.
     // Higher difficulties unlock stronger affix tiers.

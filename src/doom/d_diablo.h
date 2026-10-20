@@ -182,8 +182,11 @@ int D_MaxHealth(struct player_s *player);
 boolean D_BackpackAdd(struct player_s *player, int tier, int idx);
 // Packed item id (D_MAKEITEM) of the plain normal-tier item for a
 // Doom weapon (wp_*), or D_NOITEM when the weapon has no base item.
-// Vanilla weapon pickups grant it (see P_GiveWeapon in p_inter.c).
+// Fallback for weapon pickups when the rarity roll comes up empty.
 int D_BaseItemForWeapon(int doomweapon);
+// Roll a random weapon item of one tier for a Doom weapon
+// (difficulty-gated). D_NOITEM when that tier has no such weapon.
+int D_RollWeaponItem(int tier, int doomweapon);
 void D_EquipRecent(struct player_s *player);   // E key (Phase 1)
 void D_UnequipAll(struct player_s *player);    // Q key (Phase 1)
 void D_BackpackFullMsg(struct player_s *player);

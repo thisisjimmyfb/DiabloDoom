@@ -851,10 +851,47 @@ void D_BackpackRemoveAt(struct player_s *pl, int bpi)
     D_BackpackRemove(player, bpi);
 }
 
+// Roll a random weapon item of the given tier for a Doom weapon,
+// honoring the difficulty gate like D_RollItemForDifficulty.
+// Returns a packed item id, or D_NOITEM when the tier has no
+// weapon of that type -- the tier tables have gaps (e.g. there
+// is no unique pistol), and callers decide how to handle them.
+int D_RollWeaponItem(int tier, int doomweapon)
+{
+    int i, count = 0, pick;
+    const diablo_itemdef_t *def;
+
+    if (tier < 0 || tier >= NUM_TIERS)
+        return D_NOITEM;
+
+    for (i = 0; i < D_TierCount(tier); i++)
+    {
+        def = D_GetItemDef(tier, i);
+        if (def && def->slot == ESLOT_WEAPON
+            && def->doomweapon == doomweapon
+            && def->diff_tier <= D_DifficultyTier())
+            count++;
+    }
+    if (!count)
+        return D_NOITEM;
+
+    pick = P_Random() % count;
+    for (i = 0; i < D_TierCount(tier); i++)
+    {
+        def = D_GetItemDef(tier, i);
+        if (def && def->slot == ESLOT_WEAPON
+            && def->doomweapon == doomweapon
+            && def->diff_tier <= D_DifficultyTier()
+            && pick-- == 0)
+            return D_MAKEITEM(tier, i);
+    }
+    return D_NOITEM;
+}
+
 // The plain normal-tier item for a Doom weapon, as a packed item
-// id, or D_NOITEM when the weapon has no base item. Vanilla weapon
-// pickups grant this so a picked-up weapon exists in the Diablo
-// inventory (and can be equipped / salvaged) like any other drop.
+// id, or D_NOITEM when the weapon has no base item. Weapon
+// pickups roll rarity first (D_RollWeaponItem); this is the
+// guaranteed fallback when a roll produces nothing.
 int D_BaseItemForWeapon(int doomweapon)
 {
     int i, count = D_TierCount(TIER_NORMAL);
