@@ -66,6 +66,28 @@ GAME_HEIGHT="${GAME_HEIGHT:-600}"
 VISION_CMD="${VISION_CMD:-}"
 # ================== END CONFIG ==================
 
+# ---- Stage timing log (2026-10-20) ----
+# Every loop stage (setup / observe / vision / act) writes timestamped
+# lines to $LOG so per-stage durations can be read off afterwards:
+#   [STAGE] <stage> start|mark|end ... ms=<elapsed>
+# The vision stage runs inside the worker agent (between observe and
+# act), so the script measures it as the gap: act.start - observe.end.
+# Inter-call state (last stage end, epoch ms) lives in a small file.
+STAGE_STATE="${STAGE_STATE:-/tmp/doom_loop_stage.env}"
+stage_log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S.%3N')] [STAGE] $*" >> "$LOG"
+}
+now_ms() { date +%s%3N; }
+stage_state_set() { # key value
+    local tmp="${STAGE_STATE}.tmp.$$"
+    grep -v "^$1=" "$STAGE_STATE" 2>/dev/null > "$tmp" || true
+    echo "$1=$2" >> "$tmp"
+    mv "$tmp" "$STAGE_STATE"
+}
+stage_state_get() { # key -> value or empty
+    grep "^$1=" "$STAGE_STATE" 2>/dev/null | tail -1 | cut -d= -f2
+}
+
 pull_and_rebuild() {
     cd "$REPO"
     local before after last_built
@@ -317,8 +339,11 @@ with open('/tmp/stub_opus.c', 'w') as out:
 # LOAD 0 if autosave slot 1 exists, else SAVE 0 to initialize it.
 subagent_setup() {
     local game_count launched save_status
+    local t_setup_start=$(now_ms)
+    stage_log "setup start"
     # Restore stub libs wiped by VM recycles before anything else.
     restore_stub_libs
+    stage_log "setup mark libs-restored ms=$(( $(now_ms) - t_setup_start ))"
     # Singleton: only one setup/launch at a time. A second concurrent setup
     # would interleave pkill/rm/launch and create FIFO ghosts + duplicate
     # games. Non-blocking: fail fast so the caller can retry or stand down.
@@ -330,6 +355,7 @@ subagent_setup() {
     # Pull latest and rebuild if anything changed, so the fresh game
     # always runs the newest binary.
     pull_and_rebuild
+    stage_log "setup mark pull-rebuild-done ms=$(( $(now_ms) - t_setup_start ))"
     game_count=$(pgrep -c -f "chocolate-doo[m]" 2>/dev/null || true); game_count=${game_count:-0}
     if [ "$game_count" -gt 0 ]; then
         # A game is already running (possibly stale: stuck pre-GS_LEVEL or
@@ -353,11 +379,14 @@ subagent_setup() {
     fi
     launch_game
     launched=1
+    stage_log "setup mark game-launched ms=$(( $(now_ms) - t_setup_start ))"
     # Don't touch the FIFO until the game is confirmed draining it.
     if ! wait_for_fifo 60; then
+        stage_log "setup end ok=false error=fifo-never-live ms=$(( $(now_ms) - t_setup_start ))"
         echo '{"ok": false, "error": "game launched but FIFO never became live (stuck boot or ghost)"}'
         exit 1
     fi
+    stage_log "setup mark fifo-live ms=$(( $(now_ms) - t_setup_start ))"
     save_status="fresh"
     if [ -f ~/.local/share/chocolate-doom/doomsav0.dsg ]; then
         send_cmd "LOAD 0\n"
@@ -378,13 +407,22 @@ print(json.dumps({
     "notes": "setup complete"
 }))
 PYEOF
+    stage_log "setup end ok=true save=$save_status ms=$(( $(now_ms) - t_setup_start ))"
 }
 
 # observe: REPLAY capture + recent log tail -> JSON.
 subagent_observe() {
     local game_count ts out newest replay_path screenshot_path log_tail kills
+    local t_obs_start=$(now_ms)
+    local last_act_end=$(stage_state_get LAST_ACT_END_MS)
+    if [ -n "$last_act_end" ]; then
+        stage_log "observe start since_act_ms=$(( t_obs_start - last_act_end )) (game resolving + idle)"
+    else
+        stage_log "observe start"
+    fi
     game_count=$(pgrep -c -f "chocolate-doo[m]" 2>/dev/null || true); game_count=${game_count:-0}
     if [ "$game_count" -eq 0 ]; then
+        stage_log "observe end ok=false error=game-not-running ms=$(( $(now_ms) - t_obs_start ))"
         echo '{"error": "game not running", "game_count": 0}'
         exit 1
     fi
@@ -395,6 +433,7 @@ subagent_observe() {
     before_mp4=$(ls -t "$SHOTDIR"/*.mp4 2>/dev/null | head -1)
     before_png=$(ls -t "$SHOTDIR"/*.png "$SHOTDIR"/doomshots/*.png 2>/dev/null | head -1)
     send_cmd "CAPTURE\n"
+    stage_log "observe mark capture-sent ms=$(( $(now_ms) - t_obs_start ))"
     newest=""
     for i in $(seq 1 16); do
         sleep 1
@@ -409,6 +448,7 @@ subagent_observe() {
         mv "$newest" "$out"
         replay_path="$out"
     fi
+    stage_log "observe mark mp4-ready found=$([ -n "$replay_path" ] && echo 1 || echo 0) ms=$(( $(now_ms) - t_obs_start ))"
     # Screenshot lands after the video; poll for the new PNG.
     screenshot_path=""
     for i in $(seq 1 8); do
@@ -421,6 +461,7 @@ subagent_observe() {
     done
     log_tail=$(tail -50 "$GAME_LOG" 2>/dev/null)
     kills=$(grep -ac "exec-attack-kill" "$GAME_LOG" 2>/dev/null || true); kills=${kills:-0}
+    stage_log "observe mark png-ready found=$([ -n "$screenshot_path" ] && echo 1 || echo 0) ms=$(( $(now_ms) - t_obs_start ))"
     REPLAY_PATH="$replay_path" SCREENSHOT_PATH="$screenshot_path" LOG_TAIL="$log_tail" KILLS="$kills" python3 - <<'PYEOF'
 import json, os
 print(json.dumps({
@@ -430,24 +471,43 @@ print(json.dumps({
     "kills": int(os.environ.get("KILLS", 0) or 0),
 }))
 PYEOF
+    local t_obs_end=$(now_ms)
+    stage_state_set LAST_OBSERVE_END_MS "$t_obs_end"
+    stage_log "observe end ok=true ms=$(( t_obs_end - t_obs_start ))"
 }
 
 # act: write driver commands from --file to the game FIFO -> JSON.
 subagent_act() {
+    local t_act_start=$(now_ms)
+    local last_obs_end=$(stage_state_get LAST_OBSERVE_END_MS)
+    if [ -n "$last_obs_end" ]; then
+        # The gap between observe ending and act starting IS the
+        # vision stage: worker watching the replay + deciding.
+        stage_log "vision end ms=$(( t_act_start - last_obs_end )) (observe->act gap)"
+    fi
+    stage_log "act start"
     if [ -z "$ACT_FILE" ] || [ ! -f "$ACT_FILE" ]; then
+        stage_log "act end ok=false error=no-command-file ms=$(( $(now_ms) - t_act_start ))"
         echo '{"ok": false, "error": "no command file"}'
         exit 1
     fi
     if ! pgrep -f "chocolate-doo[m]" > /dev/null; then
+        stage_log "act end ok=false error=game-not-running ms=$(( $(now_ms) - t_act_start ))"
         echo '{"ok": false, "error": "game not running"}'
         exit 1
     fi
+    # Log what's being sent (single line: commands separated by spaces).
+    stage_log "act mark cmds: $(tr '\n' ' ' < "$ACT_FILE")"
     # timeout: never block forever on a readerless FIFO (ghost).
     if ! timeout 10 bash -c 'cat "$1" > "$2"' _ "$ACT_FILE" "$CMDFILE"; then
+        stage_log "act end ok=false error=fifo-write-blocked ms=$(( $(now_ms) - t_act_start ))"
         echo '{"ok": false, "error": "FIFO write blocked (not draining)"}'
         exit 1
     fi
     sleep 2
+    local t_act_end=$(now_ms)
+    stage_state_set LAST_ACT_END_MS "$t_act_end"
+    stage_log "act end ok=true ms=$(( t_act_end - t_act_start ))"
     echo '{"ok": true}'
 }
 
@@ -472,6 +532,8 @@ flock 9
 while [ $(date +%s) -lt $END_TIME ]; do
     ITER=$((ITER + 1))
     echo "[$(date)] --- Iteration $ITER ---" >> "$LOG"
+    ITER_START_MS=$(now_ms)
+    stage_log "loop iteration=$ITER start"
 
     # Check game alive.
     if ! pgrep -f "chocolate-doo[m]" > /dev/null; then
@@ -487,7 +549,9 @@ while [ $(date +%s) -lt $END_TIME ]; do
     fi
 
     # Capture replay video for vision.
+    stage_log "loop iteration=$ITER observe start"
     REPLAY=$(capture_replay)
+    stage_log "loop iteration=$ITER observe end ms=$(( $(now_ms) - ITER_START_MS ))"
     if [ -z "$REPLAY" ]; then
         echo "Replay capture failed, skipping iteration" >> "$LOG"
         sleep 5
@@ -498,10 +562,13 @@ while [ $(date +%s) -lt $END_TIME ]; do
     LOGCTX=$(tail -50 "$GAME_LOG" 2>/dev/null)
 
     # Vision LLM decides action.
+    stage_log "loop iteration=$ITER vision start"
     if [ -n "$VISION_CMD" ]; then
         # VISION_CMD takes: replay_path prompt_path log_context
         # Outputs: driver command(s) to send (e.g. "WALK\nATTACK\n")
         ACTION=$($VISION_CMD "$REPLAY" "$PROMPT" "$LOGCTX" 2>> "$LOG")
+        stage_log "loop iteration=$ITER vision end"
+        stage_log "loop iteration=$ITER act start"
         if [ -n "$ACTION" ]; then
             echo "[$(date)] Vision action: $(echo "$ACTION" | tr '\n' ' ')" >> "$LOG"
             send_cmd "$ACTION"
@@ -509,6 +576,7 @@ while [ $(date +%s) -lt $END_TIME ]; do
             echo "[$(date)] Vision returned empty, defaulting to WALK" >> "$LOG"
             send_cmd "WALK\n"
         fi
+        stage_log "loop iteration=$ITER act end total_ms=$(( $(now_ms) - ITER_START_MS ))"
     else
         # No vision command configured: save replay + context for
         # external vision agent (e.g. cron worker subagent reads PROMPT.md).
