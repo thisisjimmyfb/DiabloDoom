@@ -110,8 +110,8 @@ and Vampiric Ripsaws. Two of Freedoom's names are shortened for
 display because they're too long to sit inside an item name:
 "SKAG 1337" shows as just SKAG (so, a Wizard's SKAG),
 "Pump-Action Shotgun" as just Shotgun, "Double-Barrelled
-Shotgun" as Double Shotgun, and "Polaric Energy Weapon" as
-Energy Weapon. Bespoke names
+Shotgun" as Dbl Shotgun, and "Polaric Energy Weapon" as Nrg
+Cannon. Bespoke names
 (Unmaker, Old Painless) and all non-weapon items (helms, boots,
 rings…) keep their Diablo names, and the pistol keeps its name
 too — it has no pickup string to inherit from.
