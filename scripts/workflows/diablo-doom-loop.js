@@ -100,10 +100,10 @@ const report = await agent(
 
   "Target ~30-45 seconds per iteration. If a step hangs beyond its natural time, note which stage hung: " +
   "skip to the next iteration, or stop the run if the game is dead (record hung_at).\n" +
-  "After all iterations (or on stop), SAVE the game: write the single line SAVE 0 to " + CMD_FILE +
-  " and run the act script once more.\n" +
+  "After all iterations (or on stop), shut the game down cleanly: write the single line QUIT to " + CMD_FILE +
+  " and stop there (QUIT saves autosave slot 0 itself, then the game exits and flushes its log; there is nothing to run after it).\n" +
   "NEVER delete progress.dat. Only the setup script pulls/rebuilds; never do it yourself. " +
-  "Never kill the game yourself; only the setup script may do that. " +
+  "Never kill the game yourself (no pkill); QUIT is the only shutdown you may use. Only the setup script may force-kill a wedged game. " +
   "Return JSON {iterations_completed, kills (last cumulative count), hung_at (or null), " +
   "notes, cycles: [{iteration, commands, kills}]}.",
   { key: "driver", label: "Farm driver", schema: reportSchema, timeoutMs: 3600000 }

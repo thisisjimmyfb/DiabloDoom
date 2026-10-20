@@ -158,12 +158,38 @@ launch_game() {
     sleep 15
 }
 
-# 3. Kill old game, start fresh (KEEP progress.dat for continuous progress).
-# Full-loop mode only: --subagent dispatches below and must NOT kill here.
-# Use bracket trick to avoid pkill matching our own shell.
+# Ask any running game to save + shut itself down via the QUIT
+# driver command (the save lands and the buffered log is flushed --
+# a SIGKILL throws both away). SIGKILL remains only as the fallback
+# for a game too wedged to read its FIFO. Returns non-zero if a game
+# is still alive at the end.
+stop_all_games() {
+    if ! pgrep -f "chocolate-doo[m]" > /dev/null; then
+        return 0
+    fi
+    if [ -p "$CMDFILE" ]; then
+        timeout 3 bash -c 'printf "QUIT\n" >> "$1"' _ "$CMDFILE" 2>/dev/null || true
+        local waits=0
+        while pgrep -f "chocolate-doo[m]" > /dev/null && [ $waits -lt 25 ]; do
+            sleep 1
+            waits=$((waits+1))
+        done
+    fi
+    if pgrep -f "chocolate-doo[m]" > /dev/null; then
+        pkill -9 -f "chocolate-doo[m]" 2>/dev/null || true
+        local waits=0
+        while pgrep -f "chocolate-doo[m]" > /dev/null && [ $waits -lt 10 ]; do
+            sleep 1
+            waits=$((waits+1))
+        done
+    fi
+    ! pgrep -f "chocolate-doo[m]" > /dev/null
+}
+
+# 3. Stop any old game, start fresh (KEEP progress.dat for continuous progress).
+# Full-loop mode only: --subagent dispatches below and must NOT stop here.
 if [ "$SUBAGENT" != true ]; then
-pkill -9 -f "chocolate-doo[m]" 2>/dev/null || true
-sleep 2
+stop_all_games || true
 launch_game
 fi
 
@@ -399,20 +425,11 @@ subagent_setup() {
     game_count=$(pgrep -c -f "chocolate-doo[m]" 2>/dev/null || true); game_count=${game_count:-0}
     if [ "$game_count" -gt 0 ]; then
         # A game is already running (possibly stale: stuck pre-GS_LEVEL or
-        # holding a deleted FIFO). Try to save its state first if the FIFO
-        # is live, then kill all and launch fresh for a clean command
-        # channel. Poll until actually dead before touching the FIFO.
-        if [ -p "$CMDFILE" ]; then
-            send_cmd "SAVE 0\n" 2>/dev/null || true
-            sleep 3
-        fi
-        pkill -9 -f "chocolate-doo[m]" 2>/dev/null || true
-        local waits=0
-        while pgrep -f "chocolate-doo[m]" > /dev/null && [ $waits -lt 10 ]; do
-            sleep 1
-            waits=$((waits+1))
-        done
-        if pgrep -f "chocolate-doo[m]" > /dev/null; then
+        # holding a deleted FIFO). Ask it to save + quit itself via the
+        # QUIT driver command (stop_all_games falls back to SIGKILL only
+        # if the game ignores QUIT). Poll until actually dead before
+        # touching the FIFO.
+        if ! stop_all_games; then
             echo '{"ok": false, "error": "could not kill existing game"}'
             exit 1
         fi
