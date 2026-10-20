@@ -92,11 +92,11 @@ static t_scan_result_t T_ScanNearby(mobj_t *player_mo, int radius_units)
                     result.loot_dist = P_AproxDistance(dx, dy);
                 }
             }
-            // Vanilla pickups: health, ammo, armor, weapons, keys
-            else if (mo->type >= MT_MISC0 && mo->type <= MT_MISC86)
+            // Vanilla pickups: check MF_SPECIAL flag (marks pickupable items).
+            // This includes health, ammo, armor, weapons, keys — but not
+            // decorations, corpses, or barrels.
+            else if (mo->flags & MF_SPECIAL)
             {
-                // Filter to actual pickups (not decorations)
-                // MT_MISC* includes keys, health, ammo, etc.
                 if (dist_sq < (result.pickup_dist >> 16) * (result.pickup_dist >> 16))
                 {
                     result.nearest_pickup = mo;
