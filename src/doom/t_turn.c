@@ -915,8 +915,11 @@ static void cmd_init(void)
         cmdfd = -1;
 }
 
-// Drain available bytes from the FIFO, split on newlines, dispatch
-// each complete command line. Partial lines stay buffered.
+// Drain available bytes from the FIFO into the buffer, then dispatch
+// at most ONE complete command line per tick. Commands used to all
+// land in the same tick and act on one frozen snapshot of the world;
+// one per tick lets the game respond between commands, the way it
+// responds between key presses. Partial lines stay buffered.
 static void cmd_drain(void (*dispatch)(const char *))
 {
     char tmp[1024];
@@ -936,27 +939,39 @@ static void cmd_drain(void (*dispatch)(const char *))
         }
         memcpy(cmdbuf + cmdlen, tmp, r);
         cmdlen += r;
+    }
+    // r == 0: EOF (can't happen with O_RDWR, we hold a writer).
+    // r < 0: EAGAIN = no data, or a real error (leave fd open).
 
-        // Extract complete lines.
+    // Extract the first complete non-empty line and dispatch it.
+    // Anything after it waits for the next tick.
+    {
         int start = 0;
-        for (int i = 0; i < cmdlen; i++)
+        int i;
+        for (i = 0; i < cmdlen; i++)
         {
             if (cmdbuf[i] == '\n' || cmdbuf[i] == '\r')
             {
-                cmdbuf[i] = 0;
                 if (i > start)
+                {
+                    cmdbuf[i] = 0;
                     dispatch(cmdbuf + start);
-                start = i + 1;
+                    start = i + 1;
+                    memmove(cmdbuf, cmdbuf + start, cmdlen - start);
+                    cmdlen -= start;
+                    return;
+                }
+                start = i + 1; // empty line: skip the separator
             }
         }
+        // No complete command this tick: drop any leading separators
+        // consumed above, keep the partial line buffered.
         if (start > 0)
         {
             memmove(cmdbuf, cmdbuf + start, cmdlen - start);
             cmdlen -= start;
         }
     }
-    // r == 0: EOF (can't happen with O_RDWR, we hold a writer).
-    // r < 0: EAGAIN = no data, or a real error (leave fd open).
 }
 
 // Dispatch a single driver command line from the FIFO.
