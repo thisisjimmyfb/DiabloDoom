@@ -180,6 +180,10 @@ int D_MaxHealth(struct player_s *player);
 
 // Backpack / equip.  Returns false when the backpack is full.
 boolean D_BackpackAdd(struct player_s *player, int tier, int idx);
+// Packed item id (D_MAKEITEM) of the plain normal-tier item for a
+// Doom weapon (wp_*), or D_NOITEM when the weapon has no base item.
+// Vanilla weapon pickups grant it (see P_GiveWeapon in p_inter.c).
+int D_BaseItemForWeapon(int doomweapon);
 void D_EquipRecent(struct player_s *player);   // E key (Phase 1)
 void D_UnequipAll(struct player_s *player);    // Q key (Phase 1)
 void D_BackpackFullMsg(struct player_s *player);

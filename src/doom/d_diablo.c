@@ -74,6 +74,23 @@ static const diablo_itemdef_t diablo_normal[] =
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
     IT("Leather Gloves",    TIER_NORMAL, ESLOT_GLOVES, 2,2, 0,0,0,   0, 0, 2,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
+
+    // Plain base items for the remaining Doom weapons (appended at
+    // the end: existing indices are persisted in saves and must not
+    // shift). Vanilla weapon pickups grant these (see P_GiveWeapon).
+    // Damage ranges match the weapons' non-damage-affix magic bases.
+    IT("Super Shotgun",     TIER_NORMAL, ESLOT_WEAPON, 2,2, 0,0,0,   9, 18, 0,
+       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_supershotgun, 0),
+    IT("Chaingun",          TIER_NORMAL, ESLOT_WEAPON, 2,3, 0,0,0,   4, 10, 0,
+       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_chaingun, 0),
+    IT("Rocket Launcher",   TIER_NORMAL, ESLOT_WEAPON, 2,3, 0,0,0,   8, 16, 0,
+       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_missile, 0),
+    IT("Plasma Rifle",      TIER_NORMAL, ESLOT_WEAPON, 2,3, 0,0,0,   7, 15, 0,
+       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_plasma, 0),
+    IT("BFG9000",           TIER_NORMAL, ESLOT_WEAPON, 2,3, 0,0,0,   12, 24, 0,
+       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_bfg, 0),
+    IT("Chainsaw",          TIER_NORMAL, ESLOT_WEAPON, 2,2, 0,0,0,   5, 12, 0,
+       0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_chainsaw, 0),
 };
 
 static const diablo_itemdef_t diablo_magic[] =
@@ -832,6 +849,23 @@ void D_BackpackRemoveAt(struct player_s *pl, int bpi)
     else if (player->diablo_recent > bpi)
         player->diablo_recent--;
     D_BackpackRemove(player, bpi);
+}
+
+// The plain normal-tier item for a Doom weapon, as a packed item
+// id, or D_NOITEM when the weapon has no base item. Vanilla weapon
+// pickups grant this so a picked-up weapon exists in the Diablo
+// inventory (and can be equipped / salvaged) like any other drop.
+int D_BaseItemForWeapon(int doomweapon)
+{
+    int i, count = D_TierCount(TIER_NORMAL);
+    for (i = 0; i < count; i++)
+    {
+        const diablo_itemdef_t *def = D_GetItemDef(TIER_NORMAL, i);
+        if (def && def->slot == ESLOT_WEAPON
+            && def->doomweapon == doomweapon)
+            return D_MAKEITEM(TIER_NORMAL, i);
+    }
+    return D_NOITEM;
 }
 
 boolean D_BackpackAdd(struct player_s *pl, int tier, int idx)

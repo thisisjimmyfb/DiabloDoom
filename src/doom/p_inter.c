@@ -171,7 +171,8 @@ P_GiveWeapon
 {
     boolean	gaveammo;
     boolean	gaveweapon;
-	
+    boolean	gaveitem = false;
+
     if (netgame
 	&& (deathmatch!=2)
 	 && !dropped )
@@ -193,6 +194,32 @@ P_GiveWeapon
 	return false;
     }
 	
+    // Diablo: a weapon pickup also grants the weapon's plain item
+    // to the inventory -- first acquisition or duplicate alike -- so
+    // the weapon exists in the system that controls equipment (and
+    // duplicates become salvage fodder instead of dead walk-overs:
+    // with magazines auto-replenishing, the ammo half below almost
+    // never fires in explore, which used to make every repeat
+    // pickup a silent no-op). If the item doesn't fit, the pickup
+    // is refused whole: the weapon stays on the ground.
+    {
+        int base = D_BaseItemForWeapon(weapon);
+        if (base != D_NOITEM)
+        {
+            if (!D_BackpackAdd(player, D_ITEMTIER(base),
+                               D_ITEMIDX(base)))
+            {
+                D_BackpackFullMsg(player);
+                return false;
+            }
+            gaveitem = true;
+            printf("[LOOT] weapon pickup: granted \"%s\" (tier=%d idx=%d)\n",
+                   D_GetItemDef(D_ITEMTIER(base),
+                                D_ITEMIDX(base))->name,
+                   D_ITEMTIER(base), D_ITEMIDX(base));
+        }
+    }
+
     if (weaponinfo[weapon].ammo != am_noammo)
     {
 	// give one clip with a dropped weapon,
@@ -204,7 +231,7 @@ P_GiveWeapon
     }
     else
 	gaveammo = false;
-	
+
     if (player->weaponowned[weapon])
 	gaveweapon = false;
     else
@@ -217,8 +244,8 @@ P_GiveWeapon
 	player->pendingweapon = wp_nochange;
 	printf("[LOOT] picked up weapon=%d\n", weapon);
     }
-	
-    return (gaveweapon || gaveammo);
+
+    return (gaveweapon || gaveammo || gaveitem);
 }
 
  
