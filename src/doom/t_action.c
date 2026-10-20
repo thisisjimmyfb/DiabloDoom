@@ -29,6 +29,85 @@
 #include "s_sound.h"
 #include "info.h"
 
+// ------------------------------------------------------------------
+// Shared nearby-entity detection for WALK and COLLECT.
+// Scans for enemies and loot within a radius of the player.
+// ------------------------------------------------------------------
+
+typedef struct {
+    mobj_t *nearest_enemy;
+    fixed_t enemy_dist;      // in map units (fixed point)
+    mobj_t *nearest_loot;
+    fixed_t loot_dist;       // in map units (fixed point)
+    mobj_t *nearest_pickup;  // vanilla pickups (health, ammo, etc.)
+    fixed_t pickup_dist;
+} t_scan_result_t;
+
+// Scan for nearby enemies, Diablo loot, and vanilla pickups.
+// radius_units: search radius in map units (e.g. 256 = 8 grid cells).
+// Returns a struct with the nearest of each type (NULL if none found).
+static t_scan_result_t T_ScanNearby(mobj_t *player_mo, int radius_units)
+{
+    t_scan_result_t result = { NULL, 0x7fffffff, NULL, 0x7fffffff, NULL, 0x7fffffff };
+    thinker_t *th;
+    fixed_t radius = (fixed_t)radius_units * FRACUNIT;
+    fixed_t radius_sq = (radius >> 16) * (radius >> 16);
+
+    for (th = thinkercap.next; th != &thinkercap; th = th->next)
+    {
+        if (th->function.acp1 != (actionf_p1)P_MobjThinker)
+            continue;
+        {
+            mobj_t *mo = (mobj_t *)th;
+            fixed_t dx, dy, dist_sq;
+
+            // Skip the player
+            if (mo == player_mo)
+                continue;
+            // Skip dead/removed
+            if (mo->health <= 0)
+                continue;
+
+            dx = mo->x - player_mo->x;
+            dy = mo->y - player_mo->y;
+            dist_sq = (dx >> 16) * (dx >> 16) + (dy >> 16) * (dy >> 16);
+            if (dist_sq > radius_sq)
+                continue;
+
+            // Enemy: has MF_COUNTKILL flag (counts as a kill)
+            if (mo->flags & MF_COUNTKILL)
+            {
+                if (dist_sq < (result.enemy_dist >> 16) * (result.enemy_dist >> 16))
+                {
+                    result.nearest_enemy = mo;
+                    result.enemy_dist = P_AproxDistance(dx, dy);
+                }
+            }
+            // Diablo loot
+            else if (mo->type >= MT_LOOT_NORMAL && mo->type <= MT_LOOT_UNIQUE)
+            {
+                if (dist_sq < (result.loot_dist >> 16) * (result.loot_dist >> 16))
+                {
+                    result.nearest_loot = mo;
+                    result.loot_dist = P_AproxDistance(dx, dy);
+                }
+            }
+            // Vanilla pickups: health, ammo, armor, weapons, keys
+            else if (mo->type >= MT_MISC0 && mo->type <= MT_MISC86)
+            {
+                // Filter to actual pickups (not decorations)
+                // MT_MISC* includes keys, health, ammo, etc.
+                if (dist_sq < (result.pickup_dist >> 16) * (result.pickup_dist >> 16))
+                {
+                    result.nearest_pickup = mo;
+                    result.pickup_dist = P_AproxDistance(dx, dy);
+                }
+            }
+        }
+    }
+    return result;
+}
+
 // Step length: 4 sub-steps of 8 units = 32 units total, collision-aware
 // (sub-steps avoid tunneling through thin lines).
 #define STEP_SUB 4
@@ -731,7 +810,12 @@ void T_DoCollect(void)
 
     printf("[COLLECT] attempting: player at (%d,%d)\n",
            mo->x >> 16, mo->y >> 16);
-    loot = T_FindNearestLoot(mo);
+    {
+        t_scan_result_t scan = T_ScanNearby(mo, 2048); // 2048 units radius
+        loot = scan.nearest_loot;
+        if (loot == NULL)
+            loot = scan.nearest_pickup; // Fall back to vanilla pickups
+    }
     if (loot == NULL)
     {
         player->message = "NO LOOT IN SIGHT.";
