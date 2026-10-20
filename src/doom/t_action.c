@@ -767,8 +767,10 @@ void T_WalkTick(void)
         }
         if (scan.nearest_loot != NULL || scan.nearest_pickup != NULL)
         {
+            mobj_t *found = scan.nearest_loot != NULL ? scan.nearest_loot : scan.nearest_pickup;
             fixed_t d = scan.nearest_loot != NULL ? scan.loot_dist : scan.pickup_dist;
-            printf("[WALK] loot nearby (%d units), stopping\n", d >> 16);
+            printf("[WALK] loot nearby (%d units), stopping [type=%d at (%d,%d)]\n",
+                   d >> 16, found->type, found->x >> 16, found->y >> 16);
             T_WalkCancel();
             return;
         }
