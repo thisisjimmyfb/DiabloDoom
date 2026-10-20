@@ -493,7 +493,15 @@ int T_GetLootList(mobj_t **list, int max)
     return count;
 }
 
-// Public: check if any Diablo loot exists on the map (for the HUD prompt).
+// Forward declaration: grid BFS defined below (used by the loot alert).
+static int T_FindPathTo(mobj_t *player_mo, fixed_t tx, fixed_t ty,
+                        int *path_dirs, int max_steps);
+
+// Public: check if any Diablo loot is REACHABLE (for the HUD prompt).
+// The prompt means "COLLECT can get it": same rule as T_DoCollect --
+// loot targets in distance order, first one with a BFS path counts.
+// Unreachable loot (behind doors/walls, other floors) does NOT fire
+// the alert. Throttled: the BFS runs at most once per 10 tics.
 boolean T_LootAvailable(void)
 {
     player_t *player = &players[consoleplayer];
@@ -501,8 +509,55 @@ boolean T_LootAvailable(void)
     mobj_t *mo;
     if (player->mo == NULL)
         return false;
-    if (T_FindNearestLoot(player->mo) != NULL)
-        return true;
+    {
+        static int last_check_tic = -100;
+        static boolean last_result = false;
+        if (leveltime - last_check_tic >= 10)
+        {
+            mobj_t *loot_list[16];
+            fixed_t loot_dist[16];
+            int loot_count = 0, li;
+            mobj_t *pmo = player->mo;
+            last_check_tic = leveltime;
+            last_result = false;
+            for (th = thinkercap.next; th != &thinkercap; th = th->next)
+            {
+                mobj_t *lmo;
+                if (th->function.acp1 != (actionf_p1)P_MobjThinker)
+                    continue;
+                lmo = (mobj_t *)th;
+                if (lmo->type < MT_LOOT_NORMAL || lmo->type > MT_LOOT_UNIQUE)
+                    continue;
+                if (lmo->health <= 0 || loot_count >= 16)
+                    continue;
+                {
+                    fixed_t dx = lmo->x - pmo->x;
+                    fixed_t dy = lmo->y - pmo->y;
+                    fixed_t dist = (dx >> 16) * (dx >> 16) + (dy >> 16) * (dy >> 16);
+                    for (li = loot_count; li > 0 && loot_dist[li-1] > dist; li--)
+                    {
+                        loot_list[li] = loot_list[li-1];
+                        loot_dist[li] = loot_dist[li-1];
+                    }
+                    loot_list[li] = lmo;
+                    loot_dist[li] = dist;
+                    loot_count++;
+                }
+            }
+            for (li = 0; li < loot_count; li++)
+            {
+                int path_dirs[64];
+                if (T_FindPathTo(pmo, loot_list[li]->x, loot_list[li]->y,
+                                 path_dirs, 64) >= 0)
+                {
+                    last_result = true;
+                    break;
+                }
+            }
+        }
+        if (last_result)
+            return true;
+    }
     // Also show prompt for player corpses (recover via G/COLLECT or walk-over).
     for (th = thinkercap.next; th != &thinkercap; th = th->next)
     {
