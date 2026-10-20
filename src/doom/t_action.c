@@ -343,6 +343,19 @@ static boolean T_Enqueue(turnaction_t action, int cost, angle_t moveangle,
 
     if (!T_Active())
         return false;
+    if (action == TA_ATTACK && target != NULL
+        && (target->health <= 0 || !(target->flags & MF_SHOOTABLE)))
+    {
+        // Hard rule: an attack can never be QUEUED on an already dead
+        // enemy. Target lists are snapshots and callers validate at
+        // different times, so the check lives here, at the one choke
+        // point every attack enqueue passes through. (An enemy that
+        // dies AFTER being legally queued is a different case: the
+        // executor skips that entry with a refund.)
+        players[consoleplayer].message = "Target is already dead.";
+        printf("[TURN] enqueue refused: target already dead\n");
+        return false;
+    }
     if (turnctrl.queue_len >= T_QUEUE_MAX)
     {
         players[consoleplayer].message = "Queue is full.";
@@ -2159,7 +2172,13 @@ void T_DoAttack(void)
     // now; at drain time the attack auto-faces and resolves with the
     // turn-based combat math. The selection is consumed: back to
     // planning so more actions can be queued.
-    T_Enqueue(TA_ATTACK, T_CostFor(TA_ATTACK), 0, target);
+    if (!T_Enqueue(TA_ATTACK, T_CostFor(TA_ATTACK), 0, target))
+    {
+        // Refused (e.g. target already dead): no lock, stay in planning.
+        turnctrl.selected_target = -1;
+        turnctrl.state = TS_PLANNING;
+        return;
+    }
     // Continuous weapons lock onto the target: keep firing until it
     // dies or the player switches targets. Movement does not break it.
     if (T_IsContinuousWeapon(player->readyweapon))
