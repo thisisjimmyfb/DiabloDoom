@@ -197,7 +197,7 @@ void T_ExploreTick(void)
     mobj_t *spotter;
 
     P_Ticker();
-    // Deferred combat-exit capture: fire ~2s into explore, after the
+    // Deferred combat-exit capture: fire ~1s into explore, after the
     // progress phase has completely finished and the aftermath has
     // played out (see exit_capture_tics in T_EnterExplore).
     if (exit_capture_tics > 0 && --exit_capture_tics == 0)
@@ -339,13 +339,13 @@ boolean T_InExplore(void)
 }
 
 // Deferred combat-exit capture: T_EnterExplore arms this instead of
-// capturing on the spot. The snapshot is taken ~2s after the fight
+// capturing on the spot. The snapshot is taken ~1s after the fight
 // ends -- once the progress phase has completely finished and the
 // aftermath (corpse, loot drop, player standing over it) has played
 // out in real time. Capturing at end-of-turn cut the replay off at
 // the phase boundary.
 static int exit_capture_tics = 0;
-#define EXIT_CAPTURE_DELAY 70
+#define EXIT_CAPTURE_DELAY 35
 
 void T_EnterExplore(void)
 {
