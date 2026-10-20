@@ -923,12 +923,11 @@ static void T_EndPulse(void)
 // drain whatever's available without blocking.
 static int cmdfd = -2;  // -2 = uninitialized, -1 = failed/disabled
 
-// Command queue: each poll reads from the FIFO only while the queue
-// has room (backpressure); complete lines are parsed into this
-// in-memory queue, and the game executes exactly one queued command
-// per tick. Bytes that can't be consumed yet -- a partial line, or
-// complete lines beyond queue capacity -- are put back into the
-// FIFO, and anything beyond that stays in the pipe's kernel buffer.
+// Command queue: the reader consumes the FIFO one complete line at
+// a time (see cmd_drain) into this in-memory queue, and the game
+// executes exactly one queued command per tick. A new line is only
+// started while the queue has a free slot (backpressure): lines not
+// yet started simply stay in the pipe, unconsumed and in order.
 // No command is ever dropped for lack of room.
 #define CMD_QUEUE_MAX 128
 #define CMD_LINE_MAX 256
@@ -967,36 +966,36 @@ static boolean cmd_is_diagnostic(const char *cmd)
     return false;
 }
 
-// Parse complete lines from buf into the queue. Returns the number
-// of bytes consumed. Parsing stops BEFORE a line the queue has no
-// room for, and anything past the last line separator is a partial
-// line: both stay unconsumed for the caller to put back into the
-// FIFO, so no byte read is ever lost.
-static int cmd_parse_complete_lines(const char *buf, int len)
+// Line assembly: bytes are fed one at a time and a line joins the
+// queue only when its terminating newline arrives. Until then the
+// partial bytes wait here -- never in the pipe again, and no new
+// line starts before this one ends, so stream order is exact.
+static char cmd_line[CMD_LINE_MAX];
+static int cmd_line_len = 0;
+static boolean cmd_line_overflow = false; // line longer than the buffer
+
+// Feed one byte. Returns true when a complete line was queued.
+static boolean cmd_feed_byte(char c)
 {
-    int start = 0;
-    int consumed = 0;
-    int i;
-    for (i = 0; i < len; i++)
+    if (c == '\n' || c == '\r')
     {
-        if (buf[i] == '\n' || buf[i] == '\r')
+        boolean done = false;
+        if (cmd_line_len > 0 && !cmd_line_overflow)
         {
-            if (i > start)
-            {
-                char line[CMD_LINE_MAX];
-                int n = i - start;
-                if (n >= CMD_LINE_MAX)
-                    n = CMD_LINE_MAX - 1;
-                memcpy(line, buf + start, n);
-                line[n] = 0;
-                if (!cmd_queue_push(line))
-                    return consumed; // queue full: line NOT consumed
-            }
-            start = i + 1;
-            consumed = start;
+            cmd_line[cmd_line_len] = 0;
+            done = cmd_queue_push(cmd_line);
+            if (!done)
+                printf("[CMD] queue full at line end, lost: %s\n", cmd_line);
         }
+        cmd_line_len = 0;
+        cmd_line_overflow = false;
+        return done;
     }
-    return consumed;
+    if (cmd_line_len < CMD_LINE_MAX - 1)
+        cmd_line[cmd_line_len++] = c;
+    else
+        cmd_line_overflow = true; // discard the rest of this line
+    return false;
 }
 
 static void cmd_init(void)
@@ -1039,92 +1038,69 @@ static void cmd_init(void)
     cmdfd = open("/tmp/doom_cmd.txt", O_RDWR | O_NONBLOCK);
     if (cmdfd < 0)
         cmdfd = -1;
-    // Queue the complete lines from the recovered early write; a
-    // partial line goes back into the FIFO to wait for its remainder.
+    // Feed the recovered early write through the line assembler; a
+    // trailing fragment stays in the assembler and completes when
+    // its remainder arrives via the FIFO.
     if (early_len > 0 && cmdfd >= 0)
     {
-        int consumed = cmd_parse_complete_lines(early, early_len);
-        if (consumed < early_len)
-        {
-            ssize_t w = write(cmdfd, early + consumed, early_len - consumed);
-            (void)w;
-        }
+        int i;
+        for (i = 0; i < early_len; i++)
+            cmd_feed_byte(early[i]);
     }
 }
 
-// Line protocol (no dropped commands, no reordering):
-// - Writers terminate every command with a newline, in one write,
-//   so the pipe only ever holds complete lines.
-// - The reader's unit of work is the line. Each tick it drains the
-//   FIFO completely (looping reads until the pipe is empty) and only
-//   then parses, so a read-chunk boundary can never split a line.
-// - Anything unconsumed -- complete lines beyond queue capacity, or
-//   a trailing fragment from a writer that broke the rule -- goes
-//   back into the by-then-empty FIFO via this putback stash, where
-//   it stays ahead of any future bytes and in order. If the
-//   write-back itself can't complete (pipe refilled meanwhile), the
-//   bytes wait here and are retried before the next drain.
-#define CMD_IO_SIZE 65536 // >= default pipe capacity: a full drain fits
-static char cmd_io_buf[CMD_IO_SIZE];
-static char cmd_putback[CMD_IO_SIZE];
-static int cmd_putback_len = 0;
+// Line protocol (no dropped commands, no reordering, no write-back):
+// - Writers terminate every append with a newline, so the pipe only
+//   ever holds complete lines, each delivered in a single write.
+// - The reader's unit of work is the line: it reads one byte at a
+//   time until the newline, and only then is the line consumed into
+//   the queue. It never reads past a newline, so there is never an
+//   unconsumed byte to put back -- bytes not yet read stay in the
+//   pipe, in order, until their line is read.
+// - Backpressure is simply not starting a new line while the queue
+//   is full; the line waits in the pipe untouched.
+// Because writers append whole newline-terminated lines atomically,
+// a started line always has its newline already in the pipe. (If a
+// writer ever broke the rule and the pipe ran dry mid-line, the
+// partial bytes wait in the line assembler and the line resumes
+// next tick -- still ahead of any later line, so order holds.)
 
-// Try to flush the putback stash into the FIFO. Returns true when
-// the stash is empty afterwards.
-static boolean cmd_flush_putback(void)
-{
-    while (cmd_putback_len > 0)
-    {
-        ssize_t w = write(cmdfd, cmd_putback, cmd_putback_len);
-        if (w > 0)
-        {
-            memmove(cmd_putback, cmd_putback + w, cmd_putback_len - (int)w);
-            cmd_putback_len -= (int)w;
-        }
-        else
-            return false; // EAGAIN: retry next tick; bytes are safe here
-    }
-    return true;
-}
-
-// Per-tick driver step: flush any putback, drain the FIFO completely,
-// parse complete lines into the in-memory queue, then execute
+// Per-tick driver step: read complete lines from the FIFO into the
+// in-memory queue (see the line protocol above), then execute
 // exactly ONE queued command. One per tick lets the world respond
 // between commands, the way it responds between key presses.
 static void cmd_drain(void (*dispatch)(const char *))
 {
-    int io_len = 0;
-
     if (cmdfd == -2)
         cmd_init();
     if (cmdfd < 0)
         return;
 
-    // Putback first: while earlier bytes can't go back we must not
-    // read more (nothing may overtake them).
-    if (cmd_flush_putback())
+    // Ingest lines while the queue has room. A line is started only
+    // when a slot is free for it (that slot is then spoken for:
+    // nothing else pushes during ingest, so the newline's push
+    // always succeeds). Reading stops exactly at each newline, and
+    // stops entirely when the pipe runs dry (read fails) -- with a
+    // line possibly mid-assembly in cmd_line, resumed next tick.
+    while (cmd_q_count < CMD_QUEUE_MAX)
     {
-        for (;;)
+        boolean line_done = false;
+        boolean any_data = false;
+        while (!line_done)
         {
-            ssize_t r = read(cmdfd, cmd_io_buf + io_len,
-                             sizeof(cmd_io_buf) - io_len);
+            char c;
+            ssize_t r = read(cmdfd, &c, 1);
             if (r <= 0)
-                break; // EAGAIN: pipe drained. (EOF impossible: O_RDWR.)
-            io_len += (int)r;
-            if (io_len >= (int)sizeof(cmd_io_buf))
-                break; // a full pipe's worth: parse what we have
+                break; // pipe empty right now (EOF impossible: O_RDWR)
+            any_data = true;
+            cmd_feed_byte(c);
+            if (c == '\n' || c == '\r')
+                line_done = true;
         }
-        if (io_len > 0)
-        {
-            int consumed = cmd_parse_complete_lines(cmd_io_buf, io_len);
-            if (consumed < io_len)
-            {
-                int rem = io_len - consumed;
-                memcpy(cmd_putback, cmd_io_buf + consumed, rem);
-                cmd_putback_len = rem;
-                cmd_flush_putback();
-            }
-        }
+        if (!any_data)
+            break; // nothing was available at all
+        if (!line_done)
+            break; // ran dry mid-line: resume it next tick
     }
 
     if (cmd_q_count > 0)
