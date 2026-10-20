@@ -179,9 +179,17 @@ send_cmd() {
     # drains immediately; a block means no reader right now. Retry
     # for a while (the game may be mid-relaunch) instead of dropping
     # the command -- only give up after ~30s of attempts.
+    # Line protocol: every write must end with a newline; add one if
+    # the caller forgot (payloads use printf %b escapes, so the check
+    # is for a literal trailing "\n").
+    local payload="$1"
+    case "$payload" in
+        *'\n') ;;
+        *) payload="$payload\\n" ;;
+    esac
     local attempt
     for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-        if timeout 2 bash -c 'printf "%b" "$1" >> "$2"' _ "$1" "$CMDFILE"; then
+        if timeout 2 bash -c 'printf "%b" "$1" >> "$2"' _ "$payload" "$CMDFILE"; then
             sleep 2
             return 0
         fi
@@ -537,9 +545,11 @@ subagent_act() {
     # the FIFO every tick, so a block means no reader right now (e.g.
     # mid-relaunch): retry briefly so a transient gap delays the
     # commands instead of dropping them.
+    # Line protocol: the written stream must end with a newline; if
+    # the command file's last line lacks one, add it on the way in.
     local act_attempt act_written=0
     for act_attempt in 1 2 3 4 5; do
-        if timeout 2 bash -c 'cat "$1" >> "$2"' _ "$ACT_FILE" "$CMDFILE"; then
+        if timeout 2 bash -c '{ cat "$1"; [ -n "$(tail -c 1 "$1")" ] && printf "\n"; } >> "$2"' _ "$ACT_FILE" "$CMDFILE"; then
             act_written=1
             break
         fi
