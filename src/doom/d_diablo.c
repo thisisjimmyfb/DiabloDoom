@@ -944,6 +944,19 @@ static const struct
     { GOTSHOTGUN2,  "super shotgun",   "Super Shotgun",   NULL },
 };
 
+// Display shortenings for WAD names too long to sit inside an
+// item name (Jimmy's call). Matched exactly against the extracted
+// name, so other WADs -- and other names from the same WAD --
+// keep their full form.
+static const char *D_ShortenWadName(const char *name)
+{
+    if (!strcmp(name, "SKAG 1337"))
+        return "SKAG";
+    if (!strcmp(name, "Pump-Action Shotgun"))
+        return "Shotgun";
+    return name;
+}
+
 static char wad_name_cache[NUMWEAPONS][48];
 static boolean wad_name_done = false;
 
@@ -995,6 +1008,14 @@ static const char *D_WadWeaponName(int doomweapon)
                     || wad_name_cache[w][i - 1] == '-')
                     wad_name_cache[w][i] =
                         toupper((unsigned char)wad_name_cache[w][i]);
+            // Then shorten the over-long ones ("SKAG 1337" -> "SKAG").
+            {
+                const char *short_name =
+                    D_ShortenWadName(wad_name_cache[w]);
+                if (short_name != wad_name_cache[w])
+                    snprintf(wad_name_cache[w],
+                             sizeof(wad_name_cache[w]), "%s", short_name);
+            }
         }
     }
 
