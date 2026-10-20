@@ -955,9 +955,9 @@ static const char *D_ShortenWadName(const char *name)
     if (!strcmp(name, "Pump-Action Shotgun"))
         return "Shotgun";
     if (!strcmp(name, "Double-Barrelled Shotgun"))
-        return "Double Shotgun";
+        return "Dbl Shotgun";
     if (!strcmp(name, "Polaric Energy Weapon"))
-        return "Energy Weapon";
+        return "Nrg Cannon";
     return name;
 }
 
