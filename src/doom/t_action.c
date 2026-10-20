@@ -2302,10 +2302,19 @@ static boolean T_ExecAttack(mobj_t *target, int cost)
     }
     // Attack speed delay: each command execution takes time based on the
     // weapon's attack_tics. This represents the fire animation duration.
+    // The pulse was begun, so the drain MUST pause until it plays out:
+    // return true. (Returning false here made T_ExecuteNext fire every
+    // queued attack in the same tic; the pulses just stacked into one
+    // long pause afterwards -- commands looked like they all resolved
+    // at once instead of one at a time.)
     {
         const t_kitdef_t *kit = T_KitForWeapon(player->readyweapon);
         if (kit->attack_tics > 0)
+        {
             T_BeginPulse(kit->attack_tics, true, false);
+            T_DumpState("exec-attack");
+            return true;
+        }
     }
     T_DumpState("exec-attack");
     return false;
