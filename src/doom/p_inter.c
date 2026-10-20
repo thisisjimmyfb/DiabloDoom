@@ -937,24 +937,21 @@ P_KillMobj
 	
     target->flags &= ~(MF_SHOOTABLE|MF_FLOAT|MF_SKULLFLY);
 
-    // Auto-capture: a player kill saves a replay immediately. The
-    // replay buffer is only 15s and agent vision latency is longer
-    // than that, so kills always scrolled out before a manual CAPTURE.
-    // Debounced 5s: a capture fired then still contains the kill, and
-    // back-to-back kills share one video.
+    // Auto-capture: a player kill earns a replay, but the snapshot is
+    // deferred until the progress phase has completely finished (the
+    // queue fully drained) -- see T_RequestCapture in t_turn.c. Firing
+    // here, mid-phase, cut replays off while queued actions were
+    // still playing out. Debounced 5s: back-to-back kills share one
+    // pending capture.
     if (source && source->player && target->player == NULL
         && (target->flags & MF_COUNTKILL))
     {
-        static int last_kill_capture_tic = -1000;
-        extern int D_ReplaySaveMP4(const char *filename);
-        extern void D_ReplayNextFilename(char *buf, size_t bufsz);
-        if (leveltime - last_kill_capture_tic >= 175)
+        static int last_kill_request_tic = -1000;
+        extern void T_RequestCapture(int reason);
+        if (leveltime - last_kill_request_tic >= 175)
         {
-            char filename[256];
-            last_kill_capture_tic = leveltime;
-            D_ReplayNextFilename(filename, sizeof(filename));
-            if (D_ReplaySaveMP4(filename) == 0)
-                printf("[REPLAY] auto-captured kill: %s\n", filename);
+            last_kill_request_tic = leveltime;
+            T_RequestCapture(1); // CAPTURE_REASON_KILL
         }
     }
 

@@ -185,9 +185,52 @@ static mobj_t *T_ExploreDetect(void)
     return spotter;
 }
 
-// Deferred combat-exit capture countdown (defined with
-// T_EnterExplore below; T_ExploreTick ticks it down).
-static int exit_capture_tics;
+// Deferred auto-capture: kills and combat exits REQUEST a capture,
+// but the snapshot only fires once the progress phase has completely
+// finished -- queue fully drained, engine back to planning or
+// explore -- plus a 1-second settle so the aftermath (final impacts,
+// corpse, loot drop) is in the buffer. Firing mid-phase (at the kill,
+// or at end-of-turn) cut replays off while queued actions were still
+// playing out.
+#define CAPTURE_REASON_KILL 1
+#define CAPTURE_REASON_EXIT 2
+#define CAPTURE_SETTLE_TICS 35 // 1 second after progress finishes
+static int capture_pending = 0;   // bitmask of CAPTURE_REASON_*
+static int capture_idle_tics = 0; // settle countdown once engine is idle
+
+void T_RequestCapture(int reason)
+{
+    if (capture_pending == 0)
+        capture_idle_tics = CAPTURE_SETTLE_TICS;
+    capture_pending |= reason;
+}
+
+static void T_TickPendingCapture(void)
+{
+    if (capture_pending == 0)
+        return;
+    // Progress phase still running: hold the request and restart the
+    // settle countdown. The capture belongs to AFTER this phase.
+    if (turnctrl.executing || T_InPulse())
+    {
+        capture_idle_tics = CAPTURE_SETTLE_TICS;
+        return;
+    }
+    if (--capture_idle_tics <= 0)
+    {
+        extern int D_ReplaySaveMP4(const char *filename);
+        extern void D_ReplayNextFilename(char *buf, size_t bufsz);
+        char filename[256];
+        int reasons = capture_pending;
+        capture_pending = 0;
+        D_ReplayNextFilename(filename, sizeof(filename));
+        if (D_ReplaySaveMP4(filename) == 0)
+            printf("[REPLAY] auto-captured (%s) post-progress: %s\n",
+                   reasons == CAPTURE_REASON_KILL ? "kill" :
+                   reasons == CAPTURE_REASON_EXIT ? "combat exit" :
+                   "kill + combat exit", filename);
+    }
+}
 
 // One explore-mode tick: run the world, then run throttled detection.
 // Shared by T_Ticker and the test harness.
@@ -197,18 +240,9 @@ void T_ExploreTick(void)
     mobj_t *spotter;
 
     P_Ticker();
-    // Deferred combat-exit capture: fire ~1s into explore, after the
-    // progress phase has completely finished and the aftermath has
-    // played out (see exit_capture_tics in T_EnterExplore).
-    if (exit_capture_tics > 0 && --exit_capture_tics == 0)
-    {
-        extern int D_ReplaySaveMP4(const char *filename);
-        extern void D_ReplayNextFilename(char *buf, size_t bufsz);
-        char filename[256];
-        D_ReplayNextFilename(filename, sizeof(filename));
-        if (D_ReplaySaveMP4(filename) == 0)
-            printf("[REPLAY] auto-captured combat exit (post-progress): %s\n", filename);
-    }
+    // Deferred auto-capture: fires once progress has completely
+    // finished (see T_TickPendingCapture below).
+    T_TickPendingCapture();
     // GOTO path stepping (explore mode only; cancelled on combat entry).
     T_GotoTick();
     // WALK persistent movement (explore mode only; stops on enemy/loot/blocked).
@@ -338,23 +372,16 @@ boolean T_InExplore(void)
     return T_Active() && turnctrl.state == TS_EXPLORE;
 }
 
-// Deferred combat-exit capture: T_EnterExplore arms this instead of
-// capturing on the spot. The snapshot is taken ~1s after the fight
-// ends -- once the progress phase has completely finished and the
-// aftermath (corpse, loot drop, player standing over it) has played
-// out in real time. Capturing at end-of-turn cut the replay off at
-// the phase boundary.
-static int exit_capture_tics = 0;
-#define EXIT_CAPTURE_DELAY 35
-
 void T_EnterExplore(void)
 {
     thinker_t *th;
     int i;
 
-    // Leaving an actual fight: arm the deferred exit capture.
+    // Leaving an actual fight: request the combat-exit capture. It
+    // fires once progress has completely finished + 1s of settle
+    // (see T_TickPendingCapture).
     if (turnctrl.state != TS_EXPLORE && turnctrl.state != TS_OFF)
-        exit_capture_tics = EXIT_CAPTURE_DELAY;
+        T_RequestCapture(CAPTURE_REASON_EXIT);
 
     turnctrl.state = TS_EXPLORE;
     turnctrl.queue_len = 0;
@@ -393,12 +420,10 @@ void T_EnterCombat(mobj_t *spotter)
 {
     static char msg[96];
     // GOTO paths, WALK and the COLLECT walk are explore-mode only;
-    // cancel on combat entry. A pending combat-exit capture is also
-    // void: the fight isn't over if a new one just started.
+    // cancel on combat entry.
     T_GotoCancel();
     T_WalkCancel();
     T_CollectCancel();
-    exit_capture_tics = 0;
     // Auto-save before combat: don't lose the pre-fight state.
     // Saves both the Doom savegame (slots 7-9) and progress.dat.
     {
@@ -856,8 +881,10 @@ static void T_EndPulse(void)
                 || players[consoleplayer].health <= 0)
             {
                 // Dead: clear queue and let the death flow handle it.
+                // (Death has its own auto-capture; drop pending ones.)
                 turnctrl.queue_len = 0;
                 turnctrl.queue_tp = 0;
+                capture_pending = 0;
                 return;
             }
             T_RefreshTargets();
@@ -1513,6 +1540,9 @@ void T_Ticker(void)
     {
         T_MaintainView();
         T_TopUpAmmo();
+        // Progress finished and we're back to planning: a pending
+        // auto-capture (kill during the phase) may fire now.
+        T_TickPendingCapture();
     }
 
     if (turnctrl.state == TS_PULSE || turnctrl.state == TS_REACTION)
