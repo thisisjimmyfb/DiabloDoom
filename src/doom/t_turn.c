@@ -923,29 +923,31 @@ static void T_EndPulse(void)
 // drain whatever's available without blocking.
 static int cmdfd = -2;  // -2 = uninitialized, -1 = failed/disabled
 
-// Command queue: every poll reads the FIFO dry, complete lines are
-// parsed into this in-memory queue, and the game executes exactly one
-// queued command per tick. A partial line (no newline yet) is never
-// consumed: its bytes are put back into the FIFO so the line stays in
-// the file until it has been completely written.
+// Command queue: each poll reads from the FIFO only while the queue
+// has room (backpressure); complete lines are parsed into this
+// in-memory queue, and the game executes exactly one queued command
+// per tick. Bytes that can't be consumed yet -- a partial line, or
+// complete lines beyond queue capacity -- are put back into the
+// FIFO, and anything beyond that stays in the pipe's kernel buffer.
+// No command is ever dropped for lack of room.
 #define CMD_QUEUE_MAX 128
 #define CMD_LINE_MAX 256
 static char cmd_queue[CMD_QUEUE_MAX][CMD_LINE_MAX];
 static int cmd_q_head = 0;   // slot of the next command to execute
 static int cmd_q_count = 0;  // commands currently queued
 
-static void cmd_queue_push(const char *line)
+// Returns false when the queue is full: the caller must leave the
+// line unconsumed (it stays in the FIFO) rather than drop it.
+static boolean cmd_queue_push(const char *line)
 {
     int tail;
     if (cmd_q_count >= CMD_QUEUE_MAX)
-    {
-        printf("[CMD] queue full, dropping: %s\n", line);
-        return;
-    }
+        return false;
     tail = (cmd_q_head + cmd_q_count) % CMD_QUEUE_MAX;
     strncpy(cmd_queue[tail], line, CMD_LINE_MAX - 1);
     cmd_queue[tail][CMD_LINE_MAX - 1] = 0;
     cmd_q_count++;
+    return true;
 }
 
 // Read-only/diagnostic commands: safe to run even while the
@@ -965,9 +967,11 @@ static boolean cmd_is_diagnostic(const char *cmd)
     return false;
 }
 
-// Parse complete lines from buf into the queue. Returns the number of
-// bytes consumed; anything past the last line separator is a partial
-// line and is left unconsumed for the caller to put back.
+// Parse complete lines from buf into the queue. Returns the number
+// of bytes consumed. Parsing stops BEFORE a line the queue has no
+// room for, and anything past the last line separator is a partial
+// line: both stay unconsumed for the caller to put back into the
+// FIFO, so no byte read is ever lost.
 static int cmd_parse_complete_lines(const char *buf, int len)
 {
     int start = 0;
@@ -985,7 +989,8 @@ static int cmd_parse_complete_lines(const char *buf, int len)
                     n = CMD_LINE_MAX - 1;
                 memcpy(line, buf + start, n);
                 line[n] = 0;
-                cmd_queue_push(line);
+                if (!cmd_queue_push(line))
+                    return consumed; // queue full: line NOT consumed
             }
             start = i + 1;
             consumed = start;
@@ -1047,46 +1052,67 @@ static void cmd_init(void)
     }
 }
 
-// Per-tick driver step: poll the FIFO (read everything available;
-// complete lines are parsed into the in-memory queue, and a partial
-// line's bytes are written back so the line stays in the file until
-// fully written), then execute exactly ONE queued command. One per
-// tick lets the world respond between commands, the way it responds
-// between key presses.
+// Putback stash: bytes read from the FIFO that could not be consumed
+// (partial line, or lines beyond queue capacity) are written back so
+// they are only ever processed once complete / once there is room.
+// If the write-back itself would block (pipe momentarily full), the
+// bytes wait here and are retried next tick -- they are never lost.
+static char cmd_putback[1024];
+static int cmd_putback_len = 0;
+
+// Try to flush the putback stash into the FIFO. Returns true when
+// the stash is empty afterwards.
+static boolean cmd_flush_putback(void)
+{
+    ssize_t w;
+    if (cmd_putback_len == 0)
+        return true;
+    w = write(cmdfd, cmd_putback, cmd_putback_len);
+    if (w == (ssize_t)cmd_putback_len)
+    {
+        cmd_putback_len = 0;
+        return true;
+    }
+    return false; // EAGAIN or short write (impossible <= PIPE_BUF): retry next tick
+}
+
+// Per-tick driver step: with backpressure, move bytes from the FIFO
+// into the in-memory queue (only while it has room; unconsumed bytes
+// go back, the rest stays in the pipe's kernel buffer), then execute
+// exactly ONE queued command. One per tick lets the world respond
+// between commands, the way it responds between key presses.
 static void cmd_drain(void (*dispatch)(const char *))
 {
-    static char pollbuf[8192];
-    char tmp[1024];
+    static char buf[1024];
     ssize_t r;
-    int poll_len = 0;
 
     if (cmdfd == -2)
         cmd_init();
     if (cmdfd < 0)
         return;
 
-    while ((r = read(cmdfd, tmp, sizeof(tmp))) > 0)
+    // Settle any pending putback first; while it can't go back we
+    // must not read more (we'd have nowhere safe to put a remainder).
+    if (cmd_flush_putback())
     {
-        if (poll_len + (int)r <= (int)sizeof(pollbuf))
+        while (cmd_q_count < CMD_QUEUE_MAX
+               && (r = read(cmdfd, buf, sizeof(buf))) > 0)
         {
-            memcpy(pollbuf + poll_len, tmp, r);
-            poll_len += (int)r;
+            int consumed = cmd_parse_complete_lines(buf, (int)r);
+            if (consumed < (int)r)
+            {
+                // Unconsumed remainder (partial line, or complete
+                // lines beyond queue capacity): stash it for
+                // write-back; flush now or at the next tick.
+                int rem = (int)r - consumed;
+                memcpy(cmd_putback, buf + consumed, rem);
+                cmd_putback_len = rem;
+                cmd_flush_putback();
+                break;
+            }
         }
-    }
-    // r == 0: EOF (can't happen with O_RDWR, we hold a writer).
-    // r < 0: EAGAIN = no data, or a real error (leave fd open).
-
-    if (poll_len > 0)
-    {
-        int consumed = cmd_parse_complete_lines(pollbuf, poll_len);
-        if (consumed < poll_len)
-        {
-            // Partial line: put the unread tail back in the FIFO so
-            // it is only ever read once completely written.
-            ssize_t w = write(cmdfd, pollbuf + consumed,
-                              poll_len - consumed);
-            (void)w;
-        }
+        // r == 0: EOF (can't happen with O_RDWR, we hold a writer).
+        // r < 0: EAGAIN = no data, or a real error (leave fd open).
     }
 
     if (cmd_q_count > 0)
@@ -1481,6 +1507,13 @@ static void cmd_dispatch(const char *cmd)
             printf("[REPLAY] saved to %s\n", filename);
         else
             printf("[REPLAY] failed\n");
+    }
+    else
+    {
+        // No handler matched. Say so in the log: a command that was
+        // delivered but matches nothing must never vanish silently --
+        // the driver deserves to learn its command went nowhere.
+        printf("[CMD] unknown command (no handler): %s\n", cmd);
     }
 }
 
