@@ -105,19 +105,30 @@ walk to the loot instead. F/Tab targeting is disabled: there is nothing
 to fight.
 
 **turn based combat mode** — exactly as described in Core loop below.
-Triggered the moment an enemy AI **acquires the player as its target**
-(`T_ExploreDetect()`): sight within the monster's front 180-degree arc,
-or hearing a shot for non-deaf monsters (mirroring vanilla `A_Look`
-detection, minus movement and attacks — monsters stay frozen until the
-fight starts). The player merely *seeing* an enemy only drives the HUD
-target markers; it never starts combat. The HUD flips to
-`TURN MODE - ROUND 1` with a "X spots you!" callout, and the player plans
-with 10 TP. Enemies that acquired the player but are not visible get an
-"X is hunting you!" telegraph before the first progress phase. When the
-queue drains with no combatants left, the game returns to
-EXPLORE — and every monster forgets the player (targets and stale
-gunshot noise are cleared), so the next encounter starts from a clean
-detection state.
+Triggered the moment an enemy AI **acquires the player as its target via
+line of sight** (`T_ExploreDetect()`): sight within the monster's front
+180-degree arc, or an already-acquired monster regaining LOS. The player
+merely *seeing* an enemy only drives the HUD target markers; it never
+starts combat. The HUD flips to `TURN MODE - ROUND 1` with a "X spots
+you!" callout, and the player plans with 10 TP. Enemies that acquired
+the player but are not visible get an "X is hunting you!" telegraph
+before the first progress phase. When the queue drains with no
+combatants left, the game returns to EXPLORE — and every monster
+forgets the player (targets and stale gunshot noise are cleared), so
+the next encounter starts from a clean detection state.
+
+**Hearing alerts but never starts combat** (changed 2026-10-19): a
+monster that hears the player (sector `soundtarget`, vanilla `A_Look`
+hearing — no sight check) is alerted exactly as before — it takes the
+player as its target and plays its wake sound (`[TURN] detect: X
+heard the player`). Explore-mode monsters stay frozen, so it does not
+move until a fight starts — but it *begins* that fight already
+targeting the player. Combat itself only begins when acquisition
+happens through the LOS path: the player comes into the alerted
+monster's view and the already-acquired branch triggers the fight
+with a target the player can actually see. Before this change,
+hearing alone started combat through walls, and the player faced an
+empty target list while the fight re-triggered in a loop.
 
 **What counts as a combatant:** `T_IsCombatant()` — the mobj's type has a
 melee or missile attack state in `mobjinfo`. Barrels and other shootable
@@ -200,6 +211,12 @@ through a bounded simulation pulse.
   sliding (`P_SlideMove`), matching explore-mode behavior. Blocked moves
   slide along walls instead of stopping dead. `P_ZMovement` runs after
   each turn-based step so stairs climb the same as explore mode.
+- **Step distance is 24 units × the movespeed multiplier** (shared with
+  the GOTO driver command), and steps **animate smoothly** over the
+  pulse at keyboard run speed instead of teleporting: the preview
+  landing spot and the executed landing spot are the same computed
+  target. Preview z-snaps at most one step (24 units); larger drops
+  fall via gravity. (Movement rework, 2026-10-19.)
 - Input locks while the queue drains.
 - Dying clears the queue immediately and ends the progress phase.
 
@@ -221,7 +238,13 @@ consuming an item does. Grid organization stays free.
 squared, and tries `T_FindPath` on each in nearest order — an unreachable
 target is skipped ("[COLLECT] loot N unreachable, trying next") and the
 collect only gives up ("CAN'T REACH LOOT") when nothing is reachable.
-G is disabled in explore mode ("Walk over loot to pick it up.").
+The BFS stops at the cell adjacent to the loot, so COLLECT then walks
+directly toward the item for the final approach (touch needs <32
+units). **The loot alert uses the same reachability rule** (changed
+2026-10-19): the "press G to loot" prompt fires only when the nearest
+loot in distance order has a BFS path — loot elsewhere on the map no
+longer lights the prompt. G is disabled in explore mode ("Walk over
+loot to pick it up.").
 
 ---
 
@@ -276,7 +299,7 @@ equipped), not loot.
 | Chaingun | AD | **Magazine 10** (1/shot) | AS | TP-hungry DPS hose. |
 | Chainsaw | AD | **Magazine 6** (1/shot) + **30% inherent leech** | AS | High risk, constant uptime; leech sustains close-range fighting. |
 | Plasma Rifle | AP | **Heat** (inverse ammo) | — (heat) | Free to spam while heat < 100: +25 heat per shot, vents 40 per 10 s continuously (fractional accumulation). |
-| Rocket Launcher | AP | **Charges** (3, +1 per 3 s) + **Magazine 20** (10/shot) | AS | Punctuated splash; firing consumes 1 charge. Each regenerated charge also loads one attack's worth of ammo. |
+| Rocket Launcher | AP | **Charges** (3, +1 per 2 s) + **Magazine 20** (10/shot) | AS | Punctuated splash; firing consumes 1 charge. Each regenerated charge also loads one attack's worth of ammo. |
 | Super Shotgun | AP | **Magazine 8** (8/shot) + **knockback** | CD | Breach tool: shoves target 1 tile. Ammo replenishes on cooldown rate (CD=2). |
 | BFG9000 | AP | **Magazine 20** (20/shot) | CD | Ultimate: highest damage. Ammo replenishes on cooldown rate (CD=3). |
 
@@ -284,8 +307,15 @@ equipped), not loot.
 definition only drives the ammo replenish rate for CD weapons
 (`REPLENISH_CD`). Firing never sets a cooldown and never blocks — ammo
 is the limiter. Attack speed is the command execution delay
-(`attack_tics` in the kit): pistol 10, shotgun 20, chaingun 8, rocket 30,
-plasma 8, BFG 40, chainsaw 6, SSG 25 tics (35 tics = 1 second).
+(`attack_tics` in the kit): pistol 15, shotgun 40, chaingun 16, rocket 80,
+plasma 16, BFG 80, chainsaw 12, SSG 50 tics (35 tics = 1 second).
+
+**No vanilla weapon auto-switch** (2026-10-19): Doom's `P_CheckAmmo`
+no longer picks a new weapon when the current one runs dry, and the
+Berserk pack no longer forces a switch to fists — the ready weapon
+changes only through the Diablo equip paths. (The vanilla auto-switch
+set `pendingweapon` directly, silently swapping the weapon and its
+Diablo stats with no equip log line.)
 
 **Base kits are deliberately weak.** Kit damage is ~1/3 of the original
 values (e.g. BFG 10–18 instead of 30–50, Pistol 2–4 instead of 6–13), so
@@ -312,8 +342,8 @@ Cadence plumbing:
 
 - Cooldowns, charges, and heat tick on wall-clock time, every game tic
   (`T_TickCadence`, called from `T_Ticker`): cooldowns count down 1 round
-  per 10 seconds (350 tics), rocket charges regenerate 1 per 3 seconds
-  (105 tics), plasma heat vents `heat_vent` per 10 seconds with
+  per 10 seconds (350 tics), rocket charges regenerate 1 per 2 seconds
+  (70 tics), plasma heat vents `heat_vent` per 10 seconds with
   fractional accumulation — all independent of round boundaries.
   `T_KitTickCooldowns` is kept as a no-op for save compatibility.
 - `T_KitCanFire` covers every gate: cooldown == 0 **and** charges > 0

@@ -33,15 +33,22 @@ title with `~/workspace/doom/wshot.py` — with `window_width 1280` /
 
 On Muse VMs (`D_OnMuseVM()` — `JARVIS_FQDN` contains `metaaivm.com`),
 `T_Ticker()` polls `/tmp/doom_cmd.txt` every tick, executes one command per
-line, then deletes the file. Commands: `WALK`, `TURNL`, `ATTACK`, `END`,
-`COLLECT`, `SCREENSHOT`. `SCREENSHOT` calls `G_ScreenShot()` — captured from
-the game's own 320x200 framebuffer, so no tearing (unlike Xlib window grabs,
-which race `SDL_RenderPresent` under Xvfb's vsync-less output). Files land as
-`DOOM00.png`…`DOOM99.png` in the working directory (PNG is the default;
-`png_screenshots` in `src/i_video.c`). The farm (`~/workspace/doom_loop.sh`)
-sends `SCREENSHOT`, collects the PNG, and upscales 3x nearest-neighbor to
-960x600. Move the `DOOM*.png` files out after each capture — the game
-`I_Error`s once all 100 names are taken.
+line, then deletes the file. Commands include: `WALK` (persistent — keeps
+walking until enemy, *reachable* loot, or blocked), `GOTO <fwd> <strafe>`
+(facing-relative grid-BFS pathfind, target clamped to nearest walkable
+cell), `KEYS`, `SCAN` (nearby keys with relative direction), `SECTORS`
+(visited-sector progress), `TURNL`/`TURNR`, `ATTACK`, `END`, `COLLECT`,
+`USE`, `SCREENSHOT`, `CAPTURE`/`REPLAY` (15 s MP4; the encode runs on a
+worker thread since 2026-10-19, so the game never stalls waiting for
+x264). Known gap: `SAVE`/`LOAD` have no FIFO handlers yet — they are
+silently ignored. Screenshots come from the game's own framebuffer
+(`SCREENSHOT` driver command), so no tearing — files land
+timestamped as `diablodoom_<ts>_NN.png` under `/tmp/doomshots/doomshots/`
+(that nested dir must exist; the game only creates `/tmp/doomshots`).
+Replay MP4s land under `/tmp/doomshots/`. The farm driver is
+`scripts/doom_loop.sh`; it reads its instructions from
+`scripts/SYSTEM_PROMPT.md` (agent rules) and `scripts/PROMPT.md`
+(strategy).
 
 ## Repo map
 
@@ -68,16 +75,18 @@ sends `SCREENSHOT`, collects the PNG, and upscales 3x nearest-neighbor to
    explore mode is free real-time movement (WASD + arrows via the normal
    Doom input path, `P_Ticker`); enemies are frozen (`P_MobjThinker`
    skips non-player `MF_COUNTKILL`). turn based combat mode triggers when an enemy AI
-   **acquires the player as its target** (`T_ExploreDetect()`, throttled
+   **acquires the player as its target via line of sight** (`T_ExploreDetect()`, throttled
    to every 7 explore tics): sight within the monster's front 180-degree
-   arc, or hearing a shot for non-deaf monsters — mirroring vanilla
-   `A_Look` minus movement/attacks. The player merely seeing an enemy
-   only drives the HUD markers. Unseen-but-acquired enemies telegraph
-   ("X is hunting you!") before the first progress phase. Leaving combat
-   clears every monster's target and stale sector noise, so the next
-   encounter starts clean. No visible combatants at round end returns to
-   explore mode. Barrels never trigger combat but stay in the Tab target list.
-   There is no `-turnbased` flag.
+   arc, or an already-acquired monster regaining LOS. **Hearing the player
+   alerts but never starts combat** (2026-10-19): a monster that hears
+   (sector `soundtarget`, vanilla `A_Look` hearing) takes the player as target and
+   wakes, but combat waits for the LOS path — so a fight never starts through a wall
+   with no visible target. The player merely seeing an enemy only drives the HUD
+   markers. Unseen-but-acquired enemies telegraph ("X is hunting you!") before the
+   first progress phase. Leaving combat clears every monster's target and stale
+   sector noise, so the next encounter starts clean. No visible combatants at round
+   end returns to explore mode. Barrels never trigger combat but stay in the Tab
+   target list. There is no `-turnbased` flag.
 2. **No scalar input, ever** (Jimmy's words: *"We shouldn't have actions
    that require scalar input because that will be too difficult to aim."*).
    Turn-mode actions are discrete: directions and actor IDs only. No
