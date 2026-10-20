@@ -232,19 +232,23 @@ state.
 **Inventory rule:** opening the character screen costs no TP. Equipping or
 consuming an item does. Grid organization stays free.
 
-**Auto-loot rule:** in turn based combat mode, G auto-paths to loot
-(`TA_COLLECT`); the HUD shows "press G to loot" when loot is in reach.
-`T_DoCollect` gathers up to 32 loot targets, sorts them by distance
-squared, and tries `T_FindPath` on each in nearest order — an unreachable
-target is skipped ("[COLLECT] loot N unreachable, trying next") and the
-collect only gives up ("CAN'T REACH LOOT") when nothing is reachable.
-The BFS stops at the cell adjacent to the loot, so COLLECT then walks
-directly toward the item for the final approach (touch needs <32
-units). **The loot alert uses the same reachability rule** (changed
+**Auto-loot rule:** the HUD shows "press G to loot" when loot is in
+reach. COLLECT is an autonomous walk, not an instant move:
+`T_DoCollect` only sets up — it gathers up to 32 loot targets, sorts
+them by distance squared, and tries `T_FindPathTo` on each in nearest
+order (an unreachable target is skipped, "[COLLECT] loot N unreachable,
+trying next"); the first reachable target's path becomes waypoints and
+raises the collect flag. `T_CollectTick` then steps the player along
+the waypoints, one step per game tick for as many ticks as the walk
+takes, with a final approach directly onto the item (touch needs <32
+units; blocked steps replan the path, up to 3 times, with a 20-second
+cap). While the walk runs, FIFO driver input is blocked — queued
+commands wait until the walk ends (pickup, unreachable, timeout, or
+combat entry, which cancels the walk). COLLECT runs in explore mode
+only. **The loot alert uses the same reachability rule** (changed
 2026-10-19): the "press G to loot" prompt fires only when the nearest
 loot in distance order has a BFS path — loot elsewhere on the map no
-longer lights the prompt. G is disabled in explore mode ("Walk over
-loot to pick it up.").
+longer lights the prompt.
 
 ---
 
