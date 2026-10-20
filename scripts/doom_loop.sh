@@ -175,13 +175,21 @@ send_cmd() {
     # Append, never overwrite: commands the game hasn't consumed yet
     # must survive this write (before the game creates the FIFO the
     # path can be a plain file, where ">" would erase queued input).
-    # Timeout is short: the game reads the FIFO every tick (35 Hz),
-    # so a healthy write drains immediately; a block means no reader.
-    if ! timeout 2 bash -c 'printf "%b" "$1" >> "$2"' _ "$1" "$CMDFILE"; then
-        echo "[$(date)] send_cmd timed out (FIFO not draining): $1" >> "$LOG"
-        return 1
-    fi
-    sleep 2
+    # The game reads the FIFO every tick (35 Hz), so a healthy write
+    # drains immediately; a block means no reader right now. Retry
+    # for a while (the game may be mid-relaunch) instead of dropping
+    # the command -- only give up after ~30s of attempts.
+    local attempt
+    for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+        if timeout 2 bash -c 'printf "%b" "$1" >> "$2"' _ "$1" "$CMDFILE"; then
+            sleep 2
+            return 0
+        fi
+        echo "[$(date)] send_cmd attempt $attempt blocked (FIFO not draining), retrying: $1" >> "$LOG"
+        sleep 1
+    done
+    echo "[$(date)] send_cmd FAILED after 15 attempts, command NOT delivered: $1" >> "$LOG"
+    return 1
 }
 
 # Wait until the game is actually draining the command FIFO (up to ~60s).
@@ -525,10 +533,20 @@ subagent_act() {
     fi
     # Log what's being sent (single line: commands separated by spaces).
     stage_log "act mark cmds: $(tr '\n' ' ' < "$ACT_FILE")"
-    # Append (never overwrite unconsumed commands) with a short
-    # timeout: the game drains the FIFO every tick, so a block means
-    # no reader (ghost), not a slow one.
-    if ! timeout 2 bash -c 'cat "$1" >> "$2"' _ "$ACT_FILE" "$CMDFILE"; then
+    # Append (never overwrite unconsumed commands). The game drains
+    # the FIFO every tick, so a block means no reader right now (e.g.
+    # mid-relaunch): retry briefly so a transient gap delays the
+    # commands instead of dropping them.
+    local act_attempt act_written=0
+    for act_attempt in 1 2 3 4 5; do
+        if timeout 2 bash -c 'cat "$1" >> "$2"' _ "$ACT_FILE" "$CMDFILE"; then
+            act_written=1
+            break
+        fi
+        stage_log "act mark write-blocked attempt=$act_attempt, retrying"
+        sleep 1
+    done
+    if [ "$act_written" != 1 ]; then
         stage_log "act end ok=false error=fifo-write-blocked ms=$(( $(now_ms) - t_act_start ))"
         echo '{"ok": false, "error": "FIFO write blocked (not draining)"}'
         exit 1
