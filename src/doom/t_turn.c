@@ -872,8 +872,61 @@ static void T_EndPulse(void)
 // commands with e.g. `echo "WALK" > /tmp/doom_cmd.txt`. Each tick we
 // drain whatever's available without blocking.
 static int cmdfd = -2;  // -2 = uninitialized, -1 = failed/disabled
-static char cmdbuf[4096];
-static int cmdlen = 0;
+
+// Command queue: every poll reads the FIFO dry and parses complete
+// lines into this in-memory queue; the game then executes exactly one
+// queued command per tick. Bytes of a partial line (no newline yet)
+// wait in the carry buffer until the rest arrives.
+#define CMD_QUEUE_MAX 64
+#define CMD_LINE_MAX 256
+static char cmd_queue[CMD_QUEUE_MAX][CMD_LINE_MAX];
+static int cmd_q_head = 0;   // slot of the next command to execute
+static int cmd_q_count = 0;  // commands currently queued
+static char cmd_carry[1024]; // partial-line bytes
+static int cmd_carry_len = 0;
+
+static void cmd_queue_push(const char *line)
+{
+    int tail;
+    if (cmd_q_count >= CMD_QUEUE_MAX)
+    {
+        printf("[CMD] queue full, dropping: %s\n", line);
+        return;
+    }
+    tail = (cmd_q_head + cmd_q_count) % CMD_QUEUE_MAX;
+    strncpy(cmd_queue[tail], line, CMD_LINE_MAX - 1);
+    cmd_queue[tail][CMD_LINE_MAX - 1] = 0;
+    cmd_q_count++;
+}
+
+// Feed raw bytes into the line parser: complete lines go to the queue,
+// a trailing partial line stays in the carry buffer.
+static void cmd_feed_bytes(const char *data, int len)
+{
+    int i;
+    for (i = 0; i < len; i++)
+    {
+        char c = data[i];
+        if (c == '\n' || c == '\r')
+        {
+            if (cmd_carry_len > 0)
+            {
+                cmd_carry[cmd_carry_len] = 0;
+                cmd_queue_push(cmd_carry);
+                cmd_carry_len = 0;
+            }
+        }
+        else if (cmd_carry_len < (int)sizeof(cmd_carry) - 1)
+        {
+            cmd_carry[cmd_carry_len++] = c;
+        }
+        else
+        {
+            // Line longer than the carry buffer: drop it, resync.
+            cmd_carry_len = 0;
+        }
+    }
+}
 
 static void cmd_init(void)
 {
@@ -890,16 +943,18 @@ static void cmd_init(void)
     // commands from it before replacing with a real FIFO.
     if (stat("/tmp/doom_cmd.txt", &st) == 0 && !S_ISFIFO(st.st_mode))
     {
-        // Read any commands the worker wrote early into our buffer.
+        // Read any commands the worker wrote early and queue them.
         FILE *f = fopen("/tmp/doom_cmd.txt", "r");
         if (f != NULL)
         {
-            size_t r = fread(cmdbuf, 1, sizeof(cmdbuf) - 1, f);
-            cmdbuf[r] = '\0';
-            cmdlen = (int)r;
+            char early[4096];
+            size_t r = fread(early, 1, sizeof(early), f);
             fclose(f);
-            if (cmdlen > 0)
-                printf("[CMD] recovered %d bytes from early worker write\n", cmdlen);
+            if (r > 0)
+            {
+                printf("[CMD] recovered %d bytes from early worker write\n", (int)r);
+                cmd_feed_bytes(early, (int)r);
+            }
         }
         unlink("/tmp/doom_cmd.txt");
     }
@@ -915,11 +970,10 @@ static void cmd_init(void)
         cmdfd = -1;
 }
 
-// Drain available bytes from the FIFO into the buffer, then dispatch
-// at most ONE complete command line per tick. Commands used to all
-// land in the same tick and act on one frozen snapshot of the world;
-// one per tick lets the game respond between commands, the way it
-// responds between key presses. Partial lines stay buffered.
+// Per-tick driver step: poll the FIFO (read everything available,
+// parse complete lines into the in-memory queue), then execute
+// exactly ONE queued command. One per tick lets the world respond
+// between commands, the way it responds between key presses.
 static void cmd_drain(void (*dispatch)(const char *))
 {
     char tmp[1024];
@@ -931,46 +985,15 @@ static void cmd_drain(void (*dispatch)(const char *))
         return;
 
     while ((r = read(cmdfd, tmp, sizeof(tmp))) > 0)
-    {
-        if (cmdlen + r >= (int)sizeof(cmdbuf))
-        {
-            // Buffer full without a newline: drop it, resync.
-            cmdlen = 0;
-        }
-        memcpy(cmdbuf + cmdlen, tmp, r);
-        cmdlen += r;
-    }
+        cmd_feed_bytes(tmp, (int)r);
     // r == 0: EOF (can't happen with O_RDWR, we hold a writer).
     // r < 0: EAGAIN = no data, or a real error (leave fd open).
 
-    // Extract the first complete non-empty line and dispatch it.
-    // Anything after it waits for the next tick.
+    if (cmd_q_count > 0)
     {
-        int start = 0;
-        int i;
-        for (i = 0; i < cmdlen; i++)
-        {
-            if (cmdbuf[i] == '\n' || cmdbuf[i] == '\r')
-            {
-                if (i > start)
-                {
-                    cmdbuf[i] = 0;
-                    dispatch(cmdbuf + start);
-                    start = i + 1;
-                    memmove(cmdbuf, cmdbuf + start, cmdlen - start);
-                    cmdlen -= start;
-                    return;
-                }
-                start = i + 1; // empty line: skip the separator
-            }
-        }
-        // No complete command this tick: drop any leading separators
-        // consumed above, keep the partial line buffered.
-        if (start > 0)
-        {
-            memmove(cmdbuf, cmdbuf + start, cmdlen - start);
-            cmdlen -= start;
-        }
+        dispatch(cmd_queue[cmd_q_head]);
+        cmd_q_head = (cmd_q_head + 1) % CMD_QUEUE_MAX;
+        cmd_q_count--;
     }
 }
 
