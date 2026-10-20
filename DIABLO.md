@@ -102,6 +102,15 @@ This matters because magazines auto-replenish: the classic "walk
 over a duplicate for its ammo" almost never applies here, so
 without the item grant a repeat pickup would do nothing at all.
 
+Weapon item names follow the WAD being played: when a WAD renames
+a Doom weapon in its DEHACKED strings, item names built around
+that weapon inherit the new name — under Freedoom the chaingun is
+the "minigun" and the chainsaw the "ripsaw", so you get Miniguns,
+Vampiric Ripsaws, a Wizard's SKAG 1337, and so on. Bespoke names
+(Unmaker, Old Painless) and all non-weapon items (helms, boots,
+rings…) keep their Diablo names, and the pistol keeps its name
+too — it has no pickup string to inherit from.
+
 ## Explore / combat
 
 The game is not always turn-based. **Explore** freely with WASD + arrows
