@@ -191,6 +191,8 @@ void T_ExploreTick(void)
     P_Ticker();
     // GOTO path stepping (explore mode only; cancelled on combat entry).
     T_GotoTick();
+    // WALK persistent movement (explore mode only; stops on enemy/loot/blocked).
+    T_WalkTick();
     if (++explore_sight_tic >= 7)
     {
         explore_sight_tic = 0;
@@ -351,8 +353,9 @@ void T_EnterExplore(void)
 void T_EnterCombat(mobj_t *spotter)
 {
     static char msg[96];
-    // GOTO paths are explore-mode only; cancel on combat entry.
+    // GOTO paths and WALK are explore-mode only; cancel on combat entry.
     T_GotoCancel();
+    T_WalkCancel();
     // Auto-save before combat: don't lose the pre-fight state.
     // Saves both the Doom savegame (slots 7-9) and progress.dat.
     {
@@ -954,19 +957,11 @@ static void cmd_dispatch(const char *cmd)
         T_DoEndTurn();
     else if (!strcmp(cmd, "WALK"))
     {
-        player_t *pl = &players[consoleplayer];
-        if (pl->mo != NULL && T_InExplore())
-        {
-            // Smooth movement like a key press: inject momentum and let the
-            // normal P_XYMovement physics (friction, collision, item pickup)
-            // carry the player over subsequent tics. No teleport.
-            // Impulses accumulate, so batching WALKs sustains movement.
-            // A manual WALK cancels any active GOTO path.
-            T_GotoCancel();
-            angle_t ang = pl->mo->angle;
-            pl->mo->momx += FixedMul(FRACUNIT / 2, finecosine[ang >> ANGLETOFINESHIFT]);
-            pl->mo->momy += FixedMul(FRACUNIT / 2, finesine[ang >> ANGLETOFINESHIFT]);
-        }
+        // Persistent walk: keep moving forward until enemy nearby,
+        // loot nearby, combat starts, or blocked. The worker sends WALK
+        // once; the game handles the rest. A manual WALK cancels GOTO.
+        // (Also cancels any active walk and restarts it.)
+        T_WalkStart();
     }
     else if (!strncmp(cmd, "GOTO", 4))
     {

@@ -629,6 +629,8 @@ void T_GotoStart(fixed_t tx, fixed_t ty)
     goto_active = false;
     goto_wp_count = 0;
     goto_wp_index = 0;
+    // GOTO overrides WALK.
+    T_WalkCancel();
 
     if (pl->mo == NULL)
         return;
@@ -697,6 +699,110 @@ void T_GotoCancel(void)
     goto_active = false;
     goto_wp_count = 0;
     goto_wp_index = 0;
+}
+
+// ------------------------------------------------------------------
+// WALK: persistent forward movement until interesting.
+// The worker sends WALK once; the game keeps moving forward each tick
+// until: combat starts, an enemy is nearby, loot is nearby, or blocked.
+// Uses the shared T_ScanNearby for detection.
+// ------------------------------------------------------------------
+
+static boolean walk_active = false;
+static int walk_blocked_tics = 0;
+static fixed_t walk_last_x = 0;
+static fixed_t walk_last_y = 0;
+
+void T_WalkStart(void)
+{
+    player_t *pl = &players[consoleplayer];
+    if (pl->mo == NULL || !T_InExplore())
+        return;
+    // Cancel any active GOTO path.
+    T_GotoCancel();
+    walk_active = true;
+    walk_blocked_tics = 0;
+    walk_last_x = pl->mo->x;
+    walk_last_y = pl->mo->y;
+    printf("[WALK] started\n");
+}
+
+void T_WalkCancel(void)
+{
+    if (walk_active)
+        printf("[WALK] stopped\n");
+    walk_active = false;
+    walk_blocked_tics = 0;
+}
+
+boolean T_WalkActive(void)
+{
+    return walk_active;
+}
+
+// Called each tick in explore mode. Moves forward until stop condition.
+void T_WalkTick(void)
+{
+    player_t *pl = &players[consoleplayer];
+    mobj_t *mo;
+
+    if (!walk_active)
+        return;
+    if (pl->mo == NULL || !T_InExplore())
+    {
+        T_WalkCancel();
+        return;
+    }
+    mo = pl->mo;
+
+    // Check for nearby enemies or loot using shared scanner.
+    {
+        t_scan_result_t scan = T_ScanNearby(mo, 192); // 192 units = 6 cells
+        if (scan.nearest_enemy != NULL)
+        {
+            printf("[WALK] enemy nearby (%d units), stopping\n",
+                   scan.enemy_dist >> 16);
+            T_WalkCancel();
+            return;
+        }
+        if (scan.nearest_loot != NULL || scan.nearest_pickup != NULL)
+        {
+            fixed_t d = scan.nearest_loot != NULL ? scan.loot_dist : scan.pickup_dist;
+            printf("[WALK] loot nearby (%d units), stopping\n", d >> 16);
+            T_WalkCancel();
+            return;
+        }
+    }
+
+    // Check if we're stuck (not moving).
+    {
+        fixed_t dx = mo->x - walk_last_x;
+        fixed_t dy = mo->y - walk_last_y;
+        fixed_t moved = P_AproxDistance(dx, dy) >> 16;
+        if (moved < 2) // Less than 2 units per tick = stuck
+        {
+            walk_blocked_tics++;
+            if (walk_blocked_tics > 35) // 1 second stuck
+            {
+                printf("[WALK] blocked, stopping\n");
+                T_WalkCancel();
+                return;
+            }
+        }
+        else
+        {
+            walk_blocked_tics = 0;
+        }
+        walk_last_x = mo->x;
+        walk_last_y = mo->y;
+    }
+
+    // Keep moving forward: inject momentum in facing direction.
+    {
+        angle_t ang = mo->angle;
+        mo->momx += FixedMul(FRACUNIT / 2, finecosine[ang >> ANGLETOFINESHIFT]);
+        mo->momy += FixedMul(FRACUNIT / 2, finesine[ang >> ANGLETOFINESHIFT]);
+    }
 }
 
 boolean T_GotoActive(void)

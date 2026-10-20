@@ -223,6 +223,10 @@ void T_GotoStart(fixed_t tx, fixed_t ty); // GOTO x y: pathfind and walk there
 void T_GotoCancel(void);
 boolean T_GotoActive(void);
 void T_GotoTick(void);      // step along the GOTO path (explore mode)
+void T_WalkStart(void);     // WALK: persistent forward movement
+void T_WalkCancel(void);
+boolean T_WalkActive(void);
+void T_WalkTick(void);      // keep walking until enemy/loot/blocked (explore)
 struct player_s;
 fixed_t T_MoveSpeedPerTic(struct player_s *player); // units/tic, movespeed-scaled
 boolean T_LootAvailable(void); // true if any Diablo loot is on the map
