@@ -29,7 +29,8 @@
 void D_EnsureDoomshotsDir(void)
 {
     // On Muse VMs: /tmp/doomshots (ephemeral, won't fill persistent storage).
-    // On local machines: $HOME/doomshots (easy to find).
+    // On local machines: doomshots/ under the current folder (same place
+    // screenshots land, easy to find next to the game).
     // The farm uploads interesting ones before they're lost on recycle.
     struct stat st;
     const char *dir;
@@ -37,17 +38,7 @@ void D_EnsureDoomshotsDir(void)
     if (D_OnMuseVM())
         dir = "/tmp/doomshots";
     else
-    {
-        static char home_dir[512];
-        const char *home = getenv("HOME");
-        if (home)
-        {
-            snprintf(home_dir, sizeof(home_dir), "%s/doomshots", home);
-            dir = home_dir;
-        }
-        else
-            dir = "/tmp/doomshots";
-    }
+        dir = "doomshots";
     if (stat(dir, &st) != 0)
     {
         if (mkdir(dir, 0755) != 0 && errno != EEXIST)
@@ -61,16 +52,7 @@ static const char *D_DoomshotsDir(void)
     extern boolean D_OnMuseVM(void);
     if (D_OnMuseVM())
         return "/tmp/doomshots";
-    {
-        static char home_dir[512];
-        const char *home = getenv("HOME");
-        if (home)
-        {
-            snprintf(home_dir, sizeof(home_dir), "%s/doomshots", home);
-            return home_dir;
-        }
-    }
-    return "/tmp/doomshots";
+    return "doomshots";
 }
 
 // Find an unused replay filename: /tmp/doomshots/diablodoom_YYYYMMDD_HHMMSS.mp4,
