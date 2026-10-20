@@ -324,6 +324,19 @@ void T_EnterExplore(void)
     thinker_t *th;
     int i;
 
+    // Auto-capture on combat exit: the fight's last 15s (final blows,
+    // the kill, the loot drop) are in the replay buffer right now;
+    // later they'd scroll out. Only when actually leaving a fight.
+    if (turnctrl.state != TS_EXPLORE && turnctrl.state != TS_OFF)
+    {
+        extern int D_ReplaySaveMP4(const char *filename);
+        extern void D_ReplayNextFilename(char *buf, size_t bufsz);
+        char filename[256];
+        D_ReplayNextFilename(filename, sizeof(filename));
+        if (D_ReplaySaveMP4(filename) == 0)
+            printf("[REPLAY] auto-captured combat exit: %s\n", filename);
+    }
+
     turnctrl.state = TS_EXPLORE;
     turnctrl.queue_len = 0;
     turnctrl.queue_tp = 0;
