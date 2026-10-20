@@ -2175,8 +2175,9 @@ void T_DoAttack(void)
 // The target is validated live: an earlier queued action may have
 // killed it (or the weapon may have gone on cooldown), in which case
 // the attack skips gracefully with a message and a TP refund.
-// Attacks resolve instantly (existing behavior — no settle pulse),
-// so this returns false and the drain continues inline.
+// A successful shot begins an attack_tics pulse and returns true, so
+// the drain pauses until the fire animation has played out before
+// the next queued entry executes.
 static boolean T_ExecAttack(mobj_t *target, int cost)
 {
     player_t *player = &players[consoleplayer];
