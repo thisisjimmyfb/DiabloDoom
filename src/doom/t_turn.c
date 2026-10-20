@@ -948,6 +948,23 @@ static void cmd_queue_push(const char *line)
     cmd_q_count++;
 }
 
+// Read-only/diagnostic commands: safe to run even while the
+// COLLECT autonomous walk has gameplay input blocked. They don't
+// move the player or change game state, so the walk keeps its
+// input block while the worker keeps its eyes.
+static boolean cmd_is_diagnostic(const char *cmd)
+{
+    static const char *diag[] = {
+        "SCREENSHOT", "REPLAY", "CAPTURE", "VERSION",
+        "INVENTORY", "KEYS", "SCAN", "SECTORS", NULL
+    };
+    int i;
+    for (i = 0; diag[i] != NULL; i++)
+        if (!strcmp(cmd, diag[i]))
+            return true;
+    return false;
+}
+
 // Parse complete lines from buf into the queue. Returns the number of
 // bytes consumed; anything past the last line separator is a partial
 // line and is left unconsumed for the caller to put back.
@@ -1074,10 +1091,13 @@ static void cmd_drain(void (*dispatch)(const char *))
 
     if (cmd_q_count > 0)
     {
-        // While the COLLECT autonomous walk is running, input is
-        // blocked: queued commands wait and execute once the walk
+        // While the COLLECT autonomous walk is running, gameplay input
+        // is blocked: queued commands wait and execute once the walk
         // finishes (picked up, unreachable, timeout, or combat).
-        if (T_CollectActive() && T_InExplore())
+        // Diagnostic commands (SCREENSHOT/REPLAY/etc.) pass through so
+        // the driver keeps its eyes during the walk.
+        if (T_CollectActive() && T_InExplore()
+            && !cmd_is_diagnostic(cmd_queue[cmd_q_head]))
             return;
         dispatch(cmd_queue[cmd_q_head]);
         cmd_q_head = (cmd_q_head + 1) % CMD_QUEUE_MAX;
