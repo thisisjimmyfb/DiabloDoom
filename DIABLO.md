@@ -105,8 +105,11 @@ without the item grant a repeat pickup would do nothing at all.
 Weapon item names follow the WAD being played: when a WAD renames
 a Doom weapon in its DEHACKED strings, item names built around
 that weapon inherit the new name — under Freedoom the chaingun is
-the "minigun" and the chainsaw the "ripsaw", so you get Miniguns,
-Vampiric Ripsaws, a Wizard's SKAG 1337, and so on. Bespoke names
+the "minigun" and the chainsaw the "ripsaw", so you get Miniguns
+and Vampiric Ripsaws. Two of Freedoom's names are shortened for
+display because they're too long to sit inside an item name:
+"SKAG 1337" shows as just SKAG (so, a Wizard's SKAG), and
+"Pump-Action Shotgun" as just Shotgun. Bespoke names
 (Unmaker, Old Painless) and all non-weapon items (helms, boots,
 rings…) keep their Diablo names, and the pistol keeps its name
 too — it has no pickup string to inherit from.
