@@ -1052,67 +1052,79 @@ static void cmd_init(void)
     }
 }
 
-// Putback stash: bytes read from the FIFO that could not be consumed
-// (partial line, or lines beyond queue capacity) are written back so
-// they are only ever processed once complete / once there is room.
-// If the write-back itself would block (pipe momentarily full), the
-// bytes wait here and are retried next tick -- they are never lost.
-static char cmd_putback[1024];
+// Line protocol (no dropped commands, no reordering):
+// - Writers terminate every command with a newline, in one write,
+//   so the pipe only ever holds complete lines.
+// - The reader's unit of work is the line. Each tick it drains the
+//   FIFO completely (looping reads until the pipe is empty) and only
+//   then parses, so a read-chunk boundary can never split a line.
+// - Anything unconsumed -- complete lines beyond queue capacity, or
+//   a trailing fragment from a writer that broke the rule -- goes
+//   back into the by-then-empty FIFO via this putback stash, where
+//   it stays ahead of any future bytes and in order. If the
+//   write-back itself can't complete (pipe refilled meanwhile), the
+//   bytes wait here and are retried before the next drain.
+#define CMD_IO_SIZE 65536 // >= default pipe capacity: a full drain fits
+static char cmd_io_buf[CMD_IO_SIZE];
+static char cmd_putback[CMD_IO_SIZE];
 static int cmd_putback_len = 0;
 
 // Try to flush the putback stash into the FIFO. Returns true when
 // the stash is empty afterwards.
 static boolean cmd_flush_putback(void)
 {
-    ssize_t w;
-    if (cmd_putback_len == 0)
-        return true;
-    w = write(cmdfd, cmd_putback, cmd_putback_len);
-    if (w == (ssize_t)cmd_putback_len)
+    while (cmd_putback_len > 0)
     {
-        cmd_putback_len = 0;
-        return true;
+        ssize_t w = write(cmdfd, cmd_putback, cmd_putback_len);
+        if (w > 0)
+        {
+            memmove(cmd_putback, cmd_putback + w, cmd_putback_len - (int)w);
+            cmd_putback_len -= (int)w;
+        }
+        else
+            return false; // EAGAIN: retry next tick; bytes are safe here
     }
-    return false; // EAGAIN or short write (impossible <= PIPE_BUF): retry next tick
+    return true;
 }
 
-// Per-tick driver step: with backpressure, move bytes from the FIFO
-// into the in-memory queue (only while it has room; unconsumed bytes
-// go back, the rest stays in the pipe's kernel buffer), then execute
+// Per-tick driver step: flush any putback, drain the FIFO completely,
+// parse complete lines into the in-memory queue, then execute
 // exactly ONE queued command. One per tick lets the world respond
 // between commands, the way it responds between key presses.
 static void cmd_drain(void (*dispatch)(const char *))
 {
-    static char buf[1024];
-    ssize_t r;
+    int io_len = 0;
 
     if (cmdfd == -2)
         cmd_init();
     if (cmdfd < 0)
         return;
 
-    // Settle any pending putback first; while it can't go back we
-    // must not read more (we'd have nowhere safe to put a remainder).
+    // Putback first: while earlier bytes can't go back we must not
+    // read more (nothing may overtake them).
     if (cmd_flush_putback())
     {
-        while (cmd_q_count < CMD_QUEUE_MAX
-               && (r = read(cmdfd, buf, sizeof(buf))) > 0)
+        for (;;)
         {
-            int consumed = cmd_parse_complete_lines(buf, (int)r);
-            if (consumed < (int)r)
+            ssize_t r = read(cmdfd, cmd_io_buf + io_len,
+                             sizeof(cmd_io_buf) - io_len);
+            if (r <= 0)
+                break; // EAGAIN: pipe drained. (EOF impossible: O_RDWR.)
+            io_len += (int)r;
+            if (io_len >= (int)sizeof(cmd_io_buf))
+                break; // a full pipe's worth: parse what we have
+        }
+        if (io_len > 0)
+        {
+            int consumed = cmd_parse_complete_lines(cmd_io_buf, io_len);
+            if (consumed < io_len)
             {
-                // Unconsumed remainder (partial line, or complete
-                // lines beyond queue capacity): stash it for
-                // write-back; flush now or at the next tick.
-                int rem = (int)r - consumed;
-                memcpy(cmd_putback, buf + consumed, rem);
+                int rem = io_len - consumed;
+                memcpy(cmd_putback, cmd_io_buf + consumed, rem);
                 cmd_putback_len = rem;
                 cmd_flush_putback();
-                break;
             }
         }
-        // r == 0: EOF (can't happen with O_RDWR, we hold a writer).
-        // r < 0: EAGAIN = no data, or a real error (leave fd open).
     }
 
     if (cmd_q_count > 0)
