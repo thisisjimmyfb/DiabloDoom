@@ -20,6 +20,7 @@
 //
 // Part of the DiabloDoom mod (GPL-2.0-or-later, like Chocolate Doom).
 
+#include <ctype.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -28,6 +29,8 @@
 #include "d_diablo_icons.h"
 #include "d_player.h"
 #include "deh_misc.h"
+#include "deh_str.h"
+#include "dstrings.h"
 #include "doomdef.h"
 #include "doomstat.h"
 #include "m_random.h"
@@ -905,6 +908,152 @@ int D_BaseItemForWeapon(int doomweapon)
     return D_NOITEM;
 }
 
+// --------------------------------------------------------------------
+// WAD weapon names.
+//
+// A WAD renames the Doom weapons through its DEHACKED pickup
+// strings (Freedoom: chaingun -> "minigun", chainsaw -> "ripsaw",
+// BFG9000 -> "SKAG 1337"). A weapon item whose table name is built
+// around the canonical base name inherits the WAD's name at
+// display time: "Vampiric Chainsaw" shows as "Vampiric Ripsaw"
+// under Freedoom. Bespoke names without the base token (Unmaker,
+// BFG10K, Old Painless), weapons the WAD doesn't rename (pistol
+// has no pickup string at all), and every non-weapon item keep
+// their table names. Display only: item identity stays (tier, idx).
+// --------------------------------------------------------------------
+
+// Per weapon: the vanilla GOT* pickup string, the weapon's name
+// inside it, the base-name token the item tables build around,
+// and a shorter fallback token (or NULL).
+static const struct
+{
+    const char *got;
+    const char *token;
+    const char *label;
+    const char *alt;
+} wad_weapon_names[NUMWEAPONS] =
+{
+    { NULL,         NULL,              "Fists",           NULL }, // fist
+    { NULL,         NULL,              "Pistol",          NULL }, // pistol
+    { GOTSHOTGUN,   "shotgun",         "Shotgun",         NULL },
+    { GOTCHAINGUN,  "chaingun",        "Chaingun",        NULL },
+    { GOTLAUNCHER,  "rocket launcher", "Rocket Launcher", NULL },
+    { GOTPLASMA,    "plasma gun",      "Plasma Rifle",    NULL },
+    { GOTBFG9000,   "BFG9000",         "BFG9000",         "BFG" },
+    { GOTCHAINSAW,  "chainsaw",        "Chainsaw",        NULL },
+    { GOTSHOTGUN2,  "super shotgun",   "Super Shotgun",   NULL },
+};
+
+static char wad_name_cache[NUMWEAPONS][48];
+static boolean wad_name_done = false;
+
+// The WAD's own name for a Doom weapon, title-cased, or NULL when
+// the WAD keeps the vanilla name. Extracted once from the
+// DEHACKED pickup string: the name follows the first " the "
+// ("Got the minigun!") and runs to the sentence end.
+static const char *D_WadWeaponName(int doomweapon)
+{
+    int w;
+
+    if (!wad_name_done)
+    {
+        wad_name_done = true;
+        for (w = 0; w < NUMWEAPONS; w++)
+        {
+            const char *vanilla = wad_weapon_names[w].got;
+            const char *wad, *p, *end;
+            int len, i;
+
+            wad_name_cache[w][0] = '\0';
+            if (!vanilla)
+                continue;
+            wad = DEH_String(vanilla);
+            if (!wad || !strcmp(wad, vanilla))
+                continue; // not renamed by this WAD
+
+            p = strstr(wad, " the ");
+            if (p)
+                p += 5;
+            else if (!strncmp(wad, "A ", 2))
+                p = wad + 2;
+            else
+                continue;
+            end = p;
+            while (*end && *end != '!' && *end != '.')
+                end++;
+            while (end > p && end[-1] == ' ')
+                end--;
+            len = (int)(end - p);
+            if (len < 2 || len >= (int)sizeof(wad_name_cache[w]))
+                continue;
+            memcpy(wad_name_cache[w], p, len);
+            wad_name_cache[w][len] = '\0';
+            // Title-case: uppercase each word's first letter,
+            // leave the rest as written ("SKAG 1337" stays).
+            for (i = 0; i < len; i++)
+                if (i == 0 || wad_name_cache[w][i - 1] == ' '
+                    || wad_name_cache[w][i - 1] == '-')
+                    wad_name_cache[w][i] =
+                        toupper((unsigned char)wad_name_cache[w][i]);
+        }
+    }
+
+    if (doomweapon < 0 || doomweapon >= NUMWEAPONS
+        || !wad_name_cache[doomweapon][0])
+        return NULL;
+    return wad_name_cache[doomweapon];
+}
+
+// Find token in name as a standalone word (bounded by spaces or
+// the string ends), so "BFG" doesn't match inside "BFG10K".
+static const char *D_FindWord(const char *name, const char *token)
+{
+    int tlen = (int)strlen(token);
+    const char *p = name;
+
+    while ((p = strstr(p, token)) != NULL)
+    {
+        if ((p == name || p[-1] == ' ')
+            && (p[tlen] == '\0' || p[tlen] == ' '))
+            return p;
+        p++;
+    }
+    return NULL;
+}
+
+void D_ItemDisplayName(const diablo_itemdef_t *def, char *buf, int bufsize)
+{
+    const char *wad, *token, *hit;
+
+    if (!def)
+    {
+        snprintf(buf, bufsize, "?");
+        return;
+    }
+    if (def->slot != ESLOT_WEAPON
+        || !(wad = D_WadWeaponName(def->doomweapon)))
+    {
+        snprintf(buf, bufsize, "%s", def->name);
+        return;
+    }
+
+    token = wad_weapon_names[def->doomweapon].label;
+    hit = D_FindWord(def->name, token);
+    if (!hit && wad_weapon_names[def->doomweapon].alt)
+    {
+        token = wad_weapon_names[def->doomweapon].alt;
+        hit = D_FindWord(def->name, token);
+    }
+    if (!hit)
+    {
+        snprintf(buf, bufsize, "%s", def->name);
+        return;
+    }
+    snprintf(buf, bufsize, "%.*s%s%s",
+             (int)(hit - def->name), def->name, wad,
+             hit + strlen(token));
+}
+
 boolean D_BackpackAdd(struct player_s *pl, int tier, int idx)
 {
     player_t *player = (player_t *)pl;
@@ -934,7 +1083,11 @@ boolean D_BackpackAdd(struct player_s *pl, int tier, int idx)
     player->diablo_recent = player->diablo_bp_count;
     player->diablo_bp_count++;
 
-    D_Msg(player, tier_msgs[tier], def->name);
+    {
+        char namebuf[96];
+        D_ItemDisplayName(def, namebuf, sizeof(namebuf));
+        D_Msg(player, tier_msgs[tier], namebuf);
+    }
     return true;
 }
 
@@ -954,6 +1107,9 @@ void D_BackpackFullMsg(struct player_s *pl)
 static void D_UseConsumable(player_t *player, const diablo_itemdef_t *def)
 {
     int max, amount;
+    char namebuf[96];
+
+    D_ItemDisplayName(def, namebuf, sizeof(namebuf));
 
     // Phase 4: energy boosts potion effectiveness (+2% per point).
     amount = def->heal + def->heal * D_PotionBonus((struct player_s *)player)
@@ -967,7 +1123,7 @@ static void D_UseConsumable(player_t *player, const diablo_itemdef_t *def)
         if (player->health > max)
             player->health = max;
         player->mo->health = player->health;
-        D_Msg(player, "You quaff the %s. (+%d HP)", def->name, amount);
+        D_Msg(player, "You quaff the %s. (+%d HP)", namebuf, amount);
         break;
 
       case USE_MANA:
@@ -975,14 +1131,14 @@ static void D_UseConsumable(player_t *player, const diablo_itemdef_t *def)
         // all plasma heat.
         T_KitRefillAllAmmo();
         D_Msg(player, "You quaff the %s. (ammo restored)",
-              def->name);
+              namebuf);
         break;
 
       default: // USE_BLAST
         // A gas bomb at your feet: hurts everything nearby, you included.
         // (Poison resist does not protect you from your own bomb.)
         P_RadiusAttack(player->mo, player->mo, amount);
-        D_Msg(player, "The %s bursts into toxic gas!", def->name);
+        D_Msg(player, "The %s bursts into toxic gas!", namebuf);
         break;
     }
 }
@@ -1199,7 +1355,11 @@ void D_EquipRecent(struct player_s *pl)
     player->diablo_recent = -1;
     D_RecalcStats(pl);
 
-    D_Msg(player, "Equipped %s.", def->name);
+    {
+        char namebuf[96];
+        D_ItemDisplayName(def, namebuf, sizeof(namebuf));
+        D_Msg(player, "Equipped %s.", namebuf);
+    }
 }
 
 // Q key (Phase 1 placeholder): unequip everything back to the backpack.

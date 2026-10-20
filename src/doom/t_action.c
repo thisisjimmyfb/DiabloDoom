@@ -1175,7 +1175,11 @@ void T_DoCollect(void)
         static char msg[64];
         def = D_GetItemDef(D_ITEMTIER(item_id), D_ITEMIDX(item_id));
         if (def)
-            snprintf(msg, sizeof(msg), "COLLECTING: %s", def->name);
+        {
+            char namebuf[96];
+            D_ItemDisplayName(def, namebuf, sizeof(namebuf));
+            snprintf(msg, sizeof(msg), "COLLECTING: %s", namebuf);
+        }
         else
             snprintf(msg, sizeof(msg), "COLLECTING LOOT...");
         player->message = msg;

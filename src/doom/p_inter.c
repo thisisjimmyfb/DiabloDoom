@@ -230,10 +230,14 @@ P_GiveWeapon
                 return false;
             }
             gaveitem = true;
-            printf("[LOOT] weapon pickup: granted \"%s\" (tier=%d idx=%d)\n",
-                   D_GetItemDef(D_ITEMTIER(id),
-                                D_ITEMIDX(id))->name,
-                   D_ITEMTIER(id), D_ITEMIDX(id));
+            {
+                const diablo_itemdef_t *gdef =
+                    D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
+                char namebuf[96];
+                D_ItemDisplayName(gdef, namebuf, sizeof(namebuf));
+                printf("[LOOT] weapon pickup: granted \"%s\" (tier=%d idx=%d)\n",
+                       namebuf, D_ITEMTIER(id), D_ITEMIDX(id));
+            }
         }
     }
 
@@ -562,8 +566,10 @@ static void P_DropDiabloLoot(mobj_t *target, mobj_t *source)
         // which item" without digging through the save.
         const diablo_itemdef_t *def =
             D_GetItemDef(D_ITEMTIER(item_id), D_ITEMIDX(item_id));
+        char namebuf[96];
+        D_ItemDisplayName(def, namebuf, sizeof(namebuf));
         printf("[LOOT] dropped \"%s\" tier=%d idx=%d by %s at (%d,%d)\n",
-               def ? def->name : "?",
+               namebuf,
                D_ITEMTIER(item_id), D_ITEMIDX(item_id),
                P_MonsterName(target->type),
                target->x >> 16, target->y >> 16);

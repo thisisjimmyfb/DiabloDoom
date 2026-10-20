@@ -165,6 +165,11 @@ typedef struct
 const diablo_itemdef_t *D_GetItemDef(int tier, int idx);
 int D_TierCount(int tier);
 boolean D_ValidItem(int tier, int idx);
+// Display name for an item: weapon items whose table name is built
+// around the canonical base name ("Vampiric Chainsaw") inherit the
+// WAD's own name for that weapon ("Vampiric Ripsaw" under Freedoom).
+// Everything else displays as its table name.
+void D_ItemDisplayName(const diablo_itemdef_t *def, char *buf, int bufsize);
 // Icon index (d_diablo_icons.h) for the given item.
 int D_GetItemIconIdx(int tier, int idx);
 

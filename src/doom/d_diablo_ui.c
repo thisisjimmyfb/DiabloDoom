@@ -1183,7 +1183,11 @@ static int UITooltipLines(int id, char lines[12][48])
     if (!def)
         return 0;
 
-    snprintf(lines[n++], 48, "%s", def->name);
+    {
+        char namebuf[96];
+        D_ItemDisplayName(def, namebuf, sizeof(namebuf));
+        snprintf(lines[n++], 48, "%s", namebuf);
+    }
     snprintf(lines[n++], 48, "%s", ui_tiernames[def->tier]);
 
     if (def->consumable)
