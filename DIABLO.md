@@ -88,14 +88,19 @@ ready weapon's current magazine (remaining heat capacity for plasma).
 
 ## Weapon pickups
 
-Walking over a Doom weapon (map-placed or dropped by an enemy) also
-grants that weapon's plain base item into your backpack — first
-acquisition or duplicate alike — so it can be equipped and salvaged
-like any other drop. If the backpack has no room for it, the weapon
-stays on the ground. This matters because magazines auto-replenish:
-the classic "walk over a duplicate for its ammo" almost never
-applies here, so without the item grant a repeat pickup would do
-nothing at all.
+Walking over a Doom weapon (map-placed or dropped by an enemy)
+grants a Diablo item **of that same weapon type**, rolled on the
+usual rarity table — Normal through Unique, with your magic find
+applied — first acquisition or duplicate alike. So a shotgun on
+the ground might become a plain Shotgun, a magic Vampiric Shotgun,
+or a rare Splitting Shotgun. The tier tables have gaps: not every
+weapon type has a Set or Unique variant yet (there is no unique
+pistol), and a roll that lands on a missing tier is re-rolled, so
+those weapons simply can't produce that tier for now. If the
+backpack has no room for the item, the weapon stays on the ground.
+This matters because magazines auto-replenish: the classic "walk
+over a duplicate for its ammo" almost never applies here, so
+without the item grant a repeat pickup would do nothing at all.
 
 ## Explore / combat
 
