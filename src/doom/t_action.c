@@ -662,8 +662,9 @@ static int T_FindPathTo(mobj_t *player_mo, fixed_t tx, fixed_t ty,
 // ------------------------------------------------------------------
 // GOTO driver command: pathfind to (x,y) and walk there over multiple
 // tics. The worker sends "GOTO x y" (map units); the game BFS-pathfinds
-// on the 32-unit grid and steps through waypoints using P_TryMove for
-// collision. A new GOTO overrides; reaching the target clears the state.
+// on the 32-unit grid and glides through waypoints on momentum
+// (velocity set per tic, integrated by P_XYMovement). A new GOTO
+// overrides; reaching the target clears the state.
 // ------------------------------------------------------------------
 
 #define GOTO_MAX_WP 64
@@ -673,6 +674,10 @@ static fixed_t goto_wp_y[GOTO_MAX_WP];
 static int goto_wp_count = 0;
 static int goto_wp_index = 0;
 static boolean goto_active = false;
+// Momentum-movement bookkeeping (T_GotoTick drives via momx/momy and
+// detects "blocked" as no displacement, since physics owns the move).
+static fixed_t goto_last_x = 0, goto_last_y = 0;
+static int goto_stuck_tics = 0;
 
 void T_GotoStart(fixed_t tx, fixed_t ty)
 {
@@ -746,14 +751,29 @@ void T_GotoStart(fixed_t tx, fixed_t ty)
     goto_wp_count = steps;
     goto_wp_index = 0;
     goto_active = true;
+    goto_stuck_tics = 0;
+    if (players[consoleplayer].mo != NULL)
+    {
+        goto_last_x = players[consoleplayer].mo->x;
+        goto_last_y = players[consoleplayer].mo->y;
+    }
     printf("[GOTO] path to (%d,%d): %d waypoints\n", tx >> 16, ty >> 16, steps);
 }
 
 void T_GotoCancel(void)
 {
+    mobj_t *mo = players[consoleplayer].mo;
     goto_active = false;
     goto_wp_count = 0;
     goto_wp_index = 0;
+    goto_stuck_tics = 0;
+    // Momentum movement: kill the GOTO-driven velocity so the player
+    // stops instead of coasting on friction.
+    if (mo != NULL)
+    {
+        mo->momx = 0;
+        mo->momy = 0;
+    }
 }
 
 // ------------------------------------------------------------------
@@ -885,7 +905,6 @@ void T_GotoTick(void)
     fixed_t wx, wy, dx, dy;
     fixed_t dist_sq;
     fixed_t step = T_MoveSpeedPerTic(pl); // units per tic, movespeed-scaled
-    fixed_t nx, ny;
 
     if (!goto_active)
         return;
@@ -916,27 +935,44 @@ void T_GotoTick(void)
         return;
     }
 
-    // Step toward waypoint (normalized to `step` length).
+    // Step toward waypoint: set this tic's velocity and let
+    // P_XYMovement (inside P_Ticker) integrate it with collision and
+    // sliding -- the player GLIDES to the waypoint. (Was a P_TryMove
+    // position snap per tic, which read as teleport hops in replays.)
     {
         fixed_t dist = P_AproxDistance(dx, dy);
         if (dist > 0)
         {
-            nx = mo->x + FixedDiv(FixedMul(dx, step), dist);
-            ny = mo->y + FixedDiv(FixedMul(dy, step), dist);
-            // P_TryMove handles collision and sliding; also triggers
-            // P_TouchSpecialThing for item pickup via the normal path.
-            if (P_TryMove(mo, nx, ny))
+            fixed_t step2 = step;
+            if (dist < step2)
+                step2 = dist;
+            mo->momx = FixedDiv(FixedMul(dx, step2), dist);
+            mo->momy = FixedDiv(FixedMul(dy, step2), dist);
+            // Face movement direction for the viewmodel/HUD.
+            mo->angle = R_PointToAngle2(mo->x, mo->y, wx, wy);
+        }
+    }
+
+    // Blocked: physics owns the move now, so a wall shows up as no
+    // displacement. Abort after ~1s of grinding on the spot.
+    {
+        fixed_t moved = P_AproxDistance(mo->x - goto_last_x,
+                                        mo->y - goto_last_y);
+        if (moved < 2 * FRACUNIT)
+        {
+            if (++goto_stuck_tics > 35)
             {
-                // Face movement direction for the viewmodel/HUD.
-                mo->angle = R_PointToAngle2(mo->x, mo->y, nx, ny);
-            }
-            else
-            {
-                // Blocked: abort the path rather than grinding a wall.
-                printf("[GOTO] blocked at waypoint %d, aborting\n", goto_wp_index);
+                printf("[GOTO] blocked at waypoint %d, aborting\n",
+                       goto_wp_index);
                 T_GotoCancel();
                 return;
             }
+        }
+        else
+        {
+            goto_stuck_tics = 0;
+            goto_last_x = mo->x;
+            goto_last_y = mo->y;
         }
     }
 }
@@ -971,10 +1007,18 @@ boolean T_CollectActive(void)
 
 void T_CollectCancel(void)
 {
+    mobj_t *mo = players[consoleplayer].mo;
     if (collect_active)
         printf("[COLLECT] walk cancelled\n");
     collect_active = false;
     collect_target_mo = NULL;
+    // Momentum movement: kill the walk velocity so the player stops
+    // instead of coasting on friction.
+    if (mo != NULL)
+    {
+        mo->momx = 0;
+        mo->momy = 0;
+    }
 }
 
 // Is the target loot still in the world (not yet picked up)?
@@ -1138,7 +1182,7 @@ void T_CollectTick(void)
     mobj_t *mo;
     int path_dirs[64];
     int steps;
-    fixed_t gx, gy, dx, dy, dist, step, nx, ny;
+    fixed_t gx, gy, dx, dy, dist, step;
 
     if (!collect_active)
         return;
@@ -1206,16 +1250,14 @@ void T_CollectTick(void)
     step = T_MoveSpeedPerTic(pl);
     if (step > dist)
         step = dist;
-    nx = mo->x + FixedDiv(FixedMul(dx, step), dist);
-    ny = mo->y + FixedDiv(FixedMul(dy, step), dist);
-    if (P_TryMove(mo, nx, ny))
-    {
-        mo->angle = R_PointToAngle2(mo->x, mo->y, nx, ny);
-    }
-    else
-    {
-        printf("[COLLECT] step blocked\n");
-    }
+    // Momentum step: set this tic's velocity toward the step target
+    // and let P_XYMovement (inside P_Ticker) carry the player --
+    // gliding with collision/sliding, and P_TouchSpecialThing fires
+    // the pickup on arrival. (Was a P_TryMove position snap per tic,
+    // which read as teleport hops in replays.)
+    mo->momx = FixedDiv(FixedMul(dx, step), dist);
+    mo->momy = FixedDiv(FixedMul(dy, step), dist);
+    mo->angle = R_PointToAngle2(mo->x, mo->y, gx, gy);
 
     // Stuck watchdog: the path is recomputed every tick, so 2 seconds
     // without progress means physics refuses a route the grid thinks
