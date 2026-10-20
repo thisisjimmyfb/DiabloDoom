@@ -81,7 +81,7 @@ static const char *T_MobjShortName(mobj_t *mo)
 // action immediately, but the explore world is frozen, so the state
 // fields are assigned directly and the action runs on the first
 // enemy-phase tick instead.
-static void T_SpotPlayer(mobj_t *mo)
+static void T_SpotPlayer(mobj_t *mo, boolean by_sight)
 {
     player_t *player = &players[consoleplayer];
     int sound;
@@ -102,7 +102,8 @@ static void T_SpotPlayer(mobj_t *mo)
         else
             S_StartSound(mo, sound);
     }
-    printf("[TURN] detect: %s acquired the player\n", T_MobjShortName(mo));
+    printf("[TURN] detect: %s %s the player\n", T_MobjShortName(mo),
+           by_sight ? "saw" : "heard");
 
     mo->state = &states[mo->info->seestate];
     mo->tics = mo->state->tics;
@@ -153,14 +154,17 @@ static mobj_t *T_ExploreDetect(void)
         }
 
         // Hearing (vanilla A_Look): a shot in this sector wakes
-        // non-deaf monsters with no sight check.
+        // non-deaf monsters with no sight check. Hearing ALERTS the
+        // monster (it gets the player as target and hunts in explore
+        // mode) but does NOT trigger combat -- combat requires
+        // acquisition via the LOS path. A heard-only monster that
+        // rounds a corner and gains LOS enters combat through the
+        // already-acquired branch above.
         if (!(mo->flags & MF_AMBUSH)
             && mo->subsector != NULL
             && mo->subsector->sector->soundtarget == player->mo)
         {
-            T_SpotPlayer(mo);
-            if (spotter == NULL)
-                spotter = mo;
+            T_SpotPlayer(mo, false);
             continue;
         }
 
@@ -174,7 +178,7 @@ static mobj_t *T_ExploreDetect(void)
         if (!P_CheckSight(mo, player->mo))
             continue;
 
-        T_SpotPlayer(mo);
+        T_SpotPlayer(mo, true);
         if (spotter == NULL)
             spotter = mo;
     }
