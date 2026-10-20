@@ -751,8 +751,8 @@ P_TouchSpecialThing
 	if (!P_GivePower (player, pw_strength))
 	    return;
 	player->message = DEH_String(GOTBERSERK);
-	if (player->readyweapon != wp_fist)
-	    player->pendingweapon = wp_fist;
+	// Don't auto-switch to fist: the Diablo inventory controls the
+	// equipped weapon. Berserk just gives the strength power.
 	if (gameversion > exe_doom_1_2)
 	    sound = sfx_getpow;
 	break;
