@@ -65,8 +65,8 @@ Notes:
 **Important quirks:**
 - `WALK` and `GOTO` only work in explore mode (blocked in combat, cancelled on combat entry)
 - `COLLECT` requires turn-based mode active, player alive, not mid-pulse
-- The game drains the FIFO every tick; write commands with `printf "CMD\n" > /tmp/doom_cmd.txt`
-- FIFO liveness: `> /tmp/doom_cmd.txt` BLOCKS FOREVER if no game process is reading it. Before your first FIFO write each run, confirm `pgrep -c -f "chocolate-doo[m]"` is exactly 1. If 0 or >1, report it — the workflow handles game launch, you never launch or kill the game yourself.
+- The game drains the FIFO every tick; write commands with `printf "CMD\n" >> /tmp/doom_cmd.txt` — always APPEND (`>>`), never overwrite: `>` can erase commands the game hasn't consumed yet.
+- FIFO liveness: writing to /tmp/doom_cmd.txt BLOCKS FOREVER if no game process is reading it. Before your first FIFO write each run, confirm `pgrep -c -f "chocolate-doo[m]"` is exactly 1. If 0 or >1, report it — the workflow handles game launch, you never launch or kill the game yourself.
 
 ## Game Loop
 

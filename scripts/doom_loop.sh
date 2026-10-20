@@ -172,8 +172,12 @@ END_TIME=$(($(date +%s) + FARM_SECONDS))
 ITER=0
 
 send_cmd() {
-    # Never block forever: a readerless FIFO (ghost) would hang the caller.
-    if ! timeout 10 bash -c 'printf "%b" "$1" > "$2"' _ "$1" "$CMDFILE"; then
+    # Append, never overwrite: commands the game hasn't consumed yet
+    # must survive this write (before the game creates the FIFO the
+    # path can be a plain file, where ">" would erase queued input).
+    # Timeout is short: the game reads the FIFO every tick (35 Hz),
+    # so a healthy write drains immediately; a block means no reader.
+    if ! timeout 2 bash -c 'printf "%b" "$1" >> "$2"' _ "$1" "$CMDFILE"; then
         echo "[$(date)] send_cmd timed out (FIFO not draining): $1" >> "$LOG"
         return 1
     fi
@@ -227,9 +231,19 @@ fi
 take_screenshot() {
     local ts=$(date +%Y%m%d_%H%M%S)
     local out="$SCREEN_DIR/doom_ralph_${ts}_${ITER}.png"
+    local before=$(ls -t "$SHOTDIR"/DOOM*.png "$SHOTDIR"/doomshots/*.png 2>/dev/null | head -1)
     send_cmd "SCREENSHOT\n"
-    sleep 4
-    local newest=$(ls -t "$SHOTDIR"/DOOM*.png 2>/dev/null | head -1)
+    # Screenshots render at dispatch (~1 frame); poll briefly for the
+    # new file instead of the old fixed 4s sleep.
+    local newest=""
+    for i in $(seq 1 8); do
+        sleep 0.5
+        newest=$(ls -t "$SHOTDIR"/DOOM*.png "$SHOTDIR"/doomshots/*.png 2>/dev/null | head -1)
+        if [ -n "$newest" ] && [ "$newest" != "$before" ]; then
+            break
+        fi
+        newest=""
+    done
     if [ -n "$newest" ]; then
         # Upscale 3x nearest-neighbor to match display size.
         python3 - "$newest" "$out" >> "$LOG" 2>&1 <<'PYEOF' || echo "screenshot failed" >> "$LOG"
@@ -249,9 +263,19 @@ PYEOF
 capture_replay() {
     local ts=$(date +%Y%m%d_%H%M%S)
     local out="$SCREEN_DIR/doom_ralph_${ts}_${ITER}.mp4"
+    local before=$(ls -t "$SHOTDIR"/*.mp4 2>/dev/null | head -1)
+    local newest=""
     send_cmd "REPLAY\n"
-    sleep 18
-    local newest=$(ls -t "$SHOTDIR"/*.mp4 2>/dev/null | head -1)
+    # Async encode lands in ~2-9s; poll (exit on arrival) instead of
+    # the fixed 18s sleep from the synchronous-encode era.
+    for i in $(seq 1 12); do
+        sleep 1
+        newest=$(ls -t "$SHOTDIR"/*.mp4 2>/dev/null | head -1)
+        if [ -n "$newest" ] && [ "$newest" != "$before" ]; then
+            break
+        fi
+        newest=""
+    done
     if [ -n "$newest" ]; then
         mv "$newest" "$out"
         echo "$out"
@@ -435,7 +459,9 @@ subagent_observe() {
     send_cmd "CAPTURE\n"
     stage_log "observe mark capture-sent ms=$(( $(now_ms) - t_obs_start ))"
     newest=""
-    for i in $(seq 1 16); do
+    # Async encode: the file lands when the encoder thread finishes
+    # (~2-9s measured); poll exits on arrival, cap is failure-only.
+    for i in $(seq 1 12); do
         sleep 1
         newest=$(ls -t "$SHOTDIR"/*.mp4 2>/dev/null | head -1)
         if [ -n "$newest" ] && [ "$newest" != "$before_mp4" ]; then
@@ -450,8 +476,9 @@ subagent_observe() {
     fi
     stage_log "observe mark mp4-ready found=$([ -n "$replay_path" ] && echo 1 || echo 0) ms=$(( $(now_ms) - t_obs_start ))"
     # Screenshot lands after the video; poll for the new PNG.
+    # (Taken at dispatch now that the encode is async: ~1s typical.)
     screenshot_path=""
-    for i in $(seq 1 8); do
+    for i in $(seq 1 4); do
         sleep 1
         newest_png=$(ls -t "$SHOTDIR"/*.png "$SHOTDIR"/doomshots/*.png 2>/dev/null | head -1)
         if [ -n "$newest_png" ] && [ "$newest_png" != "$before_png" ]; then
@@ -498,8 +525,10 @@ subagent_act() {
     fi
     # Log what's being sent (single line: commands separated by spaces).
     stage_log "act mark cmds: $(tr '\n' ' ' < "$ACT_FILE")"
-    # timeout: never block forever on a readerless FIFO (ghost).
-    if ! timeout 10 bash -c 'cat "$1" > "$2"' _ "$ACT_FILE" "$CMDFILE"; then
+    # Append (never overwrite unconsumed commands) with a short
+    # timeout: the game drains the FIFO every tick, so a block means
+    # no reader (ghost), not a slow one.
+    if ! timeout 2 bash -c 'cat "$1" >> "$2"' _ "$ACT_FILE" "$CMDFILE"; then
         stage_log "act end ok=false error=fifo-write-blocked ms=$(( $(now_ms) - t_act_start ))"
         echo '{"ok": false, "error": "FIFO write blocked (not draining)"}'
         exit 1
