@@ -470,7 +470,7 @@ int D_ReplaySaveMP4(const char *filename)
         param.i_csp = X264_CSP_I420;
         param.b_annexb = 0;          // length-prefixed NALs (MP4 style)
         param.b_repeat_headers = 1;  // SPS/PPS before each IDR
-        param.i_threads = 1;         // deterministic, no threading issues
+        param.i_threads = 0;         // auto-detect: use all cores for faster encode
         param.i_log_level = X264_LOG_WARNING;
         param.rc.i_rc_method = X264_RC_CRF;
         param.rc.f_rf_constant = 23;
