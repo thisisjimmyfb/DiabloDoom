@@ -170,65 +170,12 @@ boolean P_CheckAmmo (player_t* player)
     if (ammo == am_noammo || player->ammo[ammo] >= count)
 	return true;
 		
-    // Out of ammo, pick a weapon to change to.
-    // Preferences are set here.
-    do
-    {
-	if (player->weaponowned[wp_plasma]
-	    && player->ammo[am_cell]
-	    && (gamemode != shareware) )
-	{
-	    player->pendingweapon = wp_plasma;
-	}
-	else if (player->weaponowned[wp_supershotgun] 
-		 && player->ammo[am_shell]>2
-		 && (gamemode == commercial) )
-	{
-	    player->pendingweapon = wp_supershotgun;
-	}
-	else if (player->weaponowned[wp_chaingun]
-		 && player->ammo[am_clip])
-	{
-	    player->pendingweapon = wp_chaingun;
-	}
-	else if (player->weaponowned[wp_shotgun]
-		 && player->ammo[am_shell])
-	{
-	    player->pendingweapon = wp_shotgun;
-	}
-	else if (player->ammo[am_clip])
-	{
-	    player->pendingweapon = wp_pistol;
-	}
-	else if (player->weaponowned[wp_chainsaw])
-	{
-	    player->pendingweapon = wp_chainsaw;
-	}
-	else if (player->weaponowned[wp_missile]
-		 && player->ammo[am_misl])
-	{
-	    player->pendingweapon = wp_missile;
-	}
-	else if (player->weaponowned[wp_bfg]
-		 && player->ammo[am_cell]>40
-		 && (gamemode != shareware) )
-	{
-	    player->pendingweapon = wp_bfg;
-	}
-	else
-	{
-	    // If everything fails.
-	    player->pendingweapon = wp_fist;
-	}
-	
-    } while (player->pendingweapon == wp_nochange);
-
-    // Now set appropriate weapon overlay.
-    P_SetPsprite (player,
-		  ps_weapon,
-		  weaponinfo[player->readyweapon].downstate);
-
-    return false;	
+    // Out of ammo: DO NOT auto-switch weapons. The Diablo inventory
+    // system controls the equipped weapon; vanilla auto-switch would
+    // bypass the Diablo equip path and change the viewmodel silently.
+    // Just return false (don't fire); the Diablo ammo system (T_KitCanFire)
+    // enforces the real ammo limit and shows NO AMMO in the HUD.
+    return false;
 }
 
 
