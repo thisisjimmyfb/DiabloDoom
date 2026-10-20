@@ -237,15 +237,17 @@ reach. COLLECT is an autonomous walk, not an instant move:
 `T_DoCollect` only sets up — it gathers up to 32 loot targets, sorts
 them by distance squared, and tries `T_FindPathTo` on each in nearest
 order (an unreachable target is skipped, "[COLLECT] loot N unreachable,
-trying next"); the first reachable target's path becomes waypoints and
-raises the collect flag. `T_CollectTick` then steps the player along
-the waypoints, one step per game tick for as many ticks as the walk
-takes, with a final approach directly onto the item (touch needs <32
-units; blocked steps replan the path, up to 3 times, with a 20-second
-cap). While the walk runs, FIFO driver input is blocked — queued
-commands wait until the walk ends (pickup, unreachable, timeout, or
-combat entry, which cancels the walk). COLLECT runs in explore mode
-only. **The loot alert uses the same reachability rule** (changed
+trying next"); the first reachable one becomes the target and raises
+the collect flag. No route is stored: `T_CollectTick` pathfinds fresh
+from the player's current position every game tick and moves one step
+along the path it finds, so the pathfinding is spread over as many
+ticks as the walk takes and the route is always current. When the BFS
+says the player is already in the loot's cell, the tick steps directly
+onto the item for the final approach (touch needs <32 units). The walk
+ends on pickup, on finding no path, after 2 seconds without progress,
+or on a 20-second cap. While the walk runs, FIFO driver input is
+blocked — queued commands wait until the walk ends (combat entry also
+cancels it). COLLECT runs in explore mode only. **The loot alert uses the same reachability rule** (changed
 2026-10-19): the "press G to loot" prompt fires only when the nearest
 loot in distance order has a BFS path — loot elsewhere on the map no
 longer lights the prompt.

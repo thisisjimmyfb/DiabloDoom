@@ -943,28 +943,23 @@ void T_GotoTick(void)
 
 // ------------------------------------------------------------------
 // COLLECT: autonomous walk to loot, driven by the game ticker.
-// T_DoCollect only sets up: pick the nearest reachable loot, convert
-// its BFS path to waypoints, raise collect_active. T_CollectTick then
-// steps the player along the waypoints -- one step per game tick, for
-// as many ticks as the walk takes -- with a final approach onto the
-// item itself so the normal touch check picks it up. While the walk
-// is active the FIFO driver dispatches nothing (input blocked), and
-// combat entry cancels the walk (see T_EnterCombat).
+// T_DoCollect only sets up: pick the nearest reachable loot, store it
+// as the target, raise collect_active. No route is computed or stored.
+// T_CollectTick does the pathfinding as part of the walk: every tick
+// it runs the grid BFS from the player's current position to the
+// target and moves one step along the path it finds, so the route is
+// spread over as many game ticks as the walk takes and is always
+// fresh. While the walk is active the FIFO driver dispatches nothing
+// (input blocked), and combat entry cancels it (see T_EnterCombat).
 // ------------------------------------------------------------------
 
-#define COLLECT_MAX_WP 64
 #define COLLECT_MAX_TICS (35 * 20)  // 20-second hard cap
 
 static boolean collect_active = false;
-static fixed_t collect_wp_x[COLLECT_MAX_WP];
-static fixed_t collect_wp_y[COLLECT_MAX_WP];
-static int collect_wp_count = 0;
-static int collect_wp_index = 0;
 static mobj_t *collect_target_mo = NULL; // the loot being walked to
 static fixed_t collect_target_x = 0;
 static fixed_t collect_target_y = 0;
 static int collect_tics = 0;
-static int collect_replans = 0;
 static int collect_still_tics = 0;
 static fixed_t collect_last_x = 0;
 static fixed_t collect_last_y = 0;
@@ -979,37 +974,7 @@ void T_CollectCancel(void)
     if (collect_active)
         printf("[COLLECT] walk cancelled\n");
     collect_active = false;
-    collect_wp_count = 0;
-    collect_wp_index = 0;
     collect_target_mo = NULL;
-}
-
-// Arm the walk: store the BFS path to the loot as waypoints.
-static void collect_arm(mobj_t *mo, mobj_t *loot, int *path_dirs, int steps)
-{
-    static const int dx[4] = { 0, 1, 0, -1 };
-    static const int dy[4] = { 1, 0, -1, 0 };
-    int gx, gy, i;
-
-    T_WorldToGrid(mo->x, mo->y, &gx, &gy);
-    for (i = 0; i < steps && i < COLLECT_MAX_WP; i++)
-    {
-        gx += dx[path_dirs[i]];
-        gy += dy[path_dirs[i]];
-        collect_wp_x[i] = (fixed_t)gx * LOOT_GRID + (fixed_t)(LOOT_GRID / 2) * FRACUNIT;
-        collect_wp_y[i] = (fixed_t)gy * LOOT_GRID + (fixed_t)(LOOT_GRID / 2) * FRACUNIT;
-    }
-    collect_wp_count = steps;
-    collect_wp_index = 0;
-    collect_target_mo = loot;
-    collect_target_x = loot->x;
-    collect_target_y = loot->y;
-    collect_tics = 0;
-    collect_replans = 0;
-    collect_still_tics = 0;
-    collect_last_x = mo->x;
-    collect_last_y = mo->y;
-    collect_active = true;
 }
 
 // Is the target loot still in the world (not yet picked up)?
@@ -1026,34 +991,14 @@ static boolean collect_target_present(void)
     return false;
 }
 
-// Recompute the BFS path from the player's current position to the
-// target. Returns false when no path exists (or too many replans).
-static boolean collect_replan(mobj_t *mo)
-{
-    int path_dirs[COLLECT_MAX_WP];
-    int steps;
-    int done_replans = collect_replans;
-
-    if (done_replans >= 3)
-        return false;
-    steps = T_FindPathTo(mo, collect_target_x, collect_target_y,
-                         path_dirs, COLLECT_MAX_WP);
-    if (steps < 0)
-        return false;
-    collect_arm(mo, collect_target_mo, path_dirs, steps);
-    collect_replans = done_replans + 1; // collect_arm reset it; restore + count
-    printf("[COLLECT] replanned (%d): %d waypoints\n", collect_replans, steps);
-    return true;
-}
-
-// Setup only: find the nearest reachable loot and arm the walk.
-// The movement itself happens in T_CollectTick, one step per tick.
+// Setup only: find the nearest reachable loot and raise the flag.
+// The pathfinding and movement happen in T_CollectTick, per tick.
 void T_DoCollect(void)
 {
     player_t *player = &players[consoleplayer];
     mobj_t *mo = player->mo;
     mobj_t *loot = NULL;
-    int path_dirs[COLLECT_MAX_WP];
+    int path_dirs[64];
     int steps = -1;
 
     if (!T_Active() || mo == NULL)
@@ -1125,7 +1070,7 @@ void T_DoCollect(void)
 
         for (li = 0; li < loot_count; li++)
         {
-            steps = T_FindPathTo(mo, loot_list[li]->x, loot_list[li]->y, path_dirs, COLLECT_MAX_WP);
+            steps = T_FindPathTo(mo, loot_list[li]->x, loot_list[li]->y, path_dirs, 64);
             if (steps >= 0)
             {
                 loot = loot_list[li];
@@ -1142,8 +1087,7 @@ void T_DoCollect(void)
         if (scan.nearest_pickup != NULL)
         {
             steps = T_FindPathTo(mo, scan.nearest_pickup->x,
-                                 scan.nearest_pickup->y, path_dirs,
-                                 COLLECT_MAX_WP);
+                                 scan.nearest_pickup->y, path_dirs, 64);
             if (steps >= 0)
                 loot = scan.nearest_pickup;
         }
@@ -1159,7 +1103,14 @@ void T_DoCollect(void)
     // One autonomous walk at a time: it overrides GOTO and WALK.
     T_GotoCancel();
     T_WalkCancel();
-    collect_arm(mo, loot, path_dirs, steps);
+    collect_target_mo = loot;
+    collect_target_x = loot->x;
+    collect_target_y = loot->y;
+    collect_tics = 0;
+    collect_still_tics = 0;
+    collect_last_x = mo->x;
+    collect_last_y = mo->y;
+    collect_active = true;
 
     {
         const diablo_itemdef_t *def;
@@ -1172,20 +1123,22 @@ void T_DoCollect(void)
             snprintf(msg, sizeof(msg), "COLLECTING LOOT...");
         player->message = msg;
     }
-    printf("[COLLECT] walking to loot at (%d,%d): %d waypoints\n",
-           loot->x >> 16, loot->y >> 16, steps);
+    printf("[COLLECT] walking to loot at (%d,%d)\n",
+           loot->x >> 16, loot->y >> 16);
 }
 
-// Per-tick collect walk (explore mode). Steps the player toward the
-// next waypoint; after the last waypoint, steps directly onto the
-// loot for the final approach. Ends when the loot is picked up, when
-// no path remains, or on timeout.
+// Per-tick collect walk (explore mode). Pathfinds fresh from the
+// player's current position and moves one step along the path; when
+// the BFS says we are already in the loot's cell, steps directly onto
+// the item for the final approach. Ends when the loot is picked up,
+// when no path exists, or on timeout.
 void T_CollectTick(void)
 {
     player_t *pl = &players[consoleplayer];
     mobj_t *mo;
-    fixed_t tx, ty, dx, dy, dist, step, nx, ny;
-    boolean final_approach;
+    int path_dirs[64];
+    int steps;
+    fixed_t gx, gy, dx, dy, dist, step, nx, ny;
 
     if (!collect_active)
         return;
@@ -1213,32 +1166,44 @@ void T_CollectTick(void)
         return;
     }
 
-    final_approach = (collect_wp_index >= collect_wp_count);
-    if (final_approach)
+    // Pathfind from where we stand, this tick.
+    steps = T_FindPathTo(mo, collect_target_x, collect_target_y,
+                         path_dirs, 64);
+    if (steps < 0)
     {
-        tx = collect_target_x;
-        ty = collect_target_y;
+        printf("[COLLECT] no path from (%d,%d) to loot\n",
+               mo->x >> 16, mo->y >> 16);
+        pl->message = "CAN'T REACH LOOT.";
+        T_CollectCancel();
+        return;
+    }
+
+    if (steps == 0)
+    {
+        // Already in the loot's cell: step directly onto the item.
+        gx = collect_target_x;
+        gy = collect_target_y;
     }
     else
     {
-        tx = collect_wp_x[collect_wp_index];
-        ty = collect_wp_y[collect_wp_index];
+        // Aim for the centre of the adjacent cell the path starts with.
+        // BFS dirs are world-space: 0=N(+y),1=E(+x),2=S(-y),3=W(-x).
+        static const int cdx[4] = { 0, 1, 0, -1 };
+        static const int cdy[4] = { 1, 0, -1, 0 };
+        int cellx, celly;
+        T_WorldToGrid(mo->x, mo->y, &cellx, &celly);
+        cellx += cdx[path_dirs[0]];
+        celly += cdy[path_dirs[0]];
+        gx = (fixed_t)cellx * LOOT_GRID + (fixed_t)(LOOT_GRID / 2) * FRACUNIT;
+        gy = (fixed_t)celly * LOOT_GRID + (fixed_t)(LOOT_GRID / 2) * FRACUNIT;
     }
-    dx = tx - mo->x;
-    dy = ty - mo->y;
+
+    dx = gx - mo->x;
+    dy = gy - mo->y;
     dist = P_AproxDistance(dx, dy);
-
-    if (!final_approach && dist < 16 * FRACUNIT)
-    {
-        collect_wp_index++;
-        return;
-    }
-
-    // One step toward the goal point (GOTO-style P_TryMove stepping;
-    // triggers P_TouchSpecialThing when stepping onto the loot).
-    step = T_MoveSpeedPerTic(pl);
     if (dist <= 0)
         return;
+    step = T_MoveSpeedPerTic(pl);
     if (step > dist)
         step = dist;
     nx = mo->x + FixedDiv(FixedMul(dx, step), dist);
@@ -1249,17 +1214,12 @@ void T_CollectTick(void)
     }
     else
     {
-        // Blocked: replan from here; give up if that fails.
-        printf("[COLLECT] blocked at waypoint %d\n", collect_wp_index);
-        if (!collect_replan(mo))
-        {
-            pl->message = "CAN'T REACH LOOT.";
-            T_CollectCancel();
-        }
-        return;
+        printf("[COLLECT] step blocked\n");
     }
 
-    // Stuck watchdog: no real progress for 2 seconds -> replan/give up.
+    // Stuck watchdog: the path is recomputed every tick, so 2 seconds
+    // without progress means physics refuses a route the grid thinks
+    // is walkable (a prop in the doorway, a step too high). Give up.
     {
         fixed_t moved = P_AproxDistance(mo->x - collect_last_x,
                                         mo->y - collect_last_y);
@@ -1267,12 +1227,9 @@ void T_CollectTick(void)
         {
             if (++collect_still_tics > 70)
             {
-                printf("[COLLECT] stuck, replanning\n");
-                if (!collect_replan(mo))
-                {
-                    pl->message = "CAN'T REACH LOOT.";
-                    T_CollectCancel();
-                }
+                printf("[COLLECT] stuck for 2s, giving up\n");
+                pl->message = "CAN'T REACH LOOT.";
+                T_CollectCancel();
             }
         }
         else
@@ -1283,6 +1240,7 @@ void T_CollectTick(void)
         }
     }
 }
+
 void T_DoMove(int dir)
 {
     player_t *player = &players[consoleplayer];
