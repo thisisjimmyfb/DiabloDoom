@@ -232,8 +232,8 @@ state.
 **Inventory rule:** opening the character screen costs no TP. Equipping or
 consuming an item does. Grid organization stays free.
 
-**Auto-loot rule:** the HUD shows "press G to loot" when loot is in
-reach. COLLECT is an autonomous walk, not an instant move:
+**Auto-loot rule:** the HUD shows "Loot nearby, press G to loot"
+when loot is in reach. COLLECT is an autonomous walk, not an instant move:
 `T_DoCollect` only sets up — it gathers up to 32 loot targets, sorts
 them by distance squared, and tries `T_FindPathTo` on each in nearest
 order (an unreachable target is skipped, "[COLLECT] loot N unreachable,
@@ -248,8 +248,9 @@ ends on pickup, on finding no path, after 2 seconds without progress,
 or on a 20-second cap. While the walk runs, FIFO driver input is
 blocked — queued commands wait until the walk ends (combat entry also
 cancels it). COLLECT runs in explore mode only. **The loot alert uses the same reachability rule** (changed
-2026-10-19): the "press G to loot" prompt fires only when the nearest
-loot in distance order has a BFS path — loot elsewhere on the map no
+2026-10-19): the "Loot nearby, press G to loot" prompt fires only
+when the nearest loot in distance order has a BFS path — loot
+elsewhere on the map no
 longer lights the prompt. The prompt itself is delivered through
 the vanilla message system (set the player message; re-issued
 every 3 seconds while loot remains, since a message lives 4) —

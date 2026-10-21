@@ -1142,7 +1142,8 @@ static void ST_drawTurnKits(void)
     }
 }
 
-// Loot alert: while drops are on the map, keep "Press G to loot" in
+// Loot alert: while drops are on the map, keep "Loot nearby, press
+// G to loot" in
 // front of the player through the vanilla message system -- the same
 // pipeline as "Explore: WASD to move." (set plyr->message, HU_Drawer
 // shows it). A message lives 4 seconds (HU_MSGTIMEOUT), so re-issue
@@ -1192,7 +1193,7 @@ static void ST_updateLootAlert(void)
             printf("[LOOT] available on map - press G to loot\n");
         if (new_loot || gametic - last_prompt_tic >= 3 * TICRATE)
         {
-            plyr->message = "Press G to loot";
+            plyr->message = "Loot nearby, press G to loot";
             last_prompt_tic = gametic;
         }
     }
