@@ -88,7 +88,7 @@ The game tracks where you have actually been. Your screenshot shows one moment �
 
 ## Exploration Strategy
 
-**Prefer new ground over old ground.** Send `FRONTIER` to see the nearest unvisited sectors with bearings, and `SECTORS` to watch the visited count climb. If visited hasn't grown over your last several moves, you are looping — pick a FRONTIER bearing and head that way, even if it means crossing known rooms to get there. Backtracking is a means to reach new ground, never the activity itself. When two routes look equal, always take the one toward unvisited sectors.
+**Prefer new ground over old ground.** You find it with your own eyes, not a map readout. Watch `SECTORS`: if the visited count hasn't grown over your last several moves, you are looping. Then do a **survey spin**: turn in steps all the way around (a full 360°), pausing briefly at each facing, then send `CAPTURE` — the replay's rolling buffer now holds the whole panorama, so review its frames to catalog every opening, doorway, and corridor around you. Cross off the directions HISTORY says you've already taken, and head for an opening you haven't tried, even if it means crossing known rooms to reach it. Backtracking is a means to reach new ground, never the activity itself. When two routes look equal, always take the one you haven't been down.
 
 When in EXPLORE mode (not in combat), priority order:
 

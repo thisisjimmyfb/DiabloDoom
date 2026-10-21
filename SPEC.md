@@ -261,11 +261,15 @@ buffer samples the player's position at command start/end and every
 flagging when the newest points cluster in a small box (the trap
 signature). Visited sectors are tracked continuously (every tick,
 from the player's real position — the old `SECTORS` count only
-marked the sector occupied when polled), and the `FRONTIER`
-diagnostic reports the nearest unvisited sectors with
-facing-relative bearings plus a grid-path check for the nearest
-one, so the agent can prefer new ground over re-treading old
-ground. Both trackers reset when the level's sector array changes.
+marked the sector occupied when polled), so the visited count is
+a truthful scoreboard for preferring new ground over re-treading
+old ground. Both trackers reset when the level's sector array changes.
+(A `FRONTIER` diagnostic that reported the nearest unvisited
+sectors with bearings shipped and was removed the same day,
+2026-10-21 — Jimmy ruled it cheating. The agent finds new ground
+the honest way: a 360° survey spin followed by a replay CAPTURE,
+whose rolling buffer holds the whole panorama for review against
+its own movement history.)
 
 ---
 

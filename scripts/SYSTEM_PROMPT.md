@@ -62,7 +62,7 @@ Notes:
 - `RESPAWN` — respawn after death (only after capturing death evidence)
 - `VERSION` — print binary version hash to log
 - `HISTORY` — print your movement history: recent positions, oldest first, sampled as you move. If your recent points cluster in a small box it adds a "likely trapped" note. Diagnostic — works in any mode, including during a COLLECT walk. This is how you know where you've actually been, as opposed to where you hoped you went.
-- `FRONTIER` — print the nearest unvisited sectors with facing-relative bearings (e.g. `[FRONTIER] sector 61: 200 fwd, 233 right (dist 307)`), plus a grid-path check for the nearest one. The game tracks visited sectors continuously now — `SECTORS` shows the real count. Use FRONTIER to steer toward new areas instead of re-treading old ones.
+- `SECTORS` — exploration scoreboard: current sector, how many sectors you've visited, and the level's total. The visited count is tracked continuously as you move (it used to only count the sector you happened to ask from, so it sat at 1). A count that stops climbing means you're looping.
 - `EQUIP <backpack_idx> <slot>` — equip item. Slots: 0=HELM,1=ARMOR,2=WEAPON,3=SHIELD,4=RING1,5=RING2,6=AMULET,7=BOOTS,8=GLOVES,9=BELT,10=FOCUS
 - `UNEQUIP <slot>` — remove equipped item
 - `SALVAGE <backpack_idx>` — convert item to essence
