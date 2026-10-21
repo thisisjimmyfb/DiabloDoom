@@ -35,11 +35,15 @@ On Muse VMs (`D_OnMuseVM()` — `JARVIS_FQDN` contains `metaaivm.com`),
 `T_Ticker()` polls `/tmp/doom_cmd.txt` every tick, executes one command per
 line, then deletes the file. Commands include: `WALK` (persistent — keeps
 walking until enemy, *reachable* loot (once per item: later walks ignore
-an item WALK already stopped for, until it's gone), or blocked), `GOTO <fwd> <strafe>`
-(facing-relative grid-BFS pathfind, target clamped to nearest walkable
+an item WALK already stopped for, until it's gone), or blocked), `USE`
+(use the door/switch in front of the player; explore mode), `GOTO <fwd> <strafe>`
+(facing-relative grid-BFS pathfind — Z-aware: a cell step up of more
+than 24 units doesn't exist to the pathfinder, matching the engine's
+own step limit, so targets on a drastically different height are
+unreachable by construction; target clamped to nearest walkable
 cell), `KEYS`, `SCAN` (nearby keys with relative direction), `SECTORS`
 (visited-sector progress), `TURNL`/`TURNR`, `ATTACK`, `END`, `COLLECT`,
-`USE`, `SCREENSHOT`, `CAPTURE`/`REPLAY` (15 s MP4; the encode runs on a
+`SCREENSHOT`, `CAPTURE`/`REPLAY` (15 s MP4; the encode runs on a
 worker thread since 2026-10-19, so the game never stalls waiting for
 x264). `SAVE n`/`LOAD n` drive the save slots (0 = the autosave pair,
 progress_auto1.dat + doomsav0.dsg; 3–5 = plain Doom savegames, mirroring

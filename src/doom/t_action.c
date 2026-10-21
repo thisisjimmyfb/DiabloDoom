@@ -449,6 +449,7 @@ typedef struct {
     int gx, gy;      // grid coords
     int parent;      // index into bfs_nodes, -1 for start
     int dir_from_parent; // 0=N,1=E,2=S,3=W (direction moved to get here)
+    fixed_t floorz;  // floor the player stands on at this cell
 } bfs_node_t;
 
 static bfs_node_t bfs_nodes[BFS_MAX];
@@ -462,12 +463,18 @@ static void T_WorldToGrid(fixed_t x, fixed_t y, int *gx, int *gy)
     *gy = (int)(y / LOOT_GRID);
 }
 
-// Check if a grid cell is walkable (using P_CheckPosition)
-static boolean T_GridWalkable(mobj_t *mo, int gx, int gy)
+// Check if a grid cell is walkable (using P_CheckPosition).
+// On success, floor_out (if given) receives the floor the player
+// would stand on in that cell (tmfloorz from the position check).
+static boolean T_GridWalkable(mobj_t *mo, int gx, int gy, fixed_t *floor_out)
 {
     fixed_t x = (fixed_t)gx * LOOT_GRID + LOOT_GRID / 2;
     fixed_t y = (fixed_t)gy * LOOT_GRID + LOOT_GRID / 2;
-    return P_CheckPosition(mo, x, y);
+    if (!P_CheckPosition(mo, x, y))
+        return false;
+    if (floor_out != NULL)
+        *floor_out = tmfloorz;
+    return true;
 }
 
 // Find the nearest Diablo loot mobj to the player. Returns NULL if none.
@@ -607,12 +614,20 @@ boolean T_LootAvailable(void)
 
 // BFS from player to target coords. Returns number of steps in path, or -1
 // if no path. Fills path_dirs with directions (0=N,1=E,2=S,3=W).
+// Z-aware (Jimmy, 2026-10-20): every cell transition must respect the
+// engine's step rule — the player climbs at most 24 units per step and
+// falls any distance. A destination on a drastically different height
+// (loot on a ledge 160 units up, say) has NO path, so the loot alert,
+// COLLECT, and WALK's stop all correctly treat it as unreachable
+// instead of promising a route physics can't walk.
 static int T_FindPathTo(mobj_t *player_mo, fixed_t tx, fixed_t ty,
                         int *path_dirs, int max_steps)
 {
     int pgx, pgy, tgx, tgy;
     int qhead = 0, qtail = 0;
     int i, found = -1;
+    // The floor the target rests on (sector floor at the target point).
+    fixed_t tfz = R_PointInSubsector(tx, ty)->sector->floorheight;
     // Direction offsets: N=(0,1), E=(1,0), S=(0,-1), W=(-1,0) in grid coords
     // Note: Doom Y increases north
     static const int dx[4] = { 0, 1, 0, -1 };
@@ -629,6 +644,7 @@ static int T_FindPathTo(mobj_t *player_mo, fixed_t tx, fixed_t ty,
     bfs_nodes[0].gy = pgy;
     bfs_nodes[0].parent = -1;
     bfs_nodes[0].dir_from_parent = -1;
+    bfs_nodes[0].floorz = player_mo->floorz;
     bfs_q[qtail++] = 0;
     bfs_visited[pgx + 128][pgy + 128] = 1;
 
@@ -638,8 +654,12 @@ static int T_FindPathTo(mobj_t *player_mo, fixed_t tx, fixed_t ty,
         bfs_node_t *cur = &bfs_nodes[cur_idx];
 
         // Check if we're adjacent to target (within 1 grid cell)
-        // Pickup radius: allow stopping adjacent, not exactly on top
-        if (abs(cur->gx - tgx) <= 1 && abs(cur->gy - tgy) <= 1)
+        // Pickup radius: allow stopping adjacent, not exactly on top.
+        // The target's floor must also be steppable from here — being
+        // one cell from loot that sits 160 units overhead is not
+        // "adjacent" in any sense the player can act on.
+        if (abs(cur->gx - tgx) <= 1 && abs(cur->gy - tgy) <= 1
+            && tfz - cur->floorz <= 24 * FRACUNIT)
         {
             found = cur_idx;
             break;
@@ -651,12 +671,18 @@ static int T_FindPathTo(mobj_t *player_mo, fixed_t tx, fixed_t ty,
             int ngx = cur->gx + dx[i];
             int ngy = cur->gy + dy[i];
             int vix = ngx + 128, viy = ngy + 128;
+            fixed_t nfz;
 
             if (vix < 0 || vix >= 256 || viy < 0 || viy >= 256)
                 continue;
             if (bfs_visited[vix][viy])
                 continue;
-            if (!T_GridWalkable(player_mo, ngx, ngy))
+            if (!T_GridWalkable(player_mo, ngx, ngy, &nfz))
+                continue;
+            // Step rule: never climb more than 24 units in one cell
+            // transition (the engine's own step limit in P_TryMove).
+            // Drops are unrestricted — the player can fall any height.
+            if (nfz - cur->floorz > 24 * FRACUNIT)
                 continue;
 
             bfs_visited[vix][viy] = 1;
@@ -664,6 +690,7 @@ static int T_FindPathTo(mobj_t *player_mo, fixed_t tx, fixed_t ty,
             bfs_nodes[qtail].gy = ngy;
             bfs_nodes[qtail].parent = cur_idx;
             bfs_nodes[qtail].dir_from_parent = i;
+            bfs_nodes[qtail].floorz = nfz;
             bfs_q[qtail] = qtail;
             qtail++;
         }
@@ -741,7 +768,7 @@ void T_GotoStart(fixed_t tx, fixed_t ty)
         T_WorldToGrid(cx, cy, &tgx, &tgy);
         for (clamp_steps = 0; clamp_steps < 32; clamp_steps++)
         {
-            if (T_GridWalkable(pl->mo, tgx, tgy))
+            if (T_GridWalkable(pl->mo, tgx, tgy, NULL))
                 break;
             // Step back 16 units toward player
             {
