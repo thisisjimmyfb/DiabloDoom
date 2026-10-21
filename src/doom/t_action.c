@@ -706,22 +706,51 @@ static int T_FindPathTo(mobj_t *player_mo, fixed_t tx, fixed_t ty,
             // walled edge: both centres can be legal standing spots
             // while the line between them crosses wall, and
             // P_XYMovement, which sweeps the player's body along that
-            // line, wedges against it. Sample the shared-edge midpoint
-            // with a full position check, and apply the step rule to
-            // both halves of the crossing (a ridge mid-segment can
-            // exceed 24 even when both centres comply).
+            // line, wedges against it. Sample the segment at its
+            // QUARTER points with full position checks, chaining the
+            // step rule across consecutive samples (start floor ->
+            // s1 -> s2 -> s3 -> neighbour floor). A single midpoint
+            // sample was not enough: a face sitting exactly on the
+            // shared cell boundary is only TOUCHED by the start and
+            // midpoint boxes (their extents end where the face's
+            // begins, and the line check skips non-overlapping
+            // extents), while the swept body genuinely overlaps it
+            // mid-crossing. Quarter-point boxes overlap such a face
+            // for real, so the check sees what physics sees.
             {
+                // Segments run centre to centre. (Anchoring the
+                // first segment at the player's actual position was
+                // tried and reverted the same day: a player standing
+                // off-centre across a face line poisons EVERY first
+                // step -- his box straddles the line, so each
+                // destination check inherits the line's zero opening
+                // -- and the BFS could not leave the start cell at
+                // all. The route itself is legal from his centre;
+                // the walk's stall recovery re-centres him onto it.)
                 fixed_t ccx = (fixed_t)cur->gx * LOOT_GRID + LOOT_GRID / 2;
                 fixed_t ccy = (fixed_t)cur->gy * LOOT_GRID + LOOT_GRID / 2;
                 fixed_t ncx = (fixed_t)ngx * LOOT_GRID + LOOT_GRID / 2;
                 fixed_t ncy = (fixed_t)ngy * LOOT_GRID + LOOT_GRID / 2;
-                fixed_t mfz;
-                if (!T_PosWalkable(player_mo, (ccx + ncx) / 2,
-                                   (ccy + ncy) / 2, &mfz))
+                fixed_t prev_fz = cur->floorz;
+                boolean seg_blocked = false;
+                int s;
+                for (s = 1; s <= 3 && !seg_blocked; s++)
+                {
+                    fixed_t sx = (fixed_t)(((int64_t)ccx * (4 - s)
+                                            + (int64_t)ncx * s) / 4);
+                    fixed_t sy = (fixed_t)(((int64_t)ccy * (4 - s)
+                                            + (int64_t)ncy * s) / 4);
+                    fixed_t sfz;
+                    if (!T_PosWalkable(player_mo, sx, sy, &sfz))
+                        seg_blocked = true;
+                    else if (sfz - prev_fz > 24 * FRACUNIT)
+                        seg_blocked = true;
+                    else
+                        prev_fz = sfz;
+                }
+                if (seg_blocked)
                     continue;
-                if (mfz - cur->floorz > 24 * FRACUNIT)
-                    continue;
-                if (nfz - mfz > 24 * FRACUNIT)
+                if (nfz - prev_fz > 24 * FRACUNIT)
                     continue;
             }
 
