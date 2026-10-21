@@ -117,9 +117,13 @@ boolean T_Responder(event_t *ev)
             switch (ev->data1)
             {
               case 'g': case 'G':
-                // Auto-loot queues turn moves; walk over loot instead.
-                players[consoleplayer].message =
-                    "Walk over loot to pick it up.";
+                // Same as the COLLECT driver command: the autonomous
+                // per-tick pathfinding walk to loot (T_DoCollect).
+                // This case used to just print "Walk over loot to
+                // pick it up." and swallow the key -- removed
+                // 2026-10-21 at Jimmy's order: keyboard G must behave
+                // exactly like the driver's COLLECT.
+                T_ExecuteAction(TA_COLLECT);
                 return true;
               case 't': case 'T':
                 // No turn to end outside combat.
