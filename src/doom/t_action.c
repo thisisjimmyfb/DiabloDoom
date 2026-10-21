@@ -460,18 +460,33 @@ static void T_WorldToGrid(fixed_t x, fixed_t y, int *gx, int *gy)
     *gy = (int)(y / LOOT_GRID);
 }
 
-// Check if a grid cell is walkable (using P_CheckPosition).
-// On success, floor_out (if given) receives the floor the player
-// would stand on in that cell (tmfloorz from the position check).
-static boolean T_GridWalkable(mobj_t *mo, int gx, int gy, fixed_t *floor_out)
+// Check if the player could stand at an exact position
+// (P_CheckPosition). On success, floor_out (if given) receives the
+// floor the player would stand on there (tmfloorz).
+static boolean T_PosWalkable(mobj_t *mo, fixed_t x, fixed_t y,
+                             fixed_t *floor_out)
 {
-    fixed_t x = (fixed_t)gx * LOOT_GRID + LOOT_GRID / 2;
-    fixed_t y = (fixed_t)gy * LOOT_GRID + LOOT_GRID / 2;
     if (!P_CheckPosition(mo, x, y))
+        return false;
+    // Fit rule -- the same one P_TryMove enforces: the body needs its
+    // full height between floor and ceiling. P_CheckPosition never
+    // looks at tmceilingz, so without this the BFS happily routes
+    // through CLOSED DOORS (a shut door's sector ceiling sits on its
+    // floor: zero gap) and other low ceilings that movement correctly
+    // treats as walls -- the path said reachable, the walk wedged.
+    if (tmceilingz - tmfloorz < mo->height)
         return false;
     if (floor_out != NULL)
         *floor_out = tmfloorz;
     return true;
+}
+
+// Check if a grid cell is walkable: the player must fit at its centre.
+static boolean T_GridWalkable(mobj_t *mo, int gx, int gy, fixed_t *floor_out)
+{
+    fixed_t x = (fixed_t)gx * LOOT_GRID + LOOT_GRID / 2;
+    fixed_t y = (fixed_t)gy * LOOT_GRID + LOOT_GRID / 2;
+    return T_PosWalkable(mo, x, y, floor_out);
 }
 
 // Find the nearest Diablo loot mobj to the player. Returns NULL if none.
@@ -676,6 +691,30 @@ static int T_FindPathTo(mobj_t *player_mo, fixed_t tx, fixed_t ty,
             // Drops are unrestricted — the player can fall any height.
             if (nfz - cur->floorz > 24 * FRACUNIT)
                 continue;
+            // Segment rule (Jimmy, 2026-10-21): standable endpoints are
+            // not enough -- the straight segment between the two
+            // centres must be traversable too. A doorway is a partially
+            // walled edge: both centres can be legal standing spots
+            // while the line between them crosses wall, and
+            // P_XYMovement, which sweeps the player's body along that
+            // line, wedges against it. Sample the shared-edge midpoint
+            // with a full position check, and apply the step rule to
+            // both halves of the crossing (a ridge mid-segment can
+            // exceed 24 even when both centres comply).
+            {
+                fixed_t ccx = (fixed_t)cur->gx * LOOT_GRID + LOOT_GRID / 2;
+                fixed_t ccy = (fixed_t)cur->gy * LOOT_GRID + LOOT_GRID / 2;
+                fixed_t ncx = (fixed_t)ngx * LOOT_GRID + LOOT_GRID / 2;
+                fixed_t ncy = (fixed_t)ngy * LOOT_GRID + LOOT_GRID / 2;
+                fixed_t mfz;
+                if (!T_PosWalkable(player_mo, (ccx + ncx) / 2,
+                                   (ccy + ncy) / 2, &mfz))
+                    continue;
+                if (mfz - cur->floorz > 24 * FRACUNIT)
+                    continue;
+                if (nfz - mfz > 24 * FRACUNIT)
+                    continue;
+            }
 
             bfs_visited[vix][viy] = 1;
             bfs_nodes[qtail].gx = ngx;

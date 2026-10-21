@@ -238,7 +238,14 @@ when loot is in reach. COLLECT is an autonomous walk, not an instant move:
 them by distance squared, and tries `T_FindPathTo` on each in nearest
 order (an unreachable target is skipped, "[COLLECT] loot N unreachable,
 trying next"); the first reachable one becomes the target and raises
-the collect flag. No route is stored: `T_CollectTick` pathfinds fresh
+the collect flag. The BFS tests what movement tests (2026-10-21):
+a step between cells requires the shared-edge midpoint to be
+standable as well as both centres, with the 24-unit step rule on
+both halves of the crossing, and every sampled position must fit
+the player's full height between floor and ceiling — the fit rule
+`P_TryMove` enforces but `P_CheckPosition` alone ignores, whose
+absence let the BFS route through closed doors (zero ceiling gap)
+that the walk then wedged against. No route is stored: `T_CollectTick` pathfinds fresh
 from the player's current position every game tick and moves one step
 along the path it finds, so the pathfinding is spread over as many
 ticks as the walk takes and the route is always current. When the BFS
