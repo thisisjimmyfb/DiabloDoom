@@ -251,7 +251,10 @@ cancels it). COLLECT runs in explore mode only. **The loot alert uses the same r
 2026-10-19): the "Loot nearby, press G to loot" prompt fires only
 when the nearest loot in distance order has a BFS path — loot
 elsewhere on the map no
-longer lights the prompt. The prompt itself is delivered through
+longer lights the prompt. Player corpses are candidates under the
+same rule: a corpse lights the prompt only when COLLECT could path
+to it (an earlier existence-only corpse clause bypassed the path
+test; removed 2026-10-21 at Jimmy's order). The prompt itself is delivered through
 the vanilla message system (set the player message; re-issued
 every 3 seconds while loot remains, since a message lives 4) —
 changed 2026-10-21 after the original hand-drawn prompt turned

@@ -538,14 +538,15 @@ static int T_FindPathTo(mobj_t *player_mo, fixed_t tx, fixed_t ty,
 
 // Public: check if any Diablo loot is REACHABLE (for the HUD prompt).
 // The prompt means "COLLECT can get it": same rule as T_DoCollect --
-// loot targets in distance order, first one with a BFS path counts.
-// Unreachable loot (behind doors/walls, other floors) does NOT fire
-// the alert. Throttled: the BFS runs at most once per 10 tics.
+// targets (loot drops AND player corpses) in distance order, first one
+// with a BFS path counts. Unreachable targets (behind doors/walls,
+// other floors) do NOT fire the alert -- corpses get no bypass: a
+// corpse fires the prompt only if COLLECT could walk to it (Jimmy,
+// 2026-10-21). Throttled: the BFS runs at most once per 10 tics.
 boolean T_LootAvailable(void)
 {
     player_t *player = &players[consoleplayer];
     thinker_t *th;
-    mobj_t *mo;
     if (player->mo == NULL)
         return false;
     {
@@ -553,8 +554,8 @@ boolean T_LootAvailable(void)
         static boolean last_result = false;
         if (leveltime - last_check_tic >= 10)
         {
-            mobj_t *loot_list[16];
-            fixed_t loot_dist[16];
+            mobj_t *loot_list[32];
+            fixed_t loot_dist[32];
             int loot_count = 0, li;
             mobj_t *pmo = player->mo;
             last_check_tic = leveltime;
@@ -565,10 +566,15 @@ boolean T_LootAvailable(void)
                 if (th->function.acp1 != (actionf_p1)P_MobjThinker)
                     continue;
                 lmo = (mobj_t *)th;
-                if (lmo->type < MT_LOOT_NORMAL || lmo->type > MT_LOOT_UNIQUE)
+                // Same candidate set as T_DoCollect: Diablo loot drops
+                // AND player corpses (both recoverable via G/COLLECT).
+                if (!((lmo->type >= MT_LOOT_NORMAL && lmo->type <= MT_LOOT_UNIQUE)
+                      || lmo->is_player_corpse))
                     continue;
-                if (lmo->health <= 0 || loot_count >= 16)
+                if (lmo->health <= 0 && !lmo->is_player_corpse)
                     continue;
+                if (loot_count >= 32)
+                    break;
                 {
                     fixed_t dx = lmo->x - pmo->x;
                     fixed_t dy = lmo->y - pmo->y;
@@ -594,19 +600,8 @@ boolean T_LootAvailable(void)
                 }
             }
         }
-        if (last_result)
-            return true;
+        return last_result;
     }
-    // Also show prompt for player corpses (recover via G/COLLECT or walk-over).
-    for (th = thinkercap.next; th != &thinkercap; th = th->next)
-    {
-        if (th->function.acp1 != (actionf_p1)P_MobjThinker)
-            continue;
-        mo = (mobj_t *)th;
-        if (mo->is_player_corpse)
-            return true;
-    }
-    return false;
 }
 
 // BFS from player to target coords. Returns number of steps in path, or -1
