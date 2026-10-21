@@ -456,8 +456,17 @@ static int bfs_q[BFS_MAX];
 // Convert world coords to grid coords (centered at 0,0)
 static void T_WorldToGrid(fixed_t x, fixed_t y, int *gx, int *gy)
 {
-    *gx = (int)(x / LOOT_GRID);
-    *gy = (int)(y / LOOT_GRID);
+    // Floor division, NOT C's truncating /: for negative coordinates
+    // truncation registers the position one cell too high (world
+    // y=-16 landed in the cell centred at +16 instead of -16), so
+    // every grid consumer -- BFS start/target cells, walk aims --
+    // reasoned about the wrong cell in negative territory. ( Part of
+    // Jimmy's COLLECT wedge at (2351,-16), 2026-10-21: the walk
+    // aimed a full cell too far north, into the slit's far wall.)
+    *gx = (x >= 0) ? (int)(x / LOOT_GRID)
+                   : (int)((x - LOOT_GRID + 1) / LOOT_GRID);
+    *gy = (y >= 0) ? (int)(y / LOOT_GRID)
+                   : (int)((y - LOOT_GRID + 1) / LOOT_GRID);
 }
 
 // Check if the player could stand at an exact position
