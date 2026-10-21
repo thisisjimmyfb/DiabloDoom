@@ -536,84 +536,27 @@ void D_ProgressLoadAutoSlot(int auto_slot)
                    auto_slot);
             return;
         }
-        printf("[AUTOSAVE] no Doom savegame in slot 6, using warp fallback\n");
-    }
-
-    M_snprintf(tmp, sizeof(tmp), PROGRESS_AUTO_FILENAME_FMT, auto_slot);
-    {
-        char auto_dir[512];
-        ProgressGetAutoDir(auto_dir, sizeof(auto_dir));
-        M_snprintf(path, sizeof(path), "%s/%s", auto_dir, tmp);
-    }
-
-    f = fopen(path, "rb");
-    if (!f)
-    {
-        printf("[AUTOSAVE] no auto-save in slot %d\n", auto_slot);
+        // No paired Doom savegame: this auto slot has no world state,
+        // and there is deliberately no fallback anymore. The old warp
+        // fallback loaded the progress (gear) file alone, started a
+        // FRESH level and teleported the player in -- silently
+        // resurrecting every monster (Jimmy's report, 2026-10-21:
+        // 'saved games are reviving dead monsters'). It bit auto
+        // slots 2 and 3 in practice: the auto-save keeps a single
+        // slot (slot 1 -- progress_auto1.dat + doomsav0.dsg), so
+        // their .dsg partners never exist, while stale
+        // progress_auto2/3.dat files from the rotating era made the
+        // fake load look real. A load is the full savegame or an
+        // honest failure.
+        printf("[AUTOSAVE] auto slot %d has no saved world -- load refused\n",
+               auto_slot);
+        if (gamestate == GS_LEVEL)
+        {
+            extern player_t players[];
+            extern int consoleplayer;
+            players[consoleplayer].message =
+                "That auto slot has no saved game.";
+        }
         return;
     }
-    n = fread(progress_map, 1, PROGRESS_FILE_SIZE, f);
-    fclose(f);
-    if (n != PROGRESS_FILE_SIZE)
-    {
-        printf("[AUTOSAVE] auto-save slot %d is corrupt\n", auto_slot);
-        return;
-    }
-    // Re-point the header/slot pointers (mmap base unchanged, but be safe).
-    progress_hdr = (progress_header_t *)progress_map;
-    progress_slots[0] = (unsigned char *)progress_map + PROGRESS_HEADER_SIZE;
-    progress_slots[1] = (unsigned char *)progress_map + PROGRESS_HEADER_SIZE
-                        + PROGRESS_SLOT_SIZE;
-
-    // If the auto-save was from a different level, warp there.
-    // On the title screen (gamemap == 0), start a new game on the saved
-    // map instead of warping.
-    // Player position is restored via D_AutosaveTeleportCheck after the
-    // level loads.
-    {
-        extern int gamemap;
-        extern int gameepisode;
-        int saved_map = (int)progress_hdr->reserved[0];
-        int saved_episode = (int)progress_hdr->reserved[1];
-        int saved_x, saved_y, saved_angle;
-        memcpy(&saved_x, &progress_hdr->reserved[2], 4);
-        memcpy(&saved_y, &progress_hdr->reserved[6], 4);
-        memcpy(&saved_angle, &progress_hdr->reserved[10], 4);
-        printf("[AUTOSAVE] loaded header: map=%d episode=%d pos=(%d,%d) (current E%dM%d)\n",
-               saved_map, saved_episode, saved_x, saved_y,
-               gameepisode, gamemap);
-        // Queue the teleport (happens after level load).
-        if (saved_x != 0 || saved_y != 0)
-        {
-            autosave_teleport_pending = true;
-            autosave_teleport_x = saved_x;
-            autosave_teleport_y = saved_y;
-            autosave_teleport_angle = saved_angle;
-        }
-        if (saved_map >= 1 && saved_map <= 32)
-        {
-            extern void G_DeferedInitNew(int skill, int episode, int map);
-            extern int gameskill;
-            if (saved_episode < 1 || saved_episode > 4)
-                saved_episode = gameepisode; // fallback for old saves
-            if (gamemap == 0)
-            {
-                // Title screen: start new game on the saved map.
-                printf("[AUTOSAVE] starting new game on E%dM%d\n",
-                       saved_episode, saved_map);
-                G_DeferedInitNew(gameskill, saved_episode, saved_map);
-            }
-            else if (saved_map != gamemap || saved_episode != gameepisode)
-            {
-                printf("[AUTOSAVE] warping from E%dM%d to E%dM%d\n",
-                       gameepisode, gamemap, saved_episode, saved_map);
-                // Preserve Diablo progress across the warp (it's in the
-                // mmap, not reset by G_DeferedInitNew).
-                G_DeferedInitNew(gameskill, saved_episode, saved_map);
-            }
-        }
-    }
-
-    // Single slot (no rotation): keep progress_auto_slot at 0.
-    printf("[AUTOSAVE] loaded from slot %d\n", auto_slot);
 }

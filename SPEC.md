@@ -811,17 +811,22 @@ next rotation slot on:
 - level completion (`G_DoCompleted`),
 - level start (`G_DoLoadLevel`).
 
-**Load Game menu:** auto-save slots list first (menu positions 1–3 map
-to slots 7–9), then manual slots 1–6. Loading an auto slot restores the
-Diablo progress (`D_ProgressLoadAutoSlot`) and continues from the
-current position — no Doom savegame is involved, because auto-saves
-never write `.dsg` files. The next auto-save overwrites the oldest
-rotation slot, never the one just loaded.
-
-Auto-save used to write Doom savegames into slots 7–9; that was
-disabled — the Diablo save data exceeds vanilla's 180KB `SAVEGAMESIZE`,
-which crashed deterministically ("Savegame buffer overrun") on combat
-entry.
+**Load Game menu:** auto-save slots list first (positions 1–3), then
+manual slots (positions 4–6 = Doom slots 3–5). An auto-save is a
+**pair**: `progress_autoN.dat` (Diablo state) plus `doomsav(N-1).dsg`
+(full world state), written together by `D_AutoSaveGame` (with
+`SAVEGAMESIZE` at 4MB the old buffer-overrun rationale is gone).
+Loading an auto slot restores both halves
+(`D_ProgressLoadAutoSlot` → `G_LoadGame`). The auto-save keeps a
+**single slot** (slot 1), so slots 2–3 have no pair and **refuse to
+load** — "auto slot N has no saved world." There is no
+progress-only fallback: the old warp fallback (load the gear file
+alone, start a fresh level, teleport the player in) silently
+resurrected every monster in the level and was removed 2026-10-21
+after Jimmy's "saved games are reviving dead monsters" report —
+slots 2/3 always took it, since their `.dsg` partners are never
+written, while stale `progress_auto2/3.dat` files from the
+rotating era made the fake load look real.
 
 ### XP and levels (removed 2026-10-16)
 
