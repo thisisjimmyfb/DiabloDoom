@@ -1274,39 +1274,34 @@ static void ST_drawTurnKits(void)
     }
 }
 
-// Loot alert: persistent prompt when drops are on the map.
+// Loot alert: while drops are on the map, keep "Press G to loot" in
+// front of the player through the vanilla message system -- the same
+// pipeline as "Explore: WASD to move." (set plyr->message, HU_Drawer
+// shows it). A message lives 4 seconds (HU_MSGTIMEOUT), so re-issue
+// it a little sooner than that for as long as loot remains, and
+// immediately when new loot appears. The message widget is one line
+// tall, so re-issuing replaces the line instead of stacking.
+//
+// This used to hand-draw a box + text from this status-bar function
+// at y=160..170, which never reached the screen: D_Display renders
+// the 3D view AFTER the status bar, and rows above the bar's own
+// strip (y<168 with the bar on) belong to the view, so the world
+// painted over the prompt every frame. Root-caused 2026-10-21:
+// Jimmy saw the old debug log lines but no prompt in the HUD.
+//
 // Explore mode only (per design: COLLECT works in explore).
-// Also logs to stdout for new loot (by item id, cached) so agents watching
-// the log can react (issue COLLECT) even without seeing the HUD.
-static void ST_drawLootAlert(void)
+// Also logs to stdout for new loot (by item id, cached) so agents
+// watching the log can react (issue COLLECT) even without a HUD.
+static void ST_updateLootAlert(void)
 {
-    /* DEBUG: remove once loot prompt is confirmed working. */
-    static boolean dbg_last_avail = false;
-    static int dbg_last_n = -1;
+    static int last_prompt_tic = -1000;
     boolean avail = T_LootAvailable();
-    if (avail != dbg_last_avail)
-    {
-        printf("[DIABLO] loot alert: available %d -> %d (explore branch)\n",
-               dbg_last_avail, avail);
-        dbg_last_avail = avail;
-    }
     if (avail)
     {
         mobj_t *loot_list[LOOT_LOG_CACHE];
         int n, i, j;
         boolean new_loot = false;
         n = T_GetLootList(loot_list, LOOT_LOG_CACHE);
-        if (n != dbg_last_n)
-        {
-            printf("[DIABLO] loot alert: drawing prompt, n=%d\n", n);
-            if (n > 0)
-                printf("[DIABLO] loot alert: first item id=%d type=%d health=%d\n",
-                       loot_list[0]->diablo_loot_id, loot_list[0]->type,
-                       loot_list[0]->health);
-            dbg_last_n = n;
-        }
-        V_DrawFilledBox(250, 160, 110, 10, 0);
-        ST_TurnDrawText(254, 161, "PRESS G TO LOOT");
         for (i = 0; i < n; i++)
         {
             boolean seen = false;
@@ -1327,6 +1322,11 @@ static void ST_drawLootAlert(void)
         }
         if (new_loot)
             printf("[LOOT] available on map - press G to loot\n");
+        if (new_loot || gametic - last_prompt_tic >= 3 * TICRATE)
+        {
+            plyr->message = "Press G to loot";
+            last_prompt_tic = gametic;
+        }
     }
     else
     {
@@ -1435,7 +1435,7 @@ void ST_drawWidgets(boolean refresh)
     // Was previously only in the non-turn branch, so it never appeared
     // during turn-based explore.
     if (T_InExplore() || !T_Active())
-        ST_drawLootAlert();
+        ST_updateLootAlert();
 
     STlib_updatePercent(&w_health, refresh);
     STlib_updatePercent(&w_armor, refresh);

@@ -250,7 +250,13 @@ blocked — queued commands wait until the walk ends (combat entry also
 cancels it). COLLECT runs in explore mode only. **The loot alert uses the same reachability rule** (changed
 2026-10-19): the "press G to loot" prompt fires only when the nearest
 loot in distance order has a BFS path — loot elsewhere on the map no
-longer lights the prompt.
+longer lights the prompt. The prompt itself is delivered through
+the vanilla message system (set the player message; re-issued
+every 3 seconds while loot remains, since a message lives 4) —
+changed 2026-10-21 after the original hand-drawn prompt turned
+out to be invisible: it was drawn from the status bar at rows
+160-170, and the 3D view, rendered after the bar, painted over
+it every frame.
 
 **Navigation awareness (2026-10-21):** the agent drives from
 screenshots and the log, so the engine reports where movement
