@@ -122,8 +122,11 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
    for cooldown-gated ones). During planning the HUD AMMO readout previews
    the deduction queued attacks will cause (display-only; the spend happens
    on execute), so players can see when further attacks would be no-ops.
-   Map-placed ammo pickups are replaced by random Diablo item drops
-   (kill-drop rarity table); Mana Potions no longer appear in the drop
+   Ammo pickups convert to Diablo loot, all of them: map-placed ammo
+   is replaced by a random Diablo item drop at spawn (kill-drop rarity
+   table), and a monster's dropped clip converts the same way at death
+   (killer's magic find applies). No raw ammo pickup ever exists in
+   the world; Mana Potions no longer appear in the drop
    pool. Weapon cadence is wall-clock,
    not round-bound: cooldowns tick down 1 round per 10 s (BFG = 30 s, SSG =
    20 s), rocket charges regen 1 per 3 s (max 3), plasma heat vents 40 per

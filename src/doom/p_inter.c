@@ -1253,6 +1253,39 @@ P_KillMobj
 	return;
     }
 
+    // Diablo (Jimmy's rule, 2026-10-21): ammo converts to Diablo
+    // loot -- ALL of it. Map-placed ammo converts at spawn
+    // (P_SpawnMapThing); a monster's dropped clip converts here, on
+    // the same roll with the killer's magic find. Magazines
+    // replenish on their own, so a raw clip is redundant -- and as
+    // a magazine cache it could never be picked up at all once the
+    // magazines were full. (Weapon drops stay weapons: they convert
+    // at pickup via P_GiveWeapon's Diablo grant.)
+    if (item == MT_CLIP)
+    {
+	int item_id;
+	int magic_find = D_LoopMagicFind();
+
+	if (source && source->player)
+	    magic_find += source->player->diablo_stats[DSTAT_MAGICFIND];
+
+	item_id = P_RollDiabloItemDrop(magic_find);
+	if (item_id >= 0)
+	{
+	    const diablo_itemdef_t *def =
+		D_GetItemDef(D_ITEMTIER(item_id), D_ITEMIDX(item_id));
+	    char namebuf[96];
+	    D_ItemDisplayName(def, namebuf, sizeof(namebuf));
+	    printf("[LOOT] dropped \"%s\" tier=%d idx=%d by %s at (%d,%d) (was clip)\n",
+		   namebuf,
+		   D_ITEMTIER(item_id), D_ITEMIDX(item_id),
+		   P_MonsterName(target->type),
+		   target->x >> 16, target->y >> 16);
+	    P_SpawnDiabloLootAt(target->x, target->y, item_id);
+	}
+	return;
+    }
+
     mo = P_SpawnMobj (target->x,target->y,ONFLOORZ, item);
     mo->flags |= MF_DROPPED;	// special versions of items
 }
