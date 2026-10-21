@@ -282,16 +282,35 @@ never an instant move or a teleport. Explore mode only.
    dying. Cancelling zeroes the player's velocity: no coasting.
 
 **Pathfinding rule** (2026-10-21): the BFS tests what movement
-tests. A step between cells requires the shared-edge midpoint to
-be standable as well as both centres, with the 24-unit step rule on
-both halves of the crossing, and every sampled position must fit
-the player's full height between floor and ceiling -- the fit rule
-`P_TryMove` enforces but `P_CheckPosition` alone ignores, whose
-absence let the BFS route through closed doors (zero ceiling gap)
-that the walk then wedged against. The walk steers to cell
+tests. A step between cells requires the segment between the two
+centres to be standable at its quarter points as well as at both
+centres, with the 24-unit step rule chained across consecutive
+samples, and every sampled position must fit the player's full
+height between floor and ceiling -- the fit rule `P_TryMove`
+enforces but `P_CheckPosition` alone ignores, whose absence let
+the BFS route through closed doors (zero ceiling gap) that the
+walk then wedged against. (Quarter points, not just the midpoint:
+a face sitting exactly on the shared cell boundary is only touched
+by the centre and midpoint boxes, never overlapped, so the checks
+passed while the swept body wedged on it.) The walk steers to cell
 *centres* -- the same points the BFS samples; an earlier aim
 expression overflowed to the cell corner and wedged walks against
 wall junctions (fixed 2026-10-21; GOTO waypoints had the same bug).
+World-to-grid conversion is floor division: C's truncating `/`
+registered negative coordinates one cell too high, so every grid
+consumer reasoned about the wrong cell in negative territory.
+
+**Stall recovery** (2026-10-21): if a GOTO or COLLECT walk makes
+no progress for ~0.4s, it briefly steers to the centre of the
+player's current cell before resuming. A player standing off-centre
+across a face line straddles it with his box, so every destination
+check inherits the line's (possibly zero) opening and physics
+refuses steps in all directions -- even though the route from his
+centre is legal (E1M1's window slit at (2351,-16): 1 unit off-centre
+wedged both walks at 0 units moved). Physics judges only the
+destination, and his own centre is a clean one, so re-centring
+frees the walk; the usual stuck watchdog still gives up if even
+that fails.
 
 **Pickup rule** (2026-10-21): items are picked up by presence, in
 the game loop — `P_TouchNearbySpecials` runs once per tic from

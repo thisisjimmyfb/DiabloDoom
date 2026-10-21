@@ -41,7 +41,9 @@ an item WALK already stopped for, until it's gone), or blocked), `USE`
 than 24 units doesn't exist to the pathfinder, matching the engine's
 own step limit, so targets on a drastically different height are
 unreachable by construction; target clamped to nearest walkable
-cell), `KEYS`, `SCAN` (nearby keys with relative direction), `SECTORS`
+cell; grid conversion is floor division, so negative coordinates
+register in the right cell; GOTO and COLLECT walks re-centre onto
+the current cell when stalled off-centre across a face line), `KEYS`, `SCAN` (nearby keys with relative direction), `SECTORS`
 (visited-sector progress), `TURNL`/`TURNR`, `ATTACK`, `END`, `COLLECT`,
 `SCREENSHOT`, `CAPTURE`/`REPLAY` (15 s MP4; the encode runs on a
 worker thread since 2026-10-19, so the game never stalls waiting for
