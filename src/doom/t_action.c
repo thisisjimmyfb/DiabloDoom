@@ -46,7 +46,11 @@ typedef struct {
 // Scan for nearby enemies, Diablo loot, and vanilla pickups.
 // radius_units: search radius in map units (e.g. 256 = 8 grid cells).
 // Returns a struct with the nearest of each type (NULL if none found).
-static t_scan_result_t T_ScanNearby(mobj_t *player_mo, int radius_units)
+// ignore/num_ignore: mobjs to skip for the loot/pickup categories
+// (WALK's stop-once set). Enemies are never ignored. Pass NULL/0
+// to disable (COLLECT does).
+static t_scan_result_t T_ScanNearby(mobj_t *player_mo, int radius_units,
+                                    mobj_t **ignore, int num_ignore)
 {
     t_scan_result_t result = { NULL, 0x7fffffff, NULL, 0x7fffffff, NULL, 0x7fffffff };
     thinker_t *th;
@@ -73,6 +77,24 @@ static t_scan_result_t T_ScanNearby(mobj_t *player_mo, int radius_units)
             dist_sq = (dx >> 16) * (dx >> 16) + (dy >> 16) * (dy >> 16);
             if (dist_sq > radius_sq)
                 continue;
+
+            // Ignored items (WALK stop-once): skip loot/pickups the
+            // walk has already stopped for once. Enemies never skip.
+            if (ignore != NULL && !(mo->flags & MF_COUNTKILL))
+            {
+                int k;
+                boolean skip = false;
+                for (k = 0; k < num_ignore; k++)
+                {
+                    if (ignore[k] == mo)
+                    {
+                        skip = true;
+                        break;
+                    }
+                }
+                if (skip)
+                    continue;
+            }
 
             // Enemy: has MF_COUNTKILL flag (counts as a kill)
             if (mo->flags & MF_COUNTKILL)
@@ -793,6 +815,8 @@ void T_GotoCancel(void)
 // WALK: persistent forward movement until interesting.
 // The worker sends WALK once; the game keeps moving forward each tick
 // until: combat starts, an enemy is nearby, loot is nearby, or blocked.
+// A loot/pickup stop fires only ONCE per item — the item joins the
+// stop-once set and later walks ignore it until it's gone.
 // Uses the shared T_ScanNearby for detection.
 // ------------------------------------------------------------------
 
@@ -801,6 +825,70 @@ static int walk_blocked_tics = 0;
 static fixed_t walk_last_x = 0;
 static fixed_t walk_last_y = 0;
 
+// Stop-once set (Jimmy, 2026-10-20): WALK stops for a given item
+// exactly once; the item is then ignored by later walks until it is
+// collected or removed. One stray drop (a zombie's ammo clip) must
+// not become a permanent parking brake. Enemies are never in this
+// set — the enemy stop always fires. Entries are validated against
+// the live thinker list (pointer + type + position) before use, so
+// a freed-and-reused mobj is never mistaken for the old item.
+#define WALK_IGNORE_MAX 16
+static mobj_t *walk_ignore[WALK_IGNORE_MAX];
+static mobjtype_t walk_ignore_type[WALK_IGNORE_MAX];
+static fixed_t walk_ignore_x[WALK_IGNORE_MAX];
+static fixed_t walk_ignore_y[WALK_IGNORE_MAX];
+static int walk_ignore_next = 0;
+
+static void T_WalkIgnorePrune(void)
+{
+    int i;
+    for (i = 0; i < WALK_IGNORE_MAX; i++)
+    {
+        thinker_t *th;
+        boolean alive = false;
+        if (walk_ignore[i] == NULL)
+            continue;
+        for (th = thinkercap.next; th != &thinkercap; th = th->next)
+        {
+            mobj_t *mo;
+            if (th->function.acp1 != (actionf_p1)P_MobjThinker)
+                continue;
+            mo = (mobj_t *)th;
+            if (mo == walk_ignore[i] && mo->type == walk_ignore_type[i]
+                && mo->x == walk_ignore_x[i] && mo->y == walk_ignore_y[i]
+                && mo->health > 0)
+            {
+                alive = true;
+                break;
+            }
+        }
+        if (!alive)
+            walk_ignore[i] = NULL;
+    }
+}
+
+static void T_WalkIgnoreAdd(mobj_t *mo)
+{
+    int i, slot = -1;
+    T_WalkIgnorePrune();
+    for (i = 0; i < WALK_IGNORE_MAX; i++)
+    {
+        if (walk_ignore[i] == mo)
+            return; // already remembered
+        if (walk_ignore[i] == NULL && slot < 0)
+            slot = i;
+    }
+    if (slot < 0)
+    {
+        slot = walk_ignore_next;
+        walk_ignore_next = (walk_ignore_next + 1) % WALK_IGNORE_MAX;
+    }
+    walk_ignore[slot] = mo;
+    walk_ignore_type[slot] = mo->type;
+    walk_ignore_x[slot] = mo->x;
+    walk_ignore_y[slot] = mo->y;
+}
+
 void T_WalkStart(void)
 {
     player_t *pl = &players[consoleplayer];
@@ -808,6 +896,9 @@ void T_WalkStart(void)
         return;
     // Cancel any active GOTO path.
     T_GotoCancel();
+    // Drop stop-once entries whose items are gone (collected,
+    // removed, or left behind by a level change / save load).
+    T_WalkIgnorePrune();
     walk_active = true;
     walk_blocked_tics = 0;
     walk_last_x = pl->mo->x;
@@ -844,8 +935,10 @@ void T_WalkTick(void)
     mo = pl->mo;
 
     // Check for nearby enemies or loot using shared scanner.
+    // Items in the stop-once set are skipped (see T_WalkIgnoreAdd).
     {
-        t_scan_result_t scan = T_ScanNearby(mo, 192); // 192 units = 6 cells
+        t_scan_result_t scan = T_ScanNearby(mo, 192, walk_ignore,
+                                            WALK_IGNORE_MAX); // 192 units = 6 cells
         if (scan.nearest_enemy != NULL)
         {
             printf("[WALK] enemy nearby (%d units), stopping\n",
@@ -868,6 +961,8 @@ void T_WalkTick(void)
             {
                 printf("[WALK] loot nearby (%d units), stopping [type=%d at (%d,%d)]\n",
                        d >> 16, found->type, found->x >> 16, found->y >> 16);
+                // Stop ONCE for this item; later walks ignore it.
+                T_WalkIgnoreAdd(found);
                 T_WalkCancel();
                 return;
             }
@@ -1140,7 +1235,7 @@ void T_DoCollect(void)
     // Fall back to the nearest vanilla pickup if no Diablo loot path.
     if (loot == NULL)
     {
-        t_scan_result_t scan = T_ScanNearby(mo, 2048);
+        t_scan_result_t scan = T_ScanNearby(mo, 2048, NULL, 0);
         if (scan.nearest_pickup != NULL)
         {
             steps = T_FindPathTo(mo, scan.nearest_pickup->x,

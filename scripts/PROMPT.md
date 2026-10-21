@@ -11,6 +11,7 @@ The replay always comes *after* your commands play out, never before. This guara
 **Explore mode: use REPLAY videos.**
 - Videos give temporal context — you can see movement, enemy behavior, and what's changing.
 - To move: send `WALK`. The game keeps walking forward until it spots an enemy, loot, or hits a wall — then it stops and logs `[WALK] <reason>`. You don't need to estimate distances or send repeated commands.
+- A loot/pickup stop fires only ONCE per item: if you send `WALK` again, the game walks past that item. Use a second WALK when you've decided to leave an item behind — and if WALK reports `blocked` immediately in several directions, you're probably in a pit or trench: follow the low ground along its length instead of pushing at the high walls.
 - Turn to face a doorway or direction you want to explore (TURNL/TURNR), then send `WALK`. The game handles the rest.
 - Send WALK, wait ~5 seconds, then REPLAY. The 15s buffer captures your movement in the moment.
 - After the replay, view the frames: if WALK stopped for loot, COLLECT it. If for an enemy, prepare for combat. If blocked, turn and WALK again.

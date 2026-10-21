@@ -34,7 +34,8 @@ title with `~/workspace/doom/wshot.py` — with `window_width 1280` /
 On Muse VMs (`D_OnMuseVM()` — `JARVIS_FQDN` contains `metaaivm.com`),
 `T_Ticker()` polls `/tmp/doom_cmd.txt` every tick, executes one command per
 line, then deletes the file. Commands include: `WALK` (persistent — keeps
-walking until enemy, *reachable* loot, or blocked), `GOTO <fwd> <strafe>`
+walking until enemy, *reachable* loot (once per item: later walks ignore
+an item WALK already stopped for, until it's gone), or blocked), `GOTO <fwd> <strafe>`
 (facing-relative grid-BFS pathfind, target clamped to nearest walkable
 cell), `KEYS`, `SCAN` (nearby keys with relative direction), `SECTORS`
 (visited-sector progress), `TURNL`/`TURNR`, `ATTACK`, `END`, `COLLECT`,
