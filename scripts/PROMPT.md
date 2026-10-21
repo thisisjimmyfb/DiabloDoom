@@ -15,6 +15,7 @@ The replay always comes *after* your commands play out, never before. This guara
 - Turn to face a doorway or direction you want to explore (TURNL/TURNR), then send `WALK`. The game handles the rest.
 - Send WALK, wait ~5 seconds, then REPLAY. The 15s buffer captures your movement in the moment.
 - After the replay, view the frames: if WALK stopped for loot, COLLECT it. If for an enemy, prepare for combat. If blocked, turn and WALK again.
+- If WALK stops `blocked` while you are facing a door, send `USE` to open it, then `WALK` again.
 - For precise positioning (e.g. moving toward a specific key you see), use `GOTO fwd strafe` (facing-relative, e.g. `GOTO 150 0` = 150 forward). The game pathfinds there.
 - Keep vision fast: extract only 2 frames at half resolution (`-vf fps=1/8,scale=480:300` as JPEG). You don't need 4 full-res PNGs — 2 small frames show position, enemies, and loot just fine.
 

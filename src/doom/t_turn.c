@@ -1156,6 +1156,24 @@ static void cmd_dispatch(const char *cmd)
         // (Also cancels any active walk and restarts it.)
         T_WalkStart();
     }
+    else if (!strcmp(cmd, "USE"))
+    {
+        // Use the line in front of the player (door, switch) — the
+        // same P_UseLines the spacebar and the TA_USE turn action run.
+        // Explore mode only: turn mode already has USE as a queued
+        // action, and firing it immediately there would bypass the
+        // queue. This is the farm's door opener (added 2026-10-20 at
+        // Jimmy's order; the driver had no USE handler before, so
+        // workers could never open doors in explore mode).
+        player_t *pl = &players[consoleplayer];
+        if (T_InExplore() && pl->mo != NULL && pl->health > 0)
+        {
+            P_UseLines(pl);
+            printf("[USE] used line in front of player\n");
+        }
+        else
+            printf("[USE] ignored (explore mode only)\n");
+    }
     else if (!strncmp(cmd, "GOTO", 4))
     {
         // GOTO fwd strafe: move relative to facing (explore mode only).

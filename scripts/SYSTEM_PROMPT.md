@@ -34,7 +34,8 @@ Write commands to /tmp/doom_cmd.txt (one per line). It's a FIFO — do NOT delet
   positioning (e.g. toward a key you see). The game pathfinds there.
   Explore mode only.
 - `TURNL` / `TURNR` — turn left/right
-- `COLLECT` — pick up Diablo loot or corpse (when "press G to loot" prompt visible)
+- `USE` — open the door or press the switch directly in front of you (explore mode). If WALK stops `blocked` while you're facing a door, send `USE`, then `WALK` again.
+- `COLLECT` — pick up Diablo loot or corpse (when "press G to loot" prompt visible). The prompt only appears for loot the game can physically walk to — same height rules as real movement (it can't climb more than a step at a time), so prompted loot is genuinely collectable.
 
 **Combat mode (turn-based)** runs in two alternating phases:
 
