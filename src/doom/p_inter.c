@@ -1224,9 +1224,9 @@ P_DamageMobj
 
     // Diablo equipment (mod): when a player hurts a monster, add the
     // equipped weapon's damage bonus.
-    // Turn mode: T_ResolveAttack already rolled crit exactly once per
-    // attack (deterministic, once-per-attack pellet semantics), so the
-    // legacy D_CritRoll here must be skipped or crits double-roll.
+    // Turn mode: the Diablo damage callback already rolled crit exactly
+    // once per attack (deterministic, once-per-attack pellet semantics),
+    // so the legacy D_CritRoll here must be skipped or crits double-roll.
     if (source && source->player && target->player == NULL)
     {
         // Native weapon fire override (turn-based): when the turn system

@@ -289,7 +289,7 @@ its own movement history.)
 | AP     | Ability Power        | Scales plasma, BFG, status, charged effects. Energy feeds AP. |
 | AS     | Attack Speed         | Reduces melee TP attack cost; ranged attacks are TP-free (ammo-gated). |
 | Haste  | Cooldown recovery    | Cooldown-reduction percent (cap 50%): applied when a cooldown is set, then flat reduction, minimum 1 round (1 round = 10 s). |
-| Crit   | Chance + damage      | Gear-inherent (Diablo-style): weapons/items grant crit chance and bonus crit damage. Base crits deal x2; each crit-damage point adds 1%. Chance caps at 50%. Crit is rolled exactly once per attack inside `T_ResolveAttack` (deterministic turn RNG, once-per-attack pellet semantics); the legacy `P_DamageMobj` crit hook is bypassed in turn mode so crits can never double-roll. |
+| Crit   | Chance + damage      | Gear-inherent (Diablo-style): weapons/items grant crit chance and bonus crit damage. Base crits deal x2; each crit-damage point adds 1%. Chance caps at 50%. Crit is rolled exactly once per attack inside `T_DiabloDamageCallback` (once-per-attack pellet semantics); the legacy `P_DamageMobj` crit hook is bypassed in turn mode so crits can never double-roll. |
 | Armor  | Physical defense     | Diminishing-returns reduction of AD-tagged damage.      |
 | MR     | Magic resistance     | Reduces AP-tagged plasma, occult, status damage.        |
 | Move   | Movement efficiency  | Boots/effects can reduce step cost, never below 1 TP.   |

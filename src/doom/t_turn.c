@@ -42,10 +42,8 @@
 static void T_TickKillBanner(void);
 static void T_DrawKillBanner(void);
 // T_IsCombatant is defined with the target-list API below; the HUD marker
-// loop and telegraph use it earlier.
+// loop uses it earlier.
 boolean T_IsCombatant(mobj_t *mo);
-// T_TelegraphEnemies is defined below; T_BeginEnemyPhase calls it.
-void T_TelegraphEnemies(void);
 
 // ------------------------------------------------------------------
 // Explore-mode detection: combat triggers when an AI enemy acquires
@@ -746,22 +744,6 @@ boolean T_InSelection(void)
 {
     return T_Active() &&
         (turnctrl.state == TS_TARGETING || turnctrl.state == TS_CONFIRM);
-}
-
-void T_RunPulseSync(int tics, boolean freeze_monsters)
-{
-    boolean was_sync = turnctrl.sync;
-    turnctrl.sync = true;
-    T_BeginPulse(tics, freeze_monsters, true);
-    turnctrl.sync = was_sync;
-}
-
-// Enemy phase removed: the game runs in real-time during execution,
-// so enemies act while the player's queued commands play out.
-// (Kept as a no-op for compatibility.)
-void T_BeginEnemyPhase(void)
-{
-    // No-op: enemy phase removed per design.
 }
 
 // Round bookkeeping when a pulse finishes.
@@ -2024,55 +2006,6 @@ void T_RefreshTargets(void)
     }
 }
 
-// Phase 6: telegraph enemies that have acquired the player but are NOT
-// currently visible to them -- the true unseen threats -- before the
-// enemy phase lets them act.
-void T_TelegraphEnemies(void)
-{
-    player_t *player = &players[consoleplayer];
-    thinker_t *th;
-
-    if (!T_Active() || player->mo == NULL)
-        return;
-
-    for (th = thinkercap.next; th != &thinkercap; th = th->next)
-    {
-        mobj_t *mo;
-        static char msg[64];
-
-        if (th->function.acp1 != (actionf_p1)P_MobjThinker)
-            continue;
-        mo = (mobj_t *)th;
-        if (mo == player->mo || mo->player != NULL)
-            continue;
-        if (!(mo->flags & MF_SHOOTABLE))
-            continue;
-        if (mo->health <= 0)
-            continue;
-        if (!T_IsCombatant(mo))
-            continue; // barrels don't telegraph
-        if (mo->target != player->mo)
-            continue; // hasn't acquired the player
-        if (P_CheckSight(player->mo, mo))
-            continue; // visible: no surprise to warn about
-        M_snprintf(msg, sizeof(msg), "%s is hunting you!",
-                   T_MobjShortName(mo));
-        players[consoleplayer].message = msg;
-        printf("[TURN] telegraph: %s\n", msg);
-    }
-}
-
-// real AD/AP/AS/Haste/crit model). Distance-based, deterministic.
-static int T_PreviewHit(mobj_t *mo)
-{
-    t_combatstats_t st;
-    player_t *player = &players[consoleplayer];
-    if (player->mo == NULL || mo == NULL)
-        return 0;
-    T_DeriveStats(player, &st);
-    return T_HitChance(player, mo, &st);
-}
-
 const char *T_TargetName(mobj_t *mo)
 {
     if (mo == NULL)
@@ -2617,13 +2550,6 @@ void T_ProfileSave(void)
         printf("[TURN] profile save failed: rename error\n");
     else
         printf("[TURN] profile saved: %s L%d\n", t_profile.name, t_profile.level);
-}
-
-int T_XPForLevel(int level)
-{
-    // 100 XP per level, cumulative: L2=100, L3=300, L4=600, ...
-    // Threshold to reach `level` from `level-1`.
-    return (level - 1) * 100;
 }
 
 void T_GainXP(int amount)

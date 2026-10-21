@@ -204,8 +204,6 @@ boolean T_Responder(event_t *ev);
 // Pulse control.
 void T_BeginPulse(int tics, boolean freeze_monsters, boolean fast);
 boolean T_InPulse(void);
-// Synchronous pulse (test harness): run to completion immediately.
-void T_RunPulseSync(int tics, boolean freeze_monsters);
 // True while a target selection is open (TARGETING/CONFIRM): the menu
 // lets ESC fall through to the turn responder (cancel) in that case.
 boolean T_InSelection(void);
@@ -224,11 +222,9 @@ void T_CollectCancel(void);
 boolean T_CollectActive(void);
 void T_GotoStart(fixed_t tx, fixed_t ty); // GOTO x y: pathfind and walk there
 void T_GotoCancel(void);
-boolean T_GotoActive(void);
 void T_GotoTick(void);      // step along the GOTO path (explore mode)
 void T_WalkStart(void);     // WALK: persistent forward movement
 void T_WalkCancel(void);
-boolean T_WalkActive(void);
 void T_WalkTick(void);      // keep walking until enemy/loot/blocked (explore)
 void T_TrackTick(void);     // mark current sector visited (every tick)
 int T_VisitedCount(void);   // sectors visited on this level so far
@@ -242,11 +238,9 @@ void T_DoUndoQueue(void);  // Backspace: undo last queued action, refund TP
 void T_DoClearQueue(void); // Z: clear the whole queue, refund all TP
 void T_ExecuteNext(void);  // run the next queued entry (queue drain)
 boolean T_ExecuteOne(void); // run a single queued entry (3-tick replay)
-void T_BeginEnemyPhase(void);
 void T_QueueEntryName(const t_queueentry_t *e, char *buf, size_t buflen);
 void T_InvalidateTarget(mobj_t *mo);
 const char *T_TargetName(mobj_t *mo);
-void T_TelegraphEnemies(void);  // Phase 6: warn of acquired-but-unseen enemies
 
 // Phase 2: Tempo economy.
 int T_CostFor(turnaction_t action);   // TP cost; selection/cancel = 0
@@ -254,7 +248,6 @@ boolean T_CanAfford(turnaction_t action);
 int T_AttackCost(void);              // derived from attack speed (ph4/5)
 boolean T_IsContinuousWeapon(weapontype_t weapon); // chainsaw/chaingun/plasma
 void T_AutoFireLocked(void);       // auto-queue locked target attack
-void T_SpendTP(int cost);
 // Infinite-ammo invariant: turn mode never tracks ammo.
 void T_TopUpAmmo(void);
 
@@ -304,7 +297,6 @@ const char *T_ProfilePath(void);            // filesystem path
 
 // XP and levels.
 void T_GainXP(int amount);                  // add XP, handle level-ups
-int T_XPForLevel(int level);                // XP threshold for level
 void T_AddStatPoint(const char *stat);      // spend 1 point on str/dex/vit/ene
 
 // Lifetime counters (call from combat code).

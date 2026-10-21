@@ -271,13 +271,6 @@ boolean T_CanAfford(turnaction_t action)
     return turnctrl.tp >= T_CostFor(action);
 }
 
-void T_SpendTP(int cost)
-{
-    turnctrl.tp -= cost;
-    if (turnctrl.tp < 0)
-        turnctrl.tp = 0; // belt and braces; CanAfford gates this
-}
-
 // Refuse an unaffordable action: message, no state change, no pulse.
 static void T_RefuseTP(turnaction_t action)
 {
@@ -1114,11 +1107,6 @@ void T_WalkCancel(void)
     walk_blocked_tics = 0;
 }
 
-boolean T_WalkActive(void)
-{
-    return walk_active;
-}
-
 // Called each tick in explore mode. Moves forward until stop condition.
 void T_WalkTick(void)
 {
@@ -1199,11 +1187,6 @@ void T_WalkTick(void)
         mo->momy += FixedMul(FRACUNIT / 2, finesine[ang >> ANGLETOFINESHIFT]);
     }
     T_HistorySample(false);
-}
-
-boolean T_GotoActive(void)
-{
-    return goto_active;
 }
 
 // Called each tick in explore mode. Steps toward the current waypoint.
@@ -2570,7 +2553,7 @@ static boolean T_ExecAttack(mobj_t *target, int cost)
 
     // Natural simulation: Doom's hitscan/projectile determines hit/miss.
     // The Diablo damage callback (installed in T_KitResetCadence) computes
-    // AD/AP damage on hit. No instant T_RollDiabloDamage.
+    // AD/AP damage on hit.
     // For hitscan weapons, set the weapon (synchronous; cleared after).
     // Projectiles store it on the mobj (see P_SpawnPlayerMissile).
     {
@@ -3133,7 +3116,7 @@ void T_RunScript(const char *path)
         }
         else if (sscanf(line, "ASSERT_LASTHIT %d", &n) == 1)
         {
-            // Verify the last T_ResolveAttack outcome: 1 hit, 0 miss.
+            // Verify the last attack outcome: 1 hit, 0 miss.
             if (t_last_hit == n)
                 printf("[TURN] ASSERT_LASTHIT %d: PASS (dmg=%d crit=%d)\n",
                        n, t_last_damage, t_last_crit);
@@ -3155,7 +3138,7 @@ void T_RunScript(const char *path)
         }
         else if (sscanf(line, "ASSERT_CRIT %d", &n) == 1)
         {
-            // Verify the last T_ResolveAttack crit: 1 crit, 0 not.
+            // Verify the last attack's crit: 1 crit, 0 not.
             if (t_last_crit == n)
                 printf("[TURN] ASSERT_CRIT %d: PASS (dmg=%d)\n",
                        n, t_last_damage);
