@@ -910,103 +910,7 @@ static void UIKbSalvage(player_t *player)
     }
 }
 
-// R: reroll (reforge) the held item (or kb-selected backpack item) into a
-// new random item of the same tier. Costs Essence: Magic=5, Rare=15,
-// Set=25, Unique=40. Normal items can't be rerolled.
-static void UIKbReroll(player_t *player)
-{
-    int id = D_NOITEM;
-    int bpi = -1;
-    int tier;
-    int cost = 0;
-    int new_idx;
-    int new_id;
-    char msg[64];
-    extern int D_TierItemCount(int tier);
-
-    ui_kb_active = true;
-    if (ui_held != D_NOITEM)
-    {
-        id = ui_held;
-        // We'll replace ui_held directly
-    }
-    else
-    {
-        if (ui_kb_pane != 0)
-        {
-            UIMsg("Select a backpack item.");
-            return;
-        }
-        bpi = UIBackpackAt(player, ui_kb_gx, ui_kb_gy);
-        if (bpi < 0)
-        {
-            UIMsg("Nothing there.");
-            return;
-        }
-        id = player->diablo_backpack[bpi];
-    }
-
-    if (id == D_NOITEM)
-        return;
-
-    tier = D_ITEMTIER(id);
-    switch (tier)
-    {
-      case TIER_MAGIC:  cost = 5; break;
-      case TIER_RARE:   cost = 15; break;
-      case TIER_SET:    cost = 25; break;
-      case TIER_UNIQUE: cost = 40; break;
-      default:
-        UIMsg("Only Magic+ can be rerolled.");
-        return;
-    }
-
-    if (player->diablo_essence < cost)
-    {
-        M_snprintf(msg, sizeof(msg), "Need %d Essence (have %d).",
-                   cost, player->diablo_essence);
-        UIMsg(msg);
-        return;
-    }
-
-    // Pick a new random item from the same tier
-    {
-        int count = D_TierItemCount(tier);
-        if (count <= 0)
-        {
-            UIMsg("No items in tier.");
-            return;
-        }
-        new_idx = M_Random() % count;
-    }
-    new_id = D_MAKEITEM(tier, new_idx);
-
-    player->diablo_essence -= cost;
-    // A reforged item is a fresh instance: full durability.
-    if (ui_held != D_NOITEM)
-    {
-        ui_held = new_id;
-        ui_held_dur = D_ItemMaxDurability(D_GetItemDef(tier, new_idx));
-    }
-    else
-    {
-        player->diablo_backpack[bpi] = new_id;
-        player->diablo_backpack_dur[bpi] =
-            D_ItemMaxDurability(D_GetItemDef(tier, new_idx));
-    }
-
-    M_snprintf(msg, sizeof(msg), "Rerolled (-%d Essence).", cost);
-    UIMsg(msg);
-    printf("[ESSENCE] rerolled tier %d -> -%d (total %d)\n",
-           tier, cost, player->diablo_essence);
-    // Autosave: inventory changed.
-    {
-        extern void D_AutoSaveGame(void);
-        D_AutoSaveGame();
-    }
-}
-
-// F: repair the held item (or kb-selected backpack item) to full
+// R: repair the held item (or kb-selected backpack item) to full
 // durability for Essence, pro-rated by tier and missing durability
 // (D_RepairCost). Picking up a vanilla Doom armor suit or megasphere
 // also repairs every equipped piece to full, free.
@@ -1174,7 +1078,7 @@ boolean D_UIResponder(event_t *ev)
             UIKbClick();
         else if (k == 'e' || k == 'E')
             UIKbEquip(player);
-        else if (k == 'r' || k == 'R' || k == KEY_BACKSPACE)
+        else if (k == KEY_BACKSPACE)
             UIRightClick();  // use held consumable, else cancel hold
         else if (k == 'q' || k == 'Q')
         {
@@ -1185,10 +1089,8 @@ boolean D_UIResponder(event_t *ev)
             UIKbDrop(player);
         else if (k == 's' || k == 'S')
             UIKbSalvage(player);
-        else if (k == 'f' || k == 'F')
-            UIKbRepair(player);
         else if (k == 'r' || k == 'R')
-            UIKbReroll(player);
+            UIKbRepair(player);
         // Eat all other keys too: no game input while the screen is up.
         return true;
     }

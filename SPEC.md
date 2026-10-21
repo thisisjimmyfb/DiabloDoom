@@ -644,7 +644,7 @@ variants (`diff_tier` field, filtered by `D_DifficultyTier()`):
 | 2 | Hell / NG+2 | of Carnage (+40% AD), of the Godslayer (+40% AP), of Lightning (+45% haste), Champion's (+12 flat AD), Archmage's (+20 flat AP), Soulrender (+12% leech), of the Sun (+80 heat) |
 slots; `D_MechDesc()` provides the one-line display text.
 
-### Essence: salvage, reroll and repair
+### Essence: salvage and repair
 
 Junk loot feeds a Diablo 3-style crafting loop instead of cluttering the
 backpack. Essence is a per-player currency (`diablo_essence` on
@@ -655,19 +655,13 @@ display, text for now).
 - **S (salvage):** destroys the held item — or the keyboard-selected
   backpack item — and grants Essence by tier: Normal 1, Magic 3, Rare 8,
   Set 15, Unique 25.
-- **R (reroll/reforge):** replaces the held (or keyboard-selected) item
-  with a new random item of the same tier (`D_TierItemCount`). Costs
-  Essence: Magic 5, Rare 15, Set 25, Unique 40. Normal items cannot be
-  rerolled. R previously meant "use held consumable / cancel hold" in
-  the inventory — that is now Backspace (or right-click) only.
-
-- **F (repair):** restores the held (or keyboard-selected backpack)
+- **R (repair):** restores the held (or keyboard-selected backpack)
   item to full durability for Essence, pro-rated by tier and missing
   durability (`D_RepairCost`: full-repair base Normal 2, Magic 4,
   Rare 8, Set 12, Unique 20).
 
-**Design intent:** every drop is either an upgrade, reroll fuel, or
-salvage — the farm loop never dead-ends in a full backpack.
+**Design intent:** every drop is either an upgrade or salvage —
+the farm loop never dead-ends in a full backpack.
 
 ### Durability
 

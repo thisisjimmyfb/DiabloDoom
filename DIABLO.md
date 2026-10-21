@@ -128,13 +128,11 @@ exploring. Barrels never start combat but can still be targeted with
 Tab. **G** auto-paths to the nearest loot during combat (walk to loot
 while exploring).
 
-## Essence (salvage / reroll / repair)
+## Essence (salvage / repair)
 
-Junk loot is reroll fuel. **S** in the character screen salvages the
+Junk loot is salvage fuel. **S** in the character screen salvages the
 held (or selected backpack) item into **Essence** — Normal 1, Magic 3,
-Rare 8, Set 15, Unique 25. **R** rerolls a Magic-or-better item into a
-new random item of the same tier: Magic 5, Rare 15, Set 25, Unique 40
-Essence (Normal items can't be rerolled). **F** repairs the held (or
+Rare 8, Set 15, Unique 25. **R** repairs the held (or
 selected backpack) item to full durability, pro-rated by tier and how
 much durability is missing. Your Essence total shows in the inventory
 header and is saved with your game.
@@ -151,7 +149,7 @@ don't add Defense.
 Those five pieces also wear out. Every hit that lands on you knocks
 1 point off a random worn piece. At 0 durability a piece is broken:
 it keeps its other stats (+Strength, resists, ...) but adds no
-Defense until repaired. Repair with **F** for Essence — or pick up a
+Defense until repaired. Repair with **R** for Essence — or pick up a
 vanilla Doom armor suit (green or blue) or a megasphere, which
 restores every equipped piece to full for free. The +1 armor bonus
 shards don't repair. Hover any piece in the character screen to see

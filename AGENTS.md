@@ -161,20 +161,20 @@ Prefixes (flat) and suffixes (%) for AD/AP/haste/heat/leech. See SPEC.md
   (`diff_tier` field; `D_DifficultyTier()` from gameskill + `d_loop`)
 - Chainsaw: 30% inherent leech. SSG: natural 1-tile knockback.
 
-## Essence (salvage / reroll)
+## Essence (salvage / repair)
 
 Diablo 3-style crafting loop on junk loot — see SPEC.md "Essence:
-salvage and reroll". Per-player currency `diablo_essence` on
+salvage and repair". Per-player currency `diablo_essence` on
 `player_t`, persisted in savegames; the count shows in the inventory
 header ("Essence: N" next to BACKPACK — SOUL_CAGE icon art is planned,
 text display for now).
 
 - **S**: salvage the held (or keyboard-selected backpack) item →
   Essence. Normal 1, Magic 3, Rare 8, Set 15, Unique 25.
-- **R**: reroll the held (or keyboard-selected) item → a new random
-  item of the same tier. Costs: Magic 5, Rare 15, Set 25, Unique 40.
-  Normal items can't be rerolled. (R used to mean
-  use-held-consumable/cancel — that's Backspace or right-click now.)
+- **R**: repair the held (or keyboard-selected) item to full
+  durability for Essence, pro-rated by tier and missing durability
+  (full-repair base: Normal 2, Magic 4, Rare 8, Set 12, Unique 20).
+  (Use-held-consumable/cancel is Backspace or right-click.)
 
 ## NG+ loop
 
@@ -205,7 +205,7 @@ network.
 
 Diablo inventory: C character screen · Tab backpack/paperdoll ·
 Enter/Space pick up/place · E equip · S salvage item into Essence ·
-R reroll item (Essence cost) · Backspace use held consumable / cancel
+R repair item (Essence cost) · Backspace use held consumable / cancel
 hold · Q unequip all · Esc close.
 
 turn based combat mode (queued actions, FIFO — combat only, triggered by an enemy
