@@ -799,8 +799,8 @@ void T_GotoStart(fixed_t tx, fixed_t ty)
         {
             gx += dx[path_dirs[i]];
             gy += dy[path_dirs[i]];
-            goto_wp_x[i] = (fixed_t)gx * LOOT_GRID + (fixed_t)(LOOT_GRID / 2) * FRACUNIT;
-            goto_wp_y[i] = (fixed_t)gy * LOOT_GRID + (fixed_t)(LOOT_GRID / 2) * FRACUNIT;
+            goto_wp_x[i] = (fixed_t)gx * LOOT_GRID + LOOT_GRID / 2;
+            goto_wp_y[i] = (fixed_t)gy * LOOT_GRID + LOOT_GRID / 2;
         }
     }
     goto_wp_count = steps;
@@ -1535,14 +1535,18 @@ void T_CollectTick(void)
     {
         // Aim for the centre of the adjacent cell the path starts with.
         // BFS dirs are world-space: 0=N(+y),1=E(+x),2=S(-y),3=W(-x).
+        // Centre math must match T_GridWalkable exactly: the old form
+        // (fixed_t)(LOOT_GRID / 2) * FRACUNIT overflows to 0, which made
+        // the walker aim at cell corners (wall junctions) instead of
+        // centres -- BFS said walkable, the walk wedged on the corner.
         static const int cdx[4] = { 0, 1, 0, -1 };
         static const int cdy[4] = { 1, 0, -1, 0 };
         int cellx, celly;
         T_WorldToGrid(mo->x, mo->y, &cellx, &celly);
         cellx += cdx[path_dirs[0]];
         celly += cdy[path_dirs[0]];
-        gx = (fixed_t)cellx * LOOT_GRID + (fixed_t)(LOOT_GRID / 2) * FRACUNIT;
-        gy = (fixed_t)celly * LOOT_GRID + (fixed_t)(LOOT_GRID / 2) * FRACUNIT;
+        gx = (fixed_t)cellx * LOOT_GRID + LOOT_GRID / 2;
+        gy = (fixed_t)celly * LOOT_GRID + LOOT_GRID / 2;
     }
 
     dx = gx - mo->x;
