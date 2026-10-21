@@ -810,6 +810,36 @@ static boolean goto_active = false;
 static fixed_t goto_last_x = 0, goto_last_y = 0;
 static int goto_stuck_tics = 0;
 static fixed_t goto_start_x = 0, goto_start_y = 0;
+static int goto_recenter_tics = 0;
+
+// Stall recovery shared by the momentum walks (GOTO / COLLECT).
+// If the player stands off his cell centre across a face line, his
+// box STRADDLES the line, so every destination check inherits the
+// line's (possibly zero) opening and physics refuses steps in all
+// directions -- even though the route from his centre is legal.
+// (E1M1's window slit at (2351,-16): the player 1 unit off-centre
+// wedged both walks at 0 units moved; Jimmy's report, 2026-10-21.)
+// Physics judges only the destination, and his own centre is a
+// clean destination, so steering there briefly frees the walk.
+// Returns true (and fills the aim) while he is off centre at all.
+static boolean T_RecenterAim(mobj_t *mo, fixed_t *aim_x, fixed_t *aim_y)
+{
+    int cellx, celly;
+    fixed_t cx, cy;
+    T_WorldToGrid(mo->x, mo->y, &cellx, &celly);
+    cx = (fixed_t)cellx * LOOT_GRID + LOOT_GRID / 2;
+    cy = (fixed_t)celly * LOOT_GRID + LOOT_GRID / 2;
+    // No tolerance: a single unit off centre is exactly the
+    // straddle in the slit case (2351 vs the centre 2352), so any
+    // offset at all counts while a walk is stalled. The momentum
+    // step is capped at the remaining distance, so the player lands
+    // exactly on the centre and this returns false next tick.
+    if (mo->x == cx && mo->y == cy)
+        return false;
+    *aim_x = cx;
+    *aim_y = cy;
+    return true;
+}
 
 void T_GotoStart(fixed_t tx, fixed_t ty)
 {
@@ -884,6 +914,7 @@ void T_GotoStart(fixed_t tx, fixed_t ty)
     goto_wp_index = 0;
     goto_active = true;
     goto_stuck_tics = 0;
+    goto_recenter_tics = 0;
     if (players[consoleplayer].mo != NULL)
     {
         goto_last_x = players[consoleplayer].mo->x;
@@ -904,6 +935,7 @@ void T_GotoCancel(void)
     goto_wp_count = 0;
     goto_wp_index = 0;
     goto_stuck_tics = 0;
+    goto_recenter_tics = 0;
     // Momentum movement: kill the GOTO-driven velocity so the player
     // stops instead of coasting on friction.
     if (mo != NULL)
@@ -1292,12 +1324,26 @@ void T_GotoTick(void)
 
     wx = goto_wp_x[goto_wp_index];
     wy = goto_wp_y[goto_wp_index];
+    // Stall recovery: while re-centring, aim at the cell centre
+    // instead of the waypoint (see T_RecenterAim).
+    if (goto_recenter_tics > 0)
+    {
+        fixed_t ax, ay;
+        goto_recenter_tics--;
+        if (T_RecenterAim(mo, &ax, &ay))
+        {
+            wx = ax;
+            wy = ay;
+        }
+        else
+            goto_recenter_tics = 0;
+    }
     dx = wx - mo->x;
     dy = wy - mo->y;
     dist_sq = (dx >> 16) * (dx >> 16) + (dy >> 16) * (dy >> 16);
 
     // Within 16 units: advance to next waypoint.
-    if (dist_sq < 256)
+    if (goto_recenter_tics == 0 && dist_sq < 256)
     {
         goto_wp_index++;
         return;
@@ -1328,6 +1374,16 @@ void T_GotoTick(void)
                                         mo->y - goto_last_y);
         if (moved < 2 * FRACUNIT)
         {
+            if (goto_stuck_tics == 12 && goto_recenter_tics == 0)
+            {
+                fixed_t ax, ay;
+                if (T_RecenterAim(mo, &ax, &ay))
+                {
+                    goto_recenter_tics = 35;
+                    printf("[GOTO] stalled off-centre; re-centring to (%d,%d)\n",
+                           ax >> 16, ay >> 16);
+                }
+            }
             if (++goto_stuck_tics > 35)
             {
                 int moved = P_AproxDistance(mo->x - goto_start_x,
@@ -1370,6 +1426,7 @@ static fixed_t collect_target_x = 0;
 static fixed_t collect_target_y = 0;
 static int collect_tics = 0;
 static int collect_still_tics = 0;
+static int collect_recenter_tics = 0;
 static fixed_t collect_last_x = 0;
 static fixed_t collect_last_y = 0;
 
@@ -1546,6 +1603,7 @@ boolean T_DoCollect(void)
     collect_target_y = loot->y;
     collect_tics = 0;
     collect_still_tics = 0;
+    collect_recenter_tics = 0;
     collect_last_x = mo->x;
     collect_last_y = mo->y;
     collect_active = true;
@@ -1661,6 +1719,21 @@ void T_CollectTick(void)
         gy = (fixed_t)celly * LOOT_GRID + LOOT_GRID / 2;
     }
 
+    // Stall recovery: while re-centring, aim at the cell centre
+    // instead of the path (see T_RecenterAim).
+    if (collect_recenter_tics > 0)
+    {
+        fixed_t ax, ay;
+        collect_recenter_tics--;
+        if (T_RecenterAim(mo, &ax, &ay))
+        {
+            gx = ax;
+            gy = ay;
+        }
+        else
+            collect_recenter_tics = 0;
+    }
+
     dx = gx - mo->x;
     dy = gy - mo->y;
     dist = P_AproxDistance(dx, dy);
@@ -1687,6 +1760,16 @@ void T_CollectTick(void)
                                         mo->y - collect_last_y);
         if (moved < 2 * FRACUNIT)
         {
+            if (collect_still_tics == 15 && collect_recenter_tics == 0)
+            {
+                fixed_t ax, ay;
+                if (T_RecenterAim(mo, &ax, &ay))
+                {
+                    collect_recenter_tics = 35;
+                    printf("[COLLECT] stalled off-centre; re-centring to (%d,%d)\n",
+                           ax >> 16, ay >> 16);
+                }
+            }
             if (++collect_still_tics > 70)
             {
                 printf("[COLLECT] stuck for 2s, giving up\n");
