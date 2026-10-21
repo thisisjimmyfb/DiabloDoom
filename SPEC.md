@@ -247,7 +247,13 @@ onto the item for the final approach (touch needs <32 units). The walk
 ends on pickup, on finding no path, after 2 seconds without progress,
 or on a 20-second cap. While the walk runs, FIFO driver input is
 blocked — queued commands wait until the walk ends (combat entry also
-cancels it). COLLECT runs in explore mode only. **The loot alert uses the same reachability rule** (changed
+cancels it) — and the local player's movement keys are disabled
+(`P_MovePlayer` returns early while a walk is active): the walk owns
+velocity and facing, so held keys can't fight it or keep resetting
+its stuck watchdog. The walk steers to cell *centres* — the same
+points the BFS walkability probe samples; an earlier aim expression
+overflowed to the cell corner and wedged walks against wall
+junctions (fixed 2026-10-21, GOTO waypoints had the same bug). COLLECT runs in explore mode only. **The loot alert uses the same reachability rule** (changed
 2026-10-19): the "Loot nearby, press G to loot" prompt fires only
 when the nearest loot in distance order has a BFS path — loot
 elsewhere on the map no
