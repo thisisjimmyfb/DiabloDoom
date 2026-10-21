@@ -1241,18 +1241,34 @@ void G_PlayerReborn (int player)
     secretcount = players[player].secretcount; 
 	 
     p = &players[player]; 
-    // Diablo equipment (mod): keep gear across death.
+    // Diablo equipment (mod): gear does NOT survive death. It
+    // lives on the corpse (snapshotted by P_KillMobj) until the
+    // player runs back and recovers it, so the reborn player starts
+    // with empty slots, an empty backpack and no essence; only
+    // derived stats and the recent-item marker carry over. The
+    // driver's P_DoCorpseRespawn used to clear the gear by hand
+    // after this function preserved it, but the local respawn path
+    // (G_DoReborn) never did -- the player kept wearing everything
+    // while the corpse held duplicates, and corpse recovery then
+    // stuffed copies of the whole equipped set into the backpack
+    // (Jimmy, 2026-10-21: "Don't ever move my currently equipped
+    // items when collecting corpse loot"). Clearing here covers
+    // every respawn path.
     {
-	int eq[NUM_ESLOTS], bp[D_BACKPACK_SIZE], bpc, rec, st[NUM_DSTATS];
+	int rec, st[NUM_DSTATS];
 	int i2;
-	for (i2 = 0; i2 < NUM_ESLOTS; i2++) eq[i2] = p->diablo_equipped[i2];
-	for (i2 = 0; i2 < D_BACKPACK_SIZE; i2++) bp[i2] = p->diablo_backpack[i2];
-	bpc = p->diablo_bp_count; rec = p->diablo_recent;
+	rec = p->diablo_recent;
 	for (i2 = 0; i2 < NUM_DSTATS; i2++) st[i2] = p->diablo_stats[i2];
-	memset (p, 0, sizeof(*p)); 
-	for (i2 = 0; i2 < NUM_ESLOTS; i2++) p->diablo_equipped[i2] = eq[i2];
-	for (i2 = 0; i2 < D_BACKPACK_SIZE; i2++) p->diablo_backpack[i2] = bp[i2];
-	p->diablo_bp_count = bpc; p->diablo_recent = rec;
+	memset (p, 0, sizeof(*p));
+	for (i2 = 0; i2 < NUM_ESLOTS; i2++) p->diablo_equipped[i2] = -1;
+	for (i2 = 0; i2 < D_BACKPACK_SIZE; i2++)
+	{
+	    p->diablo_backpack[i2] = -1;
+	    p->diablo_bp_gx[i2] = -1;
+	    p->diablo_bp_gy[i2] = -1;
+	}
+	p->diablo_bp_count = 0;
+	p->diablo_recent = rec;
 	for (i2 = 0; i2 < NUM_DSTATS; i2++) p->diablo_stats[i2] = st[i2];
     }
  
