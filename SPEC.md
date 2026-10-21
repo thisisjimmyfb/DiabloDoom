@@ -333,24 +333,26 @@ world ("Backpack full -- corpse keeps the rest.") so the player
 can junk something and come back; only a fully emptied corpse is
 removed.
 
-**Ammo conversion** (Jimmy's rule, 2026-10-21): ammo pickups
-convert to Diablo loot -- **all of them, from every source**. There
-is no raw ammo pickup in the world. Map-placed ammo (clips, shell
-and rocket boxes, cells) converts at spawn: a random item rolled
-on the kill-drop rarity table (loop magic find) spawns in its
-place, logged as `[LOOT] map-spawn ... (was <ammo>)`. A monster's
-vanilla ammo drop (the zombiemen's clip) converts at death the
-same way, with the killer's magic find, logged as
-`[LOOT] dropped ... (was clip)`. Rationale: magazines replenish on
-their own, so raw ammo is redundant -- and as a magazine cache it
-was worse than redundant, since `P_GiveAmmo` refuses a cache when
-every magazine is full, which in explore is the steady state: the
-clip Jimmy stood on could never be picked up at all. Weapon drops
-are the exception that proves the rule: they stay weapons and
-convert at pickup instead, via `P_GiveWeapon`'s Diablo item grant.
-(The magazine-cache path in `P_GiveAmmo` remains only as a
-backstop for ammo mobjs in pre-conversion saves, and COLLECT still
-refuses to target a cache no magazine has room for.)
+**Ammo conversion & monster drops** (Jimmy's rules, 2026-10-21):
+there is no raw ammo pickup in the world, and no vanilla monster
+drop. Map-placed ammo (clips, shell and rocket boxes, cells)
+converts at spawn into a roll: a random item from the kill-drop
+rarity table (loop magic find) spawns in its place, logged as
+`[LOOT] map-spawn ... (was <ammo>)`. Monster drops are exclusively
+the Diablo mechanic -- `P_DropDiabloLoot` (70% chance, killer's
+magic find) is the only thing a death can spawn. The vanilla drop
+switch (zombiemen -> clip, shotgun guy -> shotgun, chaingun guy
+-> chaingun) is **deleted, not converted**: a kill drops a Diablo
+item or nothing. Rationale: magazines replenish on their own, so
+raw ammo is redundant -- and as a magazine cache it was worse
+than redundant, since `P_GiveAmmo` refuses a cache when every
+magazine is full, which in explore is the steady state: the clip
+Jimmy stood on could never be picked up at all. A map-placed
+*weapon* is placement, not a drop: it stays a weapon and converts
+at pickup via `P_GiveWeapon`'s Diablo item grant. (The
+magazine-cache path in `P_GiveAmmo` remains only as a backstop
+for ammo mobjs in pre-conversion saves, and COLLECT still refuses
+to target a cache no magazine has room for.)
 
 **Navigation awareness (2026-10-21):** the agent drives from
 screenshots and the log, so the engine reports where movement

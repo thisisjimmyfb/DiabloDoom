@@ -1101,9 +1101,7 @@ P_KillMobj
 ( mobj_t*	source,
   mobj_t*	target )
 {
-    mobjtype_t	item;
-    mobj_t*	mo;
-	
+
     target->flags &= ~(MF_SHOOTABLE|MF_FLOAT|MF_SKULLFLY);
 
     // Auto-capture: a player kill earns a replay, but the snapshot is
@@ -1231,63 +1229,13 @@ P_KillMobj
         P_DropDiabloLoot(target, source);
     }
 
-    // Drop stuff.
-    // This determines the kind of object spawned
-    // during the death frame of a thing.
-    switch (target->type)
-    {
-      case MT_WOLFSS:
-      case MT_POSSESSED:
-	item = MT_CLIP;
-	break;
-	
-      case MT_SHOTGUY:
-	item = MT_SHOTGUN;
-	break;
-	
-      case MT_CHAINGUY:
-	item = MT_CHAINGUN;
-	break;
-	
-      default:
-	return;
-    }
-
-    // Diablo (Jimmy's rule, 2026-10-21): ammo converts to Diablo
-    // loot -- ALL of it. Map-placed ammo converts at spawn
-    // (P_SpawnMapThing); a monster's dropped clip converts here, on
-    // the same roll with the killer's magic find. Magazines
-    // replenish on their own, so a raw clip is redundant -- and as
-    // a magazine cache it could never be picked up at all once the
-    // magazines were full. (Weapon drops stay weapons: they convert
-    // at pickup via P_GiveWeapon's Diablo grant.)
-    if (item == MT_CLIP)
-    {
-	int item_id;
-	int magic_find = D_LoopMagicFind();
-
-	if (source && source->player)
-	    magic_find += source->player->diablo_stats[DSTAT_MAGICFIND];
-
-	item_id = P_RollDiabloItemDrop(magic_find);
-	if (item_id >= 0)
-	{
-	    const diablo_itemdef_t *def =
-		D_GetItemDef(D_ITEMTIER(item_id), D_ITEMIDX(item_id));
-	    char namebuf[96];
-	    D_ItemDisplayName(def, namebuf, sizeof(namebuf));
-	    printf("[LOOT] dropped \"%s\" tier=%d idx=%d by %s at (%d,%d) (was clip)\n",
-		   namebuf,
-		   D_ITEMTIER(item_id), D_ITEMIDX(item_id),
-		   P_MonsterName(target->type),
-		   target->x >> 16, target->y >> 16);
-	    P_SpawnDiabloLootAt(target->x, target->y, item_id);
-	}
-	return;
-    }
-
-    mo = P_SpawnMobj (target->x,target->y,ONFLOORZ, item);
-    mo->flags |= MF_DROPPED;	// special versions of items
+    // Diablo (Jimmy's rule, 2026-10-21): there are NO vanilla
+    // monster drops. The "Drop stuff" switch that used to live here
+    // (zombiemen -> clip, shotgun guy -> shotgun, chaingun guy ->
+    // chaingun) is deleted entirely: P_DropDiabloLoot above is the
+    // one and only monster drop mechanic. Map-placed ammo still
+    // converts into a roll at spawn (P_SpawnMapThing) -- placement
+    // is not a drop.
 }
 
 
