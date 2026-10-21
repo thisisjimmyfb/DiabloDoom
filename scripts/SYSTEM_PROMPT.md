@@ -23,6 +23,8 @@ Game lifecycle (launch, save/load) is handled by `scripts/doom_loop.sh --subagen
 
 The workflow feeds you a screenshot per iteration (captured via the game's `CAPTURE` driver command, which also saves a 15-second replay video for the user report). Read the screenshot directly with vision — no video frame extraction needed. The screenshot is the vision input; the replay video is only for the user-facing report link.
 
+**The replay is a rolling last-15-seconds buffer, not a recording of your session.** Whatever the player did more than 15 seconds before the CAPTURE is gone from the video. A CAPTURE issued right after LOAD, or after a long think gap, contains only a standing-still player — that footage is useless as a report replay. So: CAPTURE *after* your commands play out (act, wait ~5 seconds, then CAPTURE), never as the first thing after a load or a long pause. The one exception is a single opening CAPTURE right after LOAD purely to see the loaded state — fine for vision, but never use that video in the user report.
+
 ## Command Reference
 
 Write commands to /tmp/doom_cmd.txt (one per line). It's a FIFO — do NOT delete it.
@@ -73,11 +75,12 @@ Notes:
 
 Play for ~4 minutes. The 10-minute cron window is the gaming session — within it, make decisions frequently.
 
-**Decision cadence: Take a fresh screenshot every 5 seconds.** Do not reuse a stale screenshot for multiple decisions. The loop is:
-1. Capture (CAPTURE command: queues a 15s replay video encode — it runs in the background and the MP4 appears under /tmp/doomshots/ a few seconds later — plus an immediate screenshot; sleep 4, copy newest PNG to /tmp/farm_view.png)
-2. Read the screenshot with vision, decide action based on PROMPT.md strategy
-3. Send command(s) via FIFO
-4. Sleep 1-2 seconds (so total cycle is ~5-6 seconds), then repeat from step 1
+**Decision cadence: Take a fresh screenshot every 5 seconds.** Do not reuse a stale screenshot for multiple decisions. The loop is ACT → CAPTURE → THINK:
+1. Send command(s) via FIFO (based on the previous screenshot and PROMPT.md strategy)
+2. Wait ~5 seconds while they play out, then Capture (CAPTURE command: queues a 15s replay video encode — it runs in the background and the MP4 appears under /tmp/doomshots/ a few seconds later — plus an immediate screenshot; sleep 4, copy newest PNG to /tmp/farm_view.png). Capturing *after* the action is what puts the action in the video.
+3. Read the screenshot with vision, decide the next action, then repeat from step 1
+
+(First iteration after LOAD only: one opening CAPTURE to see the loaded state, then start the loop with an action.)
 
 This means ~40-45 decisions per 4-minute session. Fresh visual input every time.
 
@@ -91,7 +94,7 @@ Check /tmp/doom_hourly.log periodically for: kills, PLAYER_DIED, errors.
 
 After ~4 min of play:
 1. Kill count: grep the log for kill messages.
-2. Capture replay: write `REPLAY\n`, sleep 20, find newest `diablodoom_*.mp4` in `~/workspace/diablodoom/doomshots/`. Copy to workspace, upload via `/opt/hatch/bin/remote-storage upload-file`.
+2. Capture replay: the report video must show this run's action, so use the newest `diablodoom_*.mp4` in `/tmp/doomshots/` that was captured *after* your final action batch played out (per the loop above, your last iteration's CAPTURE already qualifies). Only if no post-action capture exists, do a short move/turn burst, wait ~5 seconds, then write `REPLAY\n`, sleep 20, and grab the newest mp4. Never report a video captured right after LOAD or after an idle gap — it shows a standing-still player. Copy to workspace, upload via `/opt/hatch/bin/remote-storage upload-file`.
 3. Report to user: kills this run and replay video link.
 4. Leave the game running — next session continues from where you left off.
 
