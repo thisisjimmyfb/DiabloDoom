@@ -317,7 +317,10 @@ the game loop — `P_TouchNearbySpecials` runs once per tic from
 `P_Ticker`, after movement resolves, and collects every special
 within a *circle* around where the player actually is (reach =
 player radius + item radius; `P_TouchSpecialThing`'s vertical gate
-still applies). `PIT_CheckThing` no longer touches specials: the
+still applies). When several items are in reach on the same tic
+they are picked up in **ascending cartesian distance** order —
+nearest first — so backpack space goes to the closest loot, not
+to thinker-list order (Jimmy, 2026-10-21). `PIT_CheckThing` no longer touches specials: the
 old test fired at the *candidate* position inside movement/probe
 checks, so it collected from spots physics never let the player
 reach, reached ~51 units on the diagonal against 36 head-on (a

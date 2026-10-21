@@ -1588,20 +1588,24 @@ P_DamageMobj
 //
 void P_TouchNearbySpecials(mobj_t *toucher)
 {
-    thinker_t *th, *next;
+    // Candidates within reach are touched in ascending cartesian
+    // distance order (Jimmy, 2026-10-21): when several items are in
+    // reach on the same tic -- and especially when the backpack can
+    // only fit some of them -- the nearest are picked up first, not
+    // whichever happens to sit earlier in the thinker list. Sorting
+    // by squared distance orders identically to distance itself.
+    struct { mobj_t *thing; int64_t dist_sq; } near[64];
+    int n = 0, i;
+    thinker_t *th;
 
     if (!toucher || toucher->health <= 0)
         return;
 
-    for (th = thinkercap.next; th != &thinkercap; th = next)
+    for (th = thinkercap.next; th != &thinkercap; th = th->next)
     {
         mobj_t *thing;
-        int64_t dx, dy, reach;
+        int64_t dx, dy, reach, dist_sq;
 
-        // P_TouchSpecialThing can remove the touched mobj. Removal
-        // is deferred to P_RunThinkers (sentinel), but never trust
-        // the node after the call -- take next first.
-        next = th->next;
         if (th->function.acp1 != (actionf_p1)P_MobjThinker)
             continue;
         thing = (mobj_t *)th;
@@ -1613,9 +1617,29 @@ void P_TouchNearbySpecials(mobj_t *toucher)
         dx = (int64_t)thing->x - toucher->x;
         dy = (int64_t)thing->y - toucher->y;
         reach = (int64_t)toucher->radius + thing->radius;
-        if (dx * dx + dy * dy >= reach * reach)
+        dist_sq = dx * dx + dy * dy;
+        if (dist_sq >= reach * reach)
             continue;
 
-        P_TouchSpecialThing(thing, toucher);
+        // Insertion into the sorted candidate list. Beyond capacity
+        // keep the nearest 64 (in-reach counts are a handful in
+        // practice); a farther candidate is simply not touched this
+        // tic and is reconsidered next tic.
+        if (n == 64 && dist_sq >= near[63].dist_sq)
+            continue;
+        i = (n < 64) ? n++ : 63;
+        while (i > 0 && near[i - 1].dist_sq > dist_sq)
+        {
+            near[i] = near[i - 1];
+            i--;
+        }
+        near[i].thing = thing;
+        near[i].dist_sq = dist_sq;
     }
+
+    // Removal inside P_TouchSpecialThing is deferred to
+    // P_RunThinkers (sentinel), so every candidate pointer stays
+    // valid for the whole pass.
+    for (i = 0; i < n; i++)
+        P_TouchSpecialThing(near[i].thing, toucher);
 }
