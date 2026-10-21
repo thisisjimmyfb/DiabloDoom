@@ -235,34 +235,58 @@ consuming an item does. Grid organization stays free.
 **Auto-loot rule:** the HUD shows "Loot nearby, press G to loot"
 when loot is in reach — or "Loot nearby, but backpack full" when
 `D_BackpackFull` says the pack can take no item of any size, since
-inviting a COLLECT that can only refuse the loot would be a lie. COLLECT is an autonomous walk, not an instant move:
-`T_DoCollect` only sets up — it gathers up to 32 loot targets, sorts
-them by distance squared, and tries `T_FindPathTo` on each in nearest
-order (an unreachable target is skipped, "[COLLECT] loot N unreachable,
-trying next"); the first reachable one becomes the target and raises
-the collect flag. The BFS tests what movement tests (2026-10-21):
-a step between cells requires the shared-edge midpoint to be
-standable as well as both centres, with the 24-unit step rule on
+inviting a COLLECT that can only refuse the loot would be a lie. **COLLECT -- the contract.** COLLECT is an autonomous walk to loot,
+never an instant move or a teleport. Explore mode only.
+
+1. **Reachability first.** `T_DoCollect` (setup) gathers up to 32
+   candidates -- Diablo loot drops and player corpses -- nearest
+   first, and runs the grid pathfinder (`T_FindPathTo`) on each in
+   that order (an unreachable candidate is skipped: "[COLLECT] loot
+   N unreachable, trying next"). If no Diablo candidate is
+   reachable, it tries the nearest vanilla pickup within 2048 units
+   the same way. The first candidate with a path becomes the
+   target. **If none has a path, `T_DoCollect` returns false** and
+   nothing else happens: no walk starts, the HUD shows "NO
+   REACHABLE LOOT.", and the caller ignores the request. (The loot
+   prompt shares this scan -- it lights only for loot COLLECT could
+   actually path to.)
+2. **The walk ticks over multiple frames.** No route is stored.
+   Once setup returns true, `T_CollectTick` runs once per game tick
+   (from `T_ExploreTick`, after the world tick) for as many ticks
+   as the walk takes. Each tick re-runs the pathfinder from the
+   player's current position and sets one momentum step toward the
+   centre of the next path cell -- or, when the player is already
+   in the target's cell, directly onto the item for the final
+   approach. The path is recomputed every tick, so it can never go
+   stale mid-walk.
+3. **The walk owns the player.** While a walk is active, movement
+   input is blocked on both channels: the local player's movement
+   keys do nothing (`P_MovePlayer` returns early while a walk is
+   active), so held keys can't fight the walk or keep resetting its
+   stuck watchdog, and queued driver commands wait -- only
+   diagnostic commands (SCREENSHOT, CAPTURE, VERSION, ...) pass
+   through. COLLECT cancels GOTO and WALK when it starts; only one
+   autonomous walk runs at a time.
+4. **The walk ends.** On pickup (the target leaves the world:
+   "LOOT COLLECTED."); when a tick's pathfinding finds no path
+   ("CAN'T REACH LOOT." -- e.g. a door closed en route); after 2
+   seconds without progress (the stuck watchdog: the BFS said
+   walkable, physics disagrees); on a 20-second hard cap ("COLLECT
+   TIMED OUT."); and **immediately when combat is encountered** --
+   combat entry cancels the walk, as do leaving explore mode or
+   dying. Cancelling zeroes the player's velocity: no coasting.
+
+**Pathfinding rule** (2026-10-21): the BFS tests what movement
+tests. A step between cells requires the shared-edge midpoint to
+be standable as well as both centres, with the 24-unit step rule on
 both halves of the crossing, and every sampled position must fit
-the player's full height between floor and ceiling — the fit rule
+the player's full height between floor and ceiling -- the fit rule
 `P_TryMove` enforces but `P_CheckPosition` alone ignores, whose
 absence let the BFS route through closed doors (zero ceiling gap)
-that the walk then wedged against. No route is stored: `T_CollectTick` pathfinds fresh
-from the player's current position every game tick and moves one step
-along the path it finds, so the pathfinding is spread over as many
-ticks as the walk takes and the route is always current. When the BFS
-says the player is already in the loot's cell, the tick steps directly
-onto the item for the final approach. The walk
-ends on pickup, on finding no path, after 2 seconds without progress,
-or on a 20-second cap. While the walk runs, FIFO driver input is
-blocked — queued commands wait until the walk ends (combat entry also
-cancels it) — and the local player's movement keys are disabled
-(`P_MovePlayer` returns early while a walk is active): the walk owns
-velocity and facing, so held keys can't fight it or keep resetting
-its stuck watchdog. The walk steers to cell *centres* — the same
-points the BFS walkability probe samples; an earlier aim expression
-overflowed to the cell corner and wedged walks against wall
-junctions (fixed 2026-10-21, GOTO waypoints had the same bug). COLLECT runs in explore mode only.
+that the walk then wedged against. The walk steers to cell
+*centres* -- the same points the BFS samples; an earlier aim
+expression overflowed to the cell corner and wedged walks against
+wall junctions (fixed 2026-10-21; GOTO waypoints had the same bug).
 
 **Pickup rule** (2026-10-21): items are picked up by presence, in
 the game loop — `P_TouchNearbySpecials` runs once per tic from
