@@ -405,7 +405,7 @@ its own movement history.)
 | AS     | Attack Speed         | Reduces melee TP attack cost; ranged attacks are TP-free (ammo-gated). |
 | Haste  | Cooldown recovery    | Cooldown-reduction percent (cap 50%): applied when a cooldown is set, then flat reduction, minimum 1 round (1 round = 10 s). |
 | Crit   | Chance + damage      | Gear-inherent (Diablo-style): weapons/items grant crit chance and bonus crit damage. Base crits deal x2; each crit-damage point adds 1%. Chance caps at 50%. Crit is rolled exactly once per attack inside `T_DiabloDamageCallback` (once-per-attack pellet semantics); the legacy `P_DamageMobj` crit hook is bypassed in turn mode so crits can never double-roll. |
-| Armor  | Physical defense     | Diminishing-returns reduction of AD-tagged damage.      |
+| Defense | Diablo 2-style rating | Sum of the five durability slots' armor values (rescaled into the thousands). Lowers a monster's chance to hit; no damage reduction. |
 | MR     | Magic resistance     | Reduces AP-tagged plasma, occult, status damage.        |
 | Move   | Movement efficiency  | Boots/effects can reduce step cost, never below 1 TP.   |
 
@@ -413,7 +413,12 @@ Damage: `damage = base + (AD × ratio_AD) + (AP × ratio_AP)` — most weapons
 have one dominant scaling path; hybrid is a special build, not the default.
 The preview shows the final damage range before firing.
 
-Defense: `reduction = defense / (defense + K)`, K tuned in balance testing.
+Defense (Diablo 2-style, since 2026-10-21): a monster's chance to hit is
+`CTH = 200 * AR / (AR + Defense)`, clamped to [5, 95], where the
+attacker's rating is `AR = 60 + spawn health`. A landed hit deals full
+damage (elemental resists and vanilla Doom armor absorption still apply
+afterwards). Only the helm, armor, boots, gloves and belt slots produce
+Defense; shields and other slots do not.
 
 Tooltip order (ground loot, backpack, equipped — all identical):
 damage range; AD/AP ratios; TP cost; attack speed; charge/heat state;
@@ -639,7 +644,7 @@ variants (`diff_tier` field, filtered by `D_DifficultyTier()`):
 | 2 | Hell / NG+2 | of Carnage (+40% AD), of the Godslayer (+40% AP), of Lightning (+45% haste), Champion's (+12 flat AD), Archmage's (+20 flat AP), Soulrender (+12% leech), of the Sun (+80 heat) |
 slots; `D_MechDesc()` provides the one-line display text.
 
-### Essence: salvage and reroll
+### Essence: salvage, reroll and repair
 
 Junk loot feeds a Diablo 3-style crafting loop instead of cluttering the
 backpack. Essence is a per-player currency (`diablo_essence` on
@@ -656,8 +661,29 @@ display, text for now).
   rerolled. R previously meant "use held consumable / cancel hold" in
   the inventory — that is now Backspace (or right-click) only.
 
+- **F (repair):** restores the held (or keyboard-selected backpack)
+  item to full durability for Essence, pro-rated by tier and missing
+  durability (`D_RepairCost`: full-repair base Normal 2, Magic 4,
+  Rare 8, Set 12, Unique 20).
+
 **Design intent:** every drop is either an upgrade, reroll fuel, or
 salvage — the farm loop never dead-ends in a full backpack.
+
+### Durability
+
+The five Defense slots (helm, armor, boots, gloves, belt) carry
+per-instance durability, `20 + Defense/20` points per piece
+(`diablo_equipped_dur[]` / `diablo_backpack_dur[]` on `player_t`). Each
+landed monster hit wears one random worn piece by 1
+(`D_WearRandomPiece`, called from `P_DamageMobj` after the defense and
+dodge rolls pass). At 0 the piece stays equipped and keeps its other
+stats, but contributes no Defense until repaired. Durability travels
+with the item through the backpack, equip swaps, the corpse
+snapshot/recovery and savegames (format DIB3; DIB2 saves load with
+every piece at full; a corpse in a loaded world also returns at full —
+durability is not stored in the mobj stream). Picking up a vanilla
+Doom armor suit (green/blue) or a megasphere restores every equipped
+piece to full, free (`D_RepairAllEquipped`).
 
 ---
 ## Selection combat

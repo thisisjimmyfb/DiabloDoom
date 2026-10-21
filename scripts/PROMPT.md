@@ -96,7 +96,7 @@ When in EXPLORE mode (not in combat), priority order:
 
 2. **After picking up loot** → Check inventory, equip upgrades immediately:
    - Weapon: equip if higher damage than current
-   - Armor/Helm/Boots/Gloves/Shield: equip if higher armor or resistances
+   - Helm/Armor/Boots/Gloves/Belt: equip if higher Defense or resistances (Defense is the sum of those five slots only; shields give no Defense). A piece at 0 durability gives no Defense until repaired.
    - Rings/Amulet/Belt: equip if stats are better or slot is empty
    - Don't hoard upgrades in the backpack — equip them
 

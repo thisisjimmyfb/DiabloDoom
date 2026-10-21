@@ -9,7 +9,7 @@ and a character screen to Doom.
 - 5 rarity tiers: normal, magic, rare, set, unique (~6% unique).
 - 42 data-driven item definitions with Diablo names (Stone of Jordan,
   Harlequin Crest, etc.), equipment slots, grid sizes, and stats.
-- Stats: weapon damage, strength, armor, life steal, vitality,
+- Stats: weapon damage, strength, defense, life steal, vitality,
   magic find, movement speed.
 - E: equip/use most recent item. Q: unequip all.
 
@@ -26,7 +26,7 @@ pauses while the screen is open.
   bonuses to the equipped weapon.
 - **Backpack** (right): 10×4 grid. Items occupy their grid_w × grid_h
   footprint (e.g., weapons 2×3, potions 1×1).
-- **Stats** (bottom): damage, armor, strength, dexterity, vitality,
+- **Stats** (bottom): damage, defense, strength, dexterity, vitality,
   energy, resistances, life steal, magic find, movement speed,
   crit chance, crit damage.
 
@@ -42,8 +42,8 @@ The UI uses click-to-pick-up / click-to-place (not hold-and-drag):
 - **Left-click** empty space: nothing.
 - **Right-click**: if holding a consumable, use it. Else if holding an
   item, cancel (stash it back). Else close the screen.
-- **Hover**: tooltip shows name, rarity, damage, armor, attributes,
-  resistances, life steal, magic find, movement speed.
+- **Hover**: tooltip shows name, rarity, damage, defense, durability,
+  attributes, resistances, life steal, magic find, movement speed.
 - **ESC** or **C**: close (stashes any held item).
 
 ### Rarity colors
@@ -128,14 +128,34 @@ exploring. Barrels never start combat but can still be targeted with
 Tab. **G** auto-paths to the nearest loot during combat (walk to loot
 while exploring).
 
-## Essence (salvage / reroll)
+## Essence (salvage / reroll / repair)
 
 Junk loot is reroll fuel. **S** in the character screen salvages the
 held (or selected backpack) item into **Essence** — Normal 1, Magic 3,
 Rare 8, Set 15, Unique 25. **R** rerolls a Magic-or-better item into a
 new random item of the same tier: Magic 5, Rare 15, Set 25, Unique 40
-Essence (Normal items can't be rerolled). Your Essence total shows in
-the inventory header and is saved with your game.
+Essence (Normal items can't be rerolled). **F** repairs the held (or
+selected backpack) item to full durability, pro-rated by tier and how
+much durability is missing. Your Essence total shows in the inventory
+header and is saved with your game.
+
+## Defense & durability
+
+Armor works like Diablo 2. Your helm, armor, boots, gloves and belt
+each carry a **Defense** value (hundreds to thousands on good gear);
+the total is your Defense rating. It doesn't reduce damage — it makes
+monsters **miss**: the tougher the monster and the lower your Defense,
+the more often it hits, and a landed hit deals full damage. Shields
+don't add Defense.
+
+Those five pieces also wear out. Every hit that lands on you knocks
+1 point off a random worn piece. At 0 durability a piece is broken:
+it keeps its other stats (+Strength, resists, ...) but adds no
+Defense until repaired. Repair with **F** for Essence — or pick up a
+vanilla Doom armor suit (green or blue) or a megasphere, which
+restores every equipped piece to full for free. The +1 armor bonus
+shards don't repair. Hover any piece in the character screen to see
+its durability.
 
 ## Building
 
