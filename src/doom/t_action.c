@@ -29,6 +29,10 @@
 #include "s_sound.h"
 #include "info.h"
 
+// Movement-history sampler (defined with the tracking block below;
+// T_GotoCancel above it records GOTO endpoints through it).
+static void T_HistorySample(boolean force);
+
 // ------------------------------------------------------------------
 // Shared nearby-entity detection for WALK and COLLECT.
 // Scans for enemies and loot within a radius of the player.
@@ -740,6 +744,7 @@ static boolean goto_active = false;
 // detects "blocked" as no displacement, since physics owns the move).
 static fixed_t goto_last_x = 0, goto_last_y = 0;
 static int goto_stuck_tics = 0;
+static fixed_t goto_start_x = 0, goto_start_y = 0;
 
 void T_GotoStart(fixed_t tx, fixed_t ty)
 {
@@ -818,6 +823,9 @@ void T_GotoStart(fixed_t tx, fixed_t ty)
     {
         goto_last_x = players[consoleplayer].mo->x;
         goto_last_y = players[consoleplayer].mo->y;
+        goto_start_x = players[consoleplayer].mo->x;
+        goto_start_y = players[consoleplayer].mo->y;
+        T_HistorySample(true);
     }
     printf("[GOTO] path to (%d,%d): %d waypoints\n", tx >> 16, ty >> 16, steps);
 }
@@ -825,6 +833,8 @@ void T_GotoStart(fixed_t tx, fixed_t ty)
 void T_GotoCancel(void)
 {
     mobj_t *mo = players[consoleplayer].mo;
+    if (goto_active)
+        T_HistorySample(true);
     goto_active = false;
     goto_wp_count = 0;
     goto_wp_index = 0;
@@ -847,10 +857,246 @@ void T_GotoCancel(void)
 // Uses the shared T_ScanNearby for detection.
 // ------------------------------------------------------------------
 
+// ------------------------------------------------------------------
+// Movement history + visited-sector tracking (Jimmy, 2026-10-21).
+//
+// The farm agent navigates from screenshots and the game log, and
+// explore-mode movement used to report no positions at all --
+// "[WALK] blocked, stopping" never said where the player ended up,
+// so the agent could not tell it was trapped in a corner revisiting
+// the same few units for a whole cycle. The SECTORS visited count
+// had the same problem: it only marked the sector the player was
+// standing in when SECTORS happened to be polled.
+//
+// The engine now keeps:
+//   - a ring buffer of recent player positions, sampled at movement
+//     command start/end and every ~48 units of travel, dumped by
+//     the HISTORY driver command, with a cluster note when the
+//     newest points huddle in a small box (the trap signature);
+//   - a continuous visited-sector set, marked every tick from the
+//     player's real position, read by SECTORS and by FRONTIER,
+//     which reports the nearest unvisited sectors so the agent can
+//     prefer new ground over re-treading old ground.
+// Both reset when the level's sector array changes (new level or
+// save load), detected by the sectors pointer.
+// ------------------------------------------------------------------
+
+#define HIST_MAX 48
+static fixed_t hist_x[HIST_MAX];
+static fixed_t hist_y[HIST_MAX];
+static int hist_tic[HIST_MAX];
+static int hist_count = 0;      // entries stored (<= HIST_MAX)
+static int hist_head = 0;       // next write slot
+static sector_t *hist_sector_base = NULL;
+
+#define VISITED_MAX 4096
+static boolean visited_sectors[VISITED_MAX];
+static int visited_count = 0;
+
+static void T_TrackResetIfLevelChanged(void)
+{
+    if (hist_sector_base != sectors)
+    {
+        hist_sector_base = sectors;
+        hist_count = 0;
+        hist_head = 0;
+        memset(visited_sectors, 0, sizeof(visited_sectors));
+        visited_count = 0;
+    }
+}
+
+// Record a history point. Travel sampling self-throttles to one
+// point per ~48 units; command start/end points pass force=true.
+static void T_HistorySample(boolean force)
+{
+    player_t *pl = &players[consoleplayer];
+    if (pl->mo == NULL)
+        return;
+    T_TrackResetIfLevelChanged();
+    if (!force && hist_count > 0)
+    {
+        int prev = (hist_head + HIST_MAX - 1) % HIST_MAX;
+        fixed_t d = P_AproxDistance(pl->mo->x - hist_x[prev],
+                                    pl->mo->y - hist_y[prev]);
+        if (d < 48 * FRACUNIT)
+            return;
+    }
+    hist_x[hist_head] = pl->mo->x;
+    hist_y[hist_head] = pl->mo->y;
+    hist_tic[hist_head] = gametic;
+    hist_head = (hist_head + 1) % HIST_MAX;
+    if (hist_count < HIST_MAX)
+        hist_count++;
+}
+
+// Mark the player's current sector visited. Called every tick from
+// the turn driver (explore and combat alike: presence is presence).
+void T_TrackTick(void)
+{
+    player_t *pl = &players[consoleplayer];
+    int idx;
+    if (sectors == NULL)
+        return;
+    T_TrackResetIfLevelChanged();
+    if (pl->mo == NULL || pl->mo->subsector == NULL)
+        return;
+    idx = pl->mo->subsector->sector - sectors;
+    if (idx >= 0 && idx < VISITED_MAX && idx < numsectors
+        && !visited_sectors[idx])
+    {
+        visited_sectors[idx] = true;
+        visited_count++;
+    }
+}
+
+int T_VisitedCount(void)
+{
+    T_TrackResetIfLevelChanged();
+    return visited_count;
+}
+
+void T_HistoryDump(void)
+{
+    int i;
+    printf("[HISTORY] %d entries (oldest first)\n", hist_count);
+    for (i = 0; i < hist_count; i++)
+    {
+        int slot = (hist_head + HIST_MAX - hist_count + i) % HIST_MAX;
+        int age = (gametic - hist_tic[slot]) / TICRATE;
+        printf("[HISTORY] %d: (%d,%d) %ds ago\n", i + 1,
+               hist_x[slot] >> 16, hist_y[slot] >> 16, age);
+    }
+    // Trap signature: the newest points huddled in a small box.
+    if (hist_count >= 6)
+    {
+        int k = hist_count < 8 ? hist_count : 8;
+        int j;
+        fixed_t minx = 0, miny = 0, maxx = 0, maxy = 0;
+        for (j = 0; j < k; j++)
+        {
+            int slot = (hist_head + HIST_MAX - 1 - j) % HIST_MAX;
+            if (j == 0)
+            {
+                minx = maxx = hist_x[slot];
+                miny = maxy = hist_y[slot];
+                continue;
+            }
+            if (hist_x[slot] < minx) minx = hist_x[slot];
+            if (hist_x[slot] > maxx) maxx = hist_x[slot];
+            if (hist_y[slot] < miny) miny = hist_y[slot];
+            if (hist_y[slot] > maxy) maxy = hist_y[slot];
+        }
+        if ((maxx - minx) < 128 * FRACUNIT
+            && (maxy - miny) < 128 * FRACUNIT)
+        {
+            printf("[HISTORY] note: last %d points within a %dx%d"
+                   " unit box -- likely trapped\n", k,
+                   (maxx - minx) >> 16, (maxy - miny) >> 16);
+        }
+    }
+}
+
+// Report the nearest unvisited sectors, nearest first, with
+// facing-relative bearings in the same shape as SCAN, so the agent
+// can steer toward new ground. The single nearest also gets a grid
+// path check.
+void T_FrontierReport(void)
+{
+    player_t *pl = &players[consoleplayer];
+    int best_idx[3];
+    fixed_t best_x[3], best_y[3], best_d[3];
+    int nb = 0;
+    int i, j;
+
+    if (pl->mo == NULL || sectors == NULL)
+    {
+        printf("[FRONTIER] no player\n");
+        return;
+    }
+    T_TrackResetIfLevelChanged();
+    printf("[FRONTIER] %d unvisited sectors\n",
+           numsectors - visited_count);
+    for (i = 0; i < numsectors && i < VISITED_MAX; i++)
+    {
+        sector_t *sec = &sectors[i];
+        long long sx = 0, sy = 0;
+        fixed_t cx, cy, d;
+        if (visited_sectors[i] || sec->linecount == 0)
+            continue;
+        for (j = 0; j < sec->linecount; j++)
+        {
+            sx += sec->lines[j]->v1->x;
+            sy += sec->lines[j]->v1->y;
+        }
+        cx = (fixed_t)(sx / sec->linecount);
+        cy = (fixed_t)(sy / sec->linecount);
+        d = P_AproxDistance(cx - pl->mo->x, cy - pl->mo->y);
+        // Keep the three nearest.
+        if (nb < 3)
+        {
+            best_idx[nb] = i; best_x[nb] = cx; best_y[nb] = cy;
+            best_d[nb] = d; nb++;
+        }
+        else
+        {
+            int worst = 0;
+            for (j = 1; j < 3; j++)
+                if (best_d[j] > best_d[worst]) worst = j;
+            if (d < best_d[worst])
+            {
+                best_idx[worst] = i; best_x[worst] = cx;
+                best_y[worst] = cy; best_d[worst] = d;
+            }
+        }
+    }
+    // Insertion-sort the (up to) three by distance.
+    for (i = 1; i < nb; i++)
+    {
+        int ti = best_idx[i];
+        fixed_t tx = best_x[i], ty = best_y[i], td = best_d[i];
+        for (j = i - 1; j >= 0 && best_d[j] > td; j--)
+        {
+            best_idx[j + 1] = best_idx[j]; best_x[j + 1] = best_x[j];
+            best_y[j + 1] = best_y[j]; best_d[j + 1] = best_d[j];
+        }
+        best_idx[j + 1] = ti; best_x[j + 1] = tx;
+        best_y[j + 1] = ty; best_d[j + 1] = td;
+    }
+    {
+        angle_t ang = pl->mo->angle;
+        fixed_t fx = finecosine[ang >> ANGLETOFINESHIFT];
+        fixed_t fy = finesine[ang >> ANGLETOFINESHIFT];
+        fixed_t rx = finecosine[(ang - ANG90) >> ANGLETOFINESHIFT];
+        fixed_t ry = finesine[(ang - ANG90) >> ANGLETOFINESHIFT];
+        for (i = 0; i < nb; i++)
+        {
+            fixed_t dx = best_x[i] - pl->mo->x;
+            fixed_t dy = best_y[i] - pl->mo->y;
+            int fwd = FixedMul(dx, fx) + FixedMul(dy, fy);
+            int rgt = FixedMul(dx, rx) + FixedMul(dy, ry);
+            printf("[FRONTIER] sector %d: %d fwd, %d right"
+                   " (dist %d)\n", best_idx[i],
+                   fwd >> 16, rgt >> 16, best_d[i] >> 16);
+            if (i == 0)
+            {
+                int dirs[64];
+                int steps = T_FindPathTo(pl->mo, best_x[i], best_y[i],
+                                         dirs, 64);
+                printf("[FRONTIER] nearest path: %s\n",
+                       steps >= 0 ? "yes" : "no");
+            }
+        }
+    }
+    if (nb == 0)
+        printf("[FRONTIER] none -- every sector visited\n");
+}
+
 static boolean walk_active = false;
 static int walk_blocked_tics = 0;
 static fixed_t walk_last_x = 0;
 static fixed_t walk_last_y = 0;
+static fixed_t walk_start_x = 0;
+static fixed_t walk_start_y = 0;
 
 // Stop-once set (Jimmy, 2026-10-20): WALK stops for a given item
 // exactly once; the item is then ignored by later walks until it is
@@ -930,13 +1176,33 @@ void T_WalkStart(void)
     walk_blocked_tics = 0;
     walk_last_x = pl->mo->x;
     walk_last_y = pl->mo->y;
-    printf("[WALK] started\n");
+    walk_start_x = pl->mo->x;
+    walk_start_y = pl->mo->y;
+    T_HistorySample(true);
+    printf("[WALK] started at (%d,%d)\n",
+           pl->mo->x >> 16, pl->mo->y >> 16);
 }
 
 void T_WalkCancel(void)
 {
     if (walk_active)
-        printf("[WALK] stopped\n");
+    {
+        player_t *pl = &players[consoleplayer];
+        if (pl->mo != NULL)
+        {
+            int moved = P_AproxDistance(pl->mo->x - walk_start_x,
+                                        pl->mo->y - walk_start_y)
+                        >> 16;
+            printf("[WALK] stopped at (%d,%d), moved %d from (%d,%d)\n",
+                   pl->mo->x >> 16, pl->mo->y >> 16, moved,
+                   walk_start_x >> 16, walk_start_y >> 16);
+            T_HistorySample(true);
+        }
+        else
+        {
+            printf("[WALK] stopped\n");
+        }
+    }
     walk_active = false;
     walk_blocked_tics = 0;
 }
@@ -1025,6 +1291,7 @@ void T_WalkTick(void)
         mo->momx += FixedMul(FRACUNIT / 2, finecosine[ang >> ANGLETOFINESHIFT]);
         mo->momy += FixedMul(FRACUNIT / 2, finesine[ang >> ANGLETOFINESHIFT]);
     }
+    T_HistorySample(false);
 }
 
 boolean T_GotoActive(void)
@@ -1052,7 +1319,11 @@ void T_GotoTick(void)
 
     if (goto_wp_index >= goto_wp_count)
     {
-        printf("[GOTO] arrived\n");
+        int moved = P_AproxDistance(mo->x - goto_start_x,
+                                    mo->y - goto_start_y) >> 16;
+        printf("[GOTO] arrived at (%d,%d), moved %d from (%d,%d)\n",
+               mo->x >> 16, mo->y >> 16, moved,
+               goto_start_x >> 16, goto_start_y >> 16);
         T_GotoCancel();
         return;
     }
@@ -1097,8 +1368,12 @@ void T_GotoTick(void)
         {
             if (++goto_stuck_tics > 35)
             {
-                printf("[GOTO] blocked at waypoint %d, aborting\n",
-                       goto_wp_index);
+                int moved = P_AproxDistance(mo->x - goto_start_x,
+                                            mo->y - goto_start_y) >> 16;
+                printf("[GOTO] blocked at waypoint %d, aborting"
+                       " at (%d,%d), moved %d from (%d,%d)\n",
+                       goto_wp_index, mo->x >> 16, mo->y >> 16,
+                       moved, goto_start_x >> 16, goto_start_y >> 16);
                 T_GotoCancel();
                 return;
             }
@@ -1110,6 +1385,7 @@ void T_GotoTick(void)
             goto_last_y = mo->y;
         }
     }
+    T_HistorySample(false);
 }
 
 // ------------------------------------------------------------------
@@ -1144,7 +1420,10 @@ void T_CollectCancel(void)
 {
     mobj_t *mo = players[consoleplayer].mo;
     if (collect_active)
+    {
         printf("[COLLECT] walk cancelled\n");
+        T_HistorySample(true);
+    }
     collect_active = false;
     collect_target_mo = NULL;
     // Momentum movement: kill the walk velocity so the player stops

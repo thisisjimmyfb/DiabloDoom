@@ -957,7 +957,8 @@ static boolean cmd_is_diagnostic(const char *cmd)
 {
     static const char *diag[] = {
         "SCREENSHOT", "REPLAY", "CAPTURE", "VERSION",
-        "INVENTORY", "KEYS", "SCAN", "SECTORS", NULL
+        "INVENTORY", "KEYS", "SCAN", "SECTORS", "HISTORY",
+        "FRONTIER", NULL
     };
     int i;
     for (i = 0; diag[i] != NULL; i++)
@@ -1310,25 +1311,32 @@ static void cmd_dispatch(const char *cmd)
     }
     else if (!strcmp(cmd, "SECTORS"))
     {
-        // Log sector traversal progress: current sector, visited count, total.
-        // Helps the worker know if it's exploring new areas or backtracking.
+        // Log sector traversal progress: current sector, visited count,
+        // total. The visited set is tracked continuously by
+        // T_TrackTick (the old poll-time static array only marked the
+        // sector the player stood in when SECTORS was queried, so the
+        // count barely moved and read as broken).
         player_t *pl = &players[consoleplayer];
         if (pl->mo != NULL && pl->mo->subsector != NULL)
         {
-            static int visited[4096];
-            static int visit_epoch = 0;
-            int cur;
-            int i, count = 0;
-            // Simple epoch-based visited tracking (reset on map change would
-            // be ideal; for now just track within this session).
-            cur = pl->mo->subsector->sector - sectors;
-            if (cur >= 0 && cur < 4096)
-                visited[cur] = 1;
-            for (i = 0; i < numsectors && i < 4096; i++)
-                if (visited[i]) count++;
+            int cur = pl->mo->subsector->sector - sectors;
             printf("[SECTORS] current=%d visited=%d total=%d\n",
-                   cur, count, numsectors);
+                   cur, T_VisitedCount(), numsectors);
         }
+    }
+    else if (!strcmp(cmd, "HISTORY"))
+    {
+        // Dump the movement-history ring buffer (see t_action.c):
+        // where the player has actually been, newest last, with a
+        // cluster note when the recent points huddle in a small box
+        // -- the trap signature the agent navigates by.
+        T_HistoryDump();
+    }
+    else if (!strcmp(cmd, "FRONTIER"))
+    {
+        // Nearest unvisited sectors with bearings, so the agent can
+        // steer toward new ground instead of re-treading old ground.
+        T_FrontierReport();
     }
     else if (!strcmp(cmd, "SCAN"))
     {
@@ -1621,6 +1629,10 @@ void T_Ticker(void)
 
     if (!T_Active())
         return;
+
+    // Continuous visited-sector tracking (both modes: presence is
+    // presence). Feeds SECTORS and FRONTIER.
+    T_TrackTick();
 
     // Kill banner counts down in real time, independent of turn state.
     T_TickKillBanner();

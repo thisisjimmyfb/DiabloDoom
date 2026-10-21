@@ -230,6 +230,10 @@ void T_WalkStart(void);     // WALK: persistent forward movement
 void T_WalkCancel(void);
 boolean T_WalkActive(void);
 void T_WalkTick(void);      // keep walking until enemy/loot/blocked (explore)
+void T_TrackTick(void);     // mark current sector visited (every tick)
+int T_VisitedCount(void);   // sectors visited on this level so far
+void T_HistoryDump(void);   // HISTORY: dump movement-history ring buffer
+void T_FrontierReport(void); // FRONTIER: nearest unvisited sectors
 struct player_s;
 fixed_t T_MoveSpeedPerTic(struct player_s *player); // units/tic, movespeed-scaled
 boolean T_LootAvailable(void); // true if any Diablo loot is on the map
