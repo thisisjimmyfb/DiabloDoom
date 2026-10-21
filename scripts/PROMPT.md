@@ -66,11 +66,29 @@ When the turn-based UI is visible (TURN MODE banner):
 - You are NEVER unarmed — you always have the pistol, even with no Diablo weapon equipped. "No weapon" means no Diablo weapon in the WEAPON slot. Don't avoid combat thinking you're defenseless.
 - If you have no Diablo weapon equipped (vanilla pistol only): prioritize finding a Diablo weapon over fighting tough enemies. But you CAN fight — just be cautious.
 
-### Getting Unstuck
-- If your position doesn't change after a movement command, you're against a wall.
-- Don't repeat the same move. Strafe left/right or turn 90° instead.
+### Movement History, Traps, Edges and Corners
+
+The game tracks where you have actually been. Your screenshot shows one moment — HISTORY shows the pattern, and the pattern is what gets you trapped.
+
+- **Check HISTORY often** (diagnostic, works any time). It lists your recent positions oldest-first, and every WALK/GOTO result is stamped with start and end positions (`moved N from (x,y)`), so you always know whether a command actually took you somewhere.
+- **You are trapped when any of these is true:**
+  - HISTORY ends with the "likely trapped" note (your last points huddle in a small box), or
+  - your last 3 movement commands each moved you less than ~32 units, or
+  - HISTORY shows you revisiting the same ±48-unit area 3 or more times.
+- **When trapped, name it and run the escape ladder — don't keep poking:**
+  1. Strafe out sideways: `GOTO 0 120` or `GOTO 0 -120` (a perpendicular step away from the wall), then WALK.
+  2. Turn 180° and WALK back out the way you came in.
+  3. Wall-follow: turn so a wall is on your left, WALK; at each stop, turn 45–90° toward the open side and WALK again, keeping the wall on the same side. A corner ends when the wall ends — follow it around instead of bouncing off it.
+  4. In a trench or pit: move ALONG the low ground, parallel to the high wall, never straight at it. Look for the step up or the ramp at the trench's ends.
+- **Edges and corners:**
+  - Approach openings square-on: face the CENTER of the doorway or gap before walking through. Clipping a corner post and stopping is the #1 way this farm gets wedged.
+  - If you stop against a door frame or a corner edge, don't WALK again at the same angle — you will re-wedge in the same spot and HISTORY will show the cluster. Back off with `GOTO -60 0`, strafe 30–60 units toward the opening's center, then WALK through.
+  - In tight or ledgy geometry, prefer WALK + wall-following over GOTO: GOTO's stepper gives up at waypoint 0 in spots that blind WALK slides through.
+  - Never issue repeated forward WALKs at slightly different angles hoping one slips through. Change something structural instead: strafe, back out, or follow the wall.
 
 ## Exploration Strategy
+
+**Prefer new ground over old ground.** Send `FRONTIER` to see the nearest unvisited sectors with bearings, and `SECTORS` to watch the visited count climb. If visited hasn't grown over your last several moves, you are looping — pick a FRONTIER bearing and head that way, even if it means crossing known rooms to get there. Backtracking is a means to reach new ground, never the activity itself. When two routes look equal, always take the one toward unvisited sectors.
 
 When in EXPLORE mode (not in combat), priority order:
 

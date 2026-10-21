@@ -30,7 +30,7 @@ The workflow feeds you a screenshot per iteration (captured via the game's `CAPT
 Write commands to /tmp/doom_cmd.txt (one per line). It's a FIFO — do NOT delete it.
 
 **Explore mode:**
-- `WALK` — keep walking forward until the game spots an enemy, loot, or hits a wall. The game stops automatically and logs `[WALK] <reason>`. Send once, then observe. This is the primary movement command for exploration.
+- `WALK` — keep walking forward until the game spots an enemy, loot, or hits a wall. The game stops automatically and logs `[WALK] <reason>`. Send once, then observe. This is the primary movement command for exploration. Movement results are position-stamped: the stop line reads `[WALK] stopped at (x,y), moved N from (x,y)`, so you always know where you ended up and how far the command actually took you. `GOTO` results are stamped the same way (`arrived at (x,y), moved N from (x,y)`).
 - `GOTO fwd strafe` — move to a specific relative position (e.g. `GOTO 100 0` =
   100 units forward, `GOTO 0 50` = 50 units to the right). Use for precise
   positioning (e.g. toward a key you see). The game pathfinds there.
@@ -61,6 +61,8 @@ Notes:
 - `INVENTORY` — toggle inventory screen
 - `RESPAWN` — respawn after death (only after capturing death evidence)
 - `VERSION` — print binary version hash to log
+- `HISTORY` — print your movement history: recent positions, oldest first, sampled as you move. If your recent points cluster in a small box it adds a "likely trapped" note. Diagnostic — works in any mode, including during a COLLECT walk. This is how you know where you've actually been, as opposed to where you hoped you went.
+- `FRONTIER` — print the nearest unvisited sectors with facing-relative bearings (e.g. `[FRONTIER] sector 61: 200 fwd, 233 right (dist 307)`), plus a grid-path check for the nearest one. The game tracks visited sectors continuously now — `SECTORS` shows the real count. Use FRONTIER to steer toward new areas instead of re-treading old ones.
 - `EQUIP <backpack_idx> <slot>` — equip item. Slots: 0=HELM,1=ARMOR,2=WEAPON,3=SHIELD,4=RING1,5=RING2,6=AMULET,7=BOOTS,8=GLOVES,9=BELT,10=FOCUS
 - `UNEQUIP <slot>` — remove equipped item
 - `SALVAGE <backpack_idx>` — convert item to essence
