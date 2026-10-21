@@ -74,6 +74,7 @@ boolean d_ui_needs_redraw = false;
 static int ui_cx = 160, ui_cy = 100;   // cursor
 static int ui_held = D_NOITEM;         // held item id, or D_NOITEM
 static int ui_held_from = -1;          // ESLOT_* when picked from paperdoll
+static int ui_held_dur = 0;            // held item's durability points
 static int ui_prevbtn = 0;
 static char ui_msg[80];
 static boolean ui_skip_mouse = false;  // ignore stale motion on open
@@ -306,7 +307,7 @@ static boolean UICanPlaceAt(player_t *player, int id, int gx, int gy)
 }
 
 // Append item id to the backpack at (gx,gy) without announcements.
-static void UIAppendAt(player_t *player, int id, int gx, int gy)
+static void UIAppendAt(player_t *player, int id, int gx, int gy, int dur)
 {
     int bpi;
     if (player->diablo_bp_count >= D_BACKPACK_SIZE)
@@ -315,6 +316,7 @@ static void UIAppendAt(player_t *player, int id, int gx, int gy)
     player->diablo_backpack[bpi] = id;
     player->diablo_bp_gx[bpi] = gx;
     player->diablo_bp_gy[bpi] = gy;
+    player->diablo_backpack_dur[bpi] = dur;
 }
 
 // Stash the held item back into the backpack (first free spot).
@@ -327,9 +329,10 @@ static boolean UIStashHeld(player_t *player)
     if (!D_GridFindSpace((struct player_s *)player,
                          def->grid_w, def->grid_h, &gx, &gy))
         return false;
-    UIAppendAt(player, ui_held, gx, gy);
+    UIAppendAt(player, ui_held, gx, gy, ui_held_dur);
     ui_held = D_NOITEM;
     ui_held_from = -1;
+    ui_held_dur = 0;
     // Autosave: inventory changed (item moved).
     {
         extern void D_AutoSaveGame(void);
@@ -370,6 +373,7 @@ void D_UIOpen(void)
     ui_cy = 100;
     ui_held = D_NOITEM;
     ui_held_from = -1;
+    ui_held_dur = 0;
     ui_prevbtn = 0;
     ui_dragging = false;
     ui_press_x = 160;
@@ -418,6 +422,7 @@ void D_UIClose(void)
          && player->diablo_equipped[ui_held_from] == D_NOITEM)
         {
             player->diablo_equipped[ui_held_from] = ui_held;
+            player->diablo_equipped_dur[ui_held_from] = ui_held_dur;
             D_RecalcStats((struct player_s *)player);
         }
         else if (!UIStashHeld(player))
@@ -433,7 +438,7 @@ void D_UIClose(void)
                     for (gx = 0; gx <= D_BP_GRID_W - def->grid_w && !found; gx++)
                         if (UICanPlaceAt(player, ui_held, gx, gy))
                         {
-                            UIAppendAt(player, ui_held, gx, gy);
+                            UIAppendAt(player, ui_held, gx, gy, ui_held_dur);
                             found = 1;
                         }
             }
@@ -444,6 +449,7 @@ void D_UIClose(void)
         }
         ui_held = D_NOITEM;
         ui_held_from = -1;
+        ui_held_dur = 0;
     }
 
     ui_open = false;
@@ -492,11 +498,17 @@ static void UILeftClick(void)
                     if (wdef && D_IsTwoHandedWeapon(wdef->doomweapon))
                     {
                         int shield_held = ui_held;
+                        int shield_dur = ui_held_dur;
+                        int weapon_dur =
+                            player->diablo_equipped_dur[ESLOT_WEAPON];
                         UIMsg("Two-handed weapon unequipped.");
                         player->diablo_equipped[ESLOT_WEAPON] = D_NOITEM;
+                        player->diablo_equipped_dur[ESLOT_WEAPON] = 0;
                         // Equip shield, weapon goes to cursor.
                         player->diablo_equipped[slot] = shield_held;
+                        player->diablo_equipped_dur[slot] = shield_dur;
                         ui_held = weap_id;
+                        ui_held_dur = weapon_dur;
                         ui_held_from = -1;
                         D_RecalcStats((struct player_s *)player);
                         return;
@@ -510,11 +522,16 @@ static void UILeftClick(void)
                 int shield_id = player->diablo_equipped[ESLOT_SHIELD];
                 if (shield_id != D_NOITEM)
                 {
+                    int shield_dur =
+                        player->diablo_equipped_dur[ESLOT_SHIELD];
                     UIMsg("Two-handed: shield unequipped.");
                     player->diablo_equipped[ESLOT_SHIELD] = D_NOITEM;
+                    player->diablo_equipped_dur[ESLOT_SHIELD] = 0;
                     // Equip weapon, shield goes to cursor.
                     player->diablo_equipped[slot] = weapon_id;
+                    player->diablo_equipped_dur[slot] = ui_held_dur;
                     ui_held = shield_id;
+                    ui_held_dur = shield_dur;
                     ui_held_from = -1;
                     D_RecalcStats((struct player_s *)player);
                     return;
@@ -522,8 +539,13 @@ static void UILeftClick(void)
             }
             // Equip; whatever was there lands on the cursor (swap).
             old = player->diablo_equipped[slot];
-            player->diablo_equipped[slot] = ui_held;
-            ui_held = old;
+            {
+                int old_dur = player->diablo_equipped_dur[slot];
+                player->diablo_equipped[slot] = ui_held;
+                player->diablo_equipped_dur[slot] = ui_held_dur;
+                ui_held = old;
+                ui_held_dur = old_dur;
+            }
             ui_held_from = (old == D_NOITEM) ? -1 : slot;
             D_RecalcStats((struct player_s *)player);
             UIMsg(old == D_NOITEM ? "Equipped." : "Swapped.");
@@ -535,7 +557,9 @@ static void UILeftClick(void)
             {
                 ui_held = id;
                 ui_held_from = slot;
+                ui_held_dur = player->diablo_equipped_dur[slot];
                 player->diablo_equipped[slot] = D_NOITEM;
+                player->diablo_equipped_dur[slot] = 0;
                 D_RecalcStats((struct player_s *)player);
             }
         }
@@ -550,9 +574,10 @@ static void UILeftClick(void)
             // Place the held item with its top-left at the clicked cell.
             if (UICanPlaceAt(player, ui_held, gx, gy))
             {
-                UIAppendAt(player, ui_held, gx, gy);
+                UIAppendAt(player, ui_held, gx, gy, ui_held_dur);
                 ui_held = D_NOITEM;
                 ui_held_from = -1;
+                ui_held_dur = 0;
             }
             else
                 UIMsg("No room there.");
@@ -564,6 +589,7 @@ static void UILeftClick(void)
             {
                 ui_held = player->diablo_backpack[bpi];
                 ui_held_from = -1;
+                ui_held_dur = player->diablo_backpack_dur[bpi];
                 D_BackpackRemoveAt((struct player_s *)player, bpi);
             }
         }
@@ -607,9 +633,11 @@ static void UIRightClick(void)
          && player->diablo_equipped[ui_held_from] == D_NOITEM)
         {
             player->diablo_equipped[ui_held_from] = ui_held;
+            player->diablo_equipped_dur[ui_held_from] = ui_held_dur;
             D_RecalcStats((struct player_s *)player);
             ui_held = D_NOITEM;
             ui_held_from = -1;
+            ui_held_dur = 0;
         }
         else if (UIStashHeld(player))
             UIMsg("Put back.");
@@ -795,6 +823,7 @@ static void UIKbDrop(player_t *player)
         id = ui_held;
         ui_held = D_NOITEM;
         ui_held_from = -1;
+        ui_held_dur = 0;
     }
     else
     {
@@ -836,6 +865,7 @@ static void UIKbSalvage(player_t *player)
         id = ui_held;
         ui_held = D_NOITEM;
         ui_held_from = -1;
+        ui_held_dur = 0;
     }
     else
     {
@@ -952,15 +982,95 @@ static void UIKbReroll(player_t *player)
     new_id = D_MAKEITEM(tier, new_idx);
 
     player->diablo_essence -= cost;
+    // A reforged item is a fresh instance: full durability.
     if (ui_held != D_NOITEM)
+    {
         ui_held = new_id;
+        ui_held_dur = D_ItemMaxDurability(D_GetItemDef(tier, new_idx));
+    }
     else
+    {
         player->diablo_backpack[bpi] = new_id;
+        player->diablo_backpack_dur[bpi] =
+            D_ItemMaxDurability(D_GetItemDef(tier, new_idx));
+    }
 
     M_snprintf(msg, sizeof(msg), "Rerolled (-%d Essence).", cost);
     UIMsg(msg);
     printf("[ESSENCE] rerolled tier %d -> -%d (total %d)\n",
            tier, cost, player->diablo_essence);
+    // Autosave: inventory changed.
+    {
+        extern void D_AutoSaveGame(void);
+        D_AutoSaveGame();
+    }
+}
+
+// F: repair the held item (or kb-selected backpack item) to full
+// durability for Essence, pro-rated by tier and missing durability
+// (D_RepairCost). Picking up a vanilla Doom armor suit or megasphere
+// also repairs every equipped piece to full, free.
+static void UIKbRepair(player_t *player)
+{
+    int id = D_NOITEM;
+    int bpi = -1;
+    int *durp;
+    int cost, max;
+    char msg[80];
+
+    ui_kb_active = true;
+    if (ui_held != D_NOITEM)
+    {
+        id = ui_held;
+        durp = &ui_held_dur;
+    }
+    else
+    {
+        if (ui_kb_pane != 0)
+        {
+            UIMsg("Select a backpack item.");
+            return;
+        }
+        bpi = UIBackpackAt(player, ui_kb_gx, ui_kb_gy);
+        if (bpi < 0)
+        {
+            UIMsg("Nothing there.");
+            return;
+        }
+        id = player->diablo_backpack[bpi];
+        durp = &player->diablo_backpack_dur[bpi];
+    }
+
+    if (id == D_NOITEM)
+        return;
+
+    max = D_ItemMaxDurability(D_GetItemDef(D_ITEMTIER(id),
+                                           D_ITEMIDX(id)));
+    if (max <= 0)
+    {
+        UIMsg("That item has no durability.");
+        return;
+    }
+    if (*durp >= max)
+    {
+        UIMsg("Already at full durability.");
+        return;
+    }
+    cost = D_RepairCost(id, *durp);
+    if (player->diablo_essence < cost)
+    {
+        M_snprintf(msg, sizeof(msg), "Need %d Essence (have %d).",
+                   cost, player->diablo_essence);
+        UIMsg(msg);
+        return;
+    }
+
+    player->diablo_essence -= cost;
+    *durp = max;
+    M_snprintf(msg, sizeof(msg), "Repaired (-%d Essence).", cost);
+    UIMsg(msg);
+    printf("[ESSENCE] repaired item -> -%d (total %d)\n",
+           cost, player->diablo_essence);
     // Autosave: inventory changed.
     {
         extern void D_AutoSaveGame(void);
@@ -1075,6 +1185,8 @@ boolean D_UIResponder(event_t *ev)
             UIKbDrop(player);
         else if (k == 's' || k == 'S')
             UIKbSalvage(player);
+        else if (k == 'f' || k == 'F')
+            UIKbRepair(player);
         else if (k == 'r' || k == 'R')
             UIKbReroll(player);
         // Eat all other keys too: no game input while the screen is up.
@@ -1167,8 +1279,31 @@ static void UIDrawSlot(player_t *player, int slot, int x, int y)
                            ui_slotnames[slot]);
 }
 
+// Instance durability of the item UIHoverItem would return
+// (-1 = no instance context, e.g. an item is held).
+static int UIHoverDur(void)
+{
+    player_t *player = &players[consoleplayer];
+    int slot, gx, gy, bpi;
+
+    if (ui_held != D_NOITEM)
+        return -1;
+
+    slot = UISlotAt(ui_cx, ui_cy);
+    if (slot >= 0)
+        return player->diablo_equipped_dur[slot];
+
+    if (UICursorInBackpack(&gx, &gy))
+    {
+        bpi = UIBackpackAt(player, gx, gy);
+        if (bpi >= 0)
+            return player->diablo_backpack_dur[bpi];
+    }
+    return -1;
+}
+
 // Build tooltip lines for an item id.  Returns line count.
-static int UITooltipLines(int id, char lines[12][48])
+static int UITooltipLines(int id, int dur, char lines[12][48])
 {
     const diablo_itemdef_t *def;
     int n = 0;
@@ -1199,7 +1334,13 @@ static int UITooltipLines(int id, char lines[12][48])
     if (def->dmg_min > 0 || def->dmg_max > 0)
         snprintf(lines[n++], 48, "Damage %d-%d", def->dmg_min, def->dmg_max);
     if (def->armor > 0)
-        snprintf(lines[n++], 48, "Armor %d", def->armor);
+        snprintf(lines[n++], 48, "Defense %d", def->armor);
+    {
+        int maxdur = D_ItemMaxDurability(def);
+        if (maxdur > 0 && dur >= 0)
+            snprintf(lines[n++], 48, "Durability %d/%d%s",
+                     dur, maxdur, dur == 0 ? " (broken)" : "");
+    }
     if (def->str) snprintf(lines[n++], 48, "+%d Strength", def->str);
     if (def->dex) snprintf(lines[n++], 48, "+%d Dexterity", def->dex);
     if (def->vit) snprintf(lines[n++], 48, "+%d Vitality", def->vit);
@@ -1255,7 +1396,7 @@ static void UIDrawTooltip(int id)
     int n, i, w = 0, h, x, y;
     const diablo_itemdef_t *def;
 
-    n = UITooltipLines(id, lines);
+    n = UITooltipLines(id, UIHoverDur(), lines);
     if (n <= 0)
         return;
     def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
@@ -1302,7 +1443,7 @@ static void UIDrawStats(player_t *player, int y)
 
     UIDrawText(x, y, "STATS");
     y += 10;
-    snprintf(buf, sizeof(buf), "DMG %d-%d   ARM %d",
+    snprintf(buf, sizeof(buf), "DMG %d-%d   DEF %d",
              D_Stat((struct player_s *)player, DSTAT_DMG_MIN),
              D_Stat((struct player_s *)player, DSTAT_DMG_MAX),
              D_Stat((struct player_s *)player, DSTAT_ARMOR));
