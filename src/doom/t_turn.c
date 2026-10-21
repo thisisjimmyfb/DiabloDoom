@@ -1204,7 +1204,7 @@ static void cmd_dispatch(const char *cmd)
     }
     else if (!strcmp(cmd, "COLLECT"))
     {
-        extern void T_DoCollect(void);
+        extern boolean T_DoCollect(void);
         T_DoCollect();
     }
     else if (!strcmp(cmd, "MOVE_FWD"))

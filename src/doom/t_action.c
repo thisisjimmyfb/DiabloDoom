@@ -1375,7 +1375,10 @@ static boolean collect_target_present(void)
 
 // Setup only: find the nearest reachable loot and raise the flag.
 // The pathfinding and movement happen in T_CollectTick, per tick.
-void T_DoCollect(void)
+// Returns true when a walk started. Returns false when COLLECT is
+// blocked (combat, pulse, dead) or when no candidate has a path --
+// the caller then ignores the request; nothing was set in motion.
+boolean T_DoCollect(void)
 {
     player_t *player = &players[consoleplayer];
     mobj_t *mo = player->mo;
@@ -1386,25 +1389,25 @@ void T_DoCollect(void)
     if (!T_Active() || mo == NULL)
     {
         printf("[COLLECT] blocked: T_Active=%d mo=%p\n", T_Active(), (void*)mo);
-        return;
+        return false;
     }
     if (!T_ActorAlive())
     {
         printf("[COLLECT] blocked: actor not alive\n");
-        return;
+        return false;
     }
     if (T_InPulse() || turnctrl.executing)
     {
         printf("[COLLECT] blocked: in_pulse=%d executing=%d\n",
                T_InPulse(), turnctrl.executing);
-        return;
+        return false;
     }
     // COLLECT only works in explore mode, not during turn-based combat.
     if (!T_InExplore())
     {
         printf("[COLLECT] blocked: not in explore mode (state=%d)\n",
                turnctrl.state);
-        return;
+        return false;
     }
 
     printf("[COLLECT] attempting: player at (%d,%d)\n",
@@ -1479,7 +1482,7 @@ void T_DoCollect(void)
     {
         player->message = "NO REACHABLE LOOT.";
         printf("[COLLECT] no reachable loot\n");
-        return;
+        return false;
     }
 
     // One autonomous walk at a time: it overrides GOTO and WALK.
@@ -1511,6 +1514,7 @@ void T_DoCollect(void)
     }
     printf("[COLLECT] walking to loot at (%d,%d)\n",
            loot->x >> 16, loot->y >> 16);
+    return true;
 }
 
 // Per-tick collect walk (explore mode). Pathfinds fresh from the
@@ -1598,9 +1602,10 @@ void T_CollectTick(void)
         step = dist;
     // Momentum step: set this tic's velocity toward the step target
     // and let P_XYMovement (inside P_Ticker) carry the player --
-    // gliding with collision/sliding, and P_TouchSpecialThing fires
-    // the pickup on arrival. (Was a P_TryMove position snap per tic,
-    // which read as teleport hops in replays.)
+    // gliding with collision/sliding; the pickup itself is collected
+    // by the P_Ticker presence sweep once he arrives. (Was a
+    // P_TryMove position snap per tic, which read as teleport hops
+    // in replays.)
     mo->momx = FixedDiv(FixedMul(dx, step), dist);
     mo->momy = FixedDiv(FixedMul(dy, step), dist);
     mo->angle = R_PointToAngle2(mo->x, mo->y, gx, gy);
