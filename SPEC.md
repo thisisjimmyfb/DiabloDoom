@@ -252,6 +252,21 @@ cancels it). COLLECT runs in explore mode only. **The loot alert uses the same r
 loot in distance order has a BFS path — loot elsewhere on the map no
 longer lights the prompt.
 
+**Navigation awareness (2026-10-21):** the agent drives from
+screenshots and the log, so the engine reports where movement
+actually went. WALK and GOTO results are position-stamped (start
+position, end position, net units moved). A movement-history ring
+buffer samples the player's position at command start/end and every
+~48 units of travel; the `HISTORY` diagnostic command dumps it,
+flagging when the newest points cluster in a small box (the trap
+signature). Visited sectors are tracked continuously (every tick,
+from the player's real position — the old `SECTORS` count only
+marked the sector occupied when polled), and the `FRONTIER`
+diagnostic reports the nearest unvisited sectors with
+facing-relative bearings plus a grid-path check for the nearest
+one, so the agent can prefer new ground over re-treading old
+ground. Both trackers reset when the level's sector array changes.
+
 ---
 
 ## Combat language
