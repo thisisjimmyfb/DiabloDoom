@@ -92,7 +92,7 @@ The game tracks where you have actually been. Your screenshot shows one moment �
 
 When in EXPLORE mode (not in combat), priority order:
 
-1. **Loot prompt visible** ("press G to loot") → Collect IMMEDIATELY. This is the top priority. The prompt appears for Diablo loot drops AND player corpses.
+1. **Loot prompt visible** ("Loot nearby, press G to loot") → Collect IMMEDIATELY. This is the top priority. The prompt appears for Diablo loot drops AND player corpses.
 
 2. **After picking up loot** → Check inventory, equip upgrades immediately:
    - Weapon: equip if higher damage than current

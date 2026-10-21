@@ -92,8 +92,7 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
    (sector `soundtarget`, vanilla `A_Look` hearing) takes the player as target and
    wakes, but combat waits for the LOS path — so a fight never starts through a wall
    with no visible target. The player merely seeing an enemy only drives the HUD
-   markers. Unseen-but-acquired enemies telegraph ("X is hunting you!") before the
-   first progress phase. Leaving combat clears every monster's target and stale
+   markers. Leaving combat clears every monster's target and stale
    sector noise, so the next encounter starts clean. No visible combatants at round
    end returns to explore mode. Barrels never trigger combat but stay in the Tab
    target list. There is no `-turnbased` flag.

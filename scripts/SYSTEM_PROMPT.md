@@ -11,7 +11,7 @@ This file covers the system-specific mechanics: how to launch the game, send com
 Each decision starts with a fresh screenshot. Assess:
 - **HUD**: health %, ammo, current state (EXPLORE banner vs turn-based COMBAT UI)
 - **3D view**: facing a wall? Open area? Doorway? Enemy visible?
-- **Loot**: is there a "press G to loot" prompt? Visible pickups on the ground?
+- **Loot**: is there a "Loot nearby, press G to loot" prompt? Visible pickups on the ground?
 
 **Decision cadence**: A fresh screenshot every ~5 seconds. The game state changes fast in combat, so stale visual input leads to bad decisions.
 
@@ -37,7 +37,7 @@ Write commands to /tmp/doom_cmd.txt (one per line). It's a FIFO — do NOT delet
   Explore mode only.
 - `TURNL` / `TURNR` — turn left/right
 - `USE` — open the door or press the switch directly in front of you (explore mode). If WALK stops `blocked` while you're facing a door, send `USE`, then `WALK` again.
-- `COLLECT` — pick up Diablo loot or corpse (when "press G to loot" prompt visible). The prompt only appears for loot the game can physically walk to — same height rules as real movement (it can't climb more than a step at a time), so prompted loot is genuinely collectable.
+- `COLLECT` — pick up Diablo loot or corpse (when "Loot nearby, press G to loot" prompt visible). The prompt only appears for loot the game can physically walk to — same height rules as real movement (it can't climb more than a step at a time), so prompted loot is genuinely collectable.
 
 **Combat mode (turn-based)** runs in two alternating phases:
 
