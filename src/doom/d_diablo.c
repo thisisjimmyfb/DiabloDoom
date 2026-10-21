@@ -8,8 +8,15 @@
 // Stat formulas (kept deliberately simple):
 //   weapon damage : +random(dmg_min..dmg_max) of equipped weapon, plus
 //                   +1 per 4 strength, on every point of player damage
-//   armor         : damage -= damage * armor / (armor + 50), i.e. armor 50
-//                   halves hits; capped at 75% reduction
+//   defense       : Diablo 2-style. The armor values of the durability
+//                   slots (helm/armor/boots/gloves/belt) sum into a
+//                   Defense rating (hundreds to thousands). A monster's
+//                   chance to hit is 200 * AR / (AR + Defense), clamped
+//                   to [5, 95]; AR = 60 + the attacker's spawn health.
+//                   No damage reduction: a landed hit deals full damage.
+//                   Pieces have durability; at 0 a piece adds no Defense
+//                   until repaired (essence, or a vanilla armor pickup
+//                   restores every equipped piece to full).
 //   life steal    : heal damage_dealt * lifesteal% (vs monsters), capped
 //                   at max health
 //   vitality      : max health = deh_max_health + 5 * vitality
@@ -59,13 +66,13 @@ static const diablo_itemdef_t diablo_normal[] =
     IT("Shotgun",           TIER_NORMAL, ESLOT_WEAPON, 2,2, 0,0,0,   3, 8, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_shotgun, 0),
 
-    IT("Leather Armor",     TIER_NORMAL, ESLOT_ARMOR,  2,3, 0,0,0,   0, 0, 5,
+    IT("Leather Armor",     TIER_NORMAL, ESLOT_ARMOR,  2,3, 0,0,0,   0, 0, 200,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
     IT("Buckler",           TIER_NORMAL, ESLOT_SHIELD, 2,2, 0,0,0,   0, 0, 3,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
-    IT("Cap",               TIER_NORMAL, ESLOT_HELM,   2,2, 0,0,0,   0, 0, 2,
+    IT("Cap",               TIER_NORMAL, ESLOT_HELM,   2,2, 0,0,0,   0, 0, 80,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
-    IT("Sash",              TIER_NORMAL, ESLOT_BELT,   2,1, 0,0,0,   0, 0, 2,
+    IT("Sash",              TIER_NORMAL, ESLOT_BELT,   2,1, 0,0,0,   0, 0, 80,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
     IT("Healing Potion",    TIER_NORMAL, ESLOT_NONE,   1,1, 1,USE_HEAL,40, 0,0,0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
@@ -73,9 +80,9 @@ static const diablo_itemdef_t diablo_normal[] =
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
     IT("Rancid Gas Potion", TIER_NORMAL, ESLOT_NONE,   1,1, 1,USE_BLAST,50, 0,0,0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
-    IT("Leather Boots",     TIER_NORMAL, ESLOT_BOOTS,  2,2, 0,0,0,   0, 0, 3,
+    IT("Leather Boots",     TIER_NORMAL, ESLOT_BOOTS,  2,2, 0,0,0,   0, 0, 120,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
-    IT("Leather Gloves",    TIER_NORMAL, ESLOT_GLOVES, 2,2, 0,0,0,   0, 0, 2,
+    IT("Leather Gloves",    TIER_NORMAL, ESLOT_GLOVES, 2,2, 0,0,0,   0, 0, 80,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
 
     // Plain base items for the remaining Doom weapons (appended at
@@ -220,11 +227,11 @@ static const diablo_itemdef_t diablo_magic[] =
        0,0,0,0,  10,10,10,10, 0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
     IT("Lizard's Ring",       TIER_MAGIC, ESLOT_RING1,  1,1, 0,0,0,  0, 0, 0,
        0,0,0,8,   0,0,0,0,   0,5,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
-    IT("Soldier's Chain Mail",TIER_MAGIC, ESLOT_ARMOR,  2,3, 0,0,0,  0, 0,12,
+    IT("Soldier's Chain Mail",TIER_MAGIC, ESLOT_ARMOR,  2,3, 0,0,0,  0, 0,480,
        3,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
-    IT("Traveler's Treads", TIER_MAGIC, ESLOT_BOOTS,  2,2, 0,0,0,  0, 0, 8,
+    IT("Traveler's Treads", TIER_MAGIC, ESLOT_BOOTS,  2,2, 0,0,0,  0, 0, 320,
        0,2,0,0,   0,0,0,0,   0,0,10,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
-    IT("Assault Gloves",    TIER_MAGIC, ESLOT_GLOVES, 2,2, 0,0,0,  0, 0, 6,
+    IT("Assault Gloves",    TIER_MAGIC, ESLOT_GLOVES, 2,2, 0,0,0,  0, 0, 240,
        3,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
 
     // Combat affixes on non-weapons: rings, amulets, gloves, focus.
@@ -242,9 +249,9 @@ static const diablo_itemdef_t diablo_magic[] =
        0,0,0,0,   0,0,0,0,   0,0,0,0,10,0,0,0, 0, 0, 0, 0, 0, -1, 0),
     IT("Amulet of Haste", TIER_MAGIC, ESLOT_AMULET, 1,1, 0,0,0,  0, 0, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,10,0,0, 0, 0, 0, 0, 0, -1, 0),
-    IT("Gloves of Slaying", TIER_MAGIC, ESLOT_GLOVES, 2,2, 0,0,0,  0, 0, 6,
+    IT("Gloves of Slaying", TIER_MAGIC, ESLOT_GLOVES, 2,2, 0,0,0,  0, 0, 240,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 3, 0, 0, 0, -1, 0),
-    IT("Gloves of Haste", TIER_MAGIC, ESLOT_GLOVES, 2,2, 0,0,0,  0, 0, 6,
+    IT("Gloves of Haste", TIER_MAGIC, ESLOT_GLOVES, 2,2, 0,0,0,  0, 0, 240,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,10,0,0, 0, 0, 0, 0, 0, -1, 0),
     IT("Cooling Rounds", TIER_MAGIC, ESLOT_FOCUS, 1,1, 0,0,0,  0, 0, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 20, 0, 0, 0, 0, -1, 0),
@@ -278,9 +285,9 @@ static const diablo_itemdef_t diablo_rare[] =
        0,0,0,0,   0,0,0,0,   4,0,0,0,0,0,12,0, 0, 0, 0, 0, 0, wp_chaingun, 0),
 
 
-    IT("Stormwalkers",      TIER_RARE, ESLOT_BOOTS,  2,2, 0,0,0,   0, 0,14,
+    IT("Stormwalkers",      TIER_RARE, ESLOT_BOOTS,  2,2, 0,0,0,   0, 0,560,
        0,4,0,0,   0,0,15,0,  0,0,15,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
-    IT("Doom Grasp",        TIER_RARE, ESLOT_GLOVES, 2,2, 0,0,0,   0, 0,12,
+    IT("Doom Grasp",        TIER_RARE, ESLOT_GLOVES, 2,2, 0,0,0,   0, 0,480,
        5,0,0,0,   0,0,0,0,   3,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
 
     // Mechanic-affix guns (AD/AP rework): rares grant mechanics.
@@ -316,17 +323,17 @@ static const diablo_itemdef_t diablo_rare[] =
 
 static const diablo_itemdef_t diablo_set[] =
 {
-    IT("Tal Rasha's Horadric Crest", TIER_SET, ESLOT_HELM, 2,2, 0,0,0, 0,0,15,
+    IT("Tal Rasha's Horadric Crest", TIER_SET, ESLOT_HELM, 2,2, 0,0,0, 0,0,600,
        0,0,0,8,   0,0,0,0,   0,10,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
-    IT("Immortal King's Soul Cage", TIER_SET, ESLOT_ARMOR, 2,3, 0,0,0, 0,0,25,
+    IT("Immortal King's Soul Cage", TIER_SET, ESLOT_ARMOR, 2,3, 0,0,0, 0,0,1000,
        8,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
-    IT("Trang-Oul's Guise",          TIER_SET, ESLOT_HELM, 2,2, 0,0,0, 0,0,14,
+    IT("Trang-Oul's Guise",          TIER_SET, ESLOT_HELM, 2,2, 0,0,0, 0,0,560,
        0,0,0,0,   0,0,0,20,  0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
-    IT("M'avina's True Sight",       TIER_SET, ESLOT_HELM, 2,2, 0,0,0, 0,0,14,
+    IT("M'avina's True Sight",       TIER_SET, ESLOT_HELM, 2,2, 0,0,0, 0,0,560,
        0,8,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
-    IT("Natalya's Shadow",           TIER_SET, ESLOT_ARMOR,2,3, 0,0,0, 0,0,22,
+    IT("Natalya's Shadow",           TIER_SET, ESLOT_ARMOR,2,3, 0,0,0, 0,0,880,
        0,6,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
-    IT("Griswold's Valor",           TIER_SET, ESLOT_HELM, 2,2, 0,0,0, 0,0,16,
+    IT("Griswold's Valor",           TIER_SET, ESLOT_HELM, 2,2, 0,0,0, 0,0,640,
        6,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
     IT("Berserker's Boomstick",      TIER_SET, ESLOT_WEAPON,2,2,0,0,0,15,28,0,
        6,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,35, 0, 0, 0, 0, 0, wp_shotgun, 0),
@@ -334,9 +341,9 @@ static const diablo_itemdef_t diablo_set[] =
     IT("Sazabi's Cobalt Repeater",   TIER_SET, ESLOT_WEAPON,2,3,0,0,0,14,26,0,
        0,0,0,0,   0,20,0,0,  0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_chaingun, 0),
 
-    IT("Immortal King's Pillar",    TIER_SET, ESLOT_BOOTS, 2,2,0,0,0, 0,0,18,
+    IT("Immortal King's Pillar",    TIER_SET, ESLOT_BOOTS, 2,2,0,0,0, 0,0,720,
        5,0,0,0,   20,0,0,0,  0,0,20,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
-    IT("M'avina's Icy Clutch",      TIER_SET, ESLOT_GLOVES,2,2,0,0,0, 0,0,14,
+    IT("M'avina's Icy Clutch",      TIER_SET, ESLOT_GLOVES,2,2,0,0,0, 0,0,560,
        0,6,0,0,   0,20,0,0,  0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
 };
 
@@ -344,7 +351,7 @@ static const diablo_itemdef_t diablo_unique[] =
 {
     IT("Stone of Jordan",       TIER_UNIQUE, ESLOT_RING1, 1,1, 0,0,0,  0, 0, 0,
        0,0,0,15,   0,0,0,0,   5,15,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
-    IT("Harlequin Crest",       TIER_UNIQUE, ESLOT_HELM,  2,2, 0,0,0,  0, 0,18,
+    IT("Harlequin Crest",       TIER_UNIQUE, ESLOT_HELM,  2,2, 0,0,0,  0, 0,720,
        0,0,10,0,   0,0,0,0,   0,25,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
     IT("BFG10K",              TIER_UNIQUE, ESLOT_WEAPON,2,3, 0,0,0, 25,50, 0,
        10,0,0,0,   0,0,0,0,   0,0,0,0,0,0,15,50, 0, 0, 0, 0, 0, wp_bfg, 0),
@@ -352,7 +359,7 @@ static const diablo_itemdef_t diablo_unique[] =
     IT("Unmaker",             TIER_UNIQUE, ESLOT_WEAPON,2,3, 0,0,0, 22,45, 0,
        0,10,0,0,   0,0,0,0,   0,0,0,0,0,0,20,0, 0, 0, 0, 0, 0, wp_plasma, 0),
 
-    IT("Arkaine's Valor",       TIER_UNIQUE, ESLOT_ARMOR, 2,3, 0,0,0,  0, 0,30,
+    IT("Arkaine's Valor",       TIER_UNIQUE, ESLOT_ARMOR, 2,3, 0,0,0,  0, 0,1200,
        0,0,12,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
     IT("Mara's Kaleidoscope",   TIER_UNIQUE, ESLOT_AMULET,1,1, 0,0,0,  0, 0, 0,
        8,0,0,0,  20,20,20,20, 0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
@@ -363,15 +370,15 @@ static const diablo_itemdef_t diablo_unique[] =
 
     IT("Lidless Wall",          TIER_UNIQUE, ESLOT_SHIELD,2,2, 0,0,0,  0, 0,20,
        0,0,0,10,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
-    IT("Skin of the Vipermagi", TIER_UNIQUE, ESLOT_ARMOR, 2,3, 0,0,0,  0, 0,24,
+    IT("Skin of the Vipermagi", TIER_UNIQUE, ESLOT_ARMOR, 2,3, 0,0,0,  0, 0,960,
        0,0,0,0,  25,0,25,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
-    IT("Thundergod's Vigor",    TIER_UNIQUE, ESLOT_BELT,  2,1, 0,0,0,  0, 0,10,
+    IT("Thundergod's Vigor",    TIER_UNIQUE, ESLOT_BELT,  2,1, 0,0,0,  0, 0,400,
        5,0,8,0,    0,0,25,0,  0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
     IT("Raven Frost",           TIER_UNIQUE, ESLOT_RING1, 1,1, 0,0,0,  0, 0, 0,
        0,8,0,0,    0,25,0,0,  0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
-    IT("War Traveler",          TIER_UNIQUE, ESLOT_BOOTS, 2,2, 0,0,0,  0, 0,22,
+    IT("War Traveler",          TIER_UNIQUE, ESLOT_BOOTS, 2,2, 0,0,0,  0, 0,880,
        5,0,8,0,    0,0,0,0,   0,15,25,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
-    IT("Frostburn",             TIER_UNIQUE, ESLOT_GLOVES,2,2, 0,0,0,  0, 0,16,
+    IT("Frostburn",             TIER_UNIQUE, ESLOT_GLOVES,2,2, 0,0,0,  0, 0,640,
        5,5,0,0,    0,25,0,0,  4,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
 };
 
@@ -519,12 +526,16 @@ void D_ResetPlayer(struct player_s *pl)
     int i;
 
     for (i = 0; i < NUM_ESLOTS; i++)
+    {
         player->diablo_equipped[i] = D_NOITEM;
+        player->diablo_equipped_dur[i] = 0;
+    }
     for (i = 0; i < D_BACKPACK_SIZE; i++)
     {
         player->diablo_backpack[i] = D_NOITEM;
         player->diablo_bp_gx[i] = -1;
         player->diablo_bp_gy[i] = -1;
+        player->diablo_backpack_dur[i] = 0;
     }
     player->diablo_bp_count = 0;
     player->diablo_recent = -1;
@@ -664,7 +675,12 @@ void D_RecalcStats(struct player_s *pl)
             continue;
         player->diablo_stats[DSTAT_DMG_MIN] += def->dmg_min;
         player->diablo_stats[DSTAT_DMG_MAX] += def->dmg_max;
-        player->diablo_stats[DSTAT_ARMOR] += def->armor;
+        // Defense (DSTAT_ARMOR) comes only from the durability slots
+        // (helm/armor/boots/gloves/belt), and a piece worn to 0
+        // contributes nothing until repaired (Jimmy, 2026-10-21).
+        if (D_IsDurabilityItem(def)
+         && player->diablo_equipped_dur[s] > 0)
+            player->diablo_stats[DSTAT_ARMOR] += def->armor;
         player->diablo_stats[DSTAT_STR] += def->str;
         player->diablo_stats[DSTAT_DEX] += def->dex;
         player->diablo_stats[DSTAT_VIT] += def->vit;
@@ -764,11 +780,13 @@ static void D_BackpackRemove(player_t *player, int bpi)
         player->diablo_backpack[i] = player->diablo_backpack[i + 1];
         player->diablo_bp_gx[i] = player->diablo_bp_gx[i + 1];
         player->diablo_bp_gy[i] = player->diablo_bp_gy[i + 1];
+        player->diablo_backpack_dur[i] = player->diablo_backpack_dur[i + 1];
     }
     player->diablo_bp_count--;
     player->diablo_backpack[player->diablo_bp_count] = D_NOITEM;
     player->diablo_bp_gx[player->diablo_bp_count] = -1;
     player->diablo_bp_gy[player->diablo_bp_count] = -1;
+    player->diablo_backpack_dur[player->diablo_bp_count] = 0;
 }
 
 // Public wrapper for the UI.
@@ -1017,6 +1035,12 @@ void D_ItemDisplayName(const diablo_itemdef_t *def, char *buf, int bufsize)
 
 boolean D_BackpackAdd(struct player_s *pl, int tier, int idx)
 {
+    const diablo_itemdef_t *def = D_GetItemDef(tier, idx);
+    return D_BackpackAddDur(pl, tier, idx, D_ItemMaxDurability(def));
+}
+
+boolean D_BackpackAddDur(struct player_s *pl, int tier, int idx, int dur)
+{
     player_t *player = (player_t *)pl;
     const diablo_itemdef_t *def = D_GetItemDef(tier, idx);
     int gx, gy;
@@ -1041,6 +1065,7 @@ boolean D_BackpackAdd(struct player_s *pl, int tier, int idx)
     player->diablo_backpack[player->diablo_bp_count] = D_MAKEITEM(tier, idx);
     player->diablo_bp_gx[player->diablo_bp_count] = gx;
     player->diablo_bp_gy[player->diablo_bp_count] = gy;
+    player->diablo_backpack_dur[player->diablo_bp_count] = dur;
     player->diablo_recent = player->diablo_bp_count;
     player->diablo_bp_count++;
 
@@ -1214,18 +1239,24 @@ void D_EquipRecent(struct player_s *pl)
         }
     }
 
-    D_BackpackRemove(player, bpi);
-    if (old != D_NOITEM)
     {
-        // Stash the displaced item with grid placement.
-        const diablo_itemdef_t *odef;
-        int gx, gy;
-        odef = D_GetItemDef(D_ITEMTIER(old), D_ITEMIDX(old));
-        D_GridFindSpace(pl, odef->grid_w, odef->grid_h, &gx, &gy);
-        player->diablo_backpack[player->diablo_bp_count] = old;
-        player->diablo_bp_gx[player->diablo_bp_count] = gx;
-        player->diablo_bp_gy[player->diablo_bp_count] = gy;
-        player->diablo_bp_count++;
+        int new_dur = player->diablo_backpack_dur[bpi];
+        D_BackpackRemove(player, bpi);
+        if (old != D_NOITEM)
+        {
+            // Stash the displaced item with grid placement.
+            const diablo_itemdef_t *odef;
+            int gx, gy;
+            odef = D_GetItemDef(D_ITEMTIER(old), D_ITEMIDX(old));
+            D_GridFindSpace(pl, odef->grid_w, odef->grid_h, &gx, &gy);
+            player->diablo_backpack[player->diablo_bp_count] = old;
+            player->diablo_bp_gx[player->diablo_bp_count] = gx;
+            player->diablo_bp_gy[player->diablo_bp_count] = gy;
+            player->diablo_backpack_dur[player->diablo_bp_count] =
+                player->diablo_equipped_dur[slot];
+            player->diablo_bp_count++;
+        }
+        player->diablo_equipped_dur[slot] = new_dur;
     }
     player->diablo_equipped[slot] = id;
     player->diablo_recent = -1;
@@ -1267,6 +1298,9 @@ void D_UnequipAll(struct player_s *pl)
         player->diablo_backpack[player->diablo_bp_count] = id;
         player->diablo_bp_gx[player->diablo_bp_count] = gx;
         player->diablo_bp_gy[player->diablo_bp_count] = gy;
+        player->diablo_backpack_dur[player->diablo_bp_count] =
+            player->diablo_equipped_dur[s];
+        player->diablo_equipped_dur[s] = 0;
         player->diablo_bp_count++;
         moved++;
     }
@@ -1306,20 +1340,154 @@ int D_WeaponBonus(struct player_s *pl)
     return bonus;
 }
 
-int D_ArmorReduce(struct player_s *pl, int damage)
+// ------------------------------------------------------------------
+// Durability + Diablo 2-style defense (Jimmy, 2026-10-21).
+//
+// Durability lives on the five armor-producing slots: helm, armor,
+// boots, gloves, belt. Each landed monster hit wears ONE random worn
+// piece by 1 point. At 0 the piece stays equipped and keeps its other
+// stats, but contributes no Defense. Repair: essence in the inventory
+// screen (F key), or free and full when a vanilla Doom armor pickup
+// (green/blue suit, megasphere) is taken.
+// ------------------------------------------------------------------
+
+boolean D_IsDurabilityItem(const diablo_itemdef_t *def)
 {
-    int armor = D_Stat(pl, DSTAT_ARMOR);
-    int reduction;
+    if (!def || def->consumable)
+        return false;
+    return def->slot == ESLOT_HELM
+        || def->slot == ESLOT_ARMOR
+        || def->slot == ESLOT_BOOTS
+        || def->slot == ESLOT_GLOVES
+        || def->slot == ESLOT_BELT;
+}
 
-    if (armor <= 0 || damage <= 0)
-        return damage;
+int D_ItemMaxDurability(const diablo_itemdef_t *def)
+{
+    if (!D_IsDurabilityItem(def))
+        return 0;
+    // Defense values run into the thousands after the D2 rescale;
+    // 20 base + 1 per 20 Defense lands at ~30 for normal gear and
+    // ~80 for the best unique chest.
+    return 20 + def->armor / 20;
+}
 
-    // Diminishing returns: armor 50 halves incoming damage.
-    reduction = damage * armor / (armor + 50);
-    if (reduction > damage * 3 / 4)  // cap at 75%
-        reduction = damage * 3 / 4;
+void D_WearRandomPiece(struct player_s *pl)
+{
+    player_t *player = (player_t *)pl;
+    int worn[NUM_ESLOTS];
+    int n = 0, s, pick;
 
-    return damage - reduction;
+    for (s = 0; s < NUM_ESLOTS; s++)
+    {
+        int id = player->diablo_equipped[s];
+        const diablo_itemdef_t *def;
+        if (id == D_NOITEM)
+            continue;
+        def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
+        if (D_IsDurabilityItem(def) && player->diablo_equipped_dur[s] > 0)
+            worn[n++] = s;
+    }
+    if (!n)
+        return;
+
+    pick = worn[P_Random() % n];
+    player->diablo_equipped_dur[pick]--;
+    if (player->diablo_equipped_dur[pick] <= 0)
+    {
+        const diablo_itemdef_t *def = D_GetItemDef(
+            D_ITEMTIER(player->diablo_equipped[pick]),
+            D_ITEMIDX(player->diablo_equipped[pick]));
+        char namebuf[96];
+        D_ItemDisplayName(def, namebuf, sizeof(namebuf));
+        D_Msg(player, "Your %s is broken! (no Defense)", namebuf);
+        printf("[DURABILITY] broken: %s (slot %d)\n", namebuf, pick);
+        D_RecalcStats(pl);
+    }
+}
+
+void D_RepairAllEquipped(struct player_s *pl)
+{
+    player_t *player = (player_t *)pl;
+    int s, fixed = 0;
+
+    for (s = 0; s < NUM_ESLOTS; s++)
+    {
+        int id = player->diablo_equipped[s];
+        const diablo_itemdef_t *def;
+        int max;
+        if (id == D_NOITEM)
+            continue;
+        def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
+        max = D_ItemMaxDurability(def);
+        if (max > 0 && player->diablo_equipped_dur[s] < max)
+        {
+            player->diablo_equipped_dur[s] = max;
+            fixed++;
+        }
+    }
+    if (fixed)
+    {
+        D_Msg(player, "The armor's power restores your gear!");
+        printf("[DURABILITY] vanilla armor pickup: %d piece(s) "
+               "restored to full\n", fixed);
+        D_RecalcStats(pl);
+    }
+}
+
+int D_RepairCost(int id, int cur_dur)
+{
+    const diablo_itemdef_t *def;
+    int max, base, missing, cost;
+
+    if (id == D_NOITEM)
+        return 0;
+    def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
+    max = D_ItemMaxDurability(def);
+    if (max <= 0 || cur_dur >= max)
+        return 0;
+
+    switch (D_ITEMTIER(id))
+    {
+      case TIER_MAGIC:  base = 4;  break;
+      case TIER_RARE:   base = 8;  break;
+      case TIER_SET:    base = 12; break;
+      case TIER_UNIQUE: base = 20; break;
+      default:          base = 2;  break;  // TIER_NORMAL
+    }
+    missing = max - cur_dur;
+    cost = (base * missing + max - 1) / max;  // pro-rated, rounded up
+    return cost < 1 ? 1 : cost;
+}
+
+// Attack rating: a flat base plus the attacker's spawn health, so
+// tougher monsters stay threatening as Defense climbs into the
+// thousands (a baron rates ~1060, a cyberdemon ~4060).
+#define D_AR_BASE 60
+
+int D_EnemyAttackRating(struct mobj_s *source)
+{
+    if (!source || !source->info)
+        return D_AR_BASE;
+    return D_AR_BASE + source->info->spawnhealth;
+}
+
+int D_DefenseChanceToHit(struct player_s *pl, struct mobj_s *source)
+{
+    int defense = D_Stat(pl, DSTAT_ARMOR);
+    int ar = D_EnemyAttackRating(source);
+    int cth = 200 * ar / (ar + defense);
+
+    if (cth < 5)
+        cth = 5;
+    if (cth > 95)
+        cth = 95;
+    return cth;
+}
+
+boolean D_DefenseHitRoll(struct player_s *pl, struct mobj_s *source)
+{
+    return (P_Random() % 100) < D_DefenseChanceToHit(pl, source);
 }
 
 void D_LifeSteal(struct player_s *pl, int damage)

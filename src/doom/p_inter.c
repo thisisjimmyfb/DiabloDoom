@@ -65,11 +65,15 @@ boolean P_DoCorpseRespawn(void)
     G_PlayerReborn(pnum);
     // Clear the preserved gear - it lives on the corpse now
     for (i = 0; i < 10; i++)
+    {
         players[pnum].diablo_equipped[i] = -1; // D_NOITEM
+        players[pnum].diablo_equipped_dur[i] = 0;
+    }
     for (i = 0; i < 40; i++) {
         players[pnum].diablo_backpack[i] = -1;
         players[pnum].diablo_bp_gx[i] = -1;
         players[pnum].diablo_bp_gy[i] = -1;
+        players[pnum].diablo_backpack_dur[i] = 0;
     }
     players[pnum].diablo_bp_count = 0;
     players[pnum].diablo_essence = 0;
@@ -676,14 +680,19 @@ P_TouchSpecialThing
 	    if (player->diablo_equipped[i] == D_NOITEM)
 	    {
 		player->diablo_equipped[i] = id;
+		player->diablo_equipped_dur[i] =
+		    special->corpse_equipped_dur[i];
 		special->corpse_equipped[i] = D_NOITEM;
+		special->corpse_equipped_dur[i] = 0;
 		equipped_changed = true;
 		moved++;
 	    }
-	    else if (D_BackpackAdd(player, D_ITEMTIER(id),
-				   D_ITEMIDX(id)))
+	    else if (D_BackpackAddDur(player, D_ITEMTIER(id),
+				      D_ITEMIDX(id),
+				      special->corpse_equipped_dur[i]))
 	    {
 		special->corpse_equipped[i] = D_NOITEM;
+		special->corpse_equipped_dur[i] = 0;
 		moved++;
 	    }
 	    else
@@ -698,14 +707,17 @@ P_TouchSpecialThing
 	    for (r = 0; r < special->corpse_bp_count; r++)
 	    {
 		int id = special->corpse_backpack[r];
-		if (D_BackpackAdd(player, D_ITEMTIER(id),
-				  D_ITEMIDX(id)))
+		if (D_BackpackAddDur(player, D_ITEMTIER(id),
+				     D_ITEMIDX(id),
+				     special->corpse_backpack_dur[r]))
 		    moved++;
 		else
 		{
 		    special->corpse_backpack[w] = id;
 		    special->corpse_bp_gx[w] = special->corpse_bp_gx[r];
 		    special->corpse_bp_gy[w] = special->corpse_bp_gy[r];
+		    special->corpse_backpack_dur[w] =
+			special->corpse_backpack_dur[r];
 		    w++;
 		    remaining++;
 		}
@@ -787,12 +799,16 @@ P_TouchSpecialThing
 	if (!P_GiveArmor (player, deh_green_armor_class))
 	    return;
 	player->message = DEH_String(GOTARMOR);
+	// Diablo durability (mod): a vanilla armor pickup restores
+	// every equipped piece to full durability.
+	D_RepairAllEquipped(player);
 	break;
-		
+
       case SPR_ARM2:
 	if (!P_GiveArmor (player, deh_blue_armor_class))
 	    return;
 	player->message = DEH_String(GOTMEGA);
+	D_RepairAllEquipped(player);
 	break;
 	
 	// bonus items
@@ -835,6 +851,7 @@ P_TouchSpecialThing
         // affects the MegaArmor.
 	P_GiveArmor (player, 2);
 	player->message = DEH_String(GOTMSPHERE);
+	D_RepairAllEquipped(player);
 	if (gameversion > exe_doom_1_2)
 	    sound = sfx_getpow;
 	break;
@@ -1167,11 +1184,15 @@ P_KillMobj
 	    // Make corpse touchable for inventory recovery via P_TouchSpecialThing.
 	    target->flags |= MF_SPECIAL;
 	    for (i = 0; i < 10; i++)
+	    {
 		target->corpse_equipped[i] = p->diablo_equipped[i];
+		target->corpse_equipped_dur[i] = p->diablo_equipped_dur[i];
+	    }
 	    for (i = 0; i < 40; i++) {
 		target->corpse_backpack[i] = p->diablo_backpack[i];
 		target->corpse_bp_gx[i] = p->diablo_bp_gx[i];
 		target->corpse_bp_gy[i] = p->diablo_bp_gy[i];
+		target->corpse_backpack_dur[i] = p->diablo_backpack_dur[i];
 	    }
 	    target->corpse_bp_count = p->diablo_bp_count;
 	    target->corpse_essence = p->diablo_essence;
@@ -1401,15 +1422,34 @@ P_DamageMobj
 	    return;
 	}
 
-	// Diablo equipment (mod): elemental resistance by damage source,
-	// then armor reduces what remains.
+	// Diablo 2-style defense (mod): a monster's chance to hit falls
+	// with the player's Defense rating; a miss avoids the hit
+	// entirely (feedback like a dodge). Only monster attacks roll:
+	// environment, self damage and other players always land.
+	if (player && source && source != target && !source->player
+	    && !D_DefenseHitRoll(player, source))
+	{
+	    static int def_msg_tic = -TICRATE;
+	    player->damagecount += 10;
+	    if (player->damagecount > 100)
+		player->damagecount = 100;
+	    if (gametic - def_msg_tic >= TICRATE)
+	    {
+		def_msg_tic = gametic;
+		printf("[DEFENSE] attack missed (DEF %d, CTH %d%%)\n",
+		       D_Stat(player, DSTAT_ARMOR),
+		       D_DefenseChanceToHit(player, source));
+	    }
+	    return;
+	}
+
+	// Diablo equipment (mod): elemental resistance by damage source.
 	if (player)
 	    damage = D_ResistReduce(player, inflictor, damage);
 
-	// Diablo equipment (mod): armor reduces incoming damage before
-	// the vanilla armor absorption below.
-	if (player)
-	    damage = D_ArmorReduce(player, damage);
+	// A landed hit wears one random durability piece (mod).
+	if (player && damage > 0)
+	    D_WearRandomPiece(player);
 
 	if (player->armortype)
 	{

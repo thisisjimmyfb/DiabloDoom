@@ -433,6 +433,32 @@ static void saveg_read_mobj_t(mobj_t *str)
         str->corpse_bp_count = saveg_read32();
         str->corpse_essence = saveg_read32();
     }
+    // Durability is not stored in the mobj stream (the player's own
+    // pieces ride in the trailing Diablo block); a corpse sitting in
+    // a loaded world comes back at full durability.
+    {
+        int i;
+        for (i = 0; i < 10; i++)
+        {
+            int eid = str->corpse_equipped[i];
+            str->corpse_equipped_dur[i] =
+                (eid != D_NOITEM
+                 && D_ValidItem(D_ITEMTIER(eid), D_ITEMIDX(eid)))
+                ? D_ItemMaxDurability(D_GetItemDef(D_ITEMTIER(eid),
+                                                   D_ITEMIDX(eid)))
+                : 0;
+        }
+        for (i = 0; i < 40; i++)
+        {
+            int eid = str->corpse_backpack[i];
+            str->corpse_backpack_dur[i] =
+                (eid != D_NOITEM
+                 && D_ValidItem(D_ITEMTIER(eid), D_ITEMIDX(eid)))
+                ? D_ItemMaxDurability(D_GetItemDef(D_ITEMTIER(eid),
+                                                   D_ITEMIDX(eid)))
+                : 0;
+        }
+    }
     // Diablo loot id (mod)
     str->diablo_loot_id = saveg_read32();
 }
@@ -1966,17 +1992,20 @@ void P_UnArchiveSpecials (void)
 
 #define DIABLO_SAVE_MAGIC 0x44494142  // 'DIAB' (first byte 0x44 != 0x1d)
 #define DIABLO_SAVE_MAGIC2 0x44494232 // 'DIB2': versioned item database
+#define DIABLO_SAVE_MAGIC3 0x44494233 // 'DIB3': + per-item durability
 
 // Item-database version. Bumped when the item tables are rewritten (the
 // gun rework replaced melee weapons with gun bases and reordered magic),
-// so old saves never silently reinterpret shifted item IDs.
-#define DIABLO_SAVE_VERSION 2
+// so old saves never silently reinterpret shifted item IDs. Version 3
+// (DIB3) adds per-item durability; DIB2 saves still load, with every
+// piece defaulted to full durability.
+#define DIABLO_SAVE_VERSION 3
 
 void P_ArchiveDiablo(void)
 {
     int i, j;
 
-    saveg_write32(DIABLO_SAVE_MAGIC2);
+    saveg_write32(DIABLO_SAVE_MAGIC3);
     saveg_write32(DIABLO_SAVE_VERSION);
 
     for (i = 0; i < MAXPLAYERS; i++)
@@ -1986,6 +2015,8 @@ void P_ArchiveDiablo(void)
 
         for (j = 0; j < NUM_ESLOTS; j++)
             saveg_write32(players[i].diablo_equipped[j]);
+        for (j = 0; j < NUM_ESLOTS; j++)
+            saveg_write32(players[i].diablo_equipped_dur[j]);
 
         saveg_write32(players[i].diablo_bp_count);
         for (j = 0; j < D_BACKPACK_SIZE; j++)
@@ -1993,6 +2024,7 @@ void P_ArchiveDiablo(void)
             saveg_write32(players[i].diablo_backpack[j]);
             saveg_write32(players[i].diablo_bp_gx[j]);
             saveg_write32(players[i].diablo_bp_gy[j]);
+            saveg_write32(players[i].diablo_backpack_dur[j]);
         }
         saveg_write32(players[i].diablo_recent);
         // diablo_stats[] is derived; recalculated on load.
@@ -2005,6 +2037,7 @@ void P_ArchiveDiablo(void)
 boolean P_UnArchiveDiablo(void)
 {
     int c, magic, i, j, id;
+    boolean with_dur;
 
     c = saveg_read8();
     if (c == SAVEGAME_EOF)
@@ -2038,9 +2071,10 @@ boolean P_UnArchiveDiablo(void)
                "equipment cleared.\n");
         return true;
     }
-    if (magic != DIABLO_SAVE_MAGIC2)
+    if (magic != DIABLO_SAVE_MAGIC2 && magic != DIABLO_SAVE_MAGIC3)
         I_Error("P_UnArchiveDiablo: bad magic 0x%x", magic);
-    if (saveg_read32() != DIABLO_SAVE_VERSION)
+    with_dur = (magic == DIABLO_SAVE_MAGIC3);
+    if (saveg_read32() != (with_dur ? DIABLO_SAVE_VERSION : 2))
         I_Error("P_UnArchiveDiablo: unsupported item database version");
 
     for (i = 0; i < MAXPLAYERS; i++)
@@ -2056,6 +2090,14 @@ boolean P_UnArchiveDiablo(void)
                 id = D_NOITEM;
             players[i].diablo_equipped[j] = id;
         }
+        if (with_dur)
+        {
+            for (j = 0; j < NUM_ESLOTS; j++)
+            {
+                int dur = saveg_read32();
+                players[i].diablo_equipped_dur[j] = dur < 0 ? 0 : dur;
+            }
+        }
 
         players[i].diablo_bp_count = saveg_read32();
         if (players[i].diablo_bp_count < 0)
@@ -2065,10 +2107,13 @@ boolean P_UnArchiveDiablo(void)
 
         for (j = 0; j < D_BACKPACK_SIZE; j++)
         {
+            int dur;
             id = saveg_read32();
             players[i].diablo_backpack[j] = id;
             players[i].diablo_bp_gx[j] = saveg_read32();
             players[i].diablo_bp_gy[j] = saveg_read32();
+            dur = with_dur ? saveg_read32() : 0;
+            players[i].diablo_backpack_dur[j] = dur < 0 ? 0 : dur;
             // Invalidate out-of-range entries.
             if (j >= players[i].diablo_bp_count
              || (id != D_NOITEM && !D_ValidItem(D_ITEMTIER(id), D_ITEMIDX(id))))
@@ -2076,6 +2121,7 @@ boolean P_UnArchiveDiablo(void)
                 players[i].diablo_backpack[j] = D_NOITEM;
                 players[i].diablo_bp_gx[j] = -1;
                 players[i].diablo_bp_gy[j] = -1;
+                players[i].diablo_backpack_dur[j] = 0;
             }
         }
 
@@ -2083,6 +2129,31 @@ boolean P_UnArchiveDiablo(void)
         if (players[i].diablo_recent < 0
          || players[i].diablo_recent >= players[i].diablo_bp_count)
             players[i].diablo_recent = -1;
+
+        if (!with_dur)
+        {
+            // Pre-durability save: every piece is at full durability.
+            for (j = 0; j < NUM_ESLOTS; j++)
+            {
+                int eid = players[i].diablo_equipped[j];
+                players[i].diablo_equipped_dur[j] =
+                    (eid != D_NOITEM
+                     && D_ValidItem(D_ITEMTIER(eid), D_ITEMIDX(eid)))
+                    ? D_ItemMaxDurability(D_GetItemDef(D_ITEMTIER(eid),
+                                                       D_ITEMIDX(eid)))
+                    : 0;
+            }
+            for (j = 0; j < D_BACKPACK_SIZE; j++)
+            {
+                int eid = players[i].diablo_backpack[j];
+                players[i].diablo_backpack_dur[j] =
+                    (eid != D_NOITEM
+                     && D_ValidItem(D_ITEMTIER(eid), D_ITEMIDX(eid)))
+                    ? D_ItemMaxDurability(D_GetItemDef(D_ITEMTIER(eid),
+                                                       D_ITEMIDX(eid)))
+                    : 0;
+            }
+        }
 
         D_RecalcStats((struct player_s *)&players[i]);
     }

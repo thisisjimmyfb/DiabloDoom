@@ -185,6 +185,9 @@ int D_MaxHealth(struct player_s *player);
 
 // Backpack / equip.  Returns false when the backpack is full.
 boolean D_BackpackAdd(struct player_s *player, int tier, int idx);
+// Add with an explicit starting durability (corpse recovery keeps the
+// dead piece's wear); D_BackpackAdd is the fresh-item wrapper (full).
+boolean D_BackpackAddDur(struct player_s *player, int tier, int idx, int dur);
 // True when no item of any size could be added right now.
 boolean D_BackpackFull(struct player_s *player);
 // Packed item id (D_MAKEITEM) of the plain normal-tier item for a
@@ -211,7 +214,19 @@ boolean D_IsTwoHandedWeapon(int doomweapon);
 
 // Combat stat hooks.
 int D_WeaponBonus(struct player_s *player);           // bonus damage
-int D_ArmorReduce(struct player_s *player, int damage);
+// Diablo 2-style defense (2026-10-21): DSTAT_ARMOR is a Defense
+// rating, not a reduction. A monster's chance to hit is
+// 200 * AR / (AR + Defense), clamped to [5, 95]; AR derives from the
+// attacker's spawn health. A landed hit deals full damage.
+int D_EnemyAttackRating(struct mobj_s *source);
+int D_DefenseChanceToHit(struct player_s *player, struct mobj_s *source);
+boolean D_DefenseHitRoll(struct player_s *player, struct mobj_s *source); // true = hit lands
+// Durability (helm/armor/boots/gloves/belt pieces only).
+boolean D_IsDurabilityItem(const diablo_itemdef_t *def);
+int D_ItemMaxDurability(const diablo_itemdef_t *def); // 0 = no durability
+void D_WearRandomPiece(struct player_s *player);     // one landed hit of wear
+void D_RepairAllEquipped(struct player_s *player);   // vanilla armor pickup
+int D_RepairCost(int id, int cur_dur);               // essence to full; 0 = n/a or full
 void D_LifeSteal(struct player_s *player, int damage);
 int D_MoveSpeed(struct player_s *player);             // percent
 

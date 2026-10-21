@@ -171,6 +171,13 @@ typedef struct player_s
     int			diablo_backpack[D_BACKPACK_SIZE];
     int			diablo_bp_gx[D_BACKPACK_SIZE];
     int			diablo_bp_gy[D_BACKPACK_SIZE];
+    // Per-instance durability (points) for the durability slots
+    // (helm, armor, boots, gloves, belt); other slots stay 0.
+    // A piece at 0 contributes no Defense. Max is per-item
+    // (D_ItemMaxDurability). Travels with the item everywhere the
+    // packed id travels: backpack, corpse, savegames.
+    int			diablo_equipped_dur[NUM_ESLOTS];
+    int			diablo_backpack_dur[D_BACKPACK_SIZE];
     int			diablo_bp_count;
     int			diablo_recent;	// backpack idx of latest pickup
     int			diablo_stats[NUM_DSTATS];

@@ -292,6 +292,8 @@ typedef struct mobj_s
     boolean		is_player_corpse;
     int			corpse_equipped[10];  // NUM_ESLOTS
     int			corpse_backpack[40];  // D_BACKPACK_SIZE
+    int			corpse_equipped_dur[10];
+    int			corpse_backpack_dur[40];
     int			corpse_bp_gx[40];
     int			corpse_bp_gy[40];
     int			corpse_bp_count;

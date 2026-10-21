@@ -103,8 +103,9 @@ void T_DeriveStats(player_t *player, t_combatstats_t *out)
         out->crit_chance = 50;
     out->crit_mult = 200 + player->diablo_stats[DSTAT_CRIT_DMG];
 
-    // Armor / MR from attributes + equipment.
-    out->armor = player->diablo_stats[DSTAT_ARMOR] + str / 3 + vit / 4;
+    // Defense is the pure equipment sum (Diablo 2-style rating;
+    // attributes no longer add to it). MR from attributes + gear.
+    out->armor = player->diablo_stats[DSTAT_ARMOR];
     out->mr = ene / 2 +
         (player->diablo_stats[DSTAT_FRES] + player->diablo_stats[DSTAT_CRES] +
          player->diablo_stats[DSTAT_LRES] + player->diablo_stats[DSTAT_PRES]) / 20;

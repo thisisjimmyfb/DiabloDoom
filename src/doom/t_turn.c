@@ -1369,8 +1369,11 @@ static void cmd_dispatch(const char *cmd)
                 extern void D_RecalcStats(struct player_s *player);
                 extern boolean D_BackpackAdd(struct player_s *pl, int tier, int idx);
                 int old = pl->diablo_equipped[slot];
+                int new_dur = pl->diablo_backpack_dur[bpi];
+                int old_dur = pl->diablo_equipped_dur[slot];
                 // Simple validation: check item's slot matches (or allow swap)
                 pl->diablo_equipped[slot] = id;
+                pl->diablo_equipped_dur[slot] = new_dur;
                 D_BackpackRemoveAt((struct player_s *)pl, bpi);
                 // If there was an old item, put it back in backpack
                 if (old != -1)
@@ -1382,6 +1385,7 @@ static void cmd_dispatch(const char *cmd)
                         if (pl->diablo_backpack[i] == -1)
                         {
                             pl->diablo_backpack[i] = old;
+                            pl->diablo_backpack_dur[i] = old_dur;
                             break;
                         }
                     }
@@ -1408,7 +1412,10 @@ static void cmd_dispatch(const char *cmd)
                     if (pl->diablo_backpack[i] == -1)
                     {
                         pl->diablo_backpack[i] = id;
+                        pl->diablo_backpack_dur[i] =
+                            pl->diablo_equipped_dur[slot];
                         pl->diablo_equipped[slot] = -1;
+                        pl->diablo_equipped_dur[slot] = 0;
                         D_RecalcStats((struct player_s *)pl);
                         printf("[FARM] UNEQUIPPED slot[%d] -> backpack[%d]\n", slot, i);
                         break;
