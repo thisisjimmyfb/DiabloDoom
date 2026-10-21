@@ -290,6 +290,10 @@ P_TouchSpecialThing
   mobj_t*	toucher );
 
 void
+P_TouchNearbySpecials
+( mobj_t*	toucher );
+
+void
 P_DamageMobj
 ( mobj_t*	target,
   mobj_t*	inflictor,

@@ -1436,3 +1436,54 @@ P_DamageMobj
 			
 }
 
+
+//
+// P_TouchNearbySpecials
+//
+// Pickup by presence (Jimmy, 2026-10-21): an item is picked up when
+// it lies within reach of where the player IS, tested as a circle --
+// never as a side effect of testing where the player might move to.
+// PIT_CheckThing used to fire P_TouchSpecialThing at the candidate
+// position inside P_TryMove/P_CheckPosition: the square test reached
+// ~51 units on the diagonal against 36 head-on, a move physics then
+// rejected (wall clip, slide) had already collected, and pure probes
+// (the COLLECT pathfinder tests hundreds of positions per walk)
+// touched items cells away from the player. Called once per tic from
+// P_Ticker, after all movement has resolved, this is now the only
+// caller of P_TouchSpecialThing. P_TouchSpecialThing's own vertical
+// gate (item z within [-8, +height] of the player's feet) still
+// applies unchanged.
+//
+void P_TouchNearbySpecials(mobj_t *toucher)
+{
+    thinker_t *th, *next;
+
+    if (!toucher || toucher->health <= 0)
+        return;
+
+    for (th = thinkercap.next; th != &thinkercap; th = next)
+    {
+        mobj_t *thing;
+        int64_t dx, dy, reach;
+
+        // P_TouchSpecialThing can remove the touched mobj. Removal
+        // is deferred to P_RunThinkers (sentinel), but never trust
+        // the node after the call -- take next first.
+        next = th->next;
+        if (th->function.acp1 != (actionf_p1)P_MobjThinker)
+            continue;
+        thing = (mobj_t *)th;
+        if (thing == toucher || !(thing->flags & MF_SPECIAL))
+            continue;
+
+        // Circle test in fixed point: dx,dy are 16.16, so the
+        // squares are 32.32 and need 64-bit intermediates.
+        dx = (int64_t)thing->x - toucher->x;
+        dy = (int64_t)thing->y - toucher->y;
+        reach = (int64_t)toucher->radius + thing->radius;
+        if (dx * dx + dy * dy >= reach * reach)
+            continue;
+
+        P_TouchSpecialThing(thing, toucher);
+    }
+}

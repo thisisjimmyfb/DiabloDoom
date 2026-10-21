@@ -358,11 +358,16 @@ boolean PIT_CheckThing (mobj_t* thing)
     if (thing->flags & MF_SPECIAL)
     {
 	solid = (thing->flags & MF_SOLID) != 0;
-	if (tmflags&MF_PICKUP)
-	{
-	    // can remove thing
-	    P_TouchSpecialThing (thing, tmthing);
-	}
+	// No pickup here. Pickup is by presence, not by movement test:
+	// P_TouchNearbySpecials collects what lies within a circle
+	// around where the player actually is, once per tic after
+	// movement resolves. Touching at this candidate position
+	// collected items from spots physics never let the player
+	// reach (a clipped or sliding move had already "picked up"),
+	// reached ~51 units on the diagonal against 36 head-on (the
+	// square test above), and fired from pure position probes --
+	// the COLLECT pathfinder tests hundreds of positions the
+	// player never occupies.
 	return !solid;
     }
 	
