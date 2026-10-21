@@ -347,12 +347,6 @@ boolean D_UIIsOpen(void)
     return ui_open;
 }
 
-void D_UIResetCursor(void)
-{
-    ui_cx = 160;
-    ui_cy = 100;
-}
-
 void D_UIOpen(void)
 {
     player_t *player;

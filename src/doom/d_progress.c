@@ -143,11 +143,6 @@ static void ProgressGetPathForSlot(char *buf, size_t buflen, int slot)
     }
 }
 
-static void ProgressGetPath(char *buf, size_t buflen)
-{
-    ProgressGetPathForSlot(buf, buflen, 0);
-}
-
 static void ProgressGetAutoDir(char *buf, size_t buflen)
 {
     // On Muse VMs: ~/workspace/chocolate-doom/savegames/doom.wad/
@@ -309,75 +304,6 @@ boolean D_ProgressInitSlot(int slot)
     return false;
 }
 
-// Serialize the current game state into the inactive slot.
-void D_ProgressSaveNow(void)
-{
-    char *buf = NULL;
-    size_t bufsize = 0;
-    FILE *mem;
-    int inactive;
-    extern FILE *save_stream;
-    extern boolean savegame_error;
-
-    if (!progress_initialized || progress_map == NULL)
-        return;
-
-    // Only save when we're actually in a game (not in menus)
-    if (gamestate != GS_LEVEL)
-        return;
-
-    mem = open_memstream(&buf, &bufsize);
-    if (!mem)
-        return;
-
-    // Temporarily redirect the save stream to our memory buffer
-    {
-        FILE *old_stream = save_stream;
-        save_stream = mem;
-        savegame_error = false;
-
-        // Serialize (same calls as G_DoSaveGame, minus the file handling)
-        P_WriteSaveGameHeader("progress");
-        P_ArchivePlayers();
-        P_ArchiveWorld();
-        P_ArchiveThinkers();
-        P_ArchiveSpecials();
-        P_ArchiveDiablo();
-        P_ArchiveTurn();
-        P_WriteSaveGameEOF();
-
-        save_stream = old_stream;
-    }
-
-    fclose(mem); // buf and bufsize are now set
-
-    if (savegame_error || buf == NULL || bufsize == 0 ||
-        bufsize > PROGRESS_SLOT_SIZE)
-    {
-        printf("[PROGRESS] save failed (error=%d, size=%zu)\n",
-               savegame_error, bufsize);
-        free(buf);
-        return;
-    }
-
-    // Write to the inactive slot (double-buffering for atomicity)
-    inactive = progress_hdr->active_slot ^ 1;
-    memcpy(progress_slots[inactive], buf, bufsize);
-    progress_hdr->save_size[inactive] = bufsize;
-    progress_hdr->checksum[inactive] = ProgressChecksum(
-        progress_slots[inactive], bufsize);
-    // Flip the active slot LAST - this is the atomic commit point.
-    // If we crash before this, the old slot is still valid.
-    progress_hdr->active_slot = inactive;
-    progress_hdr->timestamp = time(NULL);
-
-    // Ensure the header AND data are flushed synchronously.
-    // MS_ASYNC was losing saves on kill -9 / VM recycle.
-    msync(progress_map, PROGRESS_FILE_SIZE, MS_SYNC);
-
-    free(buf);
-}
-
 // Load a save from the given slot. Returns true on success.
 // We write the slot data to a temp file and use the existing load
 // mechanism, which expects a filename.
@@ -439,8 +365,8 @@ void D_ProgressTick(void)
 }
 
 // Auto-save to Doom savegame slots 7-9 (0-indexed 6-8).
-// Rotates through the three slots. Called at the same points as
-// D_ProgressSaveNow (before combat, after loot pickup).
+// Rotates through the three slots. Called before combat and after
+// loot pickup.
 // Auto-save is progress.dat only — no legacy Doom savegame format.
 // The Doom savegame slots 7-9 are not used; progress.dat is the save.
 void D_AutoSaveGame(void)

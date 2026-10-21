@@ -292,7 +292,6 @@ void T_Init(void)
     turnctrl.tp = turnctrl.tp_max;
     turnctrl.round = 1;
     turnctrl.selected_target = -1;
-    turnctrl.rng_seed = 0xC0FFEEu;
     turnctrl.state = TS_OFF;
 
     // Single-player only; no demos. This fork has no real-time mode to
@@ -340,7 +339,6 @@ void T_NewGame(void)
     turnctrl.tp = turnctrl.tp_max;
     turnctrl.round = 1;
     turnctrl.selected_target = -1;
-    turnctrl.rng_seed = 0xC0FFEEu;
     turnctrl.state = TS_EXPLORE;
     t_arena_done = (M_CheckParm("-tbarena") <= 0);
     t_script_done = false;
@@ -2451,21 +2449,6 @@ void T_DumpState(const char *why)
            p->mo ? p->mo->ceilingz >> FRACBITS : 0,
            p->mo ? (unsigned)(p->mo->angle >> 24) : 0);
     fflush(stdout);
-}
-
-// ------------------------------------------------------------------
-// Deterministic RNG
-// ------------------------------------------------------------------
-
-int T_Random(void)
-{
-    turnctrl.rng_seed = turnctrl.rng_seed * 1664525u + 1013904223u;
-    return (int)((turnctrl.rng_seed >> 16) & 0x7FFF);
-}
-
-void T_SeedRNG(unsigned int seed)
-{
-    turnctrl.rng_seed = seed;
 }
 
 // ------------------------------------------------------------------

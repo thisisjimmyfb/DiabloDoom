@@ -30,7 +30,6 @@
 boolean D_UIIsOpen(void);
 void D_UIOpen(void);
 void D_UIClose(void);
-void D_UIResetCursor(void);  // Debug: center the UI cursor.
 
 // Set by D_UIClose: the UI covered the whole screen, so D_Display must
 // repaint the view border and status bar on the next frame (the 3D view

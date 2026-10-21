@@ -711,7 +711,7 @@ next rotation slot on:
 - combat entry (`T_EnterCombat`),
 - loot drop (`P_DropDiabloLoot`),
 - inventory change — equip, unequip, or moving gear between slots
-  (`D_EquipToSlot`),
+  (character-screen inventory actions),
 - level completion (`G_DoCompleted`),
 - level start (`G_DoLoadLevel`).
 

@@ -29,8 +29,6 @@ boolean D_OnMuseVM(void);
 // Call every game tic. Writes the save every 120 tics.
 void D_ProgressTick(void);
 
-// Force an immediate write (e.g., before a risky operation).
-void D_ProgressSaveNow(void);
 void D_AutoSaveGame(void);
 
 // Load Diablo progress from an auto-save slot (1-based).

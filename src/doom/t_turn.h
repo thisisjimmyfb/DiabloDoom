@@ -88,7 +88,6 @@ typedef struct
     int heat;               // chaingun heat 0-100 (phase 5)
     int cooldowns[8];       // per-weapon-kit cooldowns in rounds (phase 5)
     int charge_tp;          // plasma charge banked in TP (phase 5)
-    unsigned int rng_seed;  // turn-mode deterministic RNG seed
     // Pulse runner state (phase 1).
     int pulse_left;         // sim tics remaining in the current pulse
     boolean pulse_freeze;   // freeze live monsters during this pulse
@@ -310,9 +309,5 @@ void T_KillBanner(const char *title, const char *sub);
 
 // Floating combat text (e.g. "MISS" above an enemy).
 void T_SpawnFloatText(mobj_t *mo, const char *text);
-
-// Deterministic turn-mode RNG (independent of M_Random stream).
-int T_Random(void);
-void T_SeedRNG(unsigned int seed);
 
 #endif

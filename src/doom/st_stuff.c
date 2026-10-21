@@ -1064,138 +1064,6 @@ static void ST_TurnDrawText(int x, int y, const char *s)
     }
 }
 
-// Draw a patch in one flat PLAYPAL color (tinted HUD text). Walks the
-// column posts; every opaque pixel becomes the target color.
-static void ST_DrawPatchFlat(int x, int y, patch_t *p, int color)
-{
-    int w = SHORT(p->width);
-    int cx;
-    for (cx = 0; cx < w; cx++)
-    {
-        byte *col = (byte *)p + LONG(p->columnofs[cx]);
-        while (col[0] != 0xff)
-        {
-            int top = col[0], len = col[1], k;
-            for (k = 0; k < len; k++)
-                if (x + cx >= 0 && x + cx < 320
-                    && y + top + k >= 0 && y + top + k < 200)
-                    V_DrawFilledBox(x + cx, y + top + k, 1, 1, color);
-            col += 4 + len;
-        }
-    }
-}
-
-// Tinted variant of ST_TurnDrawText: same gold-font glyphs, drawn flat
-// in one color (LoL mana blue for the mana widget). No shadow: the
-// crisp single-pass render reads better at status-bar size.
-static void ST_TurnDrawTextTinted(int x, int y, const char *s, int color)
-{
-    while (*s)
-    {
-        unsigned char c = (unsigned char)*s++;
-        patch_t *p;
-        int w;
-        if (c == ' ')
-        {
-            x += 5;
-            continue;
-        }
-        if (c < '!' || c > '_')
-            continue;
-        p = hu_font[c - '!'];
-        if (p == NULL)
-        {
-            x += 4;
-            continue;
-        }
-        w = SHORT(p->width);
-        if (x < 0)
-            x = 0;
-        if (x + w <= 320 && y >= 0 && y < 200)
-        {
-            ST_DrawPatchFlat(x, y, p, color);
-        }
-        x += w + 1;
-    }
-}
-
-// LoL-style AD/AP stat block (turn mode): replaces the right-side ammo
-// counts with icon + number rows. AD gets a gold sword, AP a teal sparkle,
-// cooldown small underneath. Numbers right-align at the screen edge.
-static const char *st_icon_sword[8] = {
-    "......##",
-    ".....###",
-    "....###.",
-    "########",
-    "...###..",
-    "..###...",
-    "..##....",
-    ".##.....",
-};
-
-static const char *st_icon_spark[8] = {
-    "...##...",
-    "...##...",
-    "...##...",
-    "########",
-    "########",
-    "...##...",
-    "...##...",
-    "...##...",
-};
-
-// Nearest PLAYPAL index to an RGB triple. Cache is keyed on the
-// requested triple so the AP teal and the mana blue can coexist.
-static int ST_NearestColor(int r, int g, int b)
-{
-    static int cached = -1, cr = -1, cg = -1, cb = -1;
-    byte *pal;
-    int best = 0, bestd = 1 << 30, i;
-
-    if (cached >= 0 && cr == r && cg == g && cb == b)
-        return cached;
-    pal = W_CacheLumpName("PLAYPAL", PU_STATIC);
-    for (i = 0; i < 256; i++)
-    {
-        int dr = pal[i * 3] - r;
-        int dg = pal[i * 3 + 1] - g;
-        int db = pal[i * 3 + 2] - b;
-        int d = dr * dr + dg * dg + db * db;
-        if (d < bestd)
-        {
-            bestd = d;
-            best = i;
-        }
-    }
-    Z_ChangeTag(pal, PU_CACHE);
-    cached = best;
-    cr = r;
-    cg = g;
-    cb = b;
-    return best;
-}
-
-static void ST_DrawIcon8(int x, int y, const char **bits, int color)
-{
-    int r, c;
-    for (r = 0; r < 8; r++)
-        for (c = 0; c < 8; c++)
-            if (bits[r][c] != '.')
-                V_DrawFilledBox(x + c, y + r, 1, 1, color);
-}
-
-// Blue droplet icon (8x8) for the mana widget.
-static const char *st_icon_drop[8] = {
-    "...##...",
-    "..####..",
-    ".######.",
-    ".######.",
-    "########",
-    "########",
-    ".######.",
-    "..####..",
-};
-
 // Turn-based kit status (Phase 5): replaces the right-side AMMO counts
 // with a persistent AD/AP stat block and a contextual cooldown line.
 // Text labels (AD/AP/CD) instead of icons for clarity.
@@ -1217,7 +1085,7 @@ static void ST_drawTurnKits(void)
         return;
     T_DeriveStats(plyr, &st);
     // Show the same damage the attack preview computes: kit base stacked
-    // on, then AD%/AP% (T_DamageRange mirrors T_ResolveAttack exactly).
+    // on, then AD%/AP% (T_DamageRange mirrors the damage callback).
     T_DamageRange(plyr, NULL, &st, &dmg_min, &dmg_max);
     kit = T_KitForWeapon(plyr->readyweapon);
     cd = T_KitCooldown(plyr->readyweapon);

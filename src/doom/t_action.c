@@ -2738,9 +2738,10 @@ static void T_NativeFire(player_t *player)
 }
 
 // ------------------------------------------------------------------
-// Fixed-seed arena (test harness): deterministic encounter for gates.
-// Spawns a fixed set of monsters at fixed offsets from the player and
-// seeds the turn RNG. Same monsters, positions, RNG every run.
+// Fixed arena (test harness): deterministic encounter for gates.
+// Spawns a fixed set of monsters at fixed offsets from the player.
+// Same monsters and positions every run; combat rolls use t_combat's
+// fixed-seed RNG.
 // ------------------------------------------------------------------
 void T_SpawnArena(void)
 {
@@ -2751,8 +2752,6 @@ void T_SpawnArena(void)
 
     if (!T_Active() || player->mo == NULL)
         return;
-
-    T_SeedRNG(0xA1EA5EEDu);
 
     px = player->mo->x;
     py = player->mo->y;
