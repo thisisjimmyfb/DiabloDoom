@@ -6,9 +6,11 @@
 // dedicated fixed-seed RNG so previews and resolutions agree and tests
 // are deterministic.
 //
-// The preview (T_HitChance, T_DamageRange) and the resolution
-// (T_ResolveAttack) call the same formula functions: displayed values
-// always match resolved values.
+// Attacks resolve through the live simulation: T_ExecAttack fires
+// the real Doom weapon (T_NativeFire: hitscan/projectiles), and on a
+// hit T_DiabloDamageCallback computes the Diablo damage. The preview
+// (T_HitChance, T_DamageRange) and the callback call the same formula
+// functions: displayed values always match applied values.
 
 #ifndef T_COMBAT_H
 #define T_COMBAT_H
@@ -50,15 +52,6 @@ int T_CoverBlocked(player_t *player, mobj_t *target);
 // Damage range preview (before crit, before target mitigation).
 void T_DamageRange(player_t *player, mobj_t *target,
                    const t_combatstats_t *st, int *minhp, int *maxhp);
-
-// Resolve an attack against a confirmed target. Returns true on hit.
-// Applies damage via P_DamageMobj and records the outcome for tests.
-boolean T_ResolveAttack(player_t *player, mobj_t *target);
-
-// Roll Diablo damage without applying it. Returns true on hit.
-// Used for native weapon fire: pre-roll, then P_DamageMobj applies via override.
-boolean T_RollDiabloDamage(player_t *player, mobj_t *target,
-                           int *damage, int *crit);
 
 // Kill credit + kill-triggered affixes. Called after P_DamageMobj confirms a kill.
 void T_ResolveKill(player_t *player, mobj_t *victim, int dmg,

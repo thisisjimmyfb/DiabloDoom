@@ -1445,35 +1445,6 @@ static void cmd_dispatch(const char *cmd)
             }
         }
     }
-    else if (!strncmp(cmd, "SALVAGE_EQUIPPED ", 17))
-    {
-        // SALVAGE_EQUIPPED <slot>: turn equipped item into essence.
-        int slot;
-        player_t *pl = &players[consoleplayer];
-        if (sscanf(cmd + 17, "%d", &slot) == 1 && slot >= 0 && slot <= 10)
-        {
-            int id = pl->diablo_equipped[slot];
-            if (id != -1)
-            {
-                extern void D_RecalcStats(struct player_s *player);
-                int tier = ((id >> 8) & 0xff); // D_ITEMTIER macro
-                int essence = 1;
-                switch (tier)
-                {
-                  case 1: essence = 1; break;
-                  case 2: essence = 3; break;
-                  case 3: essence = 8; break;
-                  case 4: essence = 15; break;
-                  case 5: essence = 25; break;
-                }
-                pl->diablo_equipped[slot] = -1;
-                D_RecalcStats((struct player_s *)pl);
-                pl->diablo_essence += essence;
-                printf("[ESSENCE] salvaged slot[%d] tier %d -> +%d (total %d)\n",
-                       slot, tier, essence, pl->diablo_essence);
-            }
-        }
-    }
     else if (!strcmp(cmd, "VERSION"))
     {
         // Print the git commit hash this binary was built from.
