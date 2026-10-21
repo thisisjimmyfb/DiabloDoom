@@ -957,8 +957,7 @@ static boolean cmd_is_diagnostic(const char *cmd)
 {
     static const char *diag[] = {
         "SCREENSHOT", "REPLAY", "CAPTURE", "VERSION",
-        "INVENTORY", "KEYS", "SCAN", "SECTORS", "HISTORY",
-        "FRONTIER", NULL
+        "INVENTORY", "KEYS", "SCAN", "SECTORS", "HISTORY", NULL
     };
     int i;
     for (i = 0; diag[i] != NULL; i++)
@@ -1332,12 +1331,6 @@ static void cmd_dispatch(const char *cmd)
         // -- the trap signature the agent navigates by.
         T_HistoryDump();
     }
-    else if (!strcmp(cmd, "FRONTIER"))
-    {
-        // Nearest unvisited sectors with bearings, so the agent can
-        // steer toward new ground instead of re-treading old ground.
-        T_FrontierReport();
-    }
     else if (!strcmp(cmd, "SCAN"))
     {
         // List nearby keys with relative direction/distance (facing-relative).
@@ -1631,7 +1624,7 @@ void T_Ticker(void)
         return;
 
     // Continuous visited-sector tracking (both modes: presence is
-    // presence). Feeds SECTORS and FRONTIER.
+    // presence). Feeds SECTORS.
     T_TrackTick();
 
     // Kill banner counts down in real time, independent of turn state.

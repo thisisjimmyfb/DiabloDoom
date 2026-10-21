@@ -874,9 +874,11 @@ void T_GotoCancel(void)
 //     the HISTORY driver command, with a cluster note when the
 //     newest points huddle in a small box (the trap signature);
 //   - a continuous visited-sector set, marked every tick from the
-//     player's real position, read by SECTORS and by FRONTIER,
-//     which reports the nearest unvisited sectors so the agent can
-//     prefer new ground over re-treading old ground.
+//     player's real position and read by SECTORS, so the visited
+//     count is a truthful exploration scoreboard. (A FRONTIER
+//     command that reported unvisited sectors was removed the day
+//     it shipped, 2026-10-21: Jimmy ruled it cheating -- the agent
+//     finds new ground with its own eyes, not an oracle.)
 // Both reset when the level's sector array changes (new level or
 // save load), detected by the sectors pointer.
 // ------------------------------------------------------------------
@@ -994,101 +996,6 @@ void T_HistoryDump(void)
                    (maxx - minx) >> 16, (maxy - miny) >> 16);
         }
     }
-}
-
-// Report the nearest unvisited sectors, nearest first, with
-// facing-relative bearings in the same shape as SCAN, so the agent
-// can steer toward new ground. The single nearest also gets a grid
-// path check.
-void T_FrontierReport(void)
-{
-    player_t *pl = &players[consoleplayer];
-    int best_idx[3];
-    fixed_t best_x[3], best_y[3], best_d[3];
-    int nb = 0;
-    int i, j;
-
-    if (pl->mo == NULL || sectors == NULL)
-    {
-        printf("[FRONTIER] no player\n");
-        return;
-    }
-    T_TrackResetIfLevelChanged();
-    printf("[FRONTIER] %d unvisited sectors\n",
-           numsectors - visited_count);
-    for (i = 0; i < numsectors && i < VISITED_MAX; i++)
-    {
-        sector_t *sec = &sectors[i];
-        long long sx = 0, sy = 0;
-        fixed_t cx, cy, d;
-        if (visited_sectors[i] || sec->linecount == 0)
-            continue;
-        for (j = 0; j < sec->linecount; j++)
-        {
-            sx += sec->lines[j]->v1->x;
-            sy += sec->lines[j]->v1->y;
-        }
-        cx = (fixed_t)(sx / sec->linecount);
-        cy = (fixed_t)(sy / sec->linecount);
-        d = P_AproxDistance(cx - pl->mo->x, cy - pl->mo->y);
-        // Keep the three nearest.
-        if (nb < 3)
-        {
-            best_idx[nb] = i; best_x[nb] = cx; best_y[nb] = cy;
-            best_d[nb] = d; nb++;
-        }
-        else
-        {
-            int worst = 0;
-            for (j = 1; j < 3; j++)
-                if (best_d[j] > best_d[worst]) worst = j;
-            if (d < best_d[worst])
-            {
-                best_idx[worst] = i; best_x[worst] = cx;
-                best_y[worst] = cy; best_d[worst] = d;
-            }
-        }
-    }
-    // Insertion-sort the (up to) three by distance.
-    for (i = 1; i < nb; i++)
-    {
-        int ti = best_idx[i];
-        fixed_t tx = best_x[i], ty = best_y[i], td = best_d[i];
-        for (j = i - 1; j >= 0 && best_d[j] > td; j--)
-        {
-            best_idx[j + 1] = best_idx[j]; best_x[j + 1] = best_x[j];
-            best_y[j + 1] = best_y[j]; best_d[j + 1] = best_d[j];
-        }
-        best_idx[j + 1] = ti; best_x[j + 1] = tx;
-        best_y[j + 1] = ty; best_d[j + 1] = td;
-    }
-    {
-        angle_t ang = pl->mo->angle;
-        fixed_t fx = finecosine[ang >> ANGLETOFINESHIFT];
-        fixed_t fy = finesine[ang >> ANGLETOFINESHIFT];
-        fixed_t rx = finecosine[(ang - ANG90) >> ANGLETOFINESHIFT];
-        fixed_t ry = finesine[(ang - ANG90) >> ANGLETOFINESHIFT];
-        for (i = 0; i < nb; i++)
-        {
-            fixed_t dx = best_x[i] - pl->mo->x;
-            fixed_t dy = best_y[i] - pl->mo->y;
-            int fwd = FixedMul(dx, fx) + FixedMul(dy, fy);
-            int rgt = FixedMul(dx, rx) + FixedMul(dy, ry);
-            printf("[FRONTIER] sector %d: %d fwd, %d right"
-                   " (dist %d)\n", best_idx[i],
-                   fwd >> 16, rgt >> 16, best_d[i] >> 16);
-            if (i == 0)
-            {
-                int dirs[64];
-                int steps = T_FindPathTo(pl->mo, best_x[i], best_y[i],
-                                         dirs, 64);
-                printf("[FRONTIER] nearest path: %s\n",
-                       steps >= 0 ? "yes" : "no");
-            }
-        }
-    }
-    if (nb == 0)
-        printf("[FRONTIER] none -- every sector visited\n");
 }
 
 static boolean walk_active = false;
