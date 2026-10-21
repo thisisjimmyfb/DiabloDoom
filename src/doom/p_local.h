@@ -293,6 +293,14 @@ void
 P_TouchNearbySpecials
 ( mobj_t*	toucher );
 
+boolean
+P_AmmoCacheHasRoom
+( void );
+
+boolean
+P_IsAmmoCache
+( mobj_t*	special );
+
 void
 P_DamageMobj
 ( mobj_t*	target,

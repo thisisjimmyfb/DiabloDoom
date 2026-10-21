@@ -1471,10 +1471,25 @@ boolean T_DoCollect(void)
         t_scan_result_t scan = T_ScanNearby(mo, 2048, NULL, 0);
         if (scan.nearest_pickup != NULL)
         {
-            steps = T_FindPathTo(mo, scan.nearest_pickup->x,
-                                 scan.nearest_pickup->y, path_dirs, 64);
-            if (steps >= 0)
-                loot = scan.nearest_pickup;
+            // An ammo cache is only worth the walk when a magazine
+            // has room for it: P_GiveAmmo refuses it otherwise, so
+            // it can never be picked up (magazines auto-replenish in
+            // explore, making "full" the steady state -- the walk
+            // used to go stand on a clip forever). A useless cache
+            // is no target: COLLECT returns false and it is ignored.
+            if (P_IsAmmoCache(scan.nearest_pickup)
+                && !P_AmmoCacheHasRoom())
+            {
+                printf("[COLLECT] nearest pickup is an ammo cache, "
+                       "magazines full -- ignoring\n");
+            }
+            else
+            {
+                steps = T_FindPathTo(mo, scan.nearest_pickup->x,
+                                     scan.nearest_pickup->y, path_dirs, 64);
+                if (steps >= 0)
+                    loot = scan.nearest_pickup;
+            }
         }
     }
 
@@ -1564,6 +1579,22 @@ void T_CollectTick(void)
         printf("[COLLECT] no path from (%d,%d) to loot\n",
                mo->x >> 16, mo->y >> 16);
         pl->message = "CAN'T REACH LOOT.";
+        T_CollectCancel();
+        return;
+    }
+
+    // Standing on the target but it is an ammo cache the magazines
+    // no longer have room for (they filled during the walk): say so
+    // and end, instead of dying on the stuck watchdog.
+    if (steps == 0 && collect_target_mo != NULL
+        && !(collect_target_mo->type >= MT_LOOT_NORMAL
+             && collect_target_mo->type <= MT_LOOT_UNIQUE)
+        && !collect_target_mo->is_player_corpse
+        && P_IsAmmoCache(collect_target_mo)
+        && !P_AmmoCacheHasRoom())
+    {
+        printf("[COLLECT] ammo cache unusable: magazines full\n");
+        pl->message = "MAGAZINES FULL.";
         T_CollectCancel();
         return;
     }

@@ -126,9 +126,6 @@ P_GiveAmmo
   ammotype_t	ammo,
   int		num )
 {
-    int		w;
-    int		room = 0;
-
     (void)player;
     (void)num;
 
@@ -143,19 +140,53 @@ P_GiveAmmo
     // magazine is already full the pickup stays on the ground.
     // (Per-type amounts and difficulty scaling no longer apply:
     // magazines are the ammo economy now.)
-    for (w = 0; w < NUMWEAPONS; w++)
-    {
-        const t_kitdef_t *kit = T_KitForWeapon((weapontype_t)w);
-        if (kit->ammo_max > 0 && T_KitAmmo((weapontype_t)w) < kit->ammo_max)
-            room = 1;
-    }
-    if (T_KitHeat(wp_plasma) > 0)
-        room = 1;
-    if (!room)
+    if (!P_AmmoCacheHasRoom())
 	return false;
     T_KitPickupAmmo();
 
     return true;
+}
+
+// Could an ammo cache do anything right now? Some magazine below
+// max, or plasma heat to vent. Factored out of P_GiveAmmo so the
+// targeting code (COLLECT) tests exactly what the pickup will do:
+// with magazines auto-replenishing in explore, "full" is the steady
+// state, and a cache that can never be consumed must not be
+// targeted as if it were loot.
+boolean P_AmmoCacheHasRoom(void)
+{
+    int w;
+
+    for (w = 0; w < NUMWEAPONS; w++)
+    {
+        const t_kitdef_t *kit = T_KitForWeapon((weapontype_t)w);
+        if (kit->ammo_max > 0 && T_KitAmmo((weapontype_t)w) < kit->ammo_max)
+            return true;
+    }
+    return T_KitHeat(wp_plasma) > 0;
+}
+
+// Is this special an ammo cache -- one of the sprites
+// P_TouchSpecialThing feeds to P_GiveAmmo? (Diablo loot reuses some
+// of these sprites; callers that must tell loot from ammo have to
+// check the mobj type as well, as T_DoCollect's fallback does by
+// construction -- its candidates are never loot-type mobjs.)
+boolean P_IsAmmoCache(mobj_t *special)
+{
+    switch (special->sprite)
+    {
+        case SPR_CLIP:
+        case SPR_AMMO:
+        case SPR_ROCK:
+        case SPR_BROK:
+        case SPR_CELL:
+        case SPR_CELP:
+        case SPR_SHEL:
+        case SPR_SBOX:
+            return true;
+        default:
+            return false;
+    }
 }
 
 
@@ -610,25 +641,105 @@ P_TouchSpecialThing
     if (toucher->health <= 0)
 	return;
 
-    // Diablo corpse system: touching your corpse recovers inventory.
+    // Diablo corpse recovery (Jimmy, 2026-10-21): like Diablo, items
+    // come off the corpse ONE BY ONE -- never a wholesale overwrite.
+    // (The old code replaced the player's entire inventory with the
+    // corpse snapshot, silently deleting anything looted on the
+    // corpse run.) Equipped pieces re-equip into empty slots first;
+    // overflow and packed items go through the normal backpack add.
+    // Whatever doesn't fit STAYS on the corpse, which remains in the
+    // world so the player can junk something and come back for the
+    // rest. Only a fully emptied corpse is removed.
     if (special->is_player_corpse)
     {
 	int i;
+	int moved = 0;
+	int remaining = 0;
+	boolean equipped_changed = false;
 	player = toucher->player;
 	if (!player) return;
-	// Restore inventory from corpse
-	for (i = 0; i < 10; i++)
-	    player->diablo_equipped[i] = special->corpse_equipped[i];
-	for (i = 0; i < 40; i++) {
-	    player->diablo_backpack[i] = special->corpse_backpack[i];
-	    player->diablo_bp_gx[i] = special->corpse_bp_gx[i];
-	    player->diablo_bp_gy[i] = special->corpse_bp_gy[i];
+
+	// Essence is not an item: it always transfers.
+	if (special->corpse_essence > 0)
+	{
+	    player->diablo_essence += special->corpse_essence;
+	    special->corpse_essence = 0;
+	    moved++;
 	}
-	player->diablo_bp_count = special->corpse_bp_count;
-	player->diablo_essence = special->corpse_essence;
-	player->message = "Corpse recovered!";
-	printf("[FARM] CORPSE_RECOVERED - inventory restored\n");
-	P_RemoveMobj(special);
+
+	// Equipped gear, slot by slot.
+	for (i = 0; i < 10; i++)
+	{
+	    int id = special->corpse_equipped[i];
+	    if (id == D_NOITEM)
+		continue;
+	    if (player->diablo_equipped[i] == D_NOITEM)
+	    {
+		player->diablo_equipped[i] = id;
+		special->corpse_equipped[i] = D_NOITEM;
+		equipped_changed = true;
+		moved++;
+	    }
+	    else if (D_BackpackAdd(player, D_ITEMTIER(id),
+				   D_ITEMIDX(id)))
+	    {
+		special->corpse_equipped[i] = D_NOITEM;
+		moved++;
+	    }
+	    else
+		remaining++;
+	}
+
+	// Packed items, one by one. D_BackpackAdd re-places each on
+	// the player's own grid; entries that fit are struck from the
+	// corpse's list (compacted in place), the rest stay.
+	{
+	    int r, w = 0;
+	    for (r = 0; r < special->corpse_bp_count; r++)
+	    {
+		int id = special->corpse_backpack[r];
+		if (D_BackpackAdd(player, D_ITEMTIER(id),
+				  D_ITEMIDX(id)))
+		    moved++;
+		else
+		{
+		    special->corpse_backpack[w] = id;
+		    special->corpse_bp_gx[w] = special->corpse_bp_gx[r];
+		    special->corpse_bp_gy[w] = special->corpse_bp_gy[r];
+		    w++;
+		    remaining++;
+		}
+	    }
+	    special->corpse_bp_count = w;
+	}
+
+	if (equipped_changed)
+	    D_RecalcStats(player);
+	if (moved > 0)
+	{
+	    extern void D_AutoSaveGame(void);
+	    D_AutoSaveGame();
+	}
+
+	if (remaining == 0)
+	{
+	    player->message = "Corpse recovered!";
+	    printf("[FARM] CORPSE_RECOVERED - inventory restored\n");
+	    P_RemoveMobj(special);
+	}
+	else
+	{
+	    // The presence sweep re-touches every tic while the player
+	    // stands on the corpse: throttle the message and the log.
+	    static int corpse_msg_tic = -TICRATE;
+	    if (gametic - corpse_msg_tic >= TICRATE)
+	    {
+		corpse_msg_tic = gametic;
+		player->message = "Backpack full -- corpse keeps the rest.";
+		printf("[CORPSE] partial recovery: %d taken, %d left on corpse\n",
+		       moved, remaining);
+	    }
+	}
 	return;
     }
 
