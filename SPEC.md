@@ -233,7 +233,9 @@ state.
 consuming an item does. Grid organization stays free.
 
 **Auto-loot rule:** the HUD shows "Loot nearby, press G to loot"
-when loot is in reach. COLLECT is an autonomous walk, not an instant move:
+when loot is in reach — or "Loot nearby, but backpack full" when
+`D_BackpackFull` says the pack can take no item of any size, since
+inviting a COLLECT that can only refuse the loot would be a lie. COLLECT is an autonomous walk, not an instant move:
 `T_DoCollect` only sets up — it gathers up to 32 loot targets, sorts
 them by distance squared, and tries `T_FindPathTo` on each in nearest
 order (an unreachable target is skipped, "[COLLECT] loot N unreachable,
@@ -250,7 +252,7 @@ from the player's current position every game tick and moves one step
 along the path it finds, so the pathfinding is spread over as many
 ticks as the walk takes and the route is always current. When the BFS
 says the player is already in the loot's cell, the tick steps directly
-onto the item for the final approach (touch needs <32 units). The walk
+onto the item for the final approach. The walk
 ends on pickup, on finding no path, after 2 seconds without progress,
 or on a 20-second cap. While the walk runs, FIFO driver input is
 blocked — queued commands wait until the walk ends (combat entry also
@@ -260,7 +262,19 @@ velocity and facing, so held keys can't fight it or keep resetting
 its stuck watchdog. The walk steers to cell *centres* — the same
 points the BFS walkability probe samples; an earlier aim expression
 overflowed to the cell corner and wedged walks against wall
-junctions (fixed 2026-10-21, GOTO waypoints had the same bug). COLLECT runs in explore mode only. **The loot alert uses the same reachability rule** (changed
+junctions (fixed 2026-10-21, GOTO waypoints had the same bug). COLLECT runs in explore mode only.
+
+**Pickup rule** (2026-10-21): items are picked up by presence, in
+the game loop — `P_TouchNearbySpecials` runs once per tic from
+`P_Ticker`, after movement resolves, and collects every special
+within a *circle* around where the player actually is (reach =
+player radius + item radius; `P_TouchSpecialThing`'s vertical gate
+still applies). `PIT_CheckThing` no longer touches specials: the
+old test fired at the *candidate* position inside movement/probe
+checks, so it collected from spots physics never let the player
+reach, reached ~51 units on the diagonal against 36 head-on (a
+square test), and the COLLECT pathfinder's probes picked items up
+instantly, before the walk moved. **The loot alert uses the same reachability rule** (changed
 2026-10-19): the "Loot nearby, press G to loot" prompt fires only
 when the nearest loot in distance order has a BFS path — loot
 elsewhere on the map no

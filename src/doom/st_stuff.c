@@ -1193,7 +1193,11 @@ static void ST_updateLootAlert(void)
             printf("[LOOT] available on map - press G to loot\n");
         if (new_loot || gametic - last_prompt_tic >= 3 * TICRATE)
         {
-            plyr->message = "Loot nearby, press G to loot";
+            // A full pack can't take the loot; say so instead of
+            // inviting a COLLECT that can only refuse it.
+            plyr->message = D_BackpackFull(plyr)
+                ? "Loot nearby, but backpack full"
+                : "Loot nearby, press G to loot";
             last_prompt_tic = gametic;
         }
     }

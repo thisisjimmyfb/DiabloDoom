@@ -1048,6 +1048,20 @@ boolean D_BackpackAdd(struct player_s *pl, int tier, int idx)
     return true;
 }
 
+// Could the backpack take ANY item right now? The loot prompt keys
+// on this: with a full pack the honest message is "Loot nearby, but
+// backpack full", not "press G to loot" (Jimmy, 2026-10-21).
+boolean D_BackpackFull(struct player_s *pl)
+{
+    player_t *player = (player_t *)pl;
+    int gx, gy;
+
+    if (player->diablo_bp_count >= D_BACKPACK_SIZE)
+        return true;
+    // Nothing can be added when not even a 1x1 item finds space.
+    return !D_GridFindSpace(pl, 1, 1, &gx, &gy);
+}
+
 // Throttled "Backpack full!" (pickup is re-attempted every tic while
 // the player stands on the item).
 void D_BackpackFullMsg(struct player_s *pl)

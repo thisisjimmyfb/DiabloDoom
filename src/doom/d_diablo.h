@@ -185,6 +185,8 @@ int D_MaxHealth(struct player_s *player);
 
 // Backpack / equip.  Returns false when the backpack is full.
 boolean D_BackpackAdd(struct player_s *player, int tier, int idx);
+// True when no item of any size could be added right now.
+boolean D_BackpackFull(struct player_s *player);
 // Packed item id (D_MAKEITEM) of the plain normal-tier item for a
 // Doom weapon (wp_*), or D_NOITEM when the weapon has no base item.
 // Fallback for weapon pickups when the rarity roll comes up empty.
