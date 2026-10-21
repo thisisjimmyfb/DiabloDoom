@@ -244,7 +244,12 @@ never an instant move or a teleport. Explore mode only.
    that order (an unreachable candidate is skipped: "[COLLECT] loot
    N unreachable, trying next"). If no Diablo candidate is
    reachable, it tries the nearest vanilla pickup within 2048 units
-   the same way. The first candidate with a path becomes the
+   the same way -- except an ammo cache when no magazine has room
+   for it: `P_GiveAmmo` would refuse it on arrival (magazines
+   auto-replenish in explore, so full is the steady state), so a
+   useless cache is not a target and COLLECT returns false. If the
+   magazines fill during the walk itself, the walk ends on arrival
+   with "MAGAZINES FULL." instead of the stuck watchdog. The first candidate with a path becomes the
    target. **If none has a path, `T_DoCollect` returns false** and
    nothing else happens: no walk starts, the HUD shows "NO
    REACHABLE LOOT.", and the caller ignores the request. (The loot
@@ -312,6 +317,21 @@ changed 2026-10-21 after the original hand-drawn prompt turned
 out to be invisible: it was drawn from the status bar at rows
 160-170, and the 3D view, rendered after the bar, painted over
 it every frame.
+
+**Corpse recovery** (2026-10-21): death stores the whole inventory
+(equipped, backpack, essence) on the corpse; respawn clears the
+player. Touching the corpse (walk-over, or COLLECT) recovers it
+**one item at a time, like Diablo** -- never a wholesale overwrite
+(the old code replaced the player's inventory with the corpse
+snapshot, deleting anything looted on the corpse run). Order:
+essence first (it always transfers), then equipped pieces slot by
+slot -- a piece re-equips if its slot is empty, otherwise it goes
+through the normal backpack add -- then the corpse's packed items,
+each re-placed on the player's own grid by the normal add.
+Whatever doesn't fit **stays on the corpse**, which remains in the
+world ("Backpack full -- corpse keeps the rest.") so the player
+can junk something and come back; only a fully emptied corpse is
+removed.
 
 **Navigation awareness (2026-10-21):** the agent drives from
 screenshots and the log, so the engine reports where movement
