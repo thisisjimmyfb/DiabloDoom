@@ -146,14 +146,6 @@ static fixed_t T_StepLen(player_t *player)
     return D_ScaleDisplacement(player, STEP_LEN);
 }
 
-// Public: units per tic for real-time movement (GOTO), scaled by the
-// same shared movespeed scaling as T_StepLen. Base 16 matches
-// keyboard run.
-fixed_t T_MoveSpeedPerTic(struct player_s *player)
-{
-    return D_ScaleDisplacement(player, 16 * FRACUNIT);
-}
-
 // ------------------------------------------------------------------
 // Phase 2: Tempo economy.
 //
@@ -1406,7 +1398,6 @@ void T_GotoTick(void)
     mobj_t *mo;
     fixed_t wx, wy, dx, dy;
     fixed_t dist_sq;
-    fixed_t step = T_MoveSpeedPerTic(pl); // units per tic, movespeed-scaled
 
     if (!goto_active)
         return;
@@ -1455,22 +1446,26 @@ void T_GotoTick(void)
         return;
     }
 
-    // Step toward waypoint: set this tic's velocity and let
-    // P_XYMovement (inside P_Ticker) integrate it with collision and
-    // sliding -- the player GLIDES to the waypoint. (Was a P_TryMove
-    // position snap per tic, which read as teleport hops in replays.)
+    // Move toward the waypoint the way the keyboard does: THRUST,
+    // never velocity assignment (Jimmy, 2026-10-22 — the old code
+    // set momx/momy to a flat 16 u/tic, so a GOTO/COLLECT walk was
+    // at full speed from the first tic and read as unnaturally fast
+    // next to manual play). P_Thrust adds the keyboard's own run
+    // increment (forwardmove[1] * 2048, movespeed-scaled inside
+    // P_Thrust) to the player's momentum, and P_XYMovement's ground
+    // friction (0xE800) decays it — so the walk spools up over
+    // ~10 tics, cruises at the keyboard's ~16.7 u/tic terminal, and
+    // coasts like manual play. The aim is recomputed every tic:
+    // once the player crosses the waypoint the thrust reverses and
+    // brakes, so arrival settles inside the <16u advance radius
+    // instead of overshooting forever. Ground only, exactly like
+    // P_MovePlayer's thrust gate.
     {
-        fixed_t dist = P_AproxDistance(dx, dy);
-        if (dist > 0)
-        {
-            fixed_t step2 = step;
-            if (dist < step2)
-                step2 = dist;
-            mo->momx = FixedDiv(FixedMul(dx, step2), dist);
-            mo->momy = FixedDiv(FixedMul(dy, step2), dist);
-            // Face movement direction for the viewmodel/HUD.
-            mo->angle = R_PointToAngle2(mo->x, mo->y, wx, wy);
-        }
+        angle_t aim = R_PointToAngle2(mo->x, mo->y, wx, wy);
+        if (mo->z <= mo->floorz)
+            P_Thrust(pl, aim, forwardmove[1] * 2048);
+        // Face movement direction for the viewmodel/HUD.
+        mo->angle = aim;
     }
 
     // Blocked: physics owns the move now, so a wall shows up as no

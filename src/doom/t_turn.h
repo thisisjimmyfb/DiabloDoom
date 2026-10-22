@@ -240,7 +240,6 @@ void T_TrackTick(void);     // mark current sector visited (every tick)
 int T_VisitedCount(void);   // sectors visited on this level so far
 void T_HistoryDump(void);   // HISTORY: dump movement-history ring buffer
 struct player_s;
-fixed_t T_MoveSpeedPerTic(struct player_s *player); // units/tic, movespeed-scaled
 boolean T_LootAvailable(void); // true if any loot drop or player corpse is reachable (COLLECT's path rule)
 int T_GetLootList(mobj_t **list, int max); // fill with live loot mobjs, returns count
 void T_DoEndTurn(void);
