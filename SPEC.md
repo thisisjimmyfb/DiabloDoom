@@ -544,7 +544,12 @@ command's execution lasts only that interval pulse (Jimmy,
 execution never waits for the continuous stream to stop. The lock
 stays armed across phase boundaries and the tick resumes it in the
 next progress phase, the way the weapon animation carries on after
-the command itself has executed. The lock breaks
+the command itself has executed. Tick-fired shots are pulse-neutral
+(they begin no interval pulse of their own): an earlier build let
+each autofire shot add its interval back, so any phase that lived
+one tic past the countdown — a second queued command, a settle —
+self-sustained until the target died (~10s for one minigun command
+against a demon). The lock breaks
 on target death/removal, weapon switch, a full or empty magazine,
 target switch, combat exit, or line of sight lost — the tick checks
 `P_CheckSight` every tic and clears the lock the tic sight breaks
