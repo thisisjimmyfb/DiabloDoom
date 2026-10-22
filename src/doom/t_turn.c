@@ -557,9 +557,8 @@ static void T_EndPulse(void);
 // Ammo design: every weapon owns a magazine (see t_combat.c). The other
 // Doom ammo pools stay maxed while planning so the underlying weapon
 // state machine can never fail or auto-switch for lack of ammo.
-// Magazines replenish automatically by weapon type — AD from attack
-// speed, AP from cooldowns/charges (see T_KitRegenAmmo) — so guns never
-// run dry in sustained use; pickups and Mana Potions top magazines up.
+// Magazines replenish via the per-tic trickle while game time runs
+// (explore / progress phase), plus pickups and Mana Potions.
 // Real-time mode never reaches this code.
 void T_TopUpAmmo(void)
 {
@@ -783,10 +782,9 @@ static void T_EndPulse(void)
         T_CountRound(); // Phase 8: lifetime rounds
         turnctrl.tp = turnctrl.tp_max; // TP economy lands in phase 2
         T_KitTickCooldowns();
-        // Ammo replenish (per-weapon magazines): AD weapons regenerate
-        // attack-speed attacks' worth of ammo; AP weapons refill on
-        // cooldown completion / charge regen (hooked in the tick above).
-        T_KitRegenAmmo();
+        // No per-round ammo grant (removed at Jimmy's order,
+        // 2026-10-22): magazines replenish only via the trickle
+        // while game time runs, pickups, and potions.
         turnctrl.state = TS_PLANNING;
         // Anchor the preview: turn start is the camera home for queue
         // previews, UNDO/CLEAR resets, and the END TURN teleport-back.

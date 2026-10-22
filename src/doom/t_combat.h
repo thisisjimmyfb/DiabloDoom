@@ -146,7 +146,6 @@ extern int d_diablo_hitscan_weapon;
 // regenerates (rocket). Plasma is heat-gated instead of ammo-gated.
 int T_KitAmmo(weapontype_t w);          // current magazine rounds
 void T_KitSpendAmmo(weapontype_t w);    // deduct one attack's ammo cost
-void T_KitRegenAmmo(void);              // round-boundary replenish
 void T_KitPickupAmmo(void);             // ammo pickup: half-fill all mags
 void T_KitRefillAllAmmo(void);          // mana potion: full mags, vent heat
 void T_KitTrickleAmmo(void);             // +1 ammo to ready weapon (progress phase)

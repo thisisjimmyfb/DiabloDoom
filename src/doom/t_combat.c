@@ -746,37 +746,6 @@ void T_KitSpendAmmo(weapontype_t w)
         t_ammo[w] = 0;
 }
 
-// Round-boundary ammo replenish. AD weapons regenerate attack-speed
-// attacks' worth of ammo: attacks-per-round at the weapon's effective
-// (DEX-reduced, floored like T_AttackCost) TP cost, times ammo_cost.
-// Your attack speed feeds the magazine, so sustained fire at your
-// attack-speed pace never runs dry; the magazine is a burst buffer for
-// bonus attacks (Reaper TP refunds etc.). AP weapons are NOT touched
-// here — they refill on cooldown completion / charge regen instead.
-void T_KitRegenAmmo(void)
-{
-    player_t *player = &players[consoleplayer];
-    int w;
-    if (!t_cadence_inited)
-        T_KitResetCadence();
-    for (w = 0; w < NUMWEAPONS; w++)
-    {
-        const t_kitdef_t *kit = &t_kits[w];
-        int cost, apr;
-        if (kit->ap_weapon || kit->ammo_max <= 0 || kit->ammo_cost <= 0)
-            continue;
-        cost = kit->tp_cost - player->diablo_stats[DSTAT_DEX] / 20;
-        if (cost < 2)
-            cost = 2;
-        apr = turnctrl.tp_max / cost;
-        if (apr < 1)
-            apr = 1;
-        t_ammo[w] += apr * kit->ammo_cost;
-        if (t_ammo[w] > kit->ammo_max)
-            t_ammo[w] = kit->ammo_max;
-    }
-}
-
 // Gradual ammo trickle: +1 to the ready weapon's magazine if below max.
 // Called per-tic during the progress phase for visible replenishment.
 // Rate is tied to the weapon: cooldown-gated weapons trickle slower
