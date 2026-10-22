@@ -210,6 +210,9 @@ void D_BackpackFullMsg(struct player_s *player);
 // Phase 2 backpack grid.  bpi is an index into diablo_backpack[].
 boolean D_GridFindSpace(struct player_s *player, int w, int h,
                         int *gx, int *gy);
+// Re-place loaded backpack items whose stored position no longer
+// fits the current def footprints (load-time layout repair).
+void D_RepairBackpackLayout(struct player_s *player);
 // Remove backpack entry bpi (also clears its grid cell).  Public for UI.
 void D_BackpackRemoveAt(struct player_s *player, int bpi);
 // Use the consumable at backpack index bpi.  Public for UI.

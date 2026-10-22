@@ -2156,6 +2156,10 @@ boolean P_UnArchiveDiablo(void)
         }
 
         D_RecalcStats((struct player_s *)&players[i]);
+
+        // Footprints come from the def tables, not the save: heal
+        // any placement a footprint change has invalidated.
+        D_RepairBackpackLayout((struct player_s *)&players[i]);
     }
 
     return true;

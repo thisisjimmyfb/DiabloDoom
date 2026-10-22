@@ -62,9 +62,9 @@
 
 static const diablo_itemdef_t diablo_normal[] =
 {
-    IT("Pistol",            TIER_NORMAL, ESLOT_WEAPON, 1,3, 0,0,0,   2, 6, 0,
+    IT("Pistol",            TIER_NORMAL, ESLOT_WEAPON, 2,1, 0,0,0,   2, 6, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,5,0, 0, 0, 0, 0, 0, wp_pistol, 0),
-    IT("Shotgun",           TIER_NORMAL, ESLOT_WEAPON, 2,2, 0,0,0,   3, 8, 0,
+    IT("Shotgun",           TIER_NORMAL, ESLOT_WEAPON, 3,1, 0,0,0,   3, 8, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_shotgun, 0),
 
     IT("Leather Armor",     TIER_NORMAL, ESLOT_ARMOR,  2,3, 0,0,0,   0, 0, 200,
@@ -90,48 +90,48 @@ static const diablo_itemdef_t diablo_normal[] =
     // the end: existing indices are persisted in saves and must not
     // shift). Vanilla weapon pickups grant these (see P_GiveWeapon).
     // Damage ranges match the weapons' non-damage-affix magic bases.
-    IT("Super Shotgun",     TIER_NORMAL, ESLOT_WEAPON, 2,2, 0,0,0,   9, 18, 0,
+    IT("Super Shotgun",     TIER_NORMAL, ESLOT_WEAPON, 3,1, 0,0,0,   9, 18, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_supershotgun, 0),
-    IT("Chaingun",          TIER_NORMAL, ESLOT_WEAPON, 2,3, 0,0,0,   4, 10, 0,
+    IT("Chaingun",          TIER_NORMAL, ESLOT_WEAPON, 3,2, 0,0,0,   4, 10, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_chaingun, 0),
-    IT("Rocket Launcher",   TIER_NORMAL, ESLOT_WEAPON, 2,3, 0,0,0,   8, 16, 0,
+    IT("Rocket Launcher",   TIER_NORMAL, ESLOT_WEAPON, 3,2, 0,0,0,   8, 16, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_missile, 0),
-    IT("Plasma Rifle",      TIER_NORMAL, ESLOT_WEAPON, 2,3, 0,0,0,   7, 15, 0,
+    IT("Plasma Rifle",      TIER_NORMAL, ESLOT_WEAPON, 3,2, 0,0,0,   7, 15, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_plasma, 0),
-    IT("BFG9000",           TIER_NORMAL, ESLOT_WEAPON, 2,3, 0,0,0,   12, 24, 0,
+    IT("BFG9000",           TIER_NORMAL, ESLOT_WEAPON, 3,2, 0,0,0,   12, 24, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_bfg, 0),
-    IT("Chainsaw",          TIER_NORMAL, ESLOT_WEAPON, 2,2, 0,0,0,   5, 12, 0,
+    IT("Chainsaw",          TIER_NORMAL, ESLOT_WEAPON, 3,1, 0,0,0,   5, 12, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_chainsaw, 0),
 };
 
 static const diablo_itemdef_t diablo_magic[] =
 {
-    IT("Cruel Chaingun",    TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0,  6,14, 0,
+    IT("Cruel Chaingun",    TIER_MAGIC, ESLOT_WEAPON, 3,2, 0,0,0,  6,14, 0,
        3,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,25, 0, 0, 0, 0, 0, wp_chaingun, 0),
-    IT("King's Shotgun",    TIER_MAGIC, ESLOT_WEAPON, 2,2, 0,0,0,  5,10, 0,
+    IT("King's Shotgun",    TIER_MAGIC, ESLOT_WEAPON, 3,1, 0,0,0,  5,10, 0,
        2,0,2,0,   0,0,0,0,   0,0,0,0,0,0,8,0, 0, 0, 0, 0, 0, wp_shotgun, 0),
-    IT("Vampiric Rocket Launcher", TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0,  8,16, 0,
+    IT("Vampiric Rocket Launcher", TIER_MAGIC, ESLOT_WEAPON, 3,2, 0,0,0,  8,16, 0,
        0,0,0,0,   0,0,0,0,   5,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_missile, 0),
-    IT("Vampiric Chainsaw", TIER_MAGIC, ESLOT_WEAPON, 2,2, 0,0,0,  5,12, 0,
+    IT("Vampiric Chainsaw", TIER_MAGIC, ESLOT_WEAPON, 3,1, 0,0,0,  5,12, 0,
        0,0,0,0,   0,0,0,0,  10,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_chainsaw, 0),
     // Vampiric prefix on all guns: leech can spawn anywhere.
-    IT("Vampiric Pistol", TIER_MAGIC, ESLOT_WEAPON, 1,3, 0,0,0,  2, 6, 0,
+    IT("Vampiric Pistol", TIER_MAGIC, ESLOT_WEAPON, 2,1, 0,0,0,  2, 6, 0,
        0,0,0,0,   0,0,0,0,   5,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_pistol, 0),
-    IT("Vampiric Shotgun", TIER_MAGIC, ESLOT_WEAPON, 2,2, 0,0,0,  3, 8, 0,
+    IT("Vampiric Shotgun", TIER_MAGIC, ESLOT_WEAPON, 3,1, 0,0,0,  3, 8, 0,
        0,0,0,0,   0,0,0,0,   5,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_shotgun, 0),
-    IT("Vampiric Chaingun", TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0,  4,10, 0,
+    IT("Vampiric Chaingun", TIER_MAGIC, ESLOT_WEAPON, 3,2, 0,0,0,  4,10, 0,
        0,0,0,0,   0,0,0,0,   5,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_chaingun, 0),
-    IT("Vampiric Plasma Rifle", TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0,  7,15, 0,
+    IT("Vampiric Plasma Rifle", TIER_MAGIC, ESLOT_WEAPON, 3,2, 0,0,0,  7,15, 0,
        0,0,0,0,   0,0,0,0,   5,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_plasma, 0),
-    IT("Vampiric Super Shotgun", TIER_MAGIC, ESLOT_WEAPON, 2,2, 0,0,0,  9,18, 0,
+    IT("Vampiric Super Shotgun", TIER_MAGIC, ESLOT_WEAPON, 3,1, 0,0,0,  9,18, 0,
        0,0,0,0,   0,0,0,0,   5,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_supershotgun, 0),
-    IT("Vampiric BFG9000", TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0, 12,24, 0,
+    IT("Vampiric BFG9000", TIER_MAGIC, ESLOT_WEAPON, 3,2, 0,0,0, 12,24, 0,
        0,0,0,0,   0,0,0,0,   5,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_bfg, 0),
-    IT("Soldier's Plasma Rifle", TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0,  7,15, 0,
+    IT("Soldier's Plasma Rifle", TIER_MAGIC, ESLOT_WEAPON, 3,2, 0,0,0,  7,15, 0,
        3,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_plasma, 0),
-    IT("Swift Chainsaw",    TIER_MAGIC, ESLOT_WEAPON, 2,2, 0,0,0,  5,12, 0,
+    IT("Swift Chainsaw",    TIER_MAGIC, ESLOT_WEAPON, 3,1, 0,0,0,  5,12, 0,
        0,3,0,0,   0,0,0,0,   0,0,0,0,0,20,0,0, 0, 0, 0, 0, 0, wp_chainsaw, 0),
-    IT("Heavy Super Shotgun", TIER_MAGIC, ESLOT_WEAPON, 2,2, 0,0,0,  9,18, 0,
+    IT("Heavy Super Shotgun", TIER_MAGIC, ESLOT_WEAPON, 3,1, 0,0,0,  9,18, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,10,0, 0, 0, 0, 0, 0, wp_supershotgun, 0),
 
 
@@ -139,89 +139,89 @@ static const diablo_itemdef_t diablo_magic[] =
        0,0,0,0,   0,0,0,0,   5,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
 
     // Suffix-style magic weapons: AD/AP/haste/heat-capacity boosts.
-    IT("Pistol of Slaying", TIER_MAGIC, ESLOT_WEAPON, 1,3, 0,0,0,  2, 6, 0,
+    IT("Pistol of Slaying", TIER_MAGIC, ESLOT_WEAPON, 2,1, 0,0,0,  2, 6, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,15,0,0,0,0, 0, 0, 0, 0, 0, wp_pistol, 0),
-    IT("Shotgun of Slaying", TIER_MAGIC, ESLOT_WEAPON, 2,2, 0,0,0,  3, 8, 0,
+    IT("Shotgun of Slaying", TIER_MAGIC, ESLOT_WEAPON, 3,1, 0,0,0,  3, 8, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,15,0,0,0,0, 0, 0, 0, 0, 0, wp_shotgun, 0),
-    IT("Chaingun of Slaying", TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0,  4,10, 0,
+    IT("Chaingun of Slaying", TIER_MAGIC, ESLOT_WEAPON, 3,2, 0,0,0,  4,10, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,15,0,0,0,0, 0, 0, 0, 0, 0, wp_chaingun, 0),
-    IT("Chainsaw of Slaying", TIER_MAGIC, ESLOT_WEAPON, 2,2, 0,0,0,  4,10, 0,
+    IT("Chainsaw of Slaying", TIER_MAGIC, ESLOT_WEAPON, 3,1, 0,0,0,  4,10, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,15,0,0,0,0, 0, 0, 0, 0, 0, wp_chainsaw, 0),
-    IT("Plasma Rifle of the Magus", TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0,  7,15, 0,
+    IT("Plasma Rifle of the Magus", TIER_MAGIC, ESLOT_WEAPON, 3,2, 0,0,0,  7,15, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,15,0,0,0, 0, 0, 0, 0, 0, wp_plasma, 0),
-    IT("Rocket Launcher of the Magus", TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0,  8,16, 0,
+    IT("Rocket Launcher of the Magus", TIER_MAGIC, ESLOT_WEAPON, 3,2, 0,0,0,  8,16, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,15,0,0,0, 0, 0, 0, 0, 0, wp_missile, 0),
-    IT("Super Shotgun of the Magus", TIER_MAGIC, ESLOT_WEAPON, 2,2, 0,0,0,  9,18, 0,
+    IT("Super Shotgun of the Magus", TIER_MAGIC, ESLOT_WEAPON, 3,1, 0,0,0,  9,18, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,15,0,0,0, 0, 0, 0, 0, 0, wp_supershotgun, 0),
-    IT("BFG9000 of the Magus", TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0, 12,24, 0,
+    IT("BFG9000 of the Magus", TIER_MAGIC, ESLOT_WEAPON, 3,2, 0,0,0, 12,24, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,15,0,0,0, 0, 0, 0, 0, 0, wp_bfg, 0),
-    IT("Super Shotgun of Haste", TIER_MAGIC, ESLOT_WEAPON, 2,2, 0,0,0,  9,18, 0,
+    IT("Super Shotgun of Haste", TIER_MAGIC, ESLOT_WEAPON, 3,1, 0,0,0,  9,18, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,20,0,0, 0, 0, 0, 0, 0, wp_supershotgun, 0),
-    IT("BFG9000 of Haste", TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0, 12,24, 0,
+    IT("BFG9000 of Haste", TIER_MAGIC, ESLOT_WEAPON, 3,2, 0,0,0, 12,24, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,20,0,0, 0, 0, 0, 0, 0, wp_bfg, 0),
-    IT("Plasma Rifle of the Furnace", TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0,  7,15, 0,
+    IT("Plasma Rifle of the Furnace", TIER_MAGIC, ESLOT_WEAPON, 3,2, 0,0,0,  7,15, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 30, 0, 0, 0, 0, wp_plasma, 0),
 
     // Prefix-style magic weapons: flat (constant) boosts.
-    IT("Soldier's Pistol", TIER_MAGIC, ESLOT_WEAPON, 1,3, 0,0,0,  2, 6, 0,
+    IT("Soldier's Pistol", TIER_MAGIC, ESLOT_WEAPON, 2,1, 0,0,0,  2, 6, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 4, 0, 0, 0, wp_pistol, 0),
-    IT("Soldier's Shotgun", TIER_MAGIC, ESLOT_WEAPON, 2,2, 0,0,0,  3, 8, 0,
+    IT("Soldier's Shotgun", TIER_MAGIC, ESLOT_WEAPON, 3,1, 0,0,0,  3, 8, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 4, 0, 0, 0, wp_shotgun, 0),
-    IT("Soldier's Chaingun", TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0,  4,10, 0,
+    IT("Soldier's Chaingun", TIER_MAGIC, ESLOT_WEAPON, 3,2, 0,0,0,  4,10, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 5, 0, 0, 0, wp_chaingun, 0),
-    IT("Soldier's Chainsaw", TIER_MAGIC, ESLOT_WEAPON, 2,2, 0,0,0,  4,10, 0,
+    IT("Soldier's Chainsaw", TIER_MAGIC, ESLOT_WEAPON, 3,1, 0,0,0,  4,10, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 5, 0, 0, 0, wp_chainsaw, 0),
-    IT("Wizard's Plasma Rifle", TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0,  7,15, 0,
+    IT("Wizard's Plasma Rifle", TIER_MAGIC, ESLOT_WEAPON, 3,2, 0,0,0,  7,15, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 8, 0, 0, wp_plasma, 0),
-    IT("Wizard's Rocket Launcher", TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0,  8,16, 0,
+    IT("Wizard's Rocket Launcher", TIER_MAGIC, ESLOT_WEAPON, 3,2, 0,0,0,  8,16, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 8, 0, 0, wp_missile, 0),
-    IT("Wizard's Super Shotgun", TIER_MAGIC, ESLOT_WEAPON, 2,2, 0,0,0,  9,18, 0,
+    IT("Wizard's Super Shotgun", TIER_MAGIC, ESLOT_WEAPON, 3,1, 0,0,0,  9,18, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 8, 0, 0, wp_supershotgun, 0),
-    IT("Wizard's BFG9000", TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0, 12,24, 0,
+    IT("Wizard's BFG9000", TIER_MAGIC, ESLOT_WEAPON, 3,2, 0,0,0, 12,24, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0,12, 0, 0, wp_bfg, 0),
-    IT("Quick Super Shotgun", TIER_MAGIC, ESLOT_WEAPON, 2,2, 0,0,0,  9,18, 0,
+    IT("Quick Super Shotgun", TIER_MAGIC, ESLOT_WEAPON, 3,1, 0,0,0,  9,18, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 1, 0, wp_supershotgun, 0),
-    IT("Quick BFG9000", TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0, 12,24, 0,
+    IT("Quick BFG9000", TIER_MAGIC, ESLOT_WEAPON, 3,2, 0,0,0, 12,24, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 1, 0, wp_bfg, 0),
 
     // Nightmare-tier affixes (diff_tier=1): stronger versions for
     // Nightmare difficulty and NG+ loop 1.
-    IT("Pistol of Slaughter", TIER_MAGIC, ESLOT_WEAPON, 1,3, 0,0,0,  2, 6, 0,
+    IT("Pistol of Slaughter", TIER_MAGIC, ESLOT_WEAPON, 2,1, 0,0,0,  2, 6, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,25,0,0,0,0, 0, 0, 0, 0, 1, wp_pistol, 0),
-    IT("Shotgun of Slaughter", TIER_MAGIC, ESLOT_WEAPON, 2,2, 0,0,0,  3, 8, 0,
+    IT("Shotgun of Slaughter", TIER_MAGIC, ESLOT_WEAPON, 3,1, 0,0,0,  3, 8, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,25,0,0,0,0, 0, 0, 0, 0, 1, wp_shotgun, 0),
-    IT("Plasma Rifle of the Archmagus", TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0,  7,15, 0,
+    IT("Plasma Rifle of the Archmagus", TIER_MAGIC, ESLOT_WEAPON, 3,2, 0,0,0,  7,15, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,25,0,0,0, 0, 0, 0, 0, 1, wp_plasma, 0),
-    IT("BFG9000 of the Archmagus", TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0, 12,24, 0,
+    IT("BFG9000 of the Archmagus", TIER_MAGIC, ESLOT_WEAPON, 3,2, 0,0,0, 12,24, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,25,0,0,0, 0, 0, 0, 0, 1, wp_bfg, 0),
-    IT("Super Shotgun of Speed", TIER_MAGIC, ESLOT_WEAPON, 2,2, 0,0,0,  9,18, 0,
+    IT("Super Shotgun of Speed", TIER_MAGIC, ESLOT_WEAPON, 3,1, 0,0,0,  9,18, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,30,0,0, 0, 0, 0, 0, 1, wp_supershotgun, 0),
-    IT("Veteran's Chaingun", TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0,  4,10, 0,
+    IT("Veteran's Chaingun", TIER_MAGIC, ESLOT_WEAPON, 3,2, 0,0,0,  4,10, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 8, 0, 0, 1, wp_chaingun, 0),
-    IT("Sorcerer's Rocket Launcher", TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0,  8,16, 0,
+    IT("Sorcerer's Rocket Launcher", TIER_MAGIC, ESLOT_WEAPON, 3,2, 0,0,0,  8,16, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0,14, 0, 1, wp_missile, 0),
-    IT("Bloodthirsty Chainsaw", TIER_MAGIC, ESLOT_WEAPON, 2,2, 0,0,0,  5,12, 0,
+    IT("Bloodthirsty Chainsaw", TIER_MAGIC, ESLOT_WEAPON, 3,1, 0,0,0,  5,12, 0,
        0,0,0,0,   0,0,0,0,   8,0,0,0,0,0,0,0, 0, 0, 0, 0, 1, wp_chainsaw, 0),
-    IT("Plasma Rifle of the Inferno", TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0,  7,15, 0,
+    IT("Plasma Rifle of the Inferno", TIER_MAGIC, ESLOT_WEAPON, 3,2, 0,0,0,  7,15, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 50, 0, 0, 0, 1, wp_plasma, 0),
 
     // Hell-tier affixes (diff_tier=2): the strongest versions, only on
     // Hell difficulty and NG+ loop 2+.
-    IT("Pistol of Carnage", TIER_MAGIC, ESLOT_WEAPON, 1,3, 0,0,0,  2, 6, 0,
+    IT("Pistol of Carnage", TIER_MAGIC, ESLOT_WEAPON, 2,1, 0,0,0,  2, 6, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,40,0,0,0,0, 0, 0, 0, 0, 2, wp_pistol, 0),
-    IT("BFG9000 of Carnage", TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0, 12,24, 0,
+    IT("BFG9000 of Carnage", TIER_MAGIC, ESLOT_WEAPON, 3,2, 0,0,0, 12,24, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,40,0,0,0,0, 0, 0, 0, 0, 2, wp_bfg, 0),
-    IT("Plasma Rifle of the Godslayer", TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0,  7,15, 0,
+    IT("Plasma Rifle of the Godslayer", TIER_MAGIC, ESLOT_WEAPON, 3,2, 0,0,0,  7,15, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,40,0,0,0, 0, 0, 0, 0, 2, wp_plasma, 0),
-    IT("BFG9000 of Lightning", TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0, 12,24, 0,
+    IT("BFG9000 of Lightning", TIER_MAGIC, ESLOT_WEAPON, 3,2, 0,0,0, 12,24, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,45,0,0, 0, 0, 0, 0, 2, wp_bfg, 0),
-    IT("Champion's Chaingun", TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0,  4,10, 0,
+    IT("Champion's Chaingun", TIER_MAGIC, ESLOT_WEAPON, 3,2, 0,0,0,  4,10, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0,12, 0, 0, 2, wp_chaingun, 0),
-    IT("Archmage's Rocket Launcher", TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0,  8,16, 0,
+    IT("Archmage's Rocket Launcher", TIER_MAGIC, ESLOT_WEAPON, 3,2, 0,0,0,  8,16, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0,20, 0, 2, wp_missile, 0),
-    IT("Soulrender Chainsaw", TIER_MAGIC, ESLOT_WEAPON, 2,2, 0,0,0,  5,12, 0,
+    IT("Soulrender Chainsaw", TIER_MAGIC, ESLOT_WEAPON, 3,1, 0,0,0,  5,12, 0,
        0,0,0,0,   0,0,0,0,  12,0,0,0,0,0,0,0, 0, 0, 0, 0, 2, wp_chainsaw, 0),
-    IT("Plasma Rifle of the Sun", TIER_MAGIC, ESLOT_WEAPON, 2,3, 0,0,0,  7,15, 0,
+    IT("Plasma Rifle of the Sun", TIER_MAGIC, ESLOT_WEAPON, 3,2, 0,0,0,  7,15, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 80, 0, 0, 0, 2, wp_plasma, 0),
 
     IT("Prismatic Amulet",    TIER_MAGIC, ESLOT_AMULET, 1,1, 0,0,0,  0, 0, 0,
@@ -268,13 +268,13 @@ static const diablo_itemdef_t diablo_magic[] =
 
 static const diablo_itemdef_t diablo_rare[] =
 {
-    IT("Doombringer BFG",       TIER_RARE, ESLOT_WEAPON, 2,3, 0,0,0,  12,24, 0,
+    IT("Doombringer BFG",       TIER_RARE, ESLOT_WEAPON, 3,2, 0,0,0,  12,24, 0,
        5,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,40, 0, 0, 0, 0, 0, wp_bfg, 0),
 
-    IT("Stormlash Plasma Rifle",         TIER_RARE, ESLOT_WEAPON, 2,3, 0,0,0,  10,20, 0,
+    IT("Stormlash Plasma Rifle",         TIER_RARE, ESLOT_WEAPON, 3,2, 0,0,0,  10,20, 0,
        0,0,0,0,   0,0,15,0,  0,0,0,0,0,0,10,0, 0, 0, 0, 0, 0, wp_plasma, 0),
 
-    IT("Soulrender Rocket Launcher",        TIER_RARE, ESLOT_WEAPON, 2,3, 0,0,0,  11,22, 0,
+    IT("Soulrender Rocket Launcher",        TIER_RARE, ESLOT_WEAPON, 3,2, 0,0,0,  11,22, 0,
        0,0,0,0,   0,0,0,0,   3,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_missile, 0),
 
 
@@ -282,7 +282,7 @@ static const diablo_itemdef_t diablo_rare[] =
        5,0,0,0,  15,0,0,0,   0,0,0,0,0,0,5,0, 0, 0, 0, 0, 0, -1, 0),
     IT("Grimward",          TIER_RARE, ESLOT_SHIELD, 2,2, 0,0,0,   0, 0,15,
        0,0,0,0,   0,0,0,15,  0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
-    IT("Bloodletter Chaingun",       TIER_RARE, ESLOT_WEAPON, 2,3, 0,0,0,  10,19, 0,
+    IT("Bloodletter Chaingun",       TIER_RARE, ESLOT_WEAPON, 3,2, 0,0,0,  10,19, 0,
        0,0,0,0,   0,0,0,0,   4,0,0,0,0,0,12,0, 0, 0, 0, 0, 0, wp_chaingun, 0),
 
 
@@ -292,33 +292,33 @@ static const diablo_itemdef_t diablo_rare[] =
        5,0,0,0,   0,0,0,0,   3,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
 
     // Mechanic-affix guns (AD/AP rework): rares grant mechanics.
-    IT("Phoenix Plasma Rifle", TIER_RARE, ESLOT_WEAPON, 2,3, 0,0,0, 11,21, 0,
+    IT("Phoenix Plasma Rifle", TIER_RARE, ESLOT_WEAPON, 3,2, 0,0,0, 11,21, 0,
        0,0,0,5,   0,0,0,0,   0,0,0,0,0,0,10,0, 0, 0, 0, 0, 0, wp_plasma, MECH_PHOENIX),
-    IT("Overclocked Plasma Rifle", TIER_RARE, ESLOT_WEAPON, 2,3, 0,0,0, 10,20, 0,
+    IT("Overclocked Plasma Rifle", TIER_RARE, ESLOT_WEAPON, 3,2, 0,0,0, 10,20, 0,
        0,0,0,5,   0,0,0,0,   0,0,0,0,0,0,10,0, 0, 0, 0, 0, 0, wp_plasma, MECH_OVERCLOCK),
-    IT("Caldera Plasma Rifle", TIER_RARE, ESLOT_WEAPON, 2,3, 0,0,0, 12,22, 0,
+    IT("Caldera Plasma Rifle", TIER_RARE, ESLOT_WEAPON, 3,2, 0,0,0, 12,22, 0,
        0,0,0,5,   0,0,0,0,   0,0,0,0,0,0,10,0, 0, 0, 0, 0, 0, wp_plasma, MECH_CALDERA),
-    IT("Voltaic Rocket Launcher", TIER_RARE, ESLOT_WEAPON, 2,3, 0,0,0, 12,22, 0,
+    IT("Voltaic Rocket Launcher", TIER_RARE, ESLOT_WEAPON, 3,2, 0,0,0, 12,22, 0,
        3,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_missile, MECH_VOLTAIC),
-    IT("Bandolier Rocket Launcher", TIER_RARE, ESLOT_WEAPON, 2,3, 0,0,0, 11,21, 0,
+    IT("Bandolier Rocket Launcher", TIER_RARE, ESLOT_WEAPON, 3,2, 0,0,0, 11,21, 0,
        3,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_missile, MECH_BANDOLIER),
-    IT("Siege Rocket Launcher", TIER_RARE, ESLOT_WEAPON, 2,3, 0,0,0, 13,24, 0,
+    IT("Siege Rocket Launcher", TIER_RARE, ESLOT_WEAPON, 3,2, 0,0,0, 13,24, 0,
        4,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_missile, MECH_SIEGE),
-    IT("Hungry BFG9000",    TIER_RARE, ESLOT_WEAPON, 2,3, 0,0,0, 26,48, 0,
+    IT("Hungry BFG9000",    TIER_RARE, ESLOT_WEAPON, 3,2, 0,0,0, 26,48, 0,
        8,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_bfg, MECH_HUNGRY),
-    IT("Event Horizon BFG9000", TIER_RARE, ESLOT_WEAPON, 2,3, 0,0,0, 26,48, 0,
+    IT("Event Horizon BFG9000", TIER_RARE, ESLOT_WEAPON, 3,2, 0,0,0, 26,48, 0,
        8,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_bfg, MECH_HORIZON),
-    IT("Breacher Super Shotgun", TIER_RARE, ESLOT_WEAPON, 2,2, 0,0,0, 12,22, 0,
+    IT("Breacher Super Shotgun", TIER_RARE, ESLOT_WEAPON, 3,1, 0,0,0, 12,22, 0,
        4,0,0,0,   0,0,0,0,   0,0,0,0,0,0,10,0, 0, 0, 0, 0, 0, wp_supershotgun, MECH_BREACHER),
-    IT("Super Shotgun of the Bull", TIER_RARE, ESLOT_WEAPON, 2,2, 0,0,0, 12,22, 0,
+    IT("Super Shotgun of the Bull", TIER_RARE, ESLOT_WEAPON, 3,1, 0,0,0, 12,22, 0,
        4,0,0,0,   0,0,0,0,   0,0,0,0,0,0,10,0, 0, 0, 0, 0, 0, wp_supershotgun, MECH_BULL),
-    IT("Splitting Shotgun", TIER_RARE, ESLOT_WEAPON, 2,2, 0,0,0,  6,12, 0,
+    IT("Splitting Shotgun", TIER_RARE, ESLOT_WEAPON, 3,1, 0,0,0,  6,12, 0,
        3,0,0,0,   0,0,0,0,   0,0,0,0,0,0,10,0, 0, 0, 0, 0, 0, wp_shotgun, MECH_SPLITTING),
-    IT("Reaper Chainsaw",   TIER_RARE, ESLOT_WEAPON, 2,2, 0,0,0,  8,16, 0,
+    IT("Reaper Chainsaw",   TIER_RARE, ESLOT_WEAPON, 3,1, 0,0,0,  8,16, 0,
        4,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_chainsaw, MECH_REAPER),
-    IT("Lucky Pistol",      TIER_RARE, ESLOT_WEAPON, 1,3, 0,0,0,  4, 9, 0,
+    IT("Lucky Pistol",      TIER_RARE, ESLOT_WEAPON, 2,1, 0,0,0,  4, 9, 0,
        0,3,0,0,   0,0,0,0,   0,0,0,0,0,0,15,0, 0, 0, 0, 0, 0, wp_pistol, MECH_LUCKY),
-    IT("Splitting Chaingun", TIER_RARE, ESLOT_WEAPON, 2,2, 0,0,0,  5,10, 0,
+    IT("Splitting Chaingun", TIER_RARE, ESLOT_WEAPON, 3,2, 0,0,0,  5,10, 0,
        2,4,0,0,   0,0,0,0,   0,0,0,0,0,0,10,0, 0, 0, 0, 0, 0, wp_chaingun, MECH_SPLITTING),
 };
 
@@ -336,10 +336,10 @@ static const diablo_itemdef_t diablo_set[] =
        0,6,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
     IT("Griswold's Valor",           TIER_SET, ESLOT_HELM, 2,2, 0,0,0, 0,0,640,
        6,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
-    IT("Berserker's Boomstick",      TIER_SET, ESLOT_WEAPON,2,2,0,0,0,15,28,0,
+    IT("Berserker's Boomstick",      TIER_SET, ESLOT_WEAPON,3,1,0,0,0,15,28,0,
        6,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,35, 0, 0, 0, 0, 0, wp_shotgun, 0),
 
-    IT("Sazabi's Cobalt Repeater",   TIER_SET, ESLOT_WEAPON,2,3,0,0,0,14,26,0,
+    IT("Sazabi's Cobalt Repeater",   TIER_SET, ESLOT_WEAPON,3,2,0,0,0,14,26,0,
        0,0,0,0,   0,20,0,0,  0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, wp_chaingun, 0),
 
     IT("Immortal King's Pillar",    TIER_SET, ESLOT_BOOTS, 2,2,0,0,0, 0,0,720,
@@ -354,10 +354,10 @@ static const diablo_itemdef_t diablo_unique[] =
        0,0,0,15,   0,0,0,0,   5,15,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
     IT("Harlequin Crest",       TIER_UNIQUE, ESLOT_HELM,  2,2, 0,0,0,  0, 0,720,
        0,0,10,0,   0,0,0,0,   0,25,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
-    IT("BFG10K",              TIER_UNIQUE, ESLOT_WEAPON,2,3, 0,0,0, 25,50, 0,
+    IT("BFG10K",              TIER_UNIQUE, ESLOT_WEAPON,3,2, 0,0,0, 25,50, 0,
        10,0,0,0,   0,0,0,0,   0,0,0,0,0,0,15,50, 0, 0, 0, 0, 0, wp_bfg, 0),
 
-    IT("Unmaker",             TIER_UNIQUE, ESLOT_WEAPON,2,3, 0,0,0, 22,45, 0,
+    IT("Unmaker",             TIER_UNIQUE, ESLOT_WEAPON,3,2, 0,0,0, 22,45, 0,
        0,10,0,0,   0,0,0,0,   0,0,0,0,0,0,20,0, 0, 0, 0, 0, 0, wp_plasma, 0),
 
     IT("Arkaine's Valor",       TIER_UNIQUE, ESLOT_ARMOR, 2,3, 0,0,0,  0, 0,1200,
@@ -366,7 +366,7 @@ static const diablo_itemdef_t diablo_unique[] =
        8,0,0,0,  20,20,20,20, 0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
     IT("Bul-Kathos' Wedding Band",TIER_UNIQUE,ESLOT_RING1,1,1, 0,0,0,  0, 0, 0,
        0,0,8,0,    0,0,0,0,   8,0,0,0,0,0,10,25, 0, 0, 0, 0, 0, -1, 0),
-    IT("Old Painless",        TIER_UNIQUE, ESLOT_WEAPON,2,3, 0,0,0, 20,40, 0,
+    IT("Old Painless",        TIER_UNIQUE, ESLOT_WEAPON,3,2, 0,0,0, 20,40, 0,
        8,5,0,0,    0,0,0,0,   0,0,0,0,0,0,15,0, 0, 0, 0, 0, 0, wp_chaingun, 0),
 
     IT("Lidless Wall",          TIER_UNIQUE, ESLOT_SHIELD,2,2, 0,0,0,  0, 0,20,
@@ -792,6 +792,89 @@ boolean D_GridFindSpace(struct player_s *pl, int w, int h, int *gx, int *gy)
         }
     }
     return false;
+}
+
+// Heal a loaded backpack layout: re-place, first-fit and in stored
+// order, any item whose stored position no longer fits under the
+// current def footprints (out of bounds, or overlapping an item
+// already validated).  Footprints live in the def tables, not in
+// saves, so a footprint change (the 2026-10-22 horizontal weapon
+// shapes) invalidates old saves' positions; placements that are
+// still valid are left exactly where the player put them.
+void D_RepairBackpackLayout(struct player_s *pl)
+{
+    player_t *player = (player_t *)pl;
+    boolean occupied[D_BP_GRID_H][D_BP_GRID_W];
+    int i, x, y, cx, cy;
+
+    memset(occupied, 0, sizeof(occupied));
+    for (i = 0; i < player->diablo_bp_count; i++)
+    {
+        int id = player->diablo_backpack[i];
+        const diablo_itemdef_t *def;
+        int gx, gy, w, h;
+        boolean ok;
+
+        if (id == D_NOITEM)
+            continue;
+        def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
+        if (!def)
+            continue;
+        w = def->grid_w;
+        h = def->grid_h;
+        if (w < 1) w = 1;
+        if (h < 1) h = 1;
+        gx = player->diablo_bp_gx[i];
+        gy = player->diablo_bp_gy[i];
+
+        ok = gx >= 0 && gy >= 0
+          && gx + w <= D_BP_GRID_W && gy + h <= D_BP_GRID_H;
+        if (ok)
+        {
+            for (cy = gy; cy < gy + h && ok; cy++)
+                for (cx = gx; cx < gx + w && ok; cx++)
+                    if (occupied[cy][cx])
+                        ok = false;
+        }
+        if (!ok)
+        {
+            int fx = -1, fy = -1;
+            for (y = 0; y + h <= D_BP_GRID_H && fx < 0; y++)
+            {
+                for (x = 0; x + w <= D_BP_GRID_W && fx < 0; x++)
+                {
+                    boolean free = true;
+                    for (cy = y; cy < y + h && free; cy++)
+                        for (cx = x; cx < x + w && free; cx++)
+                            if (occupied[cy][cx])
+                                free = false;
+                    if (free)
+                    {
+                        fx = x;
+                        fy = y;
+                    }
+                }
+            }
+            if (fx >= 0)
+            {
+                printf("[DIABLO] backpack layout repair: item %d "
+                       "moved (%d,%d) -> (%d,%d)\n",
+                       id, gx, gy, fx, fy);
+                gx = fx;
+                gy = fy;
+                player->diablo_bp_gx[i] = gx;
+                player->diablo_bp_gy[i] = gy;
+            }
+            // No free spot at all: leave the stored position; its
+            // clamped cells still mark occupancy below so later
+            // items route around it.
+        }
+        for (cy = gy; cy < gy + h; cy++)
+            for (cx = gx; cx < gx + w; cx++)
+                if (cx >= 0 && cx < D_BP_GRID_W
+                 && cy >= 0 && cy < D_BP_GRID_H)
+                    occupied[cy][cx] = true;
+    }
 }
 
 // Remove the backpack entry at index bpi, shifting the rest down.
