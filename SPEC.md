@@ -549,7 +549,18 @@ the command itself has executed. Tick-fired shots are pulse-neutral
 each autofire shot add its interval back, so any phase that lived
 one tic past the countdown — a second queued command, a settle —
 self-sustained until the target died (~10s for one minigun command
-against a demon). The lock breaks
+against a demon). The one exception to pulse-neutrality is the kill
+beat: a shot that kills begins the 70-tic kill pulse, whether it was
+queued or tick-fired. The kill flag behind it (`t_last_kill`) is
+per-shot state and is reset before every shot (`T_ClearLastKill`,
+called from `T_ExecAttack` alongside the other per-shot hit
+tracking): it originally latched for the whole session after the
+first kill, so every later shot took the kill-beat branch — and
+tick shots each added a fresh 70 tics against a 16-tic countdown,
+holding the progress phase open indefinitely while the stream ran
+and the player stood under fire from other enemies (Jimmy,
+2026-10-22: attacked by an imp while chaingun-firing another
+enemy, command resolution never ended). The lock breaks
 on target death/removal, weapon switch, a full or empty magazine,
 target switch, combat exit, or line of sight lost — the tick checks
 `P_CheckSight` every tic and clears the lock the tic sight breaks
