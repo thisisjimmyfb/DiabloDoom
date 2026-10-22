@@ -522,6 +522,10 @@ Cadence plumbing:
   (70 tics), plasma heat vents `heat_vent` per 10 seconds with
   fractional accumulation — all independent of round boundaries.
   `T_KitTickCooldowns` is kept as a no-op for save compatibility.
+  **Frozen during the planning phase** (2026-10-22): like the magazine
+  trickle, the cadence does not run in TS_PLANNING / TS_TARGETING /
+  TS_CONFIRM — no charge regen, cooldown progress, or heat vent while
+  the player plans. It runs in explore and during the progress phase.
 - `T_KitCanFire` covers every gate: cooldown == 0 **and** charges > 0
   **and** heat < 100 **and** ammo affordable.
 - Fire-denied messages name the gate:

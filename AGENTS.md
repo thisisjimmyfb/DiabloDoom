@@ -135,7 +135,9 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
    pool. Weapon cadence is wall-clock,
    not round-bound: cooldowns tick down 1 round per 10 s (BFG = 30 s, SSG =
    20 s), rocket charges regen 1 per 3 s (max 3), plasma heat vents 40 per
-   10 s continuously — all via `T_TickCadence` every game tic. Haste is a
+   10 s continuously — all via `T_TickCadence` every game tic, except
+   during the planning phase, where the cadence (like the magazine
+   trickle) is frozen: nothing replenishes while the player plans. Haste is a
    cooldown-reduction percent (cap 50%, then flat CDR, min 1 round). The HUD AMMO readout shows the
    ready weapon's magazine (heat capacity for plasma). \"Ammo\" also survives
    as the passive, non-consumable FOCUS paperdoll slot: equippable focus
