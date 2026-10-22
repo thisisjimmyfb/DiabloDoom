@@ -467,6 +467,53 @@ void D_UIClose(void)
 // Click handling (two-click pick up / place).
 // ---------------------------------------------------------------------------
 
+// Place the held item with its top-left at (gx,gy).  When the spot
+// is blocked by the item covering the clicked cell, swap Diablo-
+// style (Jimmy, 2026-10-22): that item comes up onto the cursor
+// and the held item takes its place, provided the held item fits
+// once the blocker is lifted -- tried at the blocker's own anchor
+// first (where Diablo puts it), then at the clicked cell.
+// Returns false when nothing moved (held item stays on the cursor).
+static boolean UIPlaceHeldInBackpack(player_t *player, int gx, int gy)
+{
+    int bpi, bid, bdur, bx, by;
+
+    if (UICanPlaceAt(player, ui_held, gx, gy))
+    {
+        UIAppendAt(player, ui_held, gx, gy, ui_held_dur);
+        ui_held = D_NOITEM;
+        ui_held_from = -1;
+        ui_held_dur = 0;
+        return true;
+    }
+
+    bpi = UIBackpackAt(player, gx, gy);
+    if (bpi < 0)
+        return false;
+    bid = player->diablo_backpack[bpi];
+    bdur = player->diablo_backpack_dur[bpi];
+    bx = player->diablo_bp_gx[bpi];
+    by = player->diablo_bp_gy[bpi];
+    D_BackpackRemoveAt((struct player_s *)player, bpi);
+
+    if (UICanPlaceAt(player, ui_held, bx, by))
+        UIAppendAt(player, ui_held, bx, by, ui_held_dur);
+    else if (UICanPlaceAt(player, ui_held, gx, gy))
+        UIAppendAt(player, ui_held, gx, gy, ui_held_dur);
+    else
+    {
+        // Doesn't fit even with the blocker lifted: put the blocker
+        // back where it was and leave the held item on the cursor.
+        UIAppendAt(player, bid, bx, by, bdur);
+        return false;
+    }
+    ui_held = bid;
+    ui_held_dur = bdur;
+    ui_held_from = -1;
+    UIMsg("Swapped.");
+    return true;
+}
+
 static void UILeftClick(void)
 {
     player_t *player = &players[consoleplayer];
@@ -571,15 +618,9 @@ static void UILeftClick(void)
     {
         if (ui_held != D_NOITEM)
         {
-            // Place the held item with its top-left at the clicked cell.
-            if (UICanPlaceAt(player, ui_held, gx, gy))
-            {
-                UIAppendAt(player, ui_held, gx, gy, ui_held_dur);
-                ui_held = D_NOITEM;
-                ui_held_from = -1;
-                ui_held_dur = 0;
-            }
-            else
+            // Place the held item with its top-left at the clicked
+            // cell; on an occupied cell, swap with the item there.
+            if (!UIPlaceHeldInBackpack(player, gx, gy))
                 UIMsg("No room there.");
         }
         else
