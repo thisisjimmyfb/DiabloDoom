@@ -566,7 +566,12 @@ subagent_act() {
     # the command file's last line lacks one, add it on the way in.
     local act_attempt act_written=0
     for act_attempt in 1 2 3 4 5; do
-        if timeout 2 bash -c '{ cat "$1"; [ -n "$(tail -c 1 "$1")" ] && printf "\n"; } >> "$2"' _ "$ACT_FILE" "$CMDFILE"; then
+        # NOTE (2026-10-21): the old form `{ cat ...; [ -n "$(tail -c 1 ...)" ] && printf "\n"; }`
+        # misreported success as failure: $(...) strips trailing newlines, so a
+        # file ending in \n made the test false and the group exit 1 -- every
+        # attempt "failed" and the commands were written up to 5 times.
+        # Fixed: $(tail -c 1 | tr -d "\n") is empty iff the file ends with \n.
+        if timeout 2 bash -c 'cat "$1" >> "$2" && { [ -z "$(tail -c 1 "$1" | tr -d "\n")" ] || printf "\n" >> "$2"; }' _ "$ACT_FILE" "$CMDFILE"; then
             act_written=1
             break
         fi
