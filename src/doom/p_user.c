@@ -58,10 +58,9 @@ P_Thrust
   angle_t	angle,
   fixed_t	move ) 
 {
-    // Diablo equipment (mod): move-speed% scales thrust.
-    int ms = player->diablo_stats[DSTAT_MOVESPEED];
-    if (ms)
-	move = move * (100 + ms) / 100;
+    // Diablo equipment (mod): movespeed scales thrust, through the
+    // shared displacement scaling every movement path uses.
+    move = D_ScaleDisplacement(player, move);
 
     angle >>= ANGLETOFINESHIFT;
     

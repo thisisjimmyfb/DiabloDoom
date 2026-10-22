@@ -143,26 +143,15 @@ static t_scan_result_t T_ScanNearby(mobj_t *player_mo, int radius_units,
 // Used by both T_PreviewMove and T_ExecMove so preview matches execution.
 static fixed_t T_StepLen(player_t *player)
 {
-    // Shared movespeed multiplier: STEP_LEN scaled by the player's
-    // movespeed stat. Used by turn-based movement (T_PreviewMove,
-    // T_ExecMove) and real-time GOTO (via T_MoveSpeedPerTic).
-    extern int D_MoveSpeed(struct player_s *pl);
-    int movespeed = D_MoveSpeed(player);
-    if (movespeed <= 0)
-        return STEP_LEN;
-    return (STEP_LEN * (100 + movespeed)) / 100;
+    return D_ScaleDisplacement(player, STEP_LEN);
 }
 
 // Public: units per tic for real-time movement (GOTO), scaled by the
-// same movespeed modifier as T_StepLen. Base 16 matches keyboard run.
+// same shared movespeed scaling as T_StepLen. Base 16 matches
+// keyboard run.
 fixed_t T_MoveSpeedPerTic(struct player_s *player)
 {
-    extern int D_MoveSpeed(struct player_s *pl);
-    int movespeed = D_MoveSpeed(player);
-    fixed_t base = 16 * FRACUNIT;
-    if (movespeed <= 0)
-        return base;
-    return (base * (100 + movespeed)) / 100;
+    return D_ScaleDisplacement(player, 16 * FRACUNIT);
 }
 
 // ------------------------------------------------------------------
@@ -1340,11 +1329,13 @@ void T_WalkTick(void)
         walk_last_y = mo->y;
     }
 
-    // Keep moving forward: inject momentum in facing direction.
+    // Keep moving forward: inject momentum in facing direction,
+    // scaled by the shared movespeed displacement scaling.
     {
         angle_t ang = mo->angle;
-        mo->momx += FixedMul(FRACUNIT / 2, finecosine[ang >> ANGLETOFINESHIFT]);
-        mo->momy += FixedMul(FRACUNIT / 2, finesine[ang >> ANGLETOFINESHIFT]);
+        fixed_t thrust = D_ScaleDisplacement(pl, FRACUNIT / 2);
+        mo->momx += FixedMul(thrust, finecosine[ang >> ANGLETOFINESHIFT]);
+        mo->momy += FixedMul(thrust, finesine[ang >> ANGLETOFINESHIFT]);
     }
     T_HistorySample(false);
 }
@@ -1911,15 +1902,8 @@ static boolean T_ExecMove(angle_t moveangle)
     // epsilon. The pulse lasts until arrival (or the failsafe cap), so the
     // player loses control for the full move.
     {
-        extern int D_MoveSpeed(struct player_s *pl);
-        int movespeed = D_MoveSpeed(player);
-        int tics = T_MOVE_BASE_TICS;
+        int tics = D_ScaleMoveTics(player, T_MOVE_BASE_TICS);
         fixed_t dx, dy;
-        if (movespeed > 0)
-        {
-            tics = (T_MOVE_BASE_TICS * 100) / (100 + movespeed);
-            if (tics < 1) tics = 1;
-        }
         dx = FixedMul(T_StepLen(player), finecosine[moveangle >> ANGLETOFINESHIFT]);
         dy = FixedMul(T_StepLen(player), finesine[moveangle >> ANGLETOFINESHIFT]);
         turnctrl.move_tx = mo->x + dx;
@@ -1939,14 +1923,7 @@ static boolean T_ExecMove(angle_t moveangle)
     // it early on arrival) or the failsafe cap hits. Monsters stay frozen.
     // Movement speed modifier shortens the cap.
     {
-        extern int D_MoveSpeed(struct player_s *pl);
-        int movespeed = D_MoveSpeed(player);
-        int tics = T_MOVE_BASE_TICS;
-        if (movespeed > 0)
-        {
-            tics = (T_MOVE_BASE_TICS * 100) / (100 + movespeed);
-            if (tics < 1) tics = 1;
-        }
+        int tics = D_ScaleMoveTics(player, T_MOVE_BASE_TICS);
         T_BeginPulse(tics * 3, true, false);
     }
     T_DumpState("exec-move");

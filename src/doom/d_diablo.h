@@ -12,6 +12,7 @@
 #define __D_DIABLO__
 
 #include "doomtype.h"
+#include "m_fixed.h"
 
 // Forward declarations to avoid circular includes.
 struct player_s;
@@ -229,6 +230,12 @@ void D_RepairAllEquipped(struct player_s *player);   // vanilla armor pickup
 int D_RepairCost(int id, int cur_dur);               // essence to full; 0 = n/a or full
 void D_LifeSteal(struct player_s *player, int damage);
 int D_MoveSpeed(struct player_s *player);             // percent
+// The ONE movespeed scaling for movement: every code path that moves
+// the player (keyboard thrust, turn steps, GOTO, WALK) determines its
+// displacement through D_ScaleDisplacement, and step durations through
+// D_ScaleMoveTics (the same factor, inverted).
+fixed_t D_ScaleDisplacement(struct player_s *player, fixed_t base);
+int D_ScaleMoveTics(struct player_s *player, int base_tics);
 
 // NG+ loop: beating the game loops back to MAP01 with stronger enemies.
 // d_loop = 0 is the first playthrough, 1 = NG+, 2 = NG++, etc.

@@ -21,7 +21,8 @@
 //                   at max health
 //   vitality      : max health = deh_max_health + 5 * vitality
 //   magic find    : rarity roll shifted down by magicfind / 2 (better loot)
-//   move speed    : player thrust scaled by (100 + movespeed) / 100
+//   move speed    : all movement displacement scales by
+//                   (100 + movespeed) / 100 via D_ScaleDisplacement
 //   resists/dex/energy: aggregated for Phase 2 (vanilla Doom has no
 //                   elemental damage types to hook cleanly).
 //
@@ -1513,6 +1514,29 @@ void D_LifeSteal(struct player_s *pl, int damage)
 int D_MoveSpeed(struct player_s *pl)
 {
     return D_Stat(pl, DSTAT_MOVESPEED);
+}
+
+// Shared movespeed factor, in percent (100 = unmodified). Every
+// movement path scales through here so the modifier means the same
+// thing everywhere; movespeed <= 0 is no scaling.
+static int D_MovePct(struct player_s *pl)
+{
+    int ms = D_MoveSpeed(pl);
+    return ms > 0 ? 100 + ms : 100;
+}
+
+// Scale a displacement (fixed-point units) by the movespeed modifier.
+fixed_t D_ScaleDisplacement(struct player_s *pl, fixed_t base)
+{
+    return (base * D_MovePct(pl)) / 100;
+}
+
+// Scale a step duration (tics) by the movespeed modifier: faster
+// movement = proportionally shorter steps. Never below 1 tic.
+int D_ScaleMoveTics(struct player_s *pl, int base_tics)
+{
+    int tics = (base_tics * 100) / D_MovePct(pl);
+    return tics < 1 ? 1 : tics;
 }
 
 // NG+ loop state. d_loop = 0 is the first playthrough.
