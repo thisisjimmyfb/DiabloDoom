@@ -14,7 +14,7 @@ The replay always comes *after* your commands play out, never before. This guara
 - A loot/pickup stop fires only ONCE per item: if you send `WALK` again, the game walks past that item. Use a second WALK when you've decided to leave an item behind — and if WALK reports `blocked` immediately in several directions, you're probably in a pit or trench: follow the low ground along its length instead of pushing at the high walls.
 - Turn to face a doorway or direction you want to explore (TURNL/TURNR), then send `WALK`. The game handles the rest.
 - Send WALK, wait ~5 seconds, then REPLAY. The 15s buffer captures your movement in the moment.
-- After the replay, view the frames: if WALK stopped for loot, COLLECT it. If for an enemy, prepare for combat. If blocked, turn and WALK again.
+- After the replay, view the frames: if WALK stopped for loot, check the frames for the game's "Loot nearby" message — COLLECT only if it is shown (see the COLLECT rule under Priorities). A WALK loot stop alone is not a reason to COLLECT. If WALK stopped for an enemy, prepare for combat. If blocked, turn and WALK again.
 - If WALK stops `blocked` while you are facing a door, send `USE` to open it, then `WALK` again.
 - For precise positioning (e.g. moving toward a specific key you see), use `GOTO fwd strafe` (facing-relative, e.g. `GOTO 150 0` = 150 forward). The game pathfinds there.
 - Keep vision fast: extract only 2 frames at half resolution (`-vf fps=1/8,scale=480:300` as JPEG). You don't need 4 full-res PNGs — 2 small frames show position, enemies, and loot just fine.
@@ -93,6 +93,8 @@ The game tracks where you have actually been. Your screenshot shows one moment �
 When in EXPLORE mode (not in combat), priority order:
 
 1. **Loot prompt visible** ("Loot nearby, press G to loot") → Collect IMMEDIATELY. (If it reads "Loot nearby, but backpack full", skip ground loot — nothing fits — but still COLLECT a corpse if one is the target.) This is the top priority. The prompt appears for Diablo loot drops AND player corpses.
+
+   **COLLECT rule: send COLLECT only when the game shows "Loot nearby".** The message in your current screenshot/replay frames (or the `[LOOT] available on map - press G to loot` line in the log for the current position) is the one and only trigger. Never send COLLECT speculatively — not as a probe, not because WALK stopped for loot, not because loot exists somewhere on the map. No "Loot nearby" shown means no COLLECT: keep exploring instead. The prompt is reachability-gated by the same rule COLLECT uses, so when it shows, the loot is genuinely collectable; when it doesn't, a COLLECT attempt only burns the run's budget confirming that.
 
 2. **After picking up loot** → Check inventory, equip upgrades immediately:
    - Weapon: equip if higher damage than current
