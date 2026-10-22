@@ -845,16 +845,15 @@ static void T_EndPulse(void)
         }
         else
         {
-            // Continuous fire: while the lock is armed, keep the
-            // progress phase alive -- T_TickContinuousFire (called
-            // per tic from T_PulseOneTic) does the shooting. The
-            // phase ends when the lock breaks (target dead, weapon
-            // dry, overheated, target switched).
-            if (turnctrl.cont_fire_active)
-            {
-                T_BeginPulse(1, false, false);
-                return;
-            }
+            // Continuous fire does NOT extend the progress phase
+            // (Jimmy, 2026-10-22): an attack command's execution
+            // lasts its attack-speed interval (the pulse T_ExecAttack
+            // began for the shot) and no longer -- execution must not
+            // wait for the continuous stream to stop. The lock stays
+            // armed across the phase boundary and T_TickContinuousFire
+            // resumes it in the next progress phase, the way the
+            // weapon animation carries on after the command itself
+            // has executed.
             // End of progress phase. If the player died, stop here —
             // the death flow takes over. Otherwise back to planning.
             turnctrl.executing = false;
