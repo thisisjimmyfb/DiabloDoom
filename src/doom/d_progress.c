@@ -394,6 +394,19 @@ void D_AutoSaveGame(void)
     if (g_loading_savegame)
         return;
 
+    // Never autosave out of a demo or a netgame (Jimmy, 2026-10-22).
+    // The simulation events that trigger autosave (loot pickups, level
+    // loads and completions) all run during demo playback, and the
+    // Freedoom IWAD's attract demos DEMO2/DEMO3 were recorded as
+    // netgames: an unattended title screen overwrote the player's real
+    // slot-1 autosave pair with demo state. A real netgame's state is
+    // not the single-player's to save either.
+    {
+        extern boolean netdemo;
+        if (demoplayback || netdemo || netgame)
+            return;
+    }
+
     // Write the current progress to the rotating auto-save slot.
     // This is independent of the player's manual slot; auto-saves
     // rotate through progress_auto1/2/3.dat.

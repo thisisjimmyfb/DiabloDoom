@@ -1538,8 +1538,11 @@ void G_DoCompleted (void)
 { 
     int             i; 
 
-    // Phase 8: atomic profile save on level exit.
-    T_ProfileSave();
+    // Phase 8: atomic profile save on level exit. Never from a demo
+    // or a netgame (Jimmy, 2026-10-22): the state being saved is the
+    // demo's / another session's, not the player's.
+    if (!demoplayback && !netdemo && !netgame)
+        T_ProfileSave();
 
     // Auto-save Diablo progress on level completion.
     {
