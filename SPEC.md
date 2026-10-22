@@ -223,6 +223,14 @@ through a bounded simulation pulse.
   the same thing everywhere; step duration scales by the same factor
   inverted (`D_ScaleMoveTics`). (WALK ignored the modifier until
   2026-10-22, when the scaling was unified.)
+- GOTO movement is momentum-based (2026-10-22): the walker thrusts
+  with the keyboard's own `P_Thrust` (run increment
+  `forwardmove[1] * 2048`, scaled inside P_Thrust) and ground
+  friction shapes the velocity — it spools up over ~10 tics, cruises
+  at the keyboard's ~16.7 u/tic terminal, and brakes by thrust
+  reversal past a waypoint, exactly like manual play. (It previously
+  assigned a flat 16 u/tic velocity, which read as unnaturally fast
+  on the short hops G-to-loot makes.)
 - Input locks while the queue drains.
 - Dying clears the queue immediately and ends the progress phase.
 
