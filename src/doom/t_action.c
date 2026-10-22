@@ -190,7 +190,10 @@ boolean T_IsContinuousWeapon(weapontype_t weapon)
 // tick function -- called every tic while game time runs -- performs
 // the attack at the weapon's attack-speed interval, the way a held
 // trigger would. The lock breaks on target death/removal, weapon
-// switch, empty magazine, or overheat.
+// switch, empty magazine, overheat, or line of sight lost -- the
+// weapon keeps firing until the target leaves sight, which makes
+// continuous weapons strong in open ground and poor for corner
+// peeking (Jimmy's design, 2026-10-22).
 
 static boolean T_ExecAttack(mobj_t *target, int cost);
 
@@ -236,6 +239,14 @@ void T_TickContinuousFire(void)
     if (lt == NULL || lt->health <= 0 || !(lt->flags & MF_SHOOTABLE))
     {
         // Target died or was removed: clear the lock.
+        T_ClearContinuousFire();
+        return;
+    }
+    if (!P_CheckSight(player->mo, lt))
+    {
+        // Line of sight broken: clear the lock. Continuous fire
+        // holds only while the target stays in sight.
+        player->message = "Line of sight lost - lock broken.";
         T_ClearContinuousFire();
         return;
     }
