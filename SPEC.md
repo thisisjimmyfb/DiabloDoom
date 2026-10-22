@@ -492,9 +492,12 @@ an attack with a continuous weapon arms a lock on the target via
 and Ctrl-release; the Ctrl path previously never armed it, so
 continuous weapons fired exactly one shot per round). While game time
 runs, `T_TickContinuousFire` (called per tic from `T_PulseOneTic`)
-performs the attack directly at an interval of `attack_tics` scaled
-by the derived attack-speed stat (`attack_tp`: interval =
-attack_tics × attack_tp / 4) — the held-trigger behavior. The
+performs the attack directly at `T_AttackInterval` — the ONE
+firing-rate system (kit `attack_tics` scaled by the derived
+attack-speed stat: interval = attack_tics × attack_tp / 4), shared
+with queued attacks, whose executor pulses for the same interval
+per shot. Damage likewise resolves through the single executor
+(`T_ExecAttack`) for both — the held-trigger behavior. The
 progress phase stays alive while the lock is armed; the lock breaks
 on target death/removal, weapon switch, empty magazine, overheat,
 target switch, or combat exit.
