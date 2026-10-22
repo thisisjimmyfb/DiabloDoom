@@ -8,7 +8,7 @@ This file covers the system-specific mechanics: how to launch the game, send com
 
 ## How the Agent Sees the Game
 
-Each decision starts with TWO fresh inputs, handed to you every iteration: the **screenshot** and the **game log**. The log (`/tmp/doom_hourly.log`) is line-buffered and LIVE during play — it no longer waits for a flush at shutdown. Read its tail every iteration, alongside the screenshot: the screenshot shows where you are, the log tells you what just happened — [WALK]/[GOTO] position stamps (world coordinates), the [HISTORY] trail, the [LOOT] line, kills, deaths, and why a command stopped. Never decide from the screenshot alone when the log has fresher facts.
+Each decision starts with TWO fresh inputs, handed to you every iteration: the **screenshot** and the **game log**. The log (`/tmp/doom_hourly.log`) is line-buffered and LIVE during play — it no longer waits for a flush at shutdown. Read its tail every iteration, alongside the screenshot: the screenshot shows where you are, the log tells you what just happened — [GOTO] position stamps (world coordinates), the [HISTORY] trail, the [LOOT] line, kills, deaths, and why a command stopped. Never decide from the screenshot alone when the log has fresher facts.
 
 Assess from the screenshot:
 - **HUD**: health %, ammo, current state (EXPLORE banner vs turn-based COMBAT UI)
@@ -32,13 +32,18 @@ The workflow feeds you a screenshot per iteration (captured via the game's `CAPT
 Write commands to /tmp/doom_cmd.txt (one per line). It's a FIFO — do NOT delete it.
 
 **Explore mode:**
-- `WALK` — keep walking forward until the game spots an enemy, loot, or hits a wall. The game stops automatically and logs `[WALK] <reason>`. Send once, then observe. This is the primary movement command for exploration. Movement results are position-stamped: the stop line reads `[WALK] stopped at (x,y), moved N from (x,y)`, so you always know where you ended up and how far the command actually took you. `GOTO` results are stamped the same way (`arrived at (x,y), moved N from (x,y)`).
-- `GOTO fwd strafe` — move to a specific relative position (e.g. `GOTO 100 0` =
-  100 units forward, `GOTO 0 50` = 50 units to the right). Use for precise
-  positioning (e.g. toward a key you see). The game pathfinds there.
-  Explore mode only.
+- `GOTO fwd strafe` — THE movement command for exploration. Move to a
+  facing-relative destination in units (e.g. `GOTO 300 0` = 300 units
+  ahead of where you face, `GOTO 0 50` = 50 units to the right,
+  `GOTO -60 0` = back up 60). The game pathfinds to that exact spot,
+  clamping to the nearest walkable cell, and logs the outcome:
+  `[GOTO] arrived at (x,y), moved N from (x,y)` on success,
+  `[GOTO] blocked at waypoint K` if the path stalls, or
+  `[GOTO] no path to (x,y)` if no route exists. Send one GOTO, wait for
+  its outcome line, then observe and pick the next destination from what
+  you see. Explore mode only.
 - `TURNL` / `TURNR` — turn left/right
-- `USE` — open the door or press the switch directly in front of you (explore mode). If WALK stops `blocked` while you're facing a door, send `USE`, then `WALK` again.
+- `USE` — open the door or press the switch directly in front of you (explore mode). If GOTO ends `blocked` while you're facing a door, you're up against it: send `USE`, then GOTO again.
 - `COLLECT` — pick up Diablo loot or corpse (when "Loot nearby, press G to loot" prompt visible). The prompt only appears for loot the game can physically walk to — same height rules as real movement (it can't climb more than a step at a time), so prompted loot is genuinely collectable.
 
 **Combat mode (turn-based)** runs in two alternating phases:
@@ -70,7 +75,7 @@ Notes:
 - `SALVAGE <backpack_idx>` — convert item to essence
 
 **Important quirks:**
-- `WALK` and `GOTO` only work in explore mode (blocked in combat, cancelled on combat entry)
+- `GOTO` only works in explore mode (blocked in combat, cancelled on combat entry)
 - `COLLECT` requires turn-based mode active, player alive, not mid-pulse
 - The game drains the FIFO every tick; write commands with `printf "CMD\n" >> /tmp/doom_cmd.txt` — always APPEND (`>>`), never overwrite: `>` can erase commands the game hasn't consumed yet. **Every write must end with a newline** — the game consumes whole lines only; an unterminated write strands a partial command in the pipe.
 - FIFO liveness: writing to /tmp/doom_cmd.txt BLOCKS FOREVER if no game process is reading it. Before your first FIFO write each run, confirm `pgrep -c -f "chocolate-doo[m]"` is exactly 1. If 0 or >1, report it — the workflow handles game launch, you never launch or kill the game yourself.
