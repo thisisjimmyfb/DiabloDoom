@@ -1021,37 +1021,35 @@ static int STWepPatchPixel(patch_t *patch, int sx, int sy)
 
 // Draw a WAD patch inside the square box, aspect preserved and
 // centered; transparent pixels leave the arms background beneath.
-static void STWepDrawPatch(int x, int y, int box, patch_t *patch)
+// The weapon art is STRETCHED to fill the whole panel next to the
+// face (Jimmy, 2026-10-22): the pickup sprites are wide and short,
+// so the old aspect-preserving fit into a 20x20 box shrank them to
+// a sliver.  Independent x/y scaling -- the panel is the canvas.
+static void STWepDrawPatch(int x, int y, int w, int h, patch_t *patch)
 {
     int pw = SHORT(patch->width);
     int ph = SHORT(patch->height);
-    int dw, dh, ox, oy, dx, dy;
+    int dx, dy;
     pixel_t *dest;
 
     if (pw < 1 || ph < 1)
         return;
-    if (pw > ph) { dw = box; dh = ph * box / pw; }
-    else         { dh = box; dw = pw * box / ph; }
-    if (dw < 1) dw = 1;
-    if (dh < 1) dh = 1;
-    ox = x + (box - dw) / 2;
-    oy = y + (box - dh) / 2;
-    for (dy = 0; dy < dh; ++dy)
+    for (dy = 0; dy < h; ++dy)
     {
-        int sy = dy * ph / dh;
-        int yy = oy + dy;
+        int sy = dy * ph / h;
+        int yy = y + dy;
         if (yy < 0 || yy >= SCREENHEIGHT)
             continue;
-        dest = I_VideoBuffer + SCREENWIDTH * yy + ox;
-        for (dx = 0; dx < dw; ++dx)
+        dest = I_VideoBuffer + SCREENWIDTH * yy + x;
+        for (dx = 0; dx < w; ++dx)
         {
             int px;
-            if (ox + dx < 0 || ox + dx >= SCREENWIDTH)
+            if (x + dx < 0 || x + dx >= SCREENWIDTH)
             {
                 dest++;
                 continue;
             }
-            px = STWepPatchPixel(patch, dx * pw / dw, sy);
+            px = STWepPatchPixel(patch, dx * pw / w, sy);
             if (px >= 0)
                 *dest = (pixel_t)px;
             dest++;
@@ -1059,24 +1057,25 @@ static void STWepDrawPatch(int x, int y, int box, patch_t *patch)
     }
 }
 
-static void STWepDrawIcon(int x, int y, int box, const unsigned char *icon)
+static void STWepDrawIcon(int x, int y, int w, int h,
+                           const unsigned char *icon)
 {
     int dx, dy, sx, sy;
     pixel_t *dest;
-    for (dy = 0; dy < box; ++dy)
+    for (dy = 0; dy < h; ++dy)
     {
         if (y + dy < 0 || y + dy >= SCREENHEIGHT)
             continue;
-        sy = dy * d_icon_size / box;
+        sy = dy * d_icon_size / h;
         dest = I_VideoBuffer + SCREENWIDTH * (y + dy) + x;
-        for (dx = 0; dx < box; ++dx)
+        for (dx = 0; dx < w; ++dx)
         {
             if (x + dx < 0 || x + dx >= SCREENWIDTH)
             {
                 dest++;
                 continue;
             }
-            sx = dx * d_icon_size / box;
+            sx = dx * d_icon_size / w;
             *dest++ = (pixel_t)icon[sy * d_icon_size + sx];
         }
     }
@@ -1086,6 +1085,11 @@ static void STWepDrawIcon(int x, int y, int box, const unsigned char *icon)
 #define ST_WEPX0 104
 #define ST_WEPX1 143
 #define ST_WEPCX ((ST_WEPX0 + ST_WEPX1) / 2)
+// The weapon panel the art fills: the full width up to the face
+// (ST_FACESX = 143) and the bar height above the damage text.
+#define ST_WEPW (ST_WEPX1 - ST_WEPX0 + 1)
+#define ST_WEPY 169
+#define ST_WEPH 21
 
 // Turn-based text drawer (same as T_DrawText: hu_font covers '!'..'_').
 // Skips missing glyphs (e.g. 'L' is absent from the HU font).
@@ -1278,7 +1282,7 @@ static void ST_drawDiabloWeapon(void)
         // Use the Diablo icon, not the Doom view-model sprite.
         if (D_ICON_GUN_PISTOL >= 0 && D_ICON_GUN_PISTOL < d_num_item_icons
             && d_item_icons[D_ICON_GUN_PISTOL] != NULL)
-            STWepDrawIcon(ST_WEPCX - 10, 170, 20,
+            STWepDrawIcon(ST_WEPX0, ST_WEPY, ST_WEPW, ST_WEPH,
                           d_item_icons[D_ICON_GUN_PISTOL]);
         return;
     }
@@ -1292,13 +1296,13 @@ static void ST_drawDiabloWeapon(void)
         if (sprname && W_CheckNumForName(sprname) >= 0)
             patch = W_CacheLumpName(sprname, PU_CACHE);
         if (patch)
-            STWepDrawPatch(ST_WEPCX - 10, 170, 20, patch);
+            STWepDrawPatch(ST_WEPX0, ST_WEPY, ST_WEPW, ST_WEPH, patch);
         else
         {
             icon_idx = D_GetItemIconIdx(D_ITEMTIER(id), D_ITEMIDX(id));
             if (icon_idx >= 0 && icon_idx < d_num_item_icons
                 && d_item_icons[icon_idx] != NULL)
-                STWepDrawIcon(ST_WEPCX - 10, 170, 20,
+                STWepDrawIcon(ST_WEPX0, ST_WEPY, ST_WEPW, ST_WEPH,
                               d_item_icons[icon_idx]);
         }
     }
