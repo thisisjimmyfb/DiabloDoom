@@ -1075,7 +1075,7 @@ static int loot_logged_count = 0;
 static void ST_drawTurnKits(void)
 {
     t_combatstats_t st;
-    char dmglab[8], dmgval[16], cdlab[8], cdval[8], mechlab[8], mechval[16];
+    char dmglab[8], dmgval[16], asval[8], cdval[8], mechlab[8], mechval[16];
     const t_kitdef_t *kit;
     int cd, dmg_min, dmg_max;
     // Panel geometry: labels left-aligned, values right-aligned.
@@ -1101,15 +1101,13 @@ static void ST_drawTurnKits(void)
         snprintf(dmglab, sizeof(dmglab), "AD");
         snprintf(dmgval, sizeof(dmgval), "%d-%d", dmg_min, dmg_max);
     }
-    snprintf(cdlab, sizeof(cdlab), "CD");
+    // AS and CD are always both shown, for AP and AD guns alike
+    // (Jimmy, 2026-10-22): both attributes affect every gun -- attack
+    // speed paces the fire interval, cooldown drives the ammo
+    // replenish rate -- so neither is hidden behind the other's row.
+    // They share one row: AS on the left half, CD on the right.
+    snprintf(asval, sizeof(asval), "%d", kit->tp_cost);
     snprintf(cdval, sizeof(cdval), "%d", cd);
-    // For AS-replenish weapons (pistol, shotgun, etc.), show attack speed
-    // instead of a meaningless "CD 0".
-    if (kit->replenish == REPLENISH_AS)
-    {
-        snprintf(cdlab, sizeof(cdlab), "AS");
-        snprintf(cdval, sizeof(cdval), "%d", kit->tp_cost);
-    }
     // Weapon-specific gate attribute: charges for rocket. Plasma
     // has no panel entry -- its resource is the standard AMMO
     // readout, like every other magazine (Jimmy, 2026-10-22: heat
@@ -1130,7 +1128,9 @@ static void ST_drawTurnKits(void)
     V_DrawFilledBox(250, 170, 70, 30, 0);
     ST_TurnDrawText(labx, 171, dmglab);
     ST_TurnDrawText(valright - STWepTextWidth(dmgval), 171, dmgval);
-    ST_TurnDrawText(labx, 180, cdlab);
+    ST_TurnDrawText(labx, 180, "AS");
+    ST_TurnDrawText(283 - STWepTextWidth(asval), 180, asval);
+    ST_TurnDrawText(289, 180, "CD");
     ST_TurnDrawText(valright - STWepTextWidth(cdval), 180, cdval);
     if (mechlab[0])
     {
