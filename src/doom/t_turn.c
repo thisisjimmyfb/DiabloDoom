@@ -1146,33 +1146,23 @@ static void cmd_dispatch(const char *cmd)
     }
     else if (!strncmp(cmd, "GOTO", 4))
     {
-        // GOTO fwd strafe: move relative to facing (explore mode only).
-        // E.g. "GOTO 100 0" = 100 units forward, "GOTO 0 50" = 50 units
-        // right, "GOTO -30 -20" = 30 back, 20 left. The game converts to
-        // map coordinates, pathfinds, and walks the path over multiple
-        // tics. A new GOTO overrides.
+        // GOTO x y: move to ABSOLUTE map coordinates (explore mode
+        // only) -- Jimmy, 2026-10-22: no facing-relative form. The
+        // coordinates an agent may use are the ones the game itself
+        // stamps in the log (its own position trail, corpse and loot
+        // positions it has seen stamped). The game pathfinds there
+        // and walks the path over multiple tics. A new GOTO overrides.
         player_t *pl = &players[consoleplayer];
         if (pl->mo != NULL && T_InExplore())
         {
-            int fwd, strafe;
-            if (sscanf(cmd + 4, "%d %d", &fwd, &strafe) == 2)
+            int x, y;
+            if (sscanf(cmd + 4, "%d %d", &x, &y) == 2)
             {
-                angle_t ang = pl->mo->angle;
-                // Forward vector (facing direction)
-                fixed_t fx = finecosine[ang >> ANGLETOFINESHIFT];
-                fixed_t fy = finesine[ang >> ANGLETOFINESHIFT];
-                // Right vector (90 deg clockwise from facing)
-                fixed_t rx = finecosine[(ang - ANG90) >> ANGLETOFINESHIFT];
-                fixed_t ry = finesine[(ang - ANG90) >> ANGLETOFINESHIFT];
-                fixed_t tx = pl->mo->x + FixedMul((fixed_t)fwd * FRACUNIT, fx)
-                                       + FixedMul((fixed_t)strafe * FRACUNIT, rx);
-                fixed_t ty = pl->mo->y + FixedMul((fixed_t)fwd * FRACUNIT, fy)
-                                       + FixedMul((fixed_t)strafe * FRACUNIT, ry);
-                T_GotoStart(tx, ty);
+                T_GotoStart((fixed_t)x * FRACUNIT, (fixed_t)y * FRACUNIT);
             }
             else
             {
-                printf("[GOTO] usage: GOTO fwd strafe\n");
+                printf("[GOTO] usage: GOTO x y (absolute map coordinates)\n");
             }
         }
         else
@@ -1303,17 +1293,15 @@ static void cmd_dispatch(const char *cmd)
     }
     else if (!strcmp(cmd, "SCAN"))
     {
-        // List nearby keys with relative direction/distance (facing-relative).
-        // Format: [SCAN] <color>_key: <fwd> fwd, <strafe> right (<dist> units)
+        // List nearby keys by ABSOLUTE map coordinates (Jimmy,
+        // 2026-10-22: logs and GOTO both speak absolute coordinates,
+        // no facing-relative form). Format:
+        // [SCAN] <color>_key at (x, y) (<dist> units away)
+        // Feed the coordinates straight to GOTO.
         player_t *pl = &players[consoleplayer];
         if (pl->mo != NULL)
         {
             thinker_t *th;
-            angle_t ang = pl->mo->angle;
-            fixed_t fx = finecosine[ang >> ANGLETOFINESHIFT];
-            fixed_t fy = finesine[ang >> ANGLETOFINESHIFT];
-            fixed_t rx = finecosine[(ang - ANG90) >> ANGLETOFINESHIFT];
-            fixed_t ry = finesine[(ang - ANG90) >> ANGLETOFINESHIFT];
             int found = 0;
             for (th = thinkercap.next; th != &thinkercap; th = th->next)
             {
@@ -1329,12 +1317,9 @@ static void cmd_dispatch(const char *cmd)
                     {
                         fixed_t dx = mo->x - pl->mo->x;
                         fixed_t dy = mo->y - pl->mo->y;
-                        // Project onto facing (fwd) and right (strafe) axes
-                        int fwd = (FixedMul(dx, fx) + FixedMul(dy, fy)) >> 16;
-                        int strafe = (FixedMul(dx, rx) + FixedMul(dy, ry)) >> 16;
                         int dist = P_AproxDistance(dx, dy) >> 16;
-                        printf("[SCAN] %s: %d fwd, %d right (%d units)\n",
-                               name, fwd, strafe, dist);
+                        printf("[SCAN] %s at (%d, %d) (%d units away)\n",
+                               name, mo->x >> 16, mo->y >> 16, dist);
                         found++;
                     }
                 }
