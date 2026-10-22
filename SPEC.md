@@ -211,12 +211,18 @@ through a bounded simulation pulse.
   sliding (`P_SlideMove`), matching explore-mode behavior. Blocked moves
   slide along walls instead of stopping dead. `P_ZMovement` runs after
   each turn-based step so stairs climb the same as explore mode.
-- **Step distance is 24 units × the movespeed multiplier** (shared with
-  the GOTO driver command), and steps **animate smoothly** over the
-  pulse at keyboard run speed instead of teleporting: the preview
+- **Step distance is 24 units × the movespeed multiplier**, and steps
+  **animate smoothly** over the pulse at keyboard run speed instead of
+  teleporting: the preview
   landing spot and the executed landing spot are the same computed
   target. Preview z-snaps at most one step (24 units); larger drops
   fall via gravity. (Movement rework, 2026-10-19.)
+- Every movement path — turn steps, GOTO, WALK, and keyboard thrust —
+  takes its displacement from the one shared scaling function
+  `D_ScaleDisplacement` (d_diablo.c), so the movespeed modifier means
+  the same thing everywhere; step duration scales by the same factor
+  inverted (`D_ScaleMoveTics`). (WALK ignored the modifier until
+  2026-10-22, when the scaling was unified.)
 - Input locks while the queue drains.
 - Dying clears the queue immediately and ends the progress phase.
 
