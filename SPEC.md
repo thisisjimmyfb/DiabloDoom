@@ -500,7 +500,11 @@ per shot. Damage likewise resolves through the single executor
 (`T_ExecAttack`) for both — the held-trigger behavior. The
 progress phase stays alive while the lock is armed; the lock breaks
 on target death/removal, weapon switch, empty magazine, overheat,
-target switch, or combat exit.
+target switch, combat exit, or line of sight lost — the tick checks
+`P_CheckSight` every tic and clears the lock the tic sight breaks
+(Jimmy's design, 2026-10-22: continuous fire holds only while the
+target stays in sight, so continuous weapons are strong in open
+ground and a poor choice for corner peeking).
 
 **No vanilla weapon auto-switch** (2026-10-19): Doom's `P_CheckAmmo`
 no longer picks a new weapon when the current one runs dry, and the
