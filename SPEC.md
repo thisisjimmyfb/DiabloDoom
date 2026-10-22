@@ -605,7 +605,10 @@ preview the counter rising toward capacity instead.
   magazine counter — plasma's included (it counts up as the gun
   fires). The kit attribute panel shows no heat-capacity entry for
   plasma (removed 2026-10-22 — heat capacity is not an attribute;
-  plasma's capacity is its max ammo). The FOCUS paperdoll slot
+  plasma's capacity is its max ammo). The panel always shows both
+  AS and CD for every gun, AP and AD alike (2026-10-22) — both
+  attributes affect all guns: attack speed paces the fire interval
+  and cooldown drives the ammo replenish rate. The FOCUS paperdoll slot
   (equippable ammo items granting passive weapon stats) is unchanged.
 - Magazines persist in saves (TUR3 format; older saves load full).
 
