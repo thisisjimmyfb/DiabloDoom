@@ -383,6 +383,10 @@ backpack, paperdoll, and status-bar weapon panel, so the
 inventory matches the WAD in use; the built-in 32x32 icons remain
 the fallback (the pistol has no pickup sprite in any Doom WAD,
 the SSG's is Doom II only, and non-gun items keep their icons).
+The sprite is stretched to fill the item's whole footprint in the
+grid (a 3x1 shotgun spans all 3 cells) and the whole status-bar
+weapon panel next to the face — pickup sprites are wide and short,
+so an aspect-preserving fit shrank them to a sliver.
 Weapon footprints are horizontal, shaped like those sprites:
 pistol 2x1, shotgun/SSG/chainsaw 3x1, chaingun/rocket/plasma/BFG
 3x2; non-gun footprints are unchanged. Footprints live in the def
@@ -534,8 +538,13 @@ firing-rate system (kit `attack_tics` scaled by the derived
 attack-speed stat: interval = attack_tics × attack_tp / 4), shared
 with queued attacks, whose executor pulses for the same interval
 per shot. Damage likewise resolves through the single executor
-(`T_ExecAttack`) for both — the held-trigger behavior. The
-progress phase stays alive while the lock is armed; the lock breaks
+(`T_ExecAttack`) for both — the held-trigger behavior. An attack
+command's execution lasts only that interval pulse (Jimmy,
+2026-10-22): the progress phase does NOT stay alive for the lock —
+execution never waits for the continuous stream to stop. The lock
+stays armed across phase boundaries and the tick resumes it in the
+next progress phase, the way the weapon animation carries on after
+the command itself has executed. The lock breaks
 on target death/removal, weapon switch, a full or empty magazine,
 target switch, combat exit, or line of sight lost — the tick checks
 `P_CheckSight` every tic and clears the lock the tic sight breaks
