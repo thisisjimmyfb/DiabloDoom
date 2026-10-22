@@ -2826,9 +2826,14 @@ static boolean T_ExecAttack(mobj_t *target, int cost,
             d_diablo_hitscan_weapon = w;
     }
     // Reset hit tracking before native fire; the damage callback sets it.
+    // The kill flag gets the same reset: it must describe THIS shot
+    // only, or it latches after the session's first kill and every
+    // later shot -- queued or continuous-fire tick -- takes the
+    // 70-tic kill-beat pulse (Jimmy, 2026-10-22).
     t_last_hit_mobj = NULL;
     t_last_damage = 0;
     t_last_crit = 0;
+    T_ClearLastKill();
     T_NativeFire(player);
     d_diablo_hitscan_weapon = -1;
 

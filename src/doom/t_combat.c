@@ -28,6 +28,21 @@ boolean T_LastKill(void)
     return t_last_kill != 0;
 }
 
+// Clear the kill flag. T_ExecAttack resets it before every shot,
+// alongside the other per-shot hit tracking (t_last_hit_mobj and
+// friends): T_ResolveKill sets it during THIS shot's fire, and the
+// post-fire check must read only this shot's result. Without the
+// reset the flag latched for the whole session after the first
+// kill -- every later attack took the 70-tic kill-beat branch, and
+// continuous-fire tick shots each added a fresh 70-tic pulse while
+// counting down a single attack interval, so the progress phase
+// could not end while the stream ran (Jimmy, 2026-10-22: chaingun
+// attack held open under imp fire until the phase killed him).
+void T_ClearLastKill(void)
+{
+    t_last_kill = 0;
+}
+
 // Dedicated combat RNG (LCG). Independent of the game's P_Random so
 // fixed-seed tests are deterministic regardless of map RNG use.
 static unsigned int t_rng = 0xC0BA7; // set via T_SetCombatSeed

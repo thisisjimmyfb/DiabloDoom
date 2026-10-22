@@ -188,5 +188,6 @@ const char *T_KitDenyReason(weapontype_t w);// "NO CHARGES"/"AMMO FULL"
                                            // "NO AMMO"/NULL
 boolean T_HasAmmoForKit(weapontype_t w);    // consoleplayer can pay ammo cost
 boolean T_LastKill(void);                   // did the last attack kill?
+void T_ClearLastKill(void);                 // reset before each shot
 
 #endif
