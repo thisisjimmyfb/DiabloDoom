@@ -474,7 +474,7 @@ equipped), not loot.
 | Shotgun | AD | **Magazine 20** (2/shot) | AS | Positioning reward, pellet spread. |
 | Chaingun | AD | **Magazine 10** (1/shot) | AS | TP-hungry DPS hose. |
 | Chainsaw | AD | **Magazine 6** (1/shot) + **30% inherent leech** | AS | High risk, constant uptime; leech sustains close-range fighting. |
-| Plasma Rifle | AP | **Ammo** (inverted) | — (ammo) | The ammo counter represents heat: starts at 0, +25 per shot, fires while the count is below the 100 capacity, and drains at the replenish rate continuously — the drain is the reload period. No separate heat resource (2026-10-22). |
+| Plasma Rifle | AP | **Ammo** (inverted) | — (ammo) | The ammo counter represents heat: starts at 0, +20 per shot, fires while the count is below the 125 capacity, and drains at the replenish rate continuously — the drain is the reload period. No separate heat resource (2026-10-22). |
 | Rocket Launcher | AP | **Charges** (3, +1 per 2 s) + **Magazine 20** (10/shot) | AS | Punctuated splash; firing consumes 1 charge. Each regenerated charge also loads one attack's worth of ammo. |
 | Super Shotgun | AP | **Magazine 8** (8/shot) + **knockback** | CD | Breach tool: shoves target 1 tile. Ammo replenishes on cooldown rate (CD=2). |
 | BFG9000 | AP | **Magazine 20** (20/shot) | CD | Ultimate: highest damage. Ammo replenishes on cooldown rate (CD=3). |
@@ -561,7 +561,7 @@ Cadence plumbing:
   cooldown count. Plasma has no gate entry of its own — its counter
   is the AMMO readout.
 - Inventory tooltips show AD or AP typing and the mechanic
-  (e.g. "AP weapon — Ammo: +25/shot, inverted").
+  (e.g. "AP weapon — Ammo: +20/shot, inverted").
 
 **Ammo: per-weapon magazines, auto-replenished by AD/AP type.** Every
 weapon with a magazine requires ammo to fire (`T_KitCanFire` checks it;
@@ -591,8 +591,8 @@ preview the counter rising toward capacity instead.
   hooked in the wall-clock `T_TickCadence`); the rocket loads one attack's
   worth of ammo per regenerated charge. Plasma's magazine is **inverted**
   (2026-10-22): the ammo counter represents heat — it starts at 0,
-  each shot adds 25, the weapon fires while the count is below its
-  100 capacity, and the count drains at the replenish rate
+  each shot adds 20, the weapon fires while the count is below its
+  125 capacity, and the count drains at the replenish rate
   (~43 per 10 s), which is its reload period. One counter, one gate,
   one spend, one rate system — the direction is kit data
   (`ammo_inverted`), not a plasma code path. The old separate heat
