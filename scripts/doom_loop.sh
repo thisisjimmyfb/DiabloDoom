@@ -157,7 +157,10 @@ launch_game() {
     rm -f "$CMDFILE"
     # Close the setup-lock fd in the game child so the lock releases when
     # this script exits (not when the game dies).
-    SDL_VIDEODRIVER=${SDL_VIDEODRIVER:-dummy} nohup "$GAME" -iwad "$DOOM_WAD" \
+    # stdbuf -oL -eL: force line buffering so the game log is LIVE during
+    # play. stdout to a file is fully buffered by default; without this the
+    # log only lands in 4-8KB blocks and at exit, blinding the agent mid-run.
+    SDL_VIDEODRIVER=${SDL_VIDEODRIVER:-dummy} nohup stdbuf -oL -eL "$GAME" -iwad "$DOOM_WAD" \
         -width "$GAME_WIDTH" -height "$GAME_HEIGHT" -warp $WARP \
         -nosound 9>&- > "$GAME_LOG" 2>&1 &
     disown
