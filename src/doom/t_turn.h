@@ -129,7 +129,8 @@ typedef struct
     // a target and keep firing until it dies or the player switches
     // targets. Movement does not break the lock.
     mobj_t *locked_target;
-    int lock_fire_cooldown; // tics until next continuous-fire shot
+    boolean cont_fire_active; // continuous weapon locked on and firing
+    int cont_fire_tics;       // tics until the next continuous-fire shot
 } turnctrl_t;
 
 extern turnctrl_t turnctrl;
@@ -256,7 +257,9 @@ int T_CostFor(turnaction_t action);   // TP cost; selection/cancel = 0
 boolean T_CanAfford(turnaction_t action);
 int T_AttackCost(void);              // derived from attack speed (ph4/5)
 boolean T_IsContinuousWeapon(weapontype_t weapon); // chainsaw/chaingun/plasma
-void T_AutoFireLocked(void);       // auto-queue locked target attack
+void T_SetupContinuousFire(mobj_t *target); // arm continuous fire on a target
+void T_TickContinuousFire(void);            // per-tic continuous fire
+void T_ClearContinuousFire(void);           // break the continuous-fire lock
 // Infinite-ammo invariant: turn mode never tracks ammo.
 void T_TopUpAmmo(void);
 

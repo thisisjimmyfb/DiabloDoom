@@ -385,6 +385,8 @@ void T_EnterExplore(void)
     turnctrl.selected_target = -1;
     turnctrl.executing = false;
     turnctrl.pulse_left = 0;
+    // The fight is over: the continuous-fire lock stands down too.
+    T_ClearContinuousFire();
     // Stand down: the fight is over, so every monster forgets the
     // player -- otherwise the acquire==trigger rule would instantly
     // re-trigger combat on the next detection tick. Stale gunshot
@@ -699,6 +701,11 @@ static void T_PulseOneTic(boolean freeze_monsters)
     {
         T_KitTrickleAmmo();
     }
+
+    // Continuous weapon fire: while the lock is armed, the tick
+    // performs the attack at the weapon's attack-speed interval --
+    // the held-trigger behavior. Runs once per simulated tic.
+    T_TickContinuousFire();
 }
 
 void T_BeginPulse(int tics, boolean freeze_monsters, boolean fast)
@@ -803,10 +810,8 @@ static void T_EndPulse(void)
         }
         else
         {
-            // Continuous-weapon target lock: auto-queue an attack if the
-            // locked target is still alive. The player is free to move;
-            // the weapon keeps firing.
-            T_AutoFireLocked();
+            // A continuous-fire lock stays armed across rounds; the
+            // tick resumes firing in the next progress phase.
             static char msg[96];
             if (T_LootAvailable())
                 M_snprintf(msg, sizeof(msg), "Round %d - LOOT AVAILABLE! Press G.",
@@ -828,29 +833,15 @@ static void T_EndPulse(void)
         }
         else
         {
-            // Continuous fire: if lock is active with a continuous weapon,
-            // keep firing instead of ending the phase. Respects attack_tics.
-            if (turnctrl.locked_target != NULL &&
-                T_IsContinuousWeapon(players[consoleplayer].readyweapon))
+            // Continuous fire: while the lock is armed, keep the
+            // progress phase alive -- T_TickContinuousFire (called
+            // per tic from T_PulseOneTic) does the shooting. The
+            // phase ends when the lock breaks (target dead, weapon
+            // dry, overheated, target switched).
+            if (turnctrl.cont_fire_active)
             {
-                if (turnctrl.lock_fire_cooldown > 0)
-                {
-                    turnctrl.lock_fire_cooldown--;
-                    return;
-                }
-                T_AutoFireLocked();
-                if (turnctrl.queue_len > 0)
-                {
-                    T_ExecuteNext();
-                    {
-                        const t_kitdef_t *kit = T_KitForWeapon(
-                            players[consoleplayer].readyweapon);
-                        int t = kit->attack_tics;
-                        turnctrl.lock_fire_cooldown = t < 1 ? 1 : t;
-                    }
-                    return;
-                }
-                // Lock cleared: fall through to end phase.
+                T_BeginPulse(1, false, false);
+                return;
             }
             // End of progress phase. If the player died, stop here —
             // the death flow takes over. Otherwise back to planning.
@@ -882,7 +873,8 @@ static void T_EndPulse(void)
                     turnctrl.turn_start_z = players[consoleplayer].mo->z;
                     turnctrl.turn_start_angle = players[consoleplayer].mo->angle;
                 }
-                T_AutoFireLocked();
+                // A continuous-fire lock stays armed across rounds;
+                // the tick resumes firing next progress phase.
             }
         }
     }

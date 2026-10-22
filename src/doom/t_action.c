@@ -186,47 +186,98 @@ boolean T_IsContinuousWeapon(weapontype_t weapon)
         || weapon == wp_plasma;
 }
 
-// Continuous-weapon target lock: auto-queue an attack if the locked
-// target is still alive. Called at the start of each player turn.
-// The player is free to move; the weapon keeps firing.
-// Lock breaks on: target death, ammo depletion, or overheat.
-void T_AutoFireLocked(void)
+// Continuous fire: a setup function arms a flag on a target, and a
+// tick function -- called every tic while game time runs -- performs
+// the attack at the weapon's attack-speed interval, the way a held
+// trigger would. The lock breaks on target death/removal, weapon
+// switch, empty magazine, or overheat.
+
+static boolean T_ExecAttack(mobj_t *target, int cost);
+
+void T_ClearContinuousFire(void)
 {
-    mobj_t *lt;
-    player_t *pl;
-    if (!T_Active())
+    turnctrl.locked_target = NULL;
+    turnctrl.cont_fire_active = false;
+    turnctrl.cont_fire_tics = 0;
+}
+
+// Interval between continuous-fire shots: the kit's attack_tics at
+// baseline attack speed (attack_tp 4, from T_DeriveStats); the
+// DEX-driven attack-speed stat scales it down (attack_tp 2 fires
+// twice as fast). Min 1 tic.
+static int T_ContinuousFireInterval(player_t *player, weapontype_t w)
+{
+    const t_kitdef_t *kit = T_KitForWeapon(w);
+    t_combatstats_t st;
+    int t;
+    T_DeriveStats(player, &st);
+    t = kit->attack_tics * st.attack_tp / 4;
+    return t < 1 ? 1 : t;
+}
+
+// Setup: arm continuous fire on a target. Called when an attack with
+// a continuous weapon (chainsaw/chaingun/plasma) is committed, from
+// either commit path (F-key confirm, Ctrl-release). Non-continuous
+// weapons never arm it.
+void T_SetupContinuousFire(mobj_t *target)
+{
+    player_t *player = &players[consoleplayer];
+    if (target == NULL || !T_IsContinuousWeapon(player->readyweapon))
         return;
-    if (turnctrl.locked_target == NULL)
+    turnctrl.locked_target = target;
+    turnctrl.cont_fire_active = true;
+    // The first autofire shot lands one interval after the
+    // committed shot.
+    turnctrl.cont_fire_tics =
+        T_ContinuousFireInterval(player, player->readyweapon);
+    printf("[TURN] continuous fire locked on %s\n",
+           T_TargetName(target));
+}
+
+// Continuous fire tick: while the lock is armed, count down to the
+// next shot and perform the attack directly. Runs every tic of game
+// time (called from T_PulseOneTic), never during planning.
+void T_TickContinuousFire(void)
+{
+    player_t *player = &players[consoleplayer];
+    mobj_t *lt;
+    if (!turnctrl.cont_fire_active)
         return;
     lt = turnctrl.locked_target;
-    pl = &players[consoleplayer];
-    if (lt->health <= 0 || !(lt->flags & MF_SHOOTABLE))
+    if (lt == NULL || lt->health <= 0 || !(lt->flags & MF_SHOOTABLE))
     {
-        // Target died: clear the lock.
-        turnctrl.locked_target = NULL;
+        // Target died or was removed: clear the lock.
+        T_ClearContinuousFire();
         return;
     }
-    if (!T_IsContinuousWeapon(pl->readyweapon))
+    if (!T_IsContinuousWeapon(player->readyweapon))
     {
         // Switched to a non-continuous weapon: clear the lock.
-        turnctrl.locked_target = NULL;
+        T_ClearContinuousFire();
         return;
     }
-    if (!T_HasAmmoForKit(pl->readyweapon))
+    if (!T_HasAmmoForKit(player->readyweapon))
     {
         // Out of ammo: clear the lock.
-        turnctrl.locked_target = NULL;
-        pl->message = "Out of ammo - lock broken.";
+        T_ClearContinuousFire();
+        player->message = "Out of ammo - lock broken.";
         return;
     }
-    if (!T_KitCanFire(pl->readyweapon))
+    if (!T_KitCanFire(player->readyweapon))
     {
         // Overheated or otherwise unable to fire: clear the lock.
-        turnctrl.locked_target = NULL;
-        pl->message = T_KitDenyReason(pl->readyweapon);
+        player->message = T_KitDenyReason(player->readyweapon);
+        T_ClearContinuousFire();
         return;
     }
-    T_Enqueue(TA_ATTACK, 0, 0, lt);
+    if (turnctrl.cont_fire_tics > 0)
+    {
+        turnctrl.cont_fire_tics--;
+        return;
+    }
+    T_ExecAttack(lt, 0);
+    turnctrl.cont_fire_tics =
+        T_ContinuousFireInterval(player, player->readyweapon);
 }
 
 int T_CostFor(turnaction_t action)
@@ -2330,7 +2381,7 @@ void T_StartCtrlTargeting(void)
     if (!T_ActorAlive())
         return;
     // Switching targets breaks the continuous-weapon lock.
-    turnctrl.locked_target = NULL;
+    T_ClearContinuousFire();
     // Mini-combat: allow hold-Ctrl in explore mode for barrels/props.
     if (turnctrl.state == TS_EXPLORE)
     {
@@ -2488,6 +2539,10 @@ void T_ConfirmCtrlTarget(void)
     }
     // Commit: enqueue the attack.
     T_Enqueue(TA_ATTACK, T_CostFor(TA_ATTACK), 0, target);
+    // Continuous weapons lock onto the target: arm the continuous
+    // fire tick (this path previously never armed it -- the lock
+    // only existed on the F-key confirm path).
+    T_SetupContinuousFire(target);
     turnctrl.selected_target = -1;
     turnctrl.state = TS_PLANNING;
     // Mini-combat: do NOT auto-end. User presses Enter to fire.
@@ -2580,7 +2635,7 @@ void T_InvalidateTarget(mobj_t *mo)
     // Clear the continuous-weapon lock if its target was removed.
     if (turnctrl.locked_target == mo)
     {
-        turnctrl.locked_target = NULL;
+        T_ClearContinuousFire();
         printf("[TURN] locked target invalidated (mobj removed)\n");
     }
 }
@@ -2672,13 +2727,9 @@ void T_DoAttack(void)
         turnctrl.state = TS_PLANNING;
         return;
     }
-    // Continuous weapons lock onto the target: keep firing until it
-    // dies or the player switches targets. Movement does not break it.
-    if (T_IsContinuousWeapon(player->readyweapon))
-    {
-        turnctrl.locked_target = target;
-        turnctrl.lock_fire_cooldown = 0;
-    }
+    // Continuous weapons lock onto the target: arm the continuous
+    // fire tick. Movement does not break it.
+    T_SetupContinuousFire(target);
     turnctrl.selected_target = -1;
     turnctrl.state = TS_PLANNING;
 }
