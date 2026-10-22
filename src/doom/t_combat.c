@@ -313,11 +313,14 @@ static const t_kitdef_t t_kits[NUMWEAPONS] = {
     { "ROCKET",     5,   9,   6,    0,  128,  50,      1, true,   10,   20, false,   3,   0,   0,  80, REPLENISH_AS },
     // wp_plasma: AP energy, inverted magazine (Jimmy, 2026-10-22):
     // the ammo counter represents heat. It starts at 0, each shot
-    // adds 25, the weapon fires while the counter is below the 100
+    // adds 20, the weapon fires while the counter is below the 125
     // capacity, and the counter drains at the replenish rate -- the
     // drain is the "reload" period. Same gate/spend/rate utilities
     // as every other weapon; only the direction is kit data.
-    { "PULSE",      2,   4,   4,    0,    0,   0,      1, true,   25,  100,  true,   0,   0,   0,  16, REPLENISH_AS },
+    // (Tuned same day at Jimmy's word -- a little of both: less per
+    // shot than the original 25, more capacity than the original
+    // 100, so ~6 shots of runway before the gate closes.)
+    { "PULSE",      2,   4,   4,    0,    0,   0,      1, true,   20,  125,  true,   0,   0,   0,  16, REPLENISH_AS },
     // wp_bfg: AP ultimate, cooldown-driven replenish
     { "BFG",       10,  18,   8,    3,  192,  60,      1, true,   20,   20, false,   0,   0,   0,  80, REPLENISH_CD },
     // wp_chainsaw: AD melee with inherent leech (sustain for close range)

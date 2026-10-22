@@ -75,7 +75,7 @@ typedef enum
     // Crit is gear-inherent (Diablo-style): weapons/items grant it.
     DSTAT_CRIT_CHANCE, // percent; chance to crit
     DSTAT_CRIT_DMG,    // percent; bonus crit damage (x2 = 200 base)
-    DSTAT_PLASMA_CAP,  // bonus to plasma rifle max ammo (base 100)
+    DSTAT_PLASMA_CAP,  // bonus to plasma rifle max ammo (base 125)
     DSTAT_AD_FLAT,     // flat bonus damage (added before AD%)
     DSTAT_AP_FLAT,     // flat bonus ability power (added before AP%)
     DSTAT_CD_FLAT,     // flat cooldown reduction in rounds
@@ -151,7 +151,7 @@ typedef struct
     // Crit is gear-inherent (Diablo-style).
     int crit_chance; // percent; chance to crit
     int crit_dmg;    // percent; bonus crit damage (base x2 = 200)
-    int plasma_cap;  // bonus to plasma rifle max ammo (base 100)
+    int plasma_cap;  // bonus to plasma rifle max ammo (base 125)
     int ad_flat;     // flat bonus damage (added before AD%)
     int ap_flat;     // flat bonus ability power (added before AP%)
     int cd_flat;     // flat cooldown reduction in rounds
