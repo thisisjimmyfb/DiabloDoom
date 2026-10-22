@@ -38,6 +38,12 @@ else
     SHOTDIR="${SHOTDIR:-$HOME/doomshots}"
 fi
 CMDFILE="${CMDFILE:-/tmp/doom_cmd.txt}"
+# Autosave location: chocolate-doom stores per-IWAD saves under
+# savegames/<wad-basename>/; a legacy flat doomsav0.dsg may also exist.
+AUTOSAVE_DIR="$HOME/.local/share/chocolate-doom/savegames/$(basename "${DOOM_WAD:-$HOME/workspace/doom/freedoom1.wad}")"
+autosave_exists() {
+    [ -f "$AUTOSAVE_DIR/doomsav0.dsg" ] || [ -f "$HOME/.local/share/chocolate-doom/doomsav0.dsg" ]
+}
 SETUP_LOCK="${SETUP_LOCK:-/tmp/doom_setup.lock}"
 PROMPT="${PROMPT:-$REPO/scripts/PROMPT.md}"
 FARM_SECONDS="${FARM_SECONDS:-300}"
@@ -258,7 +264,7 @@ wait_for_fifo() {
 # Doom savegame slot 0 + progress_auto1.dat.
 # Full-loop mode only: --subagent dispatches below and must NOT send here.
 if [ "$SUBAGENT" != true ]; then
-if [ -f ~/.local/share/chocolate-doom/doomsav0.dsg ]; then
+if autosave_exists; then
     echo "[$(date)] Autosave found, loading slot 0" >> "$LOG"
     send_cmd "LOAD 0\n"
     sleep 5
@@ -445,7 +451,7 @@ subagent_setup() {
     fi
     stage_log "setup mark fifo-live ms=$(( $(now_ms) - t_setup_start ))"
     save_status="fresh"
-    if [ -f ~/.local/share/chocolate-doom/doomsav0.dsg ]; then
+    if autosave_exists; then
         send_cmd "LOAD 0\n"
         sleep 5
         save_status="loaded"
