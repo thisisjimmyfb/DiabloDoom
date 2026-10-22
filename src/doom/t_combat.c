@@ -297,29 +297,33 @@ static int T_MonsterArmor(mobjtype_t type)
 
 static const t_kitdef_t t_kits[NUMWEAPONS] = {
     // wp_fist (fallback; not a real kit)
-    { "PISTOL",     1,   3,   3,    0,    0,   0,      1, false,    0,    0,   0,   0,   0,   0,   0,  20, REPLENISH_AS },
+    { "PISTOL",     1,   3,   3,    0,    0,   0,      1, false,    0,    0, false,   0,   0,   0,  20, REPLENISH_AS },
     // Base kits are deliberately weak: item stats are the real damage
     // source, so hunting better gear is the progression.
     // Ammo: every weapon with a magazine requires ammo to fire.
     // Replenish model is explicit per-weapon (see replenish_model_t):
     // AS = attack-speed driven, CD = cooldown driven (CDR gear speeds it up).
     // wp_pistol: balanced AD sidearm
-    { "SIDEARM",    2,   4,   4,    0,    0,   0,      1, false,    1,   10,   0,   0,   0,   0,   0,  15, REPLENISH_AS },
+    { "SIDEARM",    2,   4,   4,    0,    0,   0,      1, false,    1,   10, false,   0,   0,   0,  15, REPLENISH_AS },
     // wp_shotgun: close-range burst, 4 pellets
-    { "SHOTGUN",    2,   3,   5,    0,    0,   0,      4, false,    2,   20,   0,   0,   0,   0,   0,  40, REPLENISH_AS },
+    { "SHOTGUN",    2,   3,   5,    0,    0,   0,      4, false,    2,   20, false,   0,   0,   0,  40, REPLENISH_AS },
     // wp_chaingun: 3-round burst
-    { "CHAINGUN",   1,   3,   5,    0,    0,   0,      3, false,    1,   10,   0,   0,   0,   0,   0,  16, REPLENISH_AS },
+    { "CHAINGUN",   1,   3,   5,    0,    0,   0,      3, false,    1,   10, false,   0,   0,   0,  16, REPLENISH_AS },
     // wp_missile: AP rockets, enemy-targeted splash, charge-gated
-    { "ROCKET",     5,   9,   6,    0,  128,  50,      1, true,   10,   20,   0,   0,   3,   0,   0,  80, REPLENISH_AS },
-    // wp_plasma: AP energy. Heat is inverse ammo: free to spam while
-    // heat < 100, vents 40/round.
-    { "PULSE",      2,   4,   4,    0,    0,   0,      1, true,    0,    0,  25,  40,   0,   0,   0,  16, REPLENISH_AS },
+    { "ROCKET",     5,   9,   6,    0,  128,  50,      1, true,   10,   20, false,   3,   0,   0,  80, REPLENISH_AS },
+    // wp_plasma: AP energy, inverted magazine (Jimmy, 2026-10-22):
+    // the ammo counter represents heat. It starts at 0, each shot
+    // adds 25, the weapon fires while the counter is below the 100
+    // capacity, and the counter drains at the replenish rate -- the
+    // drain is the "reload" period. Same gate/spend/rate utilities
+    // as every other weapon; only the direction is kit data.
+    { "PULSE",      2,   4,   4,    0,    0,   0,      1, true,   25,  100,  true,   0,   0,   0,  16, REPLENISH_AS },
     // wp_bfg: AP ultimate, cooldown-driven replenish
-    { "BFG",       10,  18,   8,    3,  192,  60,      1, true,   20,   20,   0,   0,   0,   0,   0,  80, REPLENISH_CD },
+    { "BFG",       10,  18,   8,    3,  192,  60,      1, true,   20,   20, false,   0,   0,   0,  80, REPLENISH_CD },
     // wp_chainsaw: AD melee with inherent leech (sustain for close range)
-    { "SAW",        1,   2,   3,    0,    0,   0,      1, false,    1,    6,   0,   0,   0,  30,   0,  12, REPLENISH_AS },
+    { "SAW",        1,   2,   3,    0,    0,   0,      1, false,    1,    6, false,   0,  30,   0,  12, REPLENISH_AS },
     // wp_supershotgun: AP double-barrel, breach reload, natural knockback
-    { "SSG",        4,   8,   6,    2,    0,   0,      8, true,    8,    8,   0,   0,   0,   0,   1,  50, REPLENISH_CD },
+    { "SSG",        4,   8,   6,    2,    0,   0,      8, true,    8,    8, false,   0,   0,   1,  50, REPLENISH_CD },
 };
 
 const t_kitdef_t *T_KitForWeapon(weapontype_t w)
@@ -349,12 +353,13 @@ int T_KitFireSound(weapontype_t w)
 
 // Per-weapon cadence state, in rounds/tics. Indexed by weapontype.
 static int t_cooldowns[NUMWEAPONS];
-static int t_heat[NUMWEAPONS];      // 0-100 (plasma): inverse ammo
 static int t_charges[NUMWEAPONS];   // 0..max_charges (rocket)
-static int t_ammo[NUMWEAPONS];      // current magazine (per-weapon ammo)
+static int t_ammo[NUMWEAPONS];      // THE per-weapon resource counter:
+                                    // magazine rounds (plasma: inverted)
 static int t_charge_tics[NUMWEAPONS]; // tics since last charge regen
 static int t_cooldown_tics[NUMWEAPONS]; // tics since last cooldown tick
-static int t_heat_tics[NUMWEAPONS];   // tics since last heat vent
+static int t_decay_acc[NUMWEAPONS];   // fractional drain accumulator
+                                      // (inverted magazines)
 static boolean t_cadence_inited;
 
 // Diablo damage callback globals (see t_combat.h).
@@ -437,7 +442,8 @@ static int T_DiabloDamageCallback(player_t *pl, mobj_t *target, int weapon)
 // Time-based cadence: 1 "round" = 10 seconds = 350 tics.
 // Rocket charges: 1 per 2 seconds (70 tics).
 // Cooldowns (BFG/SSG): tick down 1 round per 350 tics.
-// Plasma heat: vents continuously (heat_vent per 350 tics).
+// Inverted magazines (plasma): the counter drains continuously at
+// the weapon's replenish rate (T_KitReplenishTics), run in reverse.
 #define ROCKET_REGEN_TICS 70
 #define TICS_PER_ROUND 350
 
@@ -455,20 +461,15 @@ void T_KitSetCooldown(weapontype_t w, int rounds)
     t_cooldowns[w] = rounds;
 }
 
-// Called when a weapon fires (native fire path): applies heat buildup,
-// consumes a charge, and sets cooldown (with Haste and flat CDR).
+// Called when a weapon fires (native fire path): consumes a charge
+// and sets cooldown (with Haste and flat CDR). The ammo move itself
+// (plasma's included) happens in T_KitSpendAmmo, called by the same
+// single executor -- OnFire carries no resource of its own.
 void T_KitOnFire(player_t *player)
 {
     weapontype_t w = player->readyweapon;
     const t_kitdef_t *kit = T_KitForWeapon(w);
 
-    if (kit->heat_per_shot > 0)
-    {
-        int max = T_KitHeatMax();
-        t_heat[w] += kit->heat_per_shot;
-        if (t_heat[w] > max)
-            t_heat[w] = max;
-    }
     if (kit->max_charges > 0 && t_charges[w] > 0)
         t_charges[w]--;
     // NOTE: Firing does NOT set a cooldown. CD is just the ammo replenish
@@ -476,17 +477,16 @@ void T_KitOnFire(player_t *player)
     // resource.
 }
 
-int T_KitHeat(weapontype_t w)
+// Magazine capacity: the kit's ammo_max plus, for plasma, the gear
+// capacity bonus (the stat formerly known as heat capacity -- it is
+// just plasma's max ammo now).
+int T_KitMaxAmmo(weapontype_t w)
 {
-    if (w < 0 || w >= NUMWEAPONS)
-        return 0;
-    return t_heat[w];
-}
-
-// Overheat threshold: base 100 + gear heat-capacity bonus.
-int T_KitHeatMax(void)
-{
-    return 100 + players[consoleplayer].diablo_stats[DSTAT_HEAT_MAX];
+    const t_kitdef_t *kit = T_KitForWeapon(w);
+    int max = kit->ammo_max;
+    if (w == wp_plasma)
+        max += players[consoleplayer].diablo_stats[DSTAT_PLASMA_CAP];
+    return max;
 }
 
 int T_KitCharges(weapontype_t w)
@@ -514,8 +514,9 @@ int T_KitMaxCharges(weapontype_t w)
     return max;
 }
 
-// Reset all per-weapon cadence state: cooldowns and heat to zero,
-// charges and magazines to full, Lucky shot counters to zero.
+// Reset all per-weapon cadence state: cooldowns to zero, charges
+// and magazines to full (inverted magazines to empty -- plasma
+// starts cold at 0), Lucky shot counters to zero.
 // Called on new game; loaded games restore their saved cadence
 // instead (P_UnArchiveTurn).
 void T_KitResetCadence(void)
@@ -524,12 +525,11 @@ void T_KitResetCadence(void)
     for (w = 0; w < NUMWEAPONS; w++)
     {
         t_cooldowns[w] = 0;
-        t_ammo[w] = t_kits[w].ammo_max;
-        t_heat[w] = 0;
+        t_ammo[w] = t_kits[w].ammo_inverted ? 0 : t_kits[w].ammo_max;
         t_charges[w] = t_kits[w].max_charges;
         t_charge_tics[w] = 0;
         t_cooldown_tics[w] = 0;
-        t_heat_tics[w] = 0;
+        t_decay_acc[w] = 0;
         t_shots[w] = 0;
     }
     t_cadence_inited = true;
@@ -538,13 +538,48 @@ void T_KitResetCadence(void)
     d_diablo_damage_cb = T_DiabloDamageCallback;
 }
 
+// THE ammo replenish rate: tics per unit of magazine movement for a
+// kit, from its explicit replenish model. One rate system for every
+// weapon: normal magazines trickle UP at this rate during the
+// progress phase (T_KitTrickleAmmo); inverted magazines drain DOWN
+// at this rate on every game tic (T_TickCadence).
+static int T_KitReplenishTics(const t_kitdef_t *kit, player_t *player)
+{
+    if (kit->replenish == REPLENISH_CD)
+    {
+        // Cooldown-driven: uses EFFECTIVE cooldown (after Haste %
+        // and flat CDR), so CDR gear speeds up replenish.
+        // BFG (cd=3) -> 36 tics/ammo base.
+        int eff_cd = kit->cooldown;
+        t_combatstats_t st;
+        T_DeriveStats(player, &st);
+        eff_cd -= eff_cd * st.haste / 100;
+        eff_cd -= player->diablo_stats[DSTAT_CD_FLAT];
+        if (eff_cd < 1)
+            eff_cd = 1;
+        return eff_cd * 12;
+    }
+    // REPLENISH_AS: attack speed -- tp_cost scales the interval.
+    // Pistol (4) -> 8 tics, Shotgun (2) -> 4, Chaingun (1) -> 3 (min).
+    {
+        int interval = kit->tp_cost * 2;
+        if (interval < 3)
+            interval = 3;
+        if (interval > 20)
+            interval = 20;
+        return interval;
+    }
+}
+
 // Time-based cadence: called from T_Ticker on every game tic EXCEPT
 // during the planning phase (TS_PLANNING/TS_TARGETING/TS_CONFIRM),
-// where it is frozen -- no charge regen, no cooldown progress, and no
-// heat vent while the player plans (Jimmy, 2026-10-22).
+// where it is frozen -- no charge regen, no cooldown progress, and
+// no inverted-magazine drain while the player plans (Jimmy,
+// 2026-10-22).
 // - Rocket charges: 1 per ROCKET_REGEN_TICS (2 seconds)
 // - Cooldowns (BFG/SSG): 1 round per TICS_PER_ROUND (10 seconds)
-// - Plasma heat: vents heat_vent per TICS_PER_ROUND, continuously
+// - Inverted magazines (plasma): drain at the replenish rate,
+//   continuously
 // All independent of round boundaries.
 static void T_RefillOnCooldownReady(weapontype_t w);
 void T_TickCadence(void)
@@ -596,35 +631,45 @@ void T_TickCadence(void)
             t_cooldown_tics[w] = 0;
         }
 
-        // Heat (plasma)
-        if (t_heat[w] > 0)
+        // Inverted magazine (plasma): the counter drains toward 0
+        // at the weapon's replenish rate -- the same interval normal
+        // magazines trickle up at (T_KitReplenishTics), run in
+        // reverse. The drain is plasma's "reload": once firing has
+        // filled the counter to capacity, it must fall below
+        // capacity before the weapon can fire again.
+        if (t_kits[w].ammo_inverted && t_ammo[w] > 0)
         {
-            int vent = t_kits[w].heat_vent;
+            int interval = T_KitReplenishTics(&t_kits[w],
+                                              &players[consoleplayer]);
+            int rate = TICS_PER_ROUND / interval; // units per round
             // Overclocked affix: +25 dissipation while equipped.
             if (D_EquippedWeaponMech(&players[consoleplayer]) & MECH_OVERCLOCK)
-                vent += 25;
-            // Vent proportionally: vent per TICS_PER_ROUND, spread across tics.
-            // Accumulate fractional vent to avoid integer truncation.
-            t_heat_tics[w] += vent;
-            if (t_heat_tics[w] >= TICS_PER_ROUND)
+                rate += 25;
+            // Accumulate fractionally to avoid integer truncation.
+            t_decay_acc[w] += rate;
+            if (t_decay_acc[w] >= TICS_PER_ROUND)
             {
-                int dv = t_heat_tics[w] / TICS_PER_ROUND;
-                t_heat_tics[w] %= TICS_PER_ROUND;
-                t_heat[w] -= dv;
-                if (t_heat[w] < 0)
-                    t_heat[w] = 0;
+                int dv = t_decay_acc[w] / TICS_PER_ROUND;
+                t_decay_acc[w] %= TICS_PER_ROUND;
+                t_ammo[w] -= dv;
+                if (t_ammo[w] < 0)
+                    t_ammo[w] = 0;
             }
         }
         else
         {
-            t_heat_tics[w] = 0;
+            t_decay_acc[w] = 0;
         }
     }
 }
 
 // Snapshot/restore the whole per-weapon cadence state for save/load.
 // Each array holds NUMWEAPONS ints: cooldowns, heat, charges, shots,
-// ammo. Loads clamp garbage rather than trusting the file.
+// ammo. The heat slot is a save-format compat alias: since the
+// unified-ammo change it carries plasma's counter (= its ammo) so
+// savegames written by older builds, which stored plasma's state
+// ONLY in this slot, still load it. Loads clamp garbage rather than
+// trusting the file.
 void T_KitSaveCadence(int *cool, int *heat, int *charges, int *shots,
                       int *ammo)
 {
@@ -632,7 +677,7 @@ void T_KitSaveCadence(int *cool, int *heat, int *charges, int *shots,
     for (w = 0; w < NUMWEAPONS; w++)
     {
         cool[w] = t_cooldowns[w];
-        heat[w] = t_heat[w];
+        heat[w] = t_kits[w].ammo_inverted ? t_ammo[w] : 0;
         charges[w] = t_charges[w];
         shots[w] = t_shots[w];
         ammo[w] = t_ammo[w];
@@ -647,13 +692,21 @@ void T_KitLoadCadence(const int *cool, const int *heat,
     for (w = 0; w < NUMWEAPONS; w++)
     {
         int maxc = t_kits[w].max_charges;
-        int maxa = t_kits[w].ammo_max;
+        int maxa = T_KitMaxAmmo((weapontype_t)w);
         t_cooldowns[w] = cool[w] > 0 ? cool[w] : 0;
-        t_heat[w] = heat[w] < 0 ? 0 : heat[w]; // clamped at fire time
         t_charges[w] = charges[w] < 0 ? 0
                      : (charges[w] > maxc ? maxc : charges[w]);
         t_shots[w] = shots[w] > 0 ? shots[w] : 0;
         t_ammo[w] = ammo[w] < 0 ? 0 : (ammo[w] > maxa ? maxa : ammo[w]);
+        if (t_kits[w].ammo_inverted)
+        {
+            // Plasma's counter loads from the compat heat slot (see
+            // T_KitSaveCadence): saves from before the unified-ammo
+            // change have it only there; new saves write both slots
+            // with the same value.
+            int hv = heat[w] < 0 ? 0 : heat[w];
+            t_ammo[w] = hv > maxa ? maxa : hv;
+        }
     }
     t_cadence_inited = true;
 }
@@ -672,8 +725,9 @@ void T_KitTickCooldowns(void)
     int w;
     if (!t_cadence_inited)
         T_KitResetCadence();
-    // Time-based cadence (cooldowns, heat, charges) is handled in
-    // T_TickCharges() every game tic. This round-based hook is now a
+    // Time-based cadence (cooldowns, charges, inverted-ammo drain)
+    // is handled in T_TickCadence() every game tic. This round-based
+    // hook is now a
     // no-op for cadence, kept for save/load compatibility.
     for (w = 0; w < NUMWEAPONS; w++)
     {
@@ -686,15 +740,16 @@ void T_KitTickCooldowns(void)
     }
 }
 
+// THE firing gate, for every weapon: charges where the kit has
+// them, and the magazine rule -- normal magazines need at least
+// ammo_cost in the counter; inverted magazines (plasma) need the
+// counter below capacity (Jimmy's rule, 2026-10-22: plasma fires
+// while its ammo count is below max). CD does NOT block firing --
+// it's just the ammo replenish rate. Ammo is the limiter.
 boolean T_KitCanFire(weapontype_t w)
 {
     const t_kitdef_t *kit = T_KitForWeapon(w);
-    // CD does NOT block firing — it's just the ammo replenish rate.
-    // Ammo is the limiter.
     if (kit->max_charges > 0 && T_KitCharges(w) <= 0)
-        return false;
-    // Heat is inverse ammo: usable while below the overheat threshold.
-    if (kit->heat_per_shot > 0 && T_KitHeat(w) >= T_KitHeatMax())
         return false;
     return T_HasAmmoForKit(w);
 }
@@ -705,16 +760,19 @@ const char *T_KitDenyReason(weapontype_t w)
     // CD does NOT block firing — no cooldown message needed.
     if (kit->max_charges > 0 && T_KitCharges(w) <= 0)
         return "NO CHARGES";
-    if (kit->heat_per_shot > 0 && T_KitHeat(w) >= T_KitHeatMax())
-        return "OVERHEATED";
+    if (kit->ammo_inverted && t_ammo[w] >= T_KitMaxAmmo(w))
+        return "AMMO FULL";
     if (!T_HasAmmoForKit(w))
         return "NO AMMO";
     return NULL;
 }
 
-// Ammo affordability: every weapon with a magazine spends ammo_cost
-// per attack from its own magazine. ammo_cost <= 0 means no ammo
-// needed (fists; plasma is heat-gated instead).
+// Ammo affordability, direction-aware: the one affordability test
+// every caller uses (queue validation, the attack executor, the
+// continuous-fire tick). ammo_cost <= 0 means no ammo needed
+// (fists). Inverted magazines are "affordable" while the counter is
+// below capacity -- firing fills, never empties, an inverted
+// magazine.
 boolean T_HasAmmoForKit(weapontype_t w)
 {
     const t_kitdef_t *kit = T_KitForWeapon(w);
@@ -722,6 +780,8 @@ boolean T_HasAmmoForKit(weapontype_t w)
         return true;
     if (!t_cadence_inited)
         T_KitResetCadence();
+    if (kit->ammo_inverted)
+        return t_ammo[w] < T_KitMaxAmmo(w);
     return t_ammo[w] >= kit->ammo_cost;
 }
 
@@ -734,6 +794,10 @@ int T_KitAmmo(weapontype_t w)
     return t_ammo[w];
 }
 
+// THE ammo spend, called by the single attack executor for every
+// weapon: normal magazines pay ammo_cost out of the counter;
+// inverted magazines (plasma) add ammo_cost to it, clamped at
+// capacity. Direction is kit data, not a caller branch.
 void T_KitSpendAmmo(weapontype_t w)
 {
     const t_kitdef_t *kit = T_KitForWeapon(w);
@@ -741,16 +805,26 @@ void T_KitSpendAmmo(weapontype_t w)
         return;
     if (!t_cadence_inited)
         T_KitResetCadence();
-    t_ammo[w] -= kit->ammo_cost;
-    if (t_ammo[w] < 0)
-        t_ammo[w] = 0;
+    if (kit->ammo_inverted)
+    {
+        t_ammo[w] += kit->ammo_cost;
+        if (t_ammo[w] > T_KitMaxAmmo(w))
+            t_ammo[w] = T_KitMaxAmmo(w);
+    }
+    else
+    {
+        t_ammo[w] -= kit->ammo_cost;
+        if (t_ammo[w] < 0)
+            t_ammo[w] = 0;
+    }
 }
 
-// Gradual ammo trickle: +1 to the ready weapon's magazine if below max.
-// Called per-tic during the progress phase for visible replenishment.
-// Rate is tied to the weapon: cooldown-gated weapons trickle slower
-// (1 per cooldown*12 tics), attack-speed weapons scale with tp_cost
-// (faster weapons = faster trickle).
+// Gradual ammo trickle: +1 to each magazine if below max. Called
+// per-tic during the progress phase for visible replenishment. The
+// rate is THE replenish rate (T_KitReplenishTics): cooldown-gated
+// weapons trickle slower, attack-speed weapons scale with tp_cost.
+// Inverted magazines never trickle up -- they drain on the cadence
+// instead (T_TickCadence), at this same rate.
 void T_KitTrickleAmmo(void)
 {
     player_t *player = &players[consoleplayer];
@@ -767,35 +841,11 @@ void T_KitTrickleAmmo(void)
         kit = &t_kits[w];
         if (kit->ammo_max <= 0 || kit->ammo_cost <= 0)
             continue;
+        if (kit->ammo_inverted)
+            continue;
         if (t_ammo[w] >= kit->ammo_max)
             continue;
-        // Determine interval from the explicit replenish model.
-        if (kit->replenish == REPLENISH_CD)
-        {
-            // Cooldown-driven: uses EFFECTIVE cooldown (after Haste % and
-            // flat CDR), so CDR gear speeds up replenish.
-            // BFG (cd=3) -> 36 tics/ammo base.
-            int eff_cd = kit->cooldown;
-            {
-                t_combatstats_t st;
-                T_DeriveStats(player, &st);
-                eff_cd -= eff_cd * st.haste / 100;
-                eff_cd -= player->diablo_stats[DSTAT_CD_FLAT];
-                if (eff_cd < 1)
-                    eff_cd = 1;
-            }
-            interval = eff_cd * 12;
-        }
-        else // REPLENISH_AS
-        {
-            // Attack speed: tp_cost scales the interval.
-            // Pistol (4) -> 8 tics, Shotgun (2) -> 4, Chaingun (1) -> 3 (min).
-            interval = kit->tp_cost * 2;
-            if (interval < 3)
-                interval = 3;
-            if (interval > 20)
-                interval = 20;
-        }
+        interval = T_KitReplenishTics(kit, player);
         if (++trickle_tick[w] < interval)
             continue;
         trickle_tick[w] = 0;
@@ -805,7 +855,9 @@ void T_KitTrickleAmmo(void)
     }
 }
 
-// Ammo pickup: half-fill every magazine, vent half the plasma heat.
+// Ammo pickup: half-fill every magazine; inverted magazines
+// (plasma) vent half their counter instead -- "refilling" plasma
+// means cooling it.
 void T_KitPickupAmmo(void)
 {
     int w;
@@ -813,25 +865,27 @@ void T_KitPickupAmmo(void)
         T_KitResetCadence();
     for (w = 0; w < NUMWEAPONS; w++)
     {
-        if (t_kits[w].ammo_max > 0)
+        if (t_kits[w].ammo_inverted)
+        {
+            t_ammo[w] /= 2;
+        }
+        else if (t_kits[w].ammo_max > 0)
         {
             t_ammo[w] += t_kits[w].ammo_max / 2;
             if (t_ammo[w] > t_kits[w].ammo_max)
                 t_ammo[w] = t_kits[w].ammo_max;
         }
     }
-    t_heat[wp_plasma] /= 2;
 }
 
-// Mana potion: full magazines, plasma heat fully vented.
+// Mana potion: full magazines; inverted magazines vent to 0.
 void T_KitRefillAllAmmo(void)
 {
     int w;
     if (!t_cadence_inited)
         T_KitResetCadence();
     for (w = 0; w < NUMWEAPONS; w++)
-        t_ammo[w] = t_kits[w].ammo_max;
-    t_heat[wp_plasma] = 0;
+        t_ammo[w] = t_kits[w].ammo_inverted ? 0 : t_kits[w].ammo_max;
 }
 
 // Kill credit + kill-triggered affix mechanics for one victim.
@@ -846,10 +900,13 @@ void T_ResolveKill(player_t *player, mobj_t *victim, int dmg,
     mech = D_EquippedWeaponMech(player);
     if (mech & MECH_PHOENIX)
     {
-        // Kills vent 50 heat off the firing weapon.
-        t_heat[player->readyweapon] -= 50;
-        if (t_heat[player->readyweapon] < 0)
-            t_heat[player->readyweapon] = 0;
+        // Kills vent 50 off the firing weapon's (inverted) counter.
+        if (t_kits[player->readyweapon].ammo_inverted)
+        {
+            t_ammo[player->readyweapon] -= 50;
+            if (t_ammo[player->readyweapon] < 0)
+                t_ammo[player->readyweapon] = 0;
+        }
     }
     if (mech & MECH_HUNGRY)
     {

@@ -639,9 +639,9 @@ const char *D_MechDesc(int mech_bit)
 {
     switch (mech_bit)
     {
-        case MECH_PHOENIX:   return "Phoenix: kills vent 50 heat";
-        case MECH_OVERCLOCK: return "Overclock: +25 heat vent/round";
-        case MECH_CALDERA:   return "Caldera: overheat fires nova";
+        case MECH_PHOENIX:   return "Phoenix: kills vent 50 ammo";
+        case MECH_OVERCLOCK: return "Overclock: +25 ammo vent/round";
+        case MECH_CALDERA:   return "Caldera: max ammo fires nova";
         case MECH_VOLTAIC:   return "Voltaic: blasts chain 50%";
         case MECH_BANDOLIER: return "Bandolier: +1 max charge";
         case MECH_SIEGE:     return "Siege: hits knock foes back";
@@ -700,7 +700,7 @@ void D_RecalcStats(struct player_s *pl)
         // Crit is gear-inherent (Diablo-style).
         player->diablo_stats[DSTAT_CRIT_CHANCE] += def->crit_chance;
         player->diablo_stats[DSTAT_CRIT_DMG] += def->crit_dmg;
-        player->diablo_stats[DSTAT_HEAT_MAX] += def->heat_max;
+        player->diablo_stats[DSTAT_PLASMA_CAP] += def->plasma_cap;
         player->diablo_stats[DSTAT_AD_FLAT] += def->ad_flat;
         player->diablo_stats[DSTAT_AP_FLAT] += def->ap_flat;
         player->diablo_stats[DSTAT_CD_FLAT] += def->cd_flat;

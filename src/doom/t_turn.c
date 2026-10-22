@@ -2034,8 +2034,10 @@ static void T_DrawActionRow(int x, int *y, const char *key, const char *name,
     *y += 9;
 }
 
-// Gate state for the target-preview line: " CD2", " HEAT 45", " CHG 1/2",
-// " MANA!", or "" when the kit can fire.
+// Gate state for the target-preview line: " CD2", " CHG 1/2",
+// " AMMO!", or "" when the kit can fire. Plasma needs no entry of
+// its own: its counter is the AMMO readout, and a full inverted
+// magazine reports through the AMMO! branch like any empty one.
 static void T_KitGateStr(weapontype_t w, char *buf, int bufsz)
 {
     const t_kitdef_t *kit = T_KitForWeapon(w);
@@ -2043,8 +2045,6 @@ static void T_KitGateStr(weapontype_t w, char *buf, int bufsz)
     buf[0] = '\0';
     if (cd > 0)
         M_snprintf(buf, bufsz, " CD%d", cd);
-    else if (kit->heat_per_shot > 0)
-        M_snprintf(buf, bufsz, " HEAT %d", T_KitHeat(w));
     else if (kit->max_charges > 0)
         M_snprintf(buf, bufsz, " CHG %d/%d", T_KitCharges(w),
                    T_KitMaxCharges(w));

@@ -60,7 +60,9 @@ void T_ResolveKill(player_t *player, mobj_t *victim, int dmg,
 // Time-based cadence (called every tic from T_Ticker).
 void T_TickCadence(void);
 
-// Called when a weapon fires: heat, charges, cooldown (with Haste/CDR).
+// Called when a weapon fires: charges, cooldown (with Haste/CDR).
+// (Plasma's per-shot resource is spent through T_KitSpendAmmo like
+// every other weapon -- there is no separate heat system.)
 void T_KitOnFire(player_t *player);
 
 // Last resolution outcome (for test assertions).
@@ -106,11 +108,16 @@ typedef struct
     int splash_pct;     // splash damage as % of primary (0 = none)
     int pellets;        // separate hit rolls (shotgun/chaingun)
     boolean ap_weapon;  // true: AP scaling (ENE); false: AD (STR + gun dmg)
-    int ammo_cost;      // ammo spent per attack from the weapon's magazine
-                        // (0 = no ammo needed: fists, heat-gated plasma)
-    int ammo_max;       // magazine size; 0 = no magazine (see above)
-    int heat_per_shot;  // heat gained per shot (plasma); 0 = no heat system
-    int heat_vent;      // heat dissipated per round
+    int ammo_cost;      // ammo moved per attack (see ammo_inverted)
+                        // (0 = no ammo needed: fists)
+    int ammo_max;       // magazine capacity; 0 = no magazine (see above)
+    boolean ammo_inverted; // false: firing spends the counter down,
+                        // replenish fills it toward ammo_max (normal).
+                        // true (plasma): the counter IS heat by another
+                        // name -- it starts at 0, firing adds ammo_cost,
+                        // the weapon fires while the counter is below
+                        // capacity, and the counter drains back toward 0
+                        // at the replenish rate. No separate heat state.
     int max_charges;    // charge capacity (rocket); 0 = no charge system
     int leech;          // inherent lifesteal % (chainsaw); stacks with gear
     int knockback;      // tiles to shove target on hit (SSG); 0 = none
@@ -126,8 +133,8 @@ int T_AttackInterval(player_t *player, weapontype_t w);
 int T_KitFireSound(weapontype_t w);     // per-gun firing report sfx
 int T_KitCooldown(weapontype_t w);          // current cooldown rounds left
 void T_KitSetCooldown(weapontype_t w, int rounds);
-void T_KitResetCadence(void);           // new game: zero cd/heat, full
-                                        // charges and magazines
+void T_KitResetCadence(void);           // new game: zero cd, full charges
+                                        // and magazines (inverted start 0)
 
 // Diablo damage callback for turn-mode natural simulation.
 // When the player fires in turn mode, Doom's hitscan/projectile system
@@ -143,31 +150,42 @@ extern diablo_damage_cb_t d_diablo_damage_cb;
 // Weapon for synchronous hitscan (set before P_LineAttack, cleared after).
 // Projectiles store it on the mobj instead (diablo_weapon field).
 extern int d_diablo_hitscan_weapon;
-// Per-weapon ammo magazines. Every weapon with ammo_max > 0 requires
-// ammo to fire; magazines replenish automatically by weapon type:
-// AD weapons regenerate attack-speed attacks' worth of ammo each round,
-// AP weapons refill when their cooldown completes (SSG/BFG) or a charge
-// regenerates (rocket). Plasma is heat-gated instead of ammo-gated.
-int T_KitAmmo(weapontype_t w);          // current magazine rounds
-void T_KitSpendAmmo(weapontype_t w);    // deduct one attack's ammo cost
+// Per-weapon ammo magazines: THE resource system for every weapon.
+// Every weapon with ammo_max > 0 is gated by its counter through the
+// one gate (T_KitCanFire / T_HasAmmoForKit), spends through the one
+// spend (T_KitSpendAmmo, called by the single attack executor), and
+// replenishes through the one rate system (kit replenish model).
+// Normal magazines start full and firing spends them down; plasma's
+// magazine is inverted (see ammo_inverted in t_kitdef_t): the counter
+// starts at 0, firing fills it, and it drains at the replenish rate --
+// the same utilities, with the direction declared in the kit data.
+int T_KitAmmo(weapontype_t w);          // current magazine counter
+int T_KitMaxAmmo(weapontype_t w);       // magazine capacity (+ gear
+                                        // capacity bonus for plasma)
+void T_KitSpendAmmo(weapontype_t w);    // apply one attack's ammo move
 void T_KitPickupAmmo(void);             // ammo pickup: half-fill all mags
-void T_KitRefillAllAmmo(void);          // mana potion: full mags, vent heat
+                                        // (inverted: vent half)
+void T_KitRefillAllAmmo(void);          // mana potion: full mags
+                                        // (inverted: vent to 0)
 void T_KitTrickleAmmo(void);             // +1 ammo to ready weapon (progress phase)
                                         // charges, zero Lucky counters
+// The heat array in the cadence snapshot is a save-format compat slot:
+// it carries plasma's counter (an alias of its ammo) so savegames
+// written before the unified-ammo change still load their plasma
+// state. No separate heat state exists in the engine.
 void T_KitSaveCadence(int *cool, int *heat, int *charges, int *shots,
                       int *ammo);
 void T_KitLoadCadence(const int *cool, const int *heat,
                       const int *charges, const int *shots,
                       const int *ammo);
-int T_KitHeat(weapontype_t w);              // current heat
-int T_KitHeatMax(void);                   // overheat threshold (100 + gear)
 int T_KitCharges(weapontype_t w);           // current charges
 int T_KitMaxCharges(weapontype_t w);        // charge capacity (+ affixes)
 int T_KitShots(weapontype_t w);             // shots fired (Lucky rhythm)
 void T_KitTickCooldowns(void);             // call on round start
 boolean T_KitCanFire(weapontype_t w);       // all gates pass
-const char *T_KitDenyReason(weapontype_t w);// "ON COOLDOWN"/"NO CHARGES"/
-                                           // "OVERHEATED"/"NO AMMO"/NULL
+const char *T_KitDenyReason(weapontype_t w);// "NO CHARGES"/"AMMO FULL"
+                                           // (inverted at capacity)/
+                                           // "NO AMMO"/NULL
 boolean T_HasAmmoForKit(weapontype_t w);    // consoleplayer can pay ammo cost
 boolean T_LastKill(void);                   // did the last attack kill?
 

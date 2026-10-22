@@ -164,10 +164,18 @@ boolean P_AmmoCacheHasRoom(void)
     for (w = 0; w < NUMWEAPONS; w++)
     {
         const t_kitdef_t *kit = T_KitForWeapon((weapontype_t)w);
-        if (kit->ammo_max > 0 && T_KitAmmo((weapontype_t)w) < kit->ammo_max)
+        // Inverted magazines (plasma) have room when their counter
+        // can vent down; normal magazines when they can fill up.
+        if (kit->ammo_inverted)
+        {
+            if (T_KitAmmo((weapontype_t)w) > 0)
+                return true;
+        }
+        else if (kit->ammo_max > 0
+                 && T_KitAmmo((weapontype_t)w) < kit->ammo_max)
             return true;
     }
-    return T_KitHeat(wp_plasma) > 0;
+    return false;
 }
 
 // Is this special an ammo cache -- one of the sprites

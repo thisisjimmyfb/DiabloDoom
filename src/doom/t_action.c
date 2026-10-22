@@ -190,7 +190,7 @@ boolean T_IsContinuousWeapon(weapontype_t weapon)
 // tick function -- called every tic while game time runs -- performs
 // the attack at the weapon's attack-speed interval, the way a held
 // trigger would. The lock breaks on target death/removal, weapon
-// switch, empty magazine, overheat, or line of sight lost -- the
+// switch, a full or empty magazine, or line of sight lost -- the
 // weapon keeps firing until the target leaves sight, which makes
 // continuous weapons strong in open ground and poor for corner
 // peeking (Jimmy's design, 2026-10-22).
@@ -256,16 +256,11 @@ void T_TickContinuousFire(void)
         T_ClearContinuousFire();
         return;
     }
-    if (!T_HasAmmoForKit(player->readyweapon))
-    {
-        // Out of ammo: clear the lock.
-        T_ClearContinuousFire();
-        player->message = "Out of ammo - lock broken.";
-        return;
-    }
     if (!T_KitCanFire(player->readyweapon))
     {
-        // Overheated or otherwise unable to fire: clear the lock.
+        // The one gate refuses (no ammo, no charges, or an inverted
+        // magazine at capacity): clear the lock, with the gate's own
+        // reason as the message.
         player->message = T_KitDenyReason(player->readyweapon);
         T_ClearContinuousFire();
         return;
@@ -324,15 +319,28 @@ static void T_RefuseTP(turnaction_t action)
 
 // Refuse an attack the weapon's magazine can't afford: message, no state
 // change, no pulse. Mirrors T_RefuseTP — ammo is validated at queue time
-// against the current magazine, like TP.
+// against the current magazine, like TP. Inverted magazines (plasma)
+// refuse at capacity instead: the counter is full, not empty.
 static void T_RefuseMana(weapontype_t w)
 {
     static char msg[64];
-    int need = T_KitForWeapon(w)->ammo_cost;
-    int have = T_KitAmmo(w);
-    M_snprintf(msg, sizeof(msg), "NEED %d AMMO (HAVE %d).", need, have);
-    players[consoleplayer].message = msg;
-    printf("[TURN] refused attack: need %d ammo, have %d\n", need, have);
+    const t_kitdef_t *kit = T_KitForWeapon(w);
+    if (kit->ammo_inverted)
+    {
+        M_snprintf(msg, sizeof(msg), "AMMO FULL (%d/%d).",
+                   T_KitAmmo(w), T_KitMaxAmmo(w));
+        players[consoleplayer].message = msg;
+        printf("[TURN] refused attack: ammo full %d/%d\n",
+               T_KitAmmo(w), T_KitMaxAmmo(w));
+        return;
+    }
+    {
+        int need = kit->ammo_cost;
+        int have = T_KitAmmo(w);
+        M_snprintf(msg, sizeof(msg), "NEED %d AMMO (HAVE %d).", need, have);
+        players[consoleplayer].message = msg;
+        printf("[TURN] refused attack: need %d ammo, have %d\n", need, have);
+    }
 }
 
 // Dead heroes take no actions. (Death/rebirth flow lands in a later phase.)
@@ -2770,19 +2778,25 @@ static boolean T_ExecAttack(mobj_t *target, int cost)
         return false;
     }
 
-    // Ammo is spent on firing: deducted at execution, not at queue time.
-    // An earlier queued action may have spent the magazine since
-    // validation; skip gracefully with a TP refund like the other
-    // skip paths.
+    // Ammo is spent on firing: applied at execution, not at queue
+    // time. An earlier queued action may have moved the magazine
+    // since validation; skip gracefully with a TP refund like the
+    // other skip paths. Affordability is THE gate's test
+    // (T_HasAmmoForKit) -- direction-aware, so inverted magazines
+    // (plasma) skip at capacity, not at empty.
     {
         const t_kitdef_t *kit = T_KitForWeapon(player->readyweapon);
         if (kit->ammo_cost > 0)
         {
-            if (T_KitAmmo(player->readyweapon) < kit->ammo_cost)
+            if (!T_HasAmmoForKit(player->readyweapon))
             {
-                players[consoleplayer].message = "Not enough ammo - skipped.";
-                printf("[TURN] queued attack skipped: need %d ammo, have %d (+%d TP)\n",
-                       kit->ammo_cost, T_KitAmmo(player->readyweapon), cost);
+                players[consoleplayer].message = kit->ammo_inverted
+                    ? "Ammo full - skipped."
+                    : "Not enough ammo - skipped.";
+                printf("[TURN] queued attack skipped: ammo %d/%d (%s) (+%d TP)\n",
+                       T_KitAmmo(player->readyweapon),
+                       T_KitMaxAmmo(player->readyweapon),
+                       kit->ammo_inverted ? "full" : "empty", cost);
                 turnctrl.tp += cost;
                 T_DumpState("exec-attack-skip");
                 return false;
@@ -2791,8 +2805,8 @@ static boolean T_ExecAttack(mobj_t *target, int cost)
         }
     }
 
-    // Kit setup: heat buildup, charge consumption, cooldown (with Haste
-    // and flat CDR). Must happen on fire, not on hit.
+    // Kit setup: charge consumption, cooldown (with Haste and flat
+    // CDR). Must happen on fire, not on hit.
     T_KitOnFire(player);
 
     // Face the target (instant for aiming; the smooth visual turn is
@@ -3193,7 +3207,7 @@ void T_RunScript(const char *path)
         else if (!strcmp(line, "DUMP"))   T_DumpState("script");
         else if (!strcmp(line, "CADENCE"))
         {
-            // Test: print per-weapon cadence state (cooldown / heat /
+            // Test: print per-weapon cadence state (cooldown / ammo /
             // charges / shots fired).
             int w;
             static const char *wnames[] = {
@@ -3201,8 +3215,8 @@ void T_RunScript(const char *path)
                 "PLASMA", "BFG", "SAW", "SSG"
             };
             for (w = 0; w < NUMWEAPONS; w++)
-                printf("[TURN] CADENCE %-7s cd=%d heat=%d chg=%d shots=%d\n",
-                       wnames[w], T_KitCooldown(w), T_KitHeat(w),
+                printf("[TURN] CADENCE %-7s cd=%d ammo=%d chg=%d shots=%d\n",
+                       wnames[w], T_KitCooldown(w), T_KitAmmo(w),
                        T_KitCharges(w), T_KitShots(w));
         }
         else if (sscanf(line, "ASSERT_TP %d", &n) == 1) T_ScriptAssertTP(n);

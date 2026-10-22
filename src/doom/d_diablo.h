@@ -75,7 +75,7 @@ typedef enum
     // Crit is gear-inherent (Diablo-style): weapons/items grant it.
     DSTAT_CRIT_CHANCE, // percent; chance to crit
     DSTAT_CRIT_DMG,    // percent; bonus crit damage (x2 = 200 base)
-    DSTAT_HEAT_MAX,    // bonus to plasma overheat threshold (base 100)
+    DSTAT_PLASMA_CAP,  // bonus to plasma rifle max ammo (base 100)
     DSTAT_AD_FLAT,     // flat bonus damage (added before AD%)
     DSTAT_AP_FLAT,     // flat bonus ability power (added before AP%)
     DSTAT_CD_FLAT,     // flat cooldown reduction in rounds
@@ -105,9 +105,9 @@ typedef enum
 
 // Mechanic affix flags (rare guns grant mechanics, not just numbers).
 // Stored on diablo_itemdef_t.mech; hand-authored per item.
-#define MECH_PHOENIX    (1 << 0)   // kills vent 50 heat (plasma)
-#define MECH_OVERCLOCK  (1 << 1)   // +25 heat dissipation/round (plasma)
-#define MECH_CALDERA    (1 << 2)   // overheat -> fire nova, vent to 0 (plasma)
+#define MECH_PHOENIX    (1 << 0)   // kills vent 50 ammo (plasma)
+#define MECH_OVERCLOCK  (1 << 1)   // +25 ammo dissipation/round (plasma)
+#define MECH_CALDERA    (1 << 2)   // max ammo -> fire nova, vent to 0 (plasma)
 #define MECH_VOLTAIC    (1 << 3)   // explosions chain 50% to nearby foe (rocket)
 #define MECH_BANDOLIER  (1 << 4)   // +1 max charge (rocket)
 #define MECH_SIEGE      (1 << 5)   // direct hits knock foes back 1 tile (rocket)
@@ -151,7 +151,7 @@ typedef struct
     // Crit is gear-inherent (Diablo-style).
     int crit_chance; // percent; chance to crit
     int crit_dmg;    // percent; bonus crit damage (base x2 = 200)
-    int heat_max;    // bonus to plasma overheat threshold (base 100)
+    int plasma_cap;  // bonus to plasma rifle max ammo (base 100)
     int ad_flat;     // flat bonus damage (added before AD%)
     int ap_flat;     // flat bonus ability power (added before AP%)
     int cd_flat;     // flat cooldown reduction in rounds

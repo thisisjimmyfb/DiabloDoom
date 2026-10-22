@@ -1110,14 +1110,11 @@ static void ST_drawTurnKits(void)
         snprintf(cdlab, sizeof(cdlab), "AS");
         snprintf(cdval, sizeof(cdval), "%d", kit->tp_cost);
     }
-    // Weapon-specific gate: heat for plasma, charges for rocket.
-    if (kit->heat_per_shot > 0)
-    {
-        snprintf(mechlab, sizeof(mechlab), "HEAT");
-        snprintf(mechval, sizeof(mechval), "%d/%d",
-                 T_KitHeat(plyr->readyweapon), T_KitHeatMax());
-    }
-    else if (kit->max_charges > 0)
+    // Weapon-specific gate attribute: charges for rocket. Plasma
+    // has no panel entry -- its resource is the standard AMMO
+    // readout, like every other magazine (Jimmy, 2026-10-22: heat
+    // capacity is not an attribute).
+    if (kit->max_charges > 0)
     {
         snprintf(mechlab, sizeof(mechlab), "CHG");
         snprintf(mechval, sizeof(mechval), "%d/%d",
@@ -1255,9 +1252,9 @@ void ST_drawWidgets(boolean refresh)
     if (T_Active())
     {
         // Turn mode: left AMMO area shows the ready weapon's magazine
-        // (classic Doom big-number style); heat-gated plasma shows
-        // remaining heat capacity instead. Right-side ammo counts
-        // become the kit status panel.
+        // counter (classic Doom big-number style) -- plasma's
+        // included: its inverted counter counts up as it fires.
+        // Right-side ammo counts become the kit status panel.
         const t_kitdef_t *turnkit = T_KitForWeapon(plyr->readyweapon);
         static int st_turn_ammo;
         // Preview: during planning, subtract ammo that queued attacks will
@@ -1273,13 +1270,15 @@ void ST_drawWidgets(boolean refresh)
                     queued_attacks++;
             }
         }
-        if (turnkit->heat_per_shot > 0)
+        if (turnkit->ammo_inverted)
         {
-            int heat_after = T_KitHeat(plyr->readyweapon)
-                           + queued_attacks * turnkit->heat_per_shot;
-            if (heat_after > T_KitHeatMax())
-                heat_after = T_KitHeatMax();
-            st_turn_ammo = T_KitHeatMax() - heat_after;
+            // Inverted magazine (plasma): queued attacks ADD to the
+            // counter, clamped at capacity.
+            int ammo_after = T_KitAmmo(plyr->readyweapon)
+                           + queued_attacks * turnkit->ammo_cost;
+            if (ammo_after > T_KitMaxAmmo(plyr->readyweapon))
+                ammo_after = T_KitMaxAmmo(plyr->readyweapon);
+            st_turn_ammo = ammo_after;
         }
         else
         {
