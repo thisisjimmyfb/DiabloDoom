@@ -873,3 +873,22 @@ void T_ResolveKill(player_t *player, mobj_t *victim, int dmg,
     }
 }
 
+
+// Effective attack interval in tics for a player's weapon: the kit's
+// base attack_tics at baseline attack speed (attack_tp 4, from
+// T_DeriveStats), scaled by the DEX-driven attack-speed stat
+// (attack_tp 2 = twice as fast). Min 1 tic (0 if the kit has no
+// attack time). This is the ONE firing-rate system: the queued-attack
+// executor pulses for this long per shot, and the continuous-fire
+// tick fires at this interval.
+int T_AttackInterval(player_t *player, weapontype_t w)
+{
+    const t_kitdef_t *kit = T_KitForWeapon(w);
+    t_combatstats_t st;
+    int t;
+    if (kit->attack_tics <= 0)
+        return 0;
+    T_DeriveStats(player, &st);
+    t = kit->attack_tics * st.attack_tp / 4;
+    return t < 1 ? 1 : t;
+}

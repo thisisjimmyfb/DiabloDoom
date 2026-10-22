@@ -201,19 +201,8 @@ void T_ClearContinuousFire(void)
     turnctrl.cont_fire_tics = 0;
 }
 
-// Interval between continuous-fire shots: the kit's attack_tics at
-// baseline attack speed (attack_tp 4, from T_DeriveStats); the
-// DEX-driven attack-speed stat scales it down (attack_tp 2 fires
-// twice as fast). Min 1 tic.
-static int T_ContinuousFireInterval(player_t *player, weapontype_t w)
-{
-    const t_kitdef_t *kit = T_KitForWeapon(w);
-    t_combatstats_t st;
-    int t;
-    T_DeriveStats(player, &st);
-    t = kit->attack_tics * st.attack_tp / 4;
-    return t < 1 ? 1 : t;
-}
+// The interval between continuous-fire shots is T_AttackInterval
+// (t_combat.c) -- the same firing-rate system queued attacks use.
 
 // Setup: arm continuous fire on a target. Called when an attack with
 // a continuous weapon (chainsaw/chaingun/plasma) is committed, from
@@ -229,7 +218,7 @@ void T_SetupContinuousFire(mobj_t *target)
     // The first autofire shot lands one interval after the
     // committed shot.
     turnctrl.cont_fire_tics =
-        T_ContinuousFireInterval(player, player->readyweapon);
+        T_AttackInterval(player, player->readyweapon);
     printf("[TURN] continuous fire locked on %s\n",
            T_TargetName(target));
 }
@@ -277,7 +266,7 @@ void T_TickContinuousFire(void)
     }
     T_ExecAttack(lt, 0);
     turnctrl.cont_fire_tics =
-        T_ContinuousFireInterval(player, player->readyweapon);
+        T_AttackInterval(player, player->readyweapon);
 }
 
 int T_CostFor(turnaction_t action)
@@ -2906,18 +2895,20 @@ static boolean T_ExecAttack(mobj_t *target, int cost)
         T_DumpState("exec-attack-kill");
         return true;
     }
-    // Attack speed delay: each command execution takes time based on the
-    // weapon's attack_tics. This represents the fire animation duration.
-    // The pulse was begun, so the drain MUST pause until it plays out:
-    // return true. (Returning false here made T_ExecuteNext fire every
-    // queued attack in the same tic; the pulses just stacked into one
-    // long pause afterwards -- commands looked like they all resolved
-    // at once instead of one at a time.)
+    // Attack speed delay: each shot occupies T_AttackInterval tics --
+    // the same firing-rate system the continuous-fire tick uses, so
+    // queued and continuous attacks pace identically (attack speed
+    // modifiers included). The pulse was begun, so the drain MUST
+    // pause until it plays out: return true. (Returning false here
+    // made T_ExecuteNext fire every queued attack in the same tic;
+    // the pulses just stacked into one long pause afterwards --
+    // commands looked like they all resolved at once instead of one
+    // at a time.)
     {
-        const t_kitdef_t *kit = T_KitForWeapon(player->readyweapon);
-        if (kit->attack_tics > 0)
+        int interval = T_AttackInterval(player, player->readyweapon);
+        if (interval > 0)
         {
-            T_BeginPulse(kit->attack_tics, true, false);
+            T_BeginPulse(interval, true, false);
             T_DumpState("exec-attack");
             return true;
         }

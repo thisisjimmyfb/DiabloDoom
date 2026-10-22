@@ -119,6 +119,10 @@ typedef struct
 } t_kitdef_t;
 
 const t_kitdef_t *T_KitForWeapon(weapontype_t w);
+// Effective attack interval (tics) for a player's weapon: the kit's
+// attack_tics scaled by the derived attack-speed stat. THE firing
+// rate for both queued attacks and continuous fire.
+int T_AttackInterval(player_t *player, weapontype_t w);
 int T_KitFireSound(weapontype_t w);     // per-gun firing report sfx
 int T_KitCooldown(weapontype_t w);          // current cooldown rounds left
 void T_KitSetCooldown(weapontype_t w, int rounds);
