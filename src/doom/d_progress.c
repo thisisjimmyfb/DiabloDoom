@@ -431,10 +431,15 @@ void D_AutoSaveGame(void)
                 memcpy(&progress_hdr->reserved[10], &angle, 4);
             }
         }
-        printf("[AUTOSAVE] storing level E%dM%d pos=(%d,%d) (gamemap=%d, gameepisode=%d, gameaction=%d, d_map=%d, d_episode=%d)\n",
-               episode_to_store, map_to_store,
-               (int)progress_hdr->reserved[2], (int)progress_hdr->reserved[6],
-               gamemap, gameepisode, (int)gameaction, d_map, d_episode);
+        {
+            int stored_x, stored_y;
+            memcpy(&stored_x, &progress_hdr->reserved[2], 4);
+            memcpy(&stored_y, &progress_hdr->reserved[6], 4);
+            printf("[AUTOSAVE] storing level E%dM%d pos=(%d,%d) (gamemap=%d, gameepisode=%d, gameaction=%d, d_map=%d, d_episode=%d)\n",
+                   episode_to_store, map_to_store,
+                   stored_x >> 16, stored_y >> 16,
+                   gamemap, gameepisode, (int)gameaction, d_map, d_episode);
+        }
     }
     M_snprintf(tmp, sizeof(tmp), PROGRESS_AUTO_FILENAME_FMT,
                progress_auto_slot + 1);
