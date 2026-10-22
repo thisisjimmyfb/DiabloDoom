@@ -254,21 +254,27 @@ never an instant move or a teleport. Explore mode only.
    auto-replenish in explore, so full is the steady state), so a
    useless cache is not a target and COLLECT returns false. If the
    magazines fill during the walk itself, the walk ends on arrival
-   with "MAGAZINES FULL." instead of the stuck watchdog. The first candidate with a path becomes the
-   target. **If none has a path, `T_DoCollect` returns false** and
+   with "MAGAZINES FULL." instead of the stuck watchdog. **Every
+   candidate with a path is queued**, nearest first; COLLECT hands
+   them to the GOTO walker one at a time (point 2). **If none has
+   a path, `T_DoCollect` returns false** and
    nothing else happens: no walk starts, the HUD shows "NO
    REACHABLE LOOT.", and the caller ignores the request. (The loot
    prompt shares this scan -- it lights only for loot COLLECT could
    actually path to.)
-2. **The walk ticks over multiple frames.** No route is stored.
-   Once setup returns true, `T_CollectTick` runs once per game tick
-   (from `T_ExploreTick`, after the world tick) for as many ticks
-   as the walk takes. Each tick re-runs the pathfinder from the
-   player's current position and sets one momentum step toward the
-   centre of the next path cell -- or, when the player is already
-   in the target's cell, directly onto the item for the final
-   approach. The path is recomputed every tick, so it can never go
-   stale mid-walk.
+2. **COLLECT delegates the walk to GOTO** (2026-10-22). COLLECT
+   owns target selection only; all movement belongs to the GOTO
+   walker. Setup hands the first candidate's position to
+   `T_GotoStart` as a destination: GOTO pathfinds once, stores the
+   waypoints (the last one is the exact destination, not its cell
+   centre, so the walk ends standing on the item), and glides
+   through them on momentum. `T_CollectTick` runs once per game
+   tick (from `T_ExploreTick`, after the world tick) as a mission
+   monitor, reading how each leg ended via `T_GotoResult`
+   (arrived / blocked / no path / cancelled). A blocked leg is
+   re-planned once from where the player stands; a leg that fails
+   again -- or finds no path -- advances COLLECT to the next
+   queued candidate.
 3. **The walk owns the player.** While a walk is active, movement
    input is blocked on both channels: the local player's movement
    keys do nothing (`P_MovePlayer` returns early while a walk is
@@ -278,13 +284,16 @@ never an instant move or a teleport. Explore mode only.
    through. COLLECT cancels GOTO and WALK when it starts; only one
    autonomous walk runs at a time.
 4. **The walk ends.** On pickup (the target leaves the world:
-   "LOOT COLLECTED."); when a tick's pathfinding finds no path
-   ("CAN'T REACH LOOT." -- e.g. a door closed en route); after 2
-   seconds without progress (the stuck watchdog: the BFS said
-   walkable, physics disagrees); on a 20-second hard cap ("COLLECT
-   TIMED OUT."); and **immediately when combat is encountered** --
-   combat entry cancels the walk, as do leaving explore mode or
-   dying. Cancelling zeroes the player's velocity: no coasting.
+   "LOOT COLLECTED."); on arrival with the target still in the
+   world (the pickup sweep refused it -- backpack full, armor not
+   an upgrade, or a filled ammo cache: "MAGAZINES FULL."); when
+   every queued candidate's leg has failed ("CAN'T REACH LOOT." --
+   a leg physics refuses aborts after ~1 second without progress:
+   the BFS said walkable, physics disagrees); on a 20-second hard
+   cap ("COLLECT TIMED OUT."); and **immediately when combat is
+   encountered** -- combat entry cancels the walk, as do leaving
+   explore mode or dying. Cancelling zeroes the player's velocity:
+   no coasting.
 
 **Pathfinding rule** (2026-10-21): the BFS tests what movement
 tests. A step between cells requires the segment between the two
