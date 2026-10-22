@@ -545,12 +545,13 @@ cause (display-only; the actual spend happens on execute), so the player
 can see when further attacks would be no-ops — heat weapons preview
 similarly.
 
-- **AD weapons** replenish from **attack speed**: each round the
-  magazine regenerates attack-speed attacks' worth of ammo
-  (`T_KitRegenAmmo`). Ranged attacks cost 0 TP -- ammo is the limiter,
+- **AD weapons** replenish only via the **trickle** (below) while game
+  time runs — there is no per-round ammo grant (the round-boundary
+  `T_KitRegenAmmo` top-up was removed 2026-10-22). Ranged attacks cost
+  0 TP -- ammo is the limiter,
   so a round can dump the whole magazine; the magazine is a burst
   buffer (e.g. Reaper TP refunds). Melee (fists, chainsaw) still costs
-  TP per attack, reduced by attack speed. Ammo also **trickles visibly
+  TP per attack, reduced by attack speed. Ammo **trickles visibly
   during the progress phase** (`T_KitTrickleAmmo`, per-tic): +1 to the
   ready weapon's magazine at a weapon-tied interval — cooldown-gated
   weapons trickle 1 per `cooldown` × 12 tics, attack-speed weapons 1 per

@@ -117,8 +117,9 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
    can dump the whole magazine. Melee (fists, chainsaw) costs TP per attack.
    Capacities/costs: pistol 10/1, shotgun 20/2, chaingun 10/1, chainsaw 6/1,
    rocket 20/10, SSG 8/8, BFG 20/20. Plasma has no magazine — heat is its
-   ammo. AD weapons regen attack-speed attacks' worth of ammo per round
-   (`T_KitRegenAmmo`, called from `T_EndPulse`); AP weapons reload on
+   ammo. There is no per-round ammo grant (removed 2026-10-22); AD
+   magazines replenish only via the trickle while game time runs.
+   AP weapons reload on
    cooldown completion (SSG/BFG, `T_RefillOnCooldownReady`) or charge regen
    (rocket). AD magazine weapons also trickle +1 ammo per-tic interval
    during the progress phase (`T_KitTrickleAmmo`; weapon-tied rate: 1 per
