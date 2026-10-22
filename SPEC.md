@@ -555,9 +555,14 @@ values (e.g. BFG 10–18 instead of 30–50, Pistol 2–4 instead of 6–13), so
 the looted gun's Diablo stats are the real damage source. Hunting better
 gear is the progression; a naked gun does chip damage.
 
-**Two-handed weapons.** The BFG9000, rocket launcher, chaingun, and
-super shotgun occupy both hands: no shield slot while one is equipped
-(`D_IsTwoHandedWeapon`, `src/doom/d_diablo.c`). Equipping a two-handed
+**Two-handed weapons.** A weapon is two-handed iff its backpack
+footprint takes up 2 rows (Jimmy, 2026-10-22) — with the horizontal
+footprints that is the 3x2 guns (chaingun, rocket launcher, plasma
+rifle, BFG9000); the 1-row guns (pistol, shotgun, super shotgun,
+chainsaw) are one-handed. `D_IsTwoHandedWeapon` derives this from
+the base item's `grid_h`, so reshaping a footprint reclassifies the
+weapon. A two-handed gun occupies both hands: no shield slot while
+one is equipped. Equipping a two-handed
 gun unequips the shield (stashed in the backpack on direct equip, or
 held on the cursor in the inventory UI); equipping a shield while a
 two-handed gun is equipped unequips the gun the same way.
