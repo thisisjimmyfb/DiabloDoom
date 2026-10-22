@@ -8,12 +8,14 @@ This file covers the system-specific mechanics: how to launch the game, send com
 
 ## How the Agent Sees the Game
 
-Each decision starts with a fresh screenshot. Assess:
+Each decision starts with TWO fresh inputs, handed to you every iteration: the **screenshot** and the **game log**. The log (`/tmp/doom_hourly.log`) is line-buffered and LIVE during play — it no longer waits for a flush at shutdown. Read its tail every iteration, alongside the screenshot: the screenshot shows where you are, the log tells you what just happened — [WALK]/[GOTO] position stamps (world coordinates), the [HISTORY] trail, the [LOOT] line, kills, deaths, and why a command stopped. Never decide from the screenshot alone when the log has fresher facts.
+
+Assess from the screenshot:
 - **HUD**: health %, ammo, current state (EXPLORE banner vs turn-based COMBAT UI)
 - **3D view**: facing a wall? Open area? Doorway? Enemy visible?
 - **Loot**: is there a "Loot nearby, press G to loot" prompt? Visible pickups on the ground?
 
-**Decision cadence**: A fresh screenshot every ~5 seconds. The game state changes fast in combat, so stale visual input leads to bad decisions.
+**Decision cadence**: A fresh screenshot AND a fresh log tail every ~5 seconds. The game state changes fast in combat, so stale input leads to bad decisions.
 
 ## Setup
 
@@ -80,13 +82,13 @@ Play for ~4 minutes. The 10-minute cron window is the gaming session — within 
 **Decision cadence: Take a fresh screenshot every 5 seconds.** Do not reuse a stale screenshot for multiple decisions. The loop is ACT → CAPTURE → THINK:
 1. Send command(s) via FIFO (based on the previous screenshot and PROMPT.md strategy)
 2. Wait ~5 seconds while they play out, then Capture (CAPTURE command: queues a 15s replay video encode — it runs in the background and the MP4 appears under /tmp/doomshots/ a few seconds later — plus an immediate screenshot; sleep 4, copy newest PNG to /tmp/farm_view.png). Capturing *after* the action is what puts the action in the video.
-3. Read the screenshot with vision, decide the next action, then repeat from step 1
+3. Read the screenshot with vision AND tail the log (it is live now — the position stamps tell you where your last command actually ended), decide the next action, then repeat from step 1
 
 (First iteration after LOAD only: one opening CAPTURE to see the loaded state, then start the loop with an action.)
 
 This means ~40-45 decisions per 4-minute session. Fresh visual input every time.
 
-Check /tmp/doom_hourly.log periodically for: kills, PLAYER_DIED, errors.
+Check the tail of /tmp/doom_hourly.log every iteration (it is live) for: position stamps, kills, PLAYER_DIED, errors.
 - If you see PLAYER_DIED: capture a REPLAY video (write `REPLAY\n`, sleep 20, grab newest mp4) for the death moment, upload it with your report. Mention what killed you and where your corpse is. Then send RESPAWN. Do not send RESPAWN until you've uploaded the death video.
   - RESPAWN preflight (added 2026-10-16 after two silent RESPAWN failures): confirm `pgrep -c -f "chocolate-doo[m]"` is exactly 1 BEFORE writing RESPAWN — a dead/missing game means your write blocks forever, and two games split the FIFO so the command can vanish.
   - Verify with the log, not just the screenshot: look for `[FARM] RESPAWN confirmed` (worked) vs `[FARM] RESPAWN failed - no dead player found` (the command ARRIVED but nobody was dead — do NOT resend blindly; check the screenshot). No line at all means the command never reached the game — check the process count, don't assume the engine is broken. Note: every game launch truncates /tmp/doom_hourly.log, so only trust lines written after the latest launch.
