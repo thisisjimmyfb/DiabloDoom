@@ -215,11 +215,21 @@ boolean T_InSelection(void);
 void T_DoMove(int dir);   // 0=N(fwd) 1=E(right) 2=S(back) 3=W(left)
 void T_DoTurn(int dir);   // -1=left, +1=right; free 45-degree view turn
 void T_DoUse(void);
-boolean T_DoCollect(void);   // G: set up an autonomous walk to the nearest reachable loot; false = none reachable, caller ignores it
-void T_CollectTick(void);   // step the collect walk (explore mode)
+boolean T_DoCollect(void);   // G: filter reachable loot, hand destinations to the GOTO walker; false = none reachable, caller ignores it
+void T_CollectTick(void);   // monitor the collect walk (explore mode)
 void T_CollectCancel(void);
 boolean T_CollectActive(void);
-void T_GotoStart(fixed_t tx, fixed_t ty); // GOTO x y: pathfind and walk there
+// How the most recent GOTO walk ended. GOTO_RES_NONE while a walk is
+// running (or before any walk). Lets a caller that handed GOTO a
+// destination (COLLECT) react: advance to its next destination, etc.
+#define GOTO_RES_NONE      0
+#define GOTO_RES_ARRIVED   1
+#define GOTO_RES_BLOCKED   2
+#define GOTO_RES_NOPATH    3
+#define GOTO_RES_CANCELLED 4
+boolean T_GotoStart(fixed_t tx, fixed_t ty); // pathfind and walk to (x,y); false = no path
+int T_GotoResult(void);
+boolean T_GotoActive(void);
 void T_GotoCancel(void);
 void T_GotoTick(void);      // step along the GOTO path (explore mode)
 void T_WalkStart(void);     // WALK: persistent forward movement

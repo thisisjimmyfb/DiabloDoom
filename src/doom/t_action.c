@@ -823,6 +823,20 @@ static fixed_t goto_last_x = 0, goto_last_y = 0;
 static int goto_stuck_tics = 0;
 static fixed_t goto_start_x = 0, goto_start_y = 0;
 static int goto_recenter_tics = 0;
+// Outcome of the current/last walk (GOTO_RES_* in t_turn.h). NONE
+// while a walk is running; set when the walk ends so a caller that
+// handed GOTO a destination (COLLECT) can decide what to do next.
+static int goto_result = GOTO_RES_NONE;
+
+boolean T_GotoActive(void)
+{
+    return goto_active;
+}
+
+int T_GotoResult(void)
+{
+    return goto_result;
+}
 
 // Stall recovery shared by the momentum walks (GOTO / COLLECT).
 // If the player stands off his cell centre across a face line, his
@@ -853,7 +867,7 @@ static boolean T_RecenterAim(mobj_t *mo, fixed_t *aim_x, fixed_t *aim_y)
     return true;
 }
 
-void T_GotoStart(fixed_t tx, fixed_t ty)
+boolean T_GotoStart(fixed_t tx, fixed_t ty)
 {
     player_t *pl = &players[consoleplayer];
     int path_dirs[GOTO_MAX_WP];
@@ -867,7 +881,10 @@ void T_GotoStart(fixed_t tx, fixed_t ty)
     T_WalkCancel();
 
     if (pl->mo == NULL)
-        return;
+    {
+        goto_result = GOTO_RES_CANCELLED;
+        return false;
+    }
 
     // Clamp target to nearest walkable position: if (tx,ty) is inside a
     // wall, step back along the ray from player to target until walkable.
@@ -906,7 +923,8 @@ void T_GotoStart(fixed_t tx, fixed_t ty)
     if (steps < 0)
     {
         printf("[GOTO] no path to (%d,%d)\n", tx >> 16, ty >> 16);
-        return;
+        goto_result = GOTO_RES_NOPATH;
+        return false;
     }
 
     // Convert direction steps to world-coordinate waypoints.
@@ -922,9 +940,27 @@ void T_GotoStart(fixed_t tx, fixed_t ty)
             goto_wp_y[i] = (fixed_t)gy * LOOT_GRID + LOOT_GRID / 2;
         }
     }
+    // The last waypoint is the destination itself, not its cell
+    // centre: the walk ends standing on the requested point (a loot
+    // item sits anywhere in its cell, and the cell centre can be out
+    // of pickup reach). A zero-step path (already in the target
+    // cell) still gets that one waypoint, so the walker steps onto
+    // the point instead of declaring arrival from across the cell.
+    if (steps == 0)
+    {
+        goto_wp_x[0] = tx;
+        goto_wp_y[0] = ty;
+        steps = 1;
+    }
+    else
+    {
+        goto_wp_x[steps - 1] = tx;
+        goto_wp_y[steps - 1] = ty;
+    }
     goto_wp_count = steps;
     goto_wp_index = 0;
     goto_active = true;
+    goto_result = GOTO_RES_NONE;
     goto_stuck_tics = 0;
     goto_recenter_tics = 0;
     if (players[consoleplayer].mo != NULL)
@@ -936,13 +972,16 @@ void T_GotoStart(fixed_t tx, fixed_t ty)
         T_HistorySample(true);
     }
     printf("[GOTO] path to (%d,%d): %d waypoints\n", tx >> 16, ty >> 16, steps);
+    return true;
 }
 
-void T_GotoCancel(void)
+// End the GOTO walk and record how it ended (GOTO_RES_*).
+static void goto_finish(int result)
 {
     mobj_t *mo = players[consoleplayer].mo;
     if (goto_active)
         T_HistorySample(true);
+    goto_result = result;
     goto_active = false;
     goto_wp_count = 0;
     goto_wp_index = 0;
@@ -955,6 +994,11 @@ void T_GotoCancel(void)
         mo->momx = 0;
         mo->momy = 0;
     }
+}
+
+void T_GotoCancel(void)
+{
+    goto_finish(GOTO_RES_CANCELLED);
 }
 
 // ------------------------------------------------------------------
@@ -1318,7 +1362,7 @@ void T_GotoTick(void)
         return;
     if (pl->mo == NULL)
     {
-        T_GotoCancel();
+        goto_finish(GOTO_RES_CANCELLED);
         return;
     }
     mo = pl->mo;
@@ -1330,7 +1374,7 @@ void T_GotoTick(void)
         printf("[GOTO] arrived at (%d,%d), moved %d from (%d,%d)\n",
                mo->x >> 16, mo->y >> 16, moved,
                goto_start_x >> 16, goto_start_y >> 16);
-        T_GotoCancel();
+        goto_finish(GOTO_RES_ARRIVED);
         return;
     }
 
@@ -1404,7 +1448,7 @@ void T_GotoTick(void)
                        " at (%d,%d), moved %d from (%d,%d)\n",
                        goto_wp_index, mo->x >> 16, mo->y >> 16,
                        moved, goto_start_x >> 16, goto_start_y >> 16);
-                T_GotoCancel();
+                goto_finish(GOTO_RES_BLOCKED);
                 return;
             }
         }
