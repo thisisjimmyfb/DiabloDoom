@@ -104,7 +104,8 @@ Check the tail of /tmp/doom_hourly.log every iteration (it is live) for: positio
 After ~4 min of play:
 1. Kill count: grep the log for kill messages.
 2. Capture replay: the report video must show this run's action, so use the newest `diablodoom_*.mp4` in `/tmp/doomshots/` that was captured *after* your final action batch played out (per the loop above, your last iteration's CAPTURE already qualifies). Only if no post-action capture exists, do a short move/turn burst, wait ~5 seconds, then write `REPLAY\n`, sleep 20, and grab the newest mp4. Never report a video captured right after LOAD or after an idle gap — it shows a standing-still player. Copy to workspace, upload via `/opt/hatch/bin/remote-storage upload-file`.
-3. Report to user: kills this run and replay video link.
+   - **Stuck runs: skip the replay entirely.** If this run was stuck — you ended at essentially the position you started, made no meaningful movement, had no combat, kills, or loot, and your GOTO attempts returned `blocked` / `no path` — do not capture or upload a replay (it would only show a standing-still player). A screenshot is sufficient: take a final screenshot, upload that, and report it instead of a video link. (A death is not "stuck" — the death-replay rule above still applies.)
+3. Report to user: kills this run and replay video link — or, for a stuck run, kills (0) and the screenshot link.
 4. Leave the game running — next session continues from where you left off.
 
 ## Failure Handling
