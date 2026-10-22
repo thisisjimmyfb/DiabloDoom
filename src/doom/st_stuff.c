@@ -1004,6 +1004,61 @@ static void STWepDrawText(int x, int y, const char *s)
 }
 
 // Blit a raw 32x32 item icon scaled into a box at (x,y).
+// One pixel of a WAD patch at source (sx,sy), or -1 when transparent.
+static int STWepPatchPixel(patch_t *patch, int sx, int sy)
+{
+    column_t *column;
+    byte *post;
+
+    column = (column_t *)((byte *)patch + LONG(patch->columnofs[sx]));
+    for (post = (byte *)column; *post != 0xff; post += post[1] + 4)
+    {
+        if (sy >= post[0] && sy < post[0] + post[1])
+            return post[3 + (sy - post[0])];
+    }
+    return -1;
+}
+
+// Draw a WAD patch inside the square box, aspect preserved and
+// centered; transparent pixels leave the arms background beneath.
+static void STWepDrawPatch(int x, int y, int box, patch_t *patch)
+{
+    int pw = SHORT(patch->width);
+    int ph = SHORT(patch->height);
+    int dw, dh, ox, oy, dx, dy;
+    pixel_t *dest;
+
+    if (pw < 1 || ph < 1)
+        return;
+    if (pw > ph) { dw = box; dh = ph * box / pw; }
+    else         { dh = box; dw = pw * box / ph; }
+    if (dw < 1) dw = 1;
+    if (dh < 1) dh = 1;
+    ox = x + (box - dw) / 2;
+    oy = y + (box - dh) / 2;
+    for (dy = 0; dy < dh; ++dy)
+    {
+        int sy = dy * ph / dh;
+        int yy = oy + dy;
+        if (yy < 0 || yy >= SCREENHEIGHT)
+            continue;
+        dest = I_VideoBuffer + SCREENWIDTH * yy + ox;
+        for (dx = 0; dx < dw; ++dx)
+        {
+            int px;
+            if (ox + dx < 0 || ox + dx >= SCREENWIDTH)
+            {
+                dest++;
+                continue;
+            }
+            px = STWepPatchPixel(patch, dx * pw / dw, sy);
+            if (px >= 0)
+                *dest = (pixel_t)px;
+            dest++;
+        }
+    }
+}
+
 static void STWepDrawIcon(int x, int y, int box, const unsigned char *icon)
 {
     int dx, dy, sx, sy;
@@ -1228,10 +1283,25 @@ static void ST_drawDiabloWeapon(void)
         return;
     }
 
-    icon_idx = D_GetItemIconIdx(D_ITEMTIER(id), D_ITEMIDX(id));
-    if (icon_idx >= 0 && icon_idx < d_num_item_icons
-        && d_item_icons[icon_idx] != NULL)
-        STWepDrawIcon(ST_WEPCX - 10, 170, 20, d_item_icons[icon_idx]);
+    // Guns prefer the WAD's own pickup sprite when the loaded IWAD
+    // carries one (same rule as the inventory screen); the built-in
+    // icon is the fallback.
+    {
+        const char *sprname = D_ItemWadSpriteName(def);
+        patch_t *patch = NULL;
+        if (sprname && W_CheckNumForName(sprname) >= 0)
+            patch = W_CacheLumpName(sprname, PU_CACHE);
+        if (patch)
+            STWepDrawPatch(ST_WEPCX - 10, 170, 20, patch);
+        else
+        {
+            icon_idx = D_GetItemIconIdx(D_ITEMTIER(id), D_ITEMIDX(id));
+            if (icon_idx >= 0 && icon_idx < d_num_item_icons
+                && d_item_icons[icon_idx] != NULL)
+                STWepDrawIcon(ST_WEPCX - 10, 170, 20,
+                              d_item_icons[icon_idx]);
+        }
+    }
 
     dmg_min = D_Stat((struct player_s *)plyr, DSTAT_DMG_MIN);
     dmg_max = D_Stat((struct player_s *)plyr, DSTAT_DMG_MAX);

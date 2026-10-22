@@ -173,6 +173,11 @@ boolean D_ValidItem(int tier, int idx);
 void D_ItemDisplayName(const diablo_itemdef_t *def, char *buf, int bufsize);
 // Icon index (d_diablo_icons.h) for the given item.
 int D_GetItemIconIdx(int tier, int idx);
+// WAD pickup-sprite lump name for a gun item ("SHOTA0" etc.), or
+// NULL when the item is not a gun or its weapon has no pickup
+// sprite (pistol, fists).  Callers check the lump exists in the
+// loaded WAD before using it (the SSG sprite is Doom II only).
+const char *D_ItemWadSpriteName(const diablo_itemdef_t *def);
 
 // Player equipment state.
 void D_ResetPlayer(struct player_s *player);

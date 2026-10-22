@@ -1105,6 +1105,62 @@ boolean D_UIResponder(event_t *ev)
 // Rendering.
 // ---------------------------------------------------------------------------
 
+// One pixel of a WAD patch at source (sx,sy), or -1 when the patch
+// is transparent there.
+static int UIPatchPixel(patch_t *patch, int sx, int sy)
+{
+    column_t *column;
+    byte *post;
+
+    column = (column_t *)((byte *)patch + LONG(patch->columnofs[sx]));
+    for (post = (byte *)column; *post != 0xff; post += post[1] + 4)
+    {
+        if (sy >= post[0] && sy < post[0] + post[1])
+            return post[3 + (sy - post[0])];
+    }
+    return -1;
+}
+
+// Draw a WAD patch inside the (x,y,w,h) box, aspect preserved and
+// centered (letterboxed); transparent pixels leave what is beneath.
+static void UIDrawPatchFit(int x, int y, int w, int h, patch_t *patch)
+{
+    int pw = SHORT(patch->width);
+    int ph = SHORT(patch->height);
+    int dw, dh, ox, oy, dx, dy;
+    pixel_t *dest;
+
+    if (pw < 1 || ph < 1)
+        return;
+    if (pw * h > ph * w) { dw = w; dh = ph * w / pw; }
+    else                 { dh = h; dw = pw * h / ph; }
+    if (dw < 1) dw = 1;
+    if (dh < 1) dh = 1;
+    ox = x + (w - dw) / 2;
+    oy = y + (h - dh) / 2;
+    for (dy = 0; dy < dh; ++dy)
+    {
+        int sy = dy * ph / dh;
+        int yy = oy + dy;
+        if (yy < 0 || yy >= SCREENHEIGHT)
+            continue;
+        dest = I_VideoBuffer + SCREENWIDTH * yy + ox;
+        for (dx = 0; dx < dw; ++dx)
+        {
+            int px;
+            if (ox + dx < 0 || ox + dx >= SCREENWIDTH)
+            {
+                dest++;
+                continue;
+            }
+            px = UIPatchPixel(patch, dx * pw / dw, sy);
+            if (px >= 0)
+                *dest = (pixel_t)px;
+            dest++;
+        }
+    }
+}
+
 // Draw an item icon: rarity-colored box with the item's initial.
 // (x,y) is the top-left, in pixels.
 static void UIDrawItemIcon(int x, int y, int w, int h, int id)
@@ -1122,9 +1178,23 @@ static void UIDrawItemIcon(int x, int y, int w, int h, int id)
     // Draw the item's icon, aspect-ratio preserved (letterboxed).
     // The source icon is square; fit it into the largest centered
     // square that fits in w x h so tall/wide items don't stretch.
+    // Guns prefer the WAD's own pickup sprite (the art the player
+    // saw lying in the world) when the loaded IWAD carries one, so
+    // the inventory matches the WAD in use; the built-in icon is
+    // the fallback (pistol everywhere, SSG outside Doom II WADs).
     icon_idx = D_GetItemIconIdx(D_ITEMTIER(id), D_ITEMIDX(id));
-    if (icon_idx >= 0 && icon_idx < d_num_item_icons
-        && d_item_icons[icon_idx] != NULL)
+    {
+        const char *sprname = D_ItemWadSpriteName(def);
+        patch_t *patch = NULL;
+        if (sprname && W_CheckNumForName(sprname) >= 0)
+            patch = W_CacheLumpName(sprname, PU_CACHE);
+        if (patch)
+        {
+            V_DrawFilledBox(x, y, w, h, c_rarity_dark[def->tier]);
+            UIDrawPatchFit(x, y, w, h, patch);
+        }
+        else if (icon_idx >= 0 && icon_idx < d_num_item_icons
+              && d_item_icons[icon_idx] != NULL)
     {
         int box, ox, oy;  // centered square side, top-left offset
         icon = d_item_icons[icon_idx];
@@ -1154,6 +1224,7 @@ static void UIDrawItemIcon(int x, int y, int w, int h, int id)
     {
         // Fallback: dark rarity background if no icon.
         V_DrawFilledBox(x, y, w, h, c_rarity_dark[def->tier]);
+    }
     }
 
     // Rarity border (kept so rarity stays visible).

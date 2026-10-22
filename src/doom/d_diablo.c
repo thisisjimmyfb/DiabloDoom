@@ -521,6 +521,28 @@ int D_GetItemIconIdx(int tier, int idx)
 #undef ICON_AT
 }
 
+// WAD pickup sprite (the art lying in the world) for a gun item, by
+// base weapon.  The pistol and fists have no pickup sprite in any
+// Doom WAD (the player starts with them), and the super shotgun's
+// SGN2A0 exists only in Doom II WADs -- callers fall back to the
+// built-in icon when the lump is absent.
+const char *D_ItemWadSpriteName(const diablo_itemdef_t *def)
+{
+    if (!def || def->slot != ESLOT_WEAPON)
+        return NULL;
+    switch (def->doomweapon)
+    {
+        case wp_shotgun:      return "SHOTA0";
+        case wp_supershotgun: return "SGN2A0";
+        case wp_chaingun:     return "MGUNA0";
+        case wp_missile:      return "LAUNA0";
+        case wp_plasma:       return "PLASA0";
+        case wp_bfg:          return "BFUGA0";
+        case wp_chainsaw:     return "CSAWA0";
+        default:              return NULL;
+    }
+}
+
 void D_ResetPlayer(struct player_s *pl)
 {
     player_t *player = (player_t *)pl;
