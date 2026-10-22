@@ -345,7 +345,13 @@ the game loop — `P_TouchNearbySpecials` runs once per tic from
 `P_Ticker`, after movement resolves, and collects every special
 within a *circle* around where the player actually is (reach =
 player radius + item radius; `P_TouchSpecialThing`'s vertical gate
-still applies). When several items are in reach on the same tic
+still applies). Since 2026-10-22 the same sweep also runs once per
+tic in the combat progress phase (`T_PulseOneTic`, same placement —
+after that tic's movement resolves): the progress phase never runs
+`P_Ticker`, so loot the player walked over, or that dropped at his
+feet, during a pulse was left on the ground. Input stays locked
+during pulses, G included — the sweep is position only, never an
+input path (Jimmy, 2026-10-22). When several items are in reach on the same tic
 they are picked up in **ascending cartesian distance** order —
 nearest first — so backpack space goes to the closest loot, not
 to thinker-list order (Jimmy, 2026-10-21). `PIT_CheckThing` no longer touches specials: the
