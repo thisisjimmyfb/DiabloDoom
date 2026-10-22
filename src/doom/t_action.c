@@ -1464,27 +1464,29 @@ void T_GotoTick(void)
 
 // ------------------------------------------------------------------
 // COLLECT: autonomous walk to loot, driven by the game ticker.
-// T_DoCollect only sets up: pick the nearest reachable loot, store it
-// as the target, raise collect_active. No route is computed or stored.
-// T_CollectTick does the pathfinding as part of the walk: every tick
-// it runs the grid BFS from the player's current position to the
-// target and moves one step along the path it finds, so the route is
-// spread over as many game ticks as the walk takes and is always
-// fresh. While the walk is active the FIFO driver dispatches nothing
-// (input blocked), and combat entry cancels it (see T_EnterCombat).
+// COLLECT owns target selection only (Jimmy, 2026-10-22): T_DoCollect
+// filters the loot in range into a distance-ordered candidate list
+// (Diablo drops and player corpses the grid BFS can reach, then the
+// vanilla-pickup fallback) and hands each candidate's position to
+// the GOTO walker as a destination, one at a time. T_CollectTick is
+// the mission monitor: it watches the current candidate and the
+// GOTO walk's outcome -- picked up (success), arrived but refused
+// by the pickup sweep, blocked (one re-plan retry, then the next
+// candidate) -- under a 20-second cap. All movement, pathfinding,
+// and stall recovery live in the GOTO walker. While the walk is
+// active the FIFO driver dispatches nothing but diagnostics (input
+// blocked), and combat entry cancels it (see T_EnterCombat).
 // ------------------------------------------------------------------
 
 #define COLLECT_MAX_TICS (35 * 20)  // 20-second hard cap
+#define COLLECT_MAX_CANDS 32
 
 static boolean collect_active = false;
-static mobj_t *collect_target_mo = NULL; // the loot being walked to
-static fixed_t collect_target_x = 0;
-static fixed_t collect_target_y = 0;
+static mobj_t *collect_cands[COLLECT_MAX_CANDS];
+static int collect_cand_count = 0;
+static int collect_cand_index = 0;  // candidate the GOTO walk is on
+static int collect_leg_retries = 0; // re-plans tried for this candidate
 static int collect_tics = 0;
-static int collect_still_tics = 0;
-static int collect_recenter_tics = 0;
-static fixed_t collect_last_x = 0;
-static fixed_t collect_last_y = 0;
 
 boolean T_CollectActive(void)
 {
@@ -1493,47 +1495,75 @@ boolean T_CollectActive(void)
 
 void T_CollectCancel(void)
 {
-    mobj_t *mo = players[consoleplayer].mo;
     if (collect_active)
     {
         printf("[COLLECT] walk cancelled\n");
         T_HistorySample(true);
     }
     collect_active = false;
-    collect_target_mo = NULL;
-    // Momentum movement: kill the walk velocity so the player stops
-    // instead of coasting on friction.
-    if (mo != NULL)
-    {
-        mo->momx = 0;
-        mo->momy = 0;
-    }
+    collect_cand_count = 0;
+    collect_cand_index = 0;
+    collect_leg_retries = 0;
+    // The GOTO walker owns the movement: stop it too (this also
+    // kills the walk velocity so the player doesn't coast).
+    T_GotoCancel();
 }
 
-// Is the target loot still in the world (not yet picked up)?
-static boolean collect_target_present(void)
+// Is this loot still in the world (not yet picked up)?
+static boolean collect_mo_present(mobj_t *target)
 {
     thinker_t *th;
-    if (collect_target_mo == NULL)
+    if (target == NULL)
         return false;
     for (th = thinkercap.next; th != &thinkercap; th = th->next)
     {
-        if ((mobj_t *)th == collect_target_mo)
+        if ((mobj_t *)th == target)
             return true;
     }
     return false;
 }
 
-// Setup only: find the nearest reachable loot and raise the flag.
-// The pathfinding and movement happen in T_CollectTick, per tick.
-// Returns true when a walk started. Returns false when COLLECT is
-// blocked (combat, pulse, dead) or when no candidate has a path --
-// the caller then ignores the request; nothing was set in motion.
+// Hand the current candidate's position to the GOTO walker and
+// announce the target. Returns false when GOTO can't start (no
+// path -- the candidate went stale between filtering and start).
+static boolean collect_start_leg(void)
+{
+    player_t *player = &players[consoleplayer];
+    mobj_t *loot = collect_cands[collect_cand_index];
+
+    if (!T_GotoStart(loot->x, loot->y))
+        return false;
+
+    {
+        const diablo_itemdef_t *def;
+        int item_id = loot->diablo_loot_id;
+        static char msg[64];
+        def = D_GetItemDef(D_ITEMTIER(item_id), D_ITEMIDX(item_id));
+        if (def)
+        {
+            char namebuf[96];
+            D_ItemDisplayName(def, namebuf, sizeof(namebuf));
+            snprintf(msg, sizeof(msg), "COLLECTING: %s", namebuf);
+        }
+        else
+            snprintf(msg, sizeof(msg), "COLLECTING LOOT...");
+        player->message = msg;
+    }
+    printf("[COLLECT] walking to loot at (%d,%d)\n",
+           loot->x >> 16, loot->y >> 16);
+    return true;
+}
+
+// Setup only: filter the reachable loot into the candidate list and
+// hand the first candidate's position to the GOTO walker. Movement
+// is GOTO's from here; T_CollectTick monitors the mission. Returns
+// true when a walk started. Returns false when COLLECT is blocked
+// (combat, pulse, dead) or when no candidate has a path -- the
+// caller then ignores the request; nothing was set in motion.
 boolean T_DoCollect(void)
 {
     player_t *player = &players[consoleplayer];
     mobj_t *mo = player->mo;
-    mobj_t *loot = NULL;
     int path_dirs[64];
     int steps = -1;
 
@@ -1564,8 +1594,8 @@ boolean T_DoCollect(void)
     printf("[COLLECT] attempting: player at (%d,%d)\n",
            mo->x >> 16, mo->y >> 16);
 
-    // Try loot targets in order of distance; the first one the grid
-    // BFS can reach becomes the walk target.
+    // Filter loot targets in order of distance: every one the grid
+    // BFS can reach becomes a candidate destination for GOTO.
     {
         // Collect all loot, sorted by distance (simple insertion sort,
         // max 32 items).
@@ -1606,20 +1636,19 @@ boolean T_DoCollect(void)
             }
         }
 
+        collect_cand_count = 0;
         for (li = 0; li < loot_count; li++)
         {
             steps = T_FindPathTo(mo, loot_list[li]->x, loot_list[li]->y, path_dirs, 64);
             if (steps >= 0)
-            {
-                loot = loot_list[li];
-                break;
-            }
-            printf("[COLLECT] loot %d unreachable, trying next\n", li);
+                collect_cands[collect_cand_count++] = loot_list[li];
+            else
+                printf("[COLLECT] loot %d unreachable, trying next\n", li);
         }
     }
 
     // Fall back to the nearest vanilla pickup if no Diablo loot path.
-    if (loot == NULL)
+    if (collect_cand_count == 0)
     {
         t_scan_result_t scan = T_ScanNearby(mo, T_LOOT_MAX_DIST, NULL, 0);
         if (scan.nearest_pickup != NULL)
@@ -1641,12 +1670,12 @@ boolean T_DoCollect(void)
                 steps = T_FindPathTo(mo, scan.nearest_pickup->x,
                                      scan.nearest_pickup->y, path_dirs, 64);
                 if (steps >= 0)
-                    loot = scan.nearest_pickup;
+                    collect_cands[collect_cand_count++] = scan.nearest_pickup;
             }
         }
     }
 
-    if (loot == NULL)
+    if (collect_cand_count == 0)
     {
         player->message = "NO REACHABLE LOOT.";
         printf("[COLLECT] no reachable loot\n");
@@ -1656,48 +1685,43 @@ boolean T_DoCollect(void)
     // One autonomous walk at a time: it overrides GOTO and WALK.
     T_GotoCancel();
     T_WalkCancel();
-    collect_target_mo = loot;
-    collect_target_x = loot->x;
-    collect_target_y = loot->y;
+    collect_cand_index = 0;
+    collect_leg_retries = 0;
     collect_tics = 0;
-    collect_still_tics = 0;
-    collect_recenter_tics = 0;
-    collect_last_x = mo->x;
-    collect_last_y = mo->y;
     collect_active = true;
 
+    // Start the first leg; a candidate that went stale between the
+    // filter and now is skipped for the next one.
+    while (collect_cand_index < collect_cand_count
+           && !collect_start_leg())
     {
-        const diablo_itemdef_t *def;
-        int item_id = loot->diablo_loot_id;
-        static char msg[64];
-        def = D_GetItemDef(D_ITEMTIER(item_id), D_ITEMIDX(item_id));
-        if (def)
-        {
-            char namebuf[96];
-            D_ItemDisplayName(def, namebuf, sizeof(namebuf));
-            snprintf(msg, sizeof(msg), "COLLECTING: %s", namebuf);
-        }
-        else
-            snprintf(msg, sizeof(msg), "COLLECTING LOOT...");
-        player->message = msg;
+        printf("[COLLECT] candidate %d would not start, trying next\n",
+               collect_cand_index);
+        collect_cand_index++;
     }
-    printf("[COLLECT] walking to loot at (%d,%d)\n",
-           loot->x >> 16, loot->y >> 16);
+    if (collect_cand_index >= collect_cand_count)
+    {
+        collect_active = false;
+        collect_cand_count = 0;
+        player->message = "NO REACHABLE LOOT.";
+        printf("[COLLECT] no reachable loot\n");
+        return false;
+    }
     return true;
 }
 
-// Per-tick collect walk (explore mode). Pathfinds fresh from the
-// player's current position and moves one step along the path; when
-// the BFS says we are already in the loot's cell, steps directly onto
-// the item for the final approach. Ends when the loot is picked up,
-// when no path exists, or on timeout.
+// Per-tick collect monitor (explore mode). COLLECT delegates all
+// movement to the GOTO walker; this only watches the mission: the
+// 20-second cap, success when the current candidate leaves the
+// world (the pickup sweep got it), and the GOTO leg outcomes --
+// arrived (sweep refused it, or a filled ammo cache), blocked (one
+// re-plan retry, then the next candidate), no path / cancelled
+// (next candidate). Ends when a candidate is collected, when a
+// refusal is final, or when the candidates run out.
 void T_CollectTick(void)
 {
     player_t *pl = &players[consoleplayer];
-    mobj_t *mo;
-    int path_dirs[64];
-    int steps;
-    fixed_t gx, gy, dx, dy, dist, step;
+    mobj_t *target;
 
     if (!collect_active)
         return;
@@ -1706,7 +1730,6 @@ void T_CollectTick(void)
         T_CollectCancel();
         return;
     }
-    mo = pl->mo;
 
     if (++collect_tics > COLLECT_MAX_TICS)
     {
@@ -1716,8 +1739,10 @@ void T_CollectTick(void)
         return;
     }
 
-    // Picked up (stepping on it removed it from the world) or gone.
-    if (!collect_target_present())
+    target = collect_cands[collect_cand_index];
+
+    // Picked up (the presence sweep removed it from the world) or gone.
+    if (!collect_mo_present(target))
     {
         printf("[COLLECT] done: loot picked up\n");
         pl->message = "LOOT COLLECTED.";
@@ -1725,123 +1750,66 @@ void T_CollectTick(void)
         return;
     }
 
-    // Pathfind from where we stand, this tick.
-    steps = T_FindPathTo(mo, collect_target_x, collect_target_y,
-                         path_dirs, 64);
-    if (steps < 0)
-    {
-        printf("[COLLECT] no path from (%d,%d) to loot\n",
-               mo->x >> 16, mo->y >> 16);
-        pl->message = "CAN'T REACH LOOT.";
-        T_CollectCancel();
-        return;
-    }
+    if (T_GotoActive())
+        return; // the GOTO walker is still walking to it
 
-    // Standing on the target but it is an ammo cache the magazines
-    // no longer have room for (they filled during the walk): say so
-    // and end, instead of dying on the stuck watchdog.
-    if (steps == 0 && collect_target_mo != NULL
-        && !(collect_target_mo->type >= MT_LOOT_NORMAL
-             && collect_target_mo->type <= MT_LOOT_UNIQUE)
-        && !collect_target_mo->is_player_corpse
-        && P_IsAmmoCache(collect_target_mo)
-        && !P_AmmoCacheHasRoom())
+    // The leg ended; its outcome decides what happens next.
+    switch (T_GotoResult())
     {
-        printf("[COLLECT] ammo cache unusable: magazines full\n");
-        pl->message = "MAGAZINES FULL.";
-        T_CollectCancel();
-        return;
-    }
-
-    if (steps == 0)
-    {
-        // Already in the loot's cell: step directly onto the item.
-        gx = collect_target_x;
-        gy = collect_target_y;
-    }
-    else
-    {
-        // Aim for the centre of the adjacent cell the path starts with.
-        // BFS dirs are world-space: 0=N(+y),1=E(+x),2=S(-y),3=W(-x).
-        // Centre math must match T_GridWalkable exactly: the old form
-        // (fixed_t)(LOOT_GRID / 2) * FRACUNIT overflows to 0, which made
-        // the walker aim at cell corners (wall junctions) instead of
-        // centres -- BFS said walkable, the walk wedged on the corner.
-        static const int cdx[4] = { 0, 1, 0, -1 };
-        static const int cdy[4] = { 1, 0, -1, 0 };
-        int cellx, celly;
-        T_WorldToGrid(mo->x, mo->y, &cellx, &celly);
-        cellx += cdx[path_dirs[0]];
-        celly += cdy[path_dirs[0]];
-        gx = (fixed_t)cellx * LOOT_GRID + LOOT_GRID / 2;
-        gy = (fixed_t)celly * LOOT_GRID + LOOT_GRID / 2;
-    }
-
-    // Stall recovery: while re-centring, aim at the cell centre
-    // instead of the path (see T_RecenterAim).
-    if (collect_recenter_tics > 0)
-    {
-        fixed_t ax, ay;
-        collect_recenter_tics--;
-        if (T_RecenterAim(mo, &ax, &ay))
+    case GOTO_RES_ARRIVED:
+        // Standing on it, but it is still in the world: the pickup
+        // sweep refused it. An ammo cache the magazines no longer
+        // have room for gets its own message (they can fill during
+        // the walk); anything else (backpack full, armor not an
+        // upgrade) already printed its refusal -- just end the walk.
+        if (!(target->type >= MT_LOOT_NORMAL
+              && target->type <= MT_LOOT_UNIQUE)
+            && !target->is_player_corpse
+            && P_IsAmmoCache(target)
+            && !P_AmmoCacheHasRoom())
         {
-            gx = ax;
-            gy = ay;
-        }
-        else
-            collect_recenter_tics = 0;
-    }
-
-    dx = gx - mo->x;
-    dy = gy - mo->y;
-    dist = P_AproxDistance(dx, dy);
-    if (dist <= 0)
-        return;
-    step = T_MoveSpeedPerTic(pl);
-    if (step > dist)
-        step = dist;
-    // Momentum step: set this tic's velocity toward the step target
-    // and let P_XYMovement (inside P_Ticker) carry the player --
-    // gliding with collision/sliding; the pickup itself is collected
-    // by the P_Ticker presence sweep once he arrives. (Was a
-    // P_TryMove position snap per tic, which read as teleport hops
-    // in replays.)
-    mo->momx = FixedDiv(FixedMul(dx, step), dist);
-    mo->momy = FixedDiv(FixedMul(dy, step), dist);
-    mo->angle = R_PointToAngle2(mo->x, mo->y, gx, gy);
-
-    // Stuck watchdog: the path is recomputed every tick, so 2 seconds
-    // without progress means physics refuses a route the grid thinks
-    // is walkable (a prop in the doorway, a step too high). Give up.
-    {
-        fixed_t moved = P_AproxDistance(mo->x - collect_last_x,
-                                        mo->y - collect_last_y);
-        if (moved < 2 * FRACUNIT)
-        {
-            if (collect_still_tics == 15 && collect_recenter_tics == 0)
-            {
-                fixed_t ax, ay;
-                if (T_RecenterAim(mo, &ax, &ay))
-                {
-                    collect_recenter_tics = 35;
-                    printf("[COLLECT] stalled off-centre; re-centring to (%d,%d)\n",
-                           ax >> 16, ay >> 16);
-                }
-            }
-            if (++collect_still_tics > 70)
-            {
-                printf("[COLLECT] stuck for 2s, giving up\n");
-                pl->message = "CAN'T REACH LOOT.";
-                T_CollectCancel();
-            }
+            printf("[COLLECT] ammo cache unusable: magazines full\n");
+            pl->message = "MAGAZINES FULL.";
         }
         else
         {
-            collect_still_tics = 0;
-            collect_last_x = mo->x;
-            collect_last_y = mo->y;
+            printf("[COLLECT] arrived, but the loot was not picked up\n");
         }
+        T_CollectCancel();
+        return;
+
+    case GOTO_RES_BLOCKED:
+        // Physics refused a route the grid believes in (a door that
+        // closed again, a prop in the way). Re-plan the same
+        // candidate once from where we stand before giving up on it;
+        // if the retry starts, the mission continues on it.
+        if (collect_leg_retries == 0)
+        {
+            collect_leg_retries++;
+            printf("[COLLECT] leg blocked; re-planning to the same loot\n");
+            if (collect_start_leg())
+                return;
+        }
+        break;
+
+    default: // NOPATH / CANCELLED / NONE: this candidate is done
+        break;
     }
+
+    // Advance to the next candidate, if any.
+    collect_cand_index++;
+    collect_leg_retries = 0;
+    while (collect_cand_index < collect_cand_count)
+    {
+        if (collect_start_leg())
+            return;
+        printf("[COLLECT] candidate %d would not start, trying next\n",
+               collect_cand_index);
+        collect_cand_index++;
+    }
+    printf("[COLLECT] no candidate could be walked to\n");
+    pl->message = "CAN'T REACH LOOT.";
+    T_CollectCancel();
 }
 
 void T_DoMove(int dir)
