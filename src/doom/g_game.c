@@ -698,12 +698,6 @@ void G_DoLoadLevel (void)
 { 
     int             i; 
 
-    // Auto-save Diablo progress on starting a new level.
-    {
-        extern void D_AutoSaveGame(void);
-        D_AutoSaveGame();
-    }
-
     // Set the sky map.
     // First thing, we have a dummy sky texture name,
     //  a flat. The data is in the WAD only because
@@ -773,6 +767,16 @@ void G_DoLoadLevel (void)
     {
         extern void D_AutosaveTeleportCheck(void);
         D_AutosaveTeleportCheck();
+    }
+
+    // Auto-save Diablo progress on starting a new level. This must run
+    // AFTER P_SetupLevel: gamemap has already been advanced to the new
+    // level when this function is entered (level transition), so a
+    // save taken before the setup archives the PREVIOUS level's world
+    // under the new level's label -- an unloadable pair (2026-10-22).
+    {
+        extern void D_AutoSaveGame(void);
+        D_AutoSaveGame();
     }
 
     if (testcontrols)
