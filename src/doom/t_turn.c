@@ -689,6 +689,18 @@ static void T_PulseOneTic(boolean freeze_monsters)
         currentthinker = nextthinker;
     }
 
+    // Pickup by presence, mirroring P_Ticker: collect specials within
+    // reach of where each living player actually is, now that this
+    // tic's movement has resolved. The progress phase never runs
+    // P_Ticker, so without this the sweep never fires in combat and
+    // loot the player walks over (or that drops at his feet) stays on
+    // the ground (Jimmy, 2026-10-22). This is position only -- input
+    // stays locked during pulses, G included.
+    for (i=0 ; i<MAXPLAYERS ; i++)
+        if (playeringame[i] && players[i].mo && players[i].health > 0
+            && players[i].playerstate == PST_LIVE)
+            P_TouchNearbySpecials (players[i].mo);
+
     P_UpdateSpecials();
     P_RespawnSpecials();
     leveltime++;
