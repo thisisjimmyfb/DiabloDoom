@@ -242,8 +242,13 @@ never an instant move or a teleport. Explore mode only.
    candidates -- Diablo loot drops and player corpses -- nearest
    first, and runs the grid pathfinder (`T_FindPathTo`) on each in
    that order (an unreachable candidate is skipped: "[COLLECT] loot
-   N unreachable, trying next"). If no Diablo candidate is
-   reachable, it tries the nearest vanilla pickup within 2048 units
+   N unreachable, trying next"). Candidates are limited by a
+   **distance threshold of 512 units** (16 grid cells, cartesian;
+   `T_LOOT_MAX_DIST`): loot beyond it is not a COLLECT target, and
+   the "Loot nearby, press G to loot" prompt applies the same
+   threshold (shared scan rule), so the two never disagree about
+   range. If no Diablo candidate is
+   reachable, it tries the nearest vanilla pickup within 512 units
    the same way -- except an ammo cache when no magazine has room
    for it: `P_GiveAmmo` would refuse it on arrival (magazines
    auto-replenish in explore, so full is the steady state), so a
@@ -329,7 +334,9 @@ instantly, before the walk moved. **The loot alert uses the same reachability ru
 2026-10-19): the "Loot nearby, press G to loot" prompt fires only
 when the nearest loot in distance order has a BFS path — loot
 elsewhere on the map no
-longer lights the prompt. Player corpses are candidates under the
+longer lights the prompt. The prompt also shares COLLECT's
+512-unit distance threshold (`T_LOOT_MAX_DIST`), so distant loot
+stays dark. Player corpses are candidates under the
 same rule: a corpse lights the prompt only when COLLECT could path
 to it (an earlier existence-only corpse clause bypassed the path
 test; removed 2026-10-21 at Jimmy's order). The prompt itself is delivered through

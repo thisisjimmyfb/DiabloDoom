@@ -442,6 +442,16 @@ static boolean T_Enqueue(turnaction_t action, int cost, angle_t moveangle,
 #define LOOT_GRID (32 * FRACUNIT)
 #define BFS_MAX 4096  // max grid cells to explore
 
+// Distance threshold for COLLECT targets and the "Loot nearby, press
+// G to loot" prompt (Jimmy, 2026-10-21): only loot/corpses within
+// 512 map units (16 grid cells, cartesian) of the player are
+// candidates. Both scans share this constant so the prompt and
+// COLLECT stay in lockstep -- if it lights the prompt, COLLECT will
+// consider it, and loot beyond the threshold does neither. The
+// squared form matches the scans' dist^2 arithmetic (whole units).
+#define T_LOOT_MAX_DIST 512
+#define T_LOOT_MAX_DIST_SQ (T_LOOT_MAX_DIST * T_LOOT_MAX_DIST)
+
 typedef struct {
     int gx, gy;      // grid coords
     int parent;      // index into bfs_nodes, -1 for start
@@ -603,6 +613,8 @@ boolean T_LootAvailable(void)
                     fixed_t dx = lmo->x - pmo->x;
                     fixed_t dy = lmo->y - pmo->y;
                     fixed_t dist = (dx >> 16) * (dx >> 16) + (dy >> 16) * (dy >> 16);
+                    if (dist > T_LOOT_MAX_DIST_SQ)
+                        continue;
                     for (li = loot_count; li > 0 && loot_dist[li-1] > dist; li--)
                     {
                         loot_list[li] = loot_list[li-1];
@@ -1536,6 +1548,8 @@ boolean T_DoCollect(void)
                 fixed_t dx = lmo->x - mo->x;
                 fixed_t dy = lmo->y - mo->y;
                 fixed_t dist = (dx >> 16) * (dx >> 16) + (dy >> 16) * (dy >> 16);
+                if (dist > T_LOOT_MAX_DIST_SQ)
+                    continue;
                 // Insertion sort by distance
                 for (li = loot_count; li > 0 && loot_dist[li-1] > dist; li--)
                 {
@@ -1563,7 +1577,7 @@ boolean T_DoCollect(void)
     // Fall back to the nearest vanilla pickup if no Diablo loot path.
     if (loot == NULL)
     {
-        t_scan_result_t scan = T_ScanNearby(mo, 2048, NULL, 0);
+        t_scan_result_t scan = T_ScanNearby(mo, T_LOOT_MAX_DIST, NULL, 0);
         if (scan.nearest_pickup != NULL)
         {
             // An ammo cache is only worth the walk when a magazine
