@@ -77,8 +77,9 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
   ammo counts are replaced by a LoL-style AD/AP stat block (gold sword icon
   + damage range, teal sparkle + ability power, cooldown below) — see
   `ST_drawTurnKits`. The left-side AMMO readout shows the ready weapon's
-  current magazine (remaining heat capacity for plasma) — see
-  `ST_drawTurnMana`.
+  current magazine counter (plasma's included — it counts up as the
+  gun fires; the kit panel has no heat-capacity entry for plasma) —
+  see `ST_drawTurnMana`.
 - `src/doom/p_inter.c` — pickup/drop, including Diablo loot drops.
 - `DIABLO.md` — user-facing doc for the loot/equipment system (Phases 1–2
   era; update it when behavior changes).
@@ -111,13 +112,19 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
    turn-based mode until he says go.
 4. **Ammo is per-weapon magazines, auto-replenished by AD/AP type.**
    Every weapon with a magazine requires ammo to fire (`T_KitCanFire`,
-   deny `NO AMMO`); costs validated when the attack is queued
-   (`NEED n AMMO (HAVE m).`), deducted when it executes (`T_KitSpendAmmo`).
-   Ranged attacks cost 0 TP -- ammo (or heat) is the limiter, so a round
+   deny `NO AMMO`; inverted magazines deny `AMMO FULL`); costs validated
+   when the attack is queued (`NEED n AMMO (HAVE m).`), applied when it
+   executes (`T_KitSpendAmmo`).
+   Ranged attacks cost 0 TP -- ammo is the limiter, so a round
    can dump the whole magazine. Melee (fists, chainsaw) costs TP per attack.
    Capacities/costs: pistol 10/1, shotgun 20/2, chaingun 10/1, chainsaw 6/1,
-   rocket 20/10, SSG 8/8, BFG 20/20. Plasma has no magazine — heat is its
-   ammo. There is no per-round ammo grant (removed 2026-10-22); AD
+   rocket 20/10, SSG 8/8, BFG 20/20. Plasma's magazine is **inverted**
+   (2026-10-22): its ammo counter represents heat — capacity 100, starts
+   at 0, each shot adds 25, it fires while the count is below capacity,
+   and the count drains at the replenish rate. There is no separate heat
+   state anywhere: one counter, one gate, one spend, one rate system,
+   with the direction declared in the kit def (`ammo_inverted`).
+   There is no per-round ammo grant (removed 2026-10-22); AD
    magazines replenish only via the trickle while game time runs.
    AP weapons reload on
    cooldown completion (SSG/BFG, `T_RefillOnCooldownReady`) or charge regen
@@ -135,12 +142,12 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
    pickup ever exists in the world; Mana Potions no longer appear in the drop
    pool. Weapon cadence is wall-clock,
    not round-bound: cooldowns tick down 1 round per 10 s (BFG = 30 s, SSG =
-   20 s), rocket charges regen 1 per 3 s (max 3), plasma heat vents 40 per
-   10 s continuously — all via `T_TickCadence` every game tic, except
+   20 s), rocket charges regen 1 per 3 s (max 3), plasma's inverted
+   counter drains at its replenish rate (~43 per 10 s) continuously — all via `T_TickCadence` every game tic, except
    during the planning phase, where the cadence (like the magazine
    trickle) is frozen: nothing replenishes while the player plans. Haste is a
    cooldown-reduction percent (cap 50%, then flat CDR, min 1 round). The HUD AMMO readout shows the
-   ready weapon's magazine (heat capacity for plasma). \"Ammo\" also survives
+   ready weapon's magazine counter. \"Ammo\" also survives
    as the passive, non-consumable FOCUS paperdoll slot: equippable focus
    items (Piercing Rounds, Incendiary Shells, …) that passively grant stat
    bonuses to the equipped weapon.
@@ -154,11 +161,11 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
 
 ## Combat affixes (magic tier)
 
-Prefixes (flat) and suffixes (%) for AD/AP/haste/heat/leech. See SPEC.md
+Prefixes (flat) and suffixes (%) for AD/AP/haste/plasma-capacity/leech. See SPEC.md
 "Combat affix families" for the full table.
 
 - Suffixes: of Slaying (+15% AD), of the Magus (+15% AP), of Haste (+20%),
-  of the Furnace (+30 heat)
+  of the Furnace (+30 plasma max ammo)
 - Prefixes: Soldier's (+flat AD), Wizard's (+flat AP), Quick (−1 round),
   Vampiric (+lifesteal, all 8 guns)
 - Also on rings/amulets/gloves/focus (e.g. Ring of Slaying, Cooling Rounds)

@@ -50,7 +50,7 @@ one panel at a time. The bar stays; only the panels change.
 1. **Selection, not aiming.** Choose a numbered visible enemy, inspect the
    outcome, confirm. No free-aim shooting, manual turning, or
    crosshair-derived hit chance.
-2. **Weapon identity.** AD, AP, attack speed, charge, heat, and cooldowns
+2. **Weapon identity.** AD, AP, attack speed, charge, ammo, and cooldowns
    explain how a gun plays.
 3. **Loot changes tactics.** Affixes alter costs, scaling, reactions, or
    cooldown timing — not just damage.
@@ -155,7 +155,7 @@ combat exit is on clear (no combatants left when the queue drains).
 Each round begins with **10 Tempo Points (TP)**. ("Tempo" avoids colliding
 with the League-style AP stat.) The player commits actions until TP is
 exhausted or chooses End Turn. Status effects advance once per round;
-weapon cooldowns, charges, and heat tick on wall-clock time instead —
+weapon cooldowns, charges, and inverted-ammo drain tick on wall-clock time instead —
 every game tic via `T_TickCadence`, independent of round boundaries
 (1 round = 10 seconds = 350 tics). Each committed action resolves
 through a bounded simulation pulse.
@@ -446,7 +446,7 @@ afterwards). Only the helm, armor, boots, gloves and belt slots produce
 Defense; shields and other slots do not.
 
 Tooltip order (ground loot, backpack, equipped — all identical):
-damage range; AD/AP ratios; TP cost; attack speed; charge/heat state;
+damage range; AD/AP ratios; TP cost; attack speed; charge/ammo state;
 cooldown; crit; special trait.
 
 ### Hero attributes (the existing four)
@@ -474,7 +474,7 @@ equipped), not loot.
 | Shotgun | AD | **Magazine 20** (2/shot) | AS | Positioning reward, pellet spread. |
 | Chaingun | AD | **Magazine 10** (1/shot) | AS | TP-hungry DPS hose. |
 | Chainsaw | AD | **Magazine 6** (1/shot) + **30% inherent leech** | AS | High risk, constant uptime; leech sustains close-range fighting. |
-| Plasma Rifle | AP | **Heat** (inverse ammo) | — (heat) | Free to spam while heat < 100: +25 heat per shot, vents 40 per 10 s continuously (fractional accumulation). |
+| Plasma Rifle | AP | **Ammo** (inverted) | — (ammo) | The ammo counter represents heat: starts at 0, +25 per shot, fires while the count is below the 100 capacity, and drains at the replenish rate continuously — the drain is the reload period. No separate heat resource (2026-10-22). |
 | Rocket Launcher | AP | **Charges** (3, +1 per 2 s) + **Magazine 20** (10/shot) | AS | Punctuated splash; firing consumes 1 charge. Each regenerated charge also loads one attack's worth of ammo. |
 | Super Shotgun | AP | **Magazine 8** (8/shot) + **knockback** | CD | Breach tool: shoves target 1 tile. Ammo replenishes on cooldown rate (CD=2). |
 | BFG9000 | AP | **Magazine 20** (20/shot) | CD | Ultimate: highest damage. Ammo replenishes on cooldown rate (CD=3). |
@@ -499,7 +499,7 @@ with queued attacks, whose executor pulses for the same interval
 per shot. Damage likewise resolves through the single executor
 (`T_ExecAttack`) for both — the held-trigger behavior. The
 progress phase stays alive while the lock is armed; the lock breaks
-on target death/removal, weapon switch, empty magazine, overheat,
+on target death/removal, weapon switch, a full or empty magazine,
 target switch, combat exit, or line of sight lost — the tick checks
 `P_CheckSight` every tic and clears the lock the tic sight breaks
 (Jimmy's design, 2026-10-22: continuous fire holds only while the
@@ -536,24 +536,32 @@ Damage model:
 
 Cadence plumbing:
 
-- Cooldowns, charges, and heat tick on wall-clock time, every game tic
-  (`T_TickCadence`, called from `T_Ticker`): cooldowns count down 1 round
-  per 10 seconds (350 tics), rocket charges regenerate 1 per 2 seconds
-  (70 tics), plasma heat vents `heat_vent` per 10 seconds with
-  fractional accumulation — all independent of round boundaries.
-  `T_KitTickCooldowns` is kept as a no-op for save compatibility.
-  **Frozen during the planning phase** (2026-10-22): like the magazine
-  trickle, the cadence does not run in TS_PLANNING / TS_TARGETING /
-  TS_CONFIRM — no charge regen, cooldown progress, or heat vent while
-  the player plans. It runs in explore and during the progress phase.
-- `T_KitCanFire` covers every gate: cooldown == 0 **and** charges > 0
-  **and** heat < 100 **and** ammo affordable.
+- Cooldowns, charges, and the inverted-ammo drain tick on wall-clock
+  time, every game tic (`T_TickCadence`, called from `T_Ticker`):
+  cooldowns count down 1 round per 10 seconds (350 tics), rocket
+  charges regenerate 1 per 2 seconds (70 tics), and inverted
+  magazines (plasma) drain toward 0 at the weapon's replenish rate
+  (`T_KitReplenishTics` — the same rate normal magazines trickle up
+  at, run in reverse) with fractional accumulation — all independent
+  of round boundaries. `T_KitTickCooldowns` is kept as a no-op for
+  save compatibility. **Frozen during the planning phase**
+  (2026-10-22): like the magazine trickle, the cadence does not run
+  in TS_PLANNING / TS_TARGETING / TS_CONFIRM — no charge regen,
+  cooldown progress, or inverted-ammo drain while the player plans.
+  It runs in explore and during the progress phase.
+- `T_KitCanFire` is THE gate for every weapon: charges > 0 **and**
+  the magazine rule — normal magazines need ammo_cost in the
+  counter, inverted magazines need the counter below capacity.
+  There is no per-weapon gate code anywhere else: queue validation,
+  the attack executor, and the continuous-fire tick all ask this
+  one function (via `T_HasAmmoForKit` for the magazine half).
 - Fire-denied messages name the gate:
-  `OVERHEATED` / `NO CHARGES` / `ON COOLDOWN` / `NO AMMO`.
-- The rounds overlay kit line shows gate state: heat value, charge count,
-  or cooldown count.
+  `AMMO FULL` (inverted at capacity) / `NO CHARGES` / `NO AMMO`.
+- The rounds overlay kit line shows gate state: charge count or
+  cooldown count. Plasma has no gate entry of its own — its counter
+  is the AMMO readout.
 - Inventory tooltips show AD or AP typing and the mechanic
-  (e.g. "AP weapon — Heat: +25/shot").
+  (e.g. "AP weapon — Ammo: +25/shot, inverted").
 
 **Ammo: per-weapon magazines, auto-replenished by AD/AP type.** Every
 weapon with a magazine requires ammo to fire (`T_KitCanFire` checks it;
@@ -562,8 +570,8 @@ weapon with a magazine requires ammo to fire (`T_KitCanFire` checks it;
 (`T_KitSpendAmmo`); `T_HasAmmoForKit` is the affordability check. During
 planning, the AMMO display previews the deduction queued attacks will
 cause (display-only; the actual spend happens on execute), so the player
-can see when further attacks would be no-ops — heat weapons preview
-similarly.
+can see when further attacks would be no-ops — inverted magazines
+preview the counter rising toward capacity instead.
 
 - **AD weapons** replenish only via the **trickle** (below) while game
   time runs — there is no per-round ammo grant (the round-boundary
@@ -581,15 +589,24 @@ similarly.
 - **AP weapons** replenish from **cooldown**: SSG/BFG refill to full
   the moment their cooldown completes (`T_RefillOnCooldownReady`,
   hooked in the wall-clock `T_TickCadence`); the rocket loads one attack's
-  worth of ammo per regenerated charge. Plasma has no magazine — heat is its
-  ammo (inverse), venting 40 per 10 seconds continuously.
+  worth of ammo per regenerated charge. Plasma's magazine is **inverted**
+  (2026-10-22): the ammo counter represents heat — it starts at 0,
+  each shot adds 25, the weapon fires while the count is below its
+  100 capacity, and the count drains at the replenish rate
+  (~43 per 10 s), which is its reload period. One counter, one gate,
+  one spend, one rate system — the direction is kit data
+  (`ammo_inverted`), not a plasma code path. The old separate heat
+  value survives only as a save-format slot that aliases plasma's
+  counter, so pre-change saves load their plasma state.
 - Map-placed ammo pickups are replaced by random Diablo item drops
   (same rarity table as kill drops); Mana Potions no longer appear in
   the drop pool (magazines replenish on their own).
 - The status bar's left AMMO readout shows the ready weapon's current
-  magazine (remaining heat capacity for plasma); the FOCUS paperdoll
-  slot (equippable ammo items granting passive weapon stats) is
-  unchanged.
+  magazine counter — plasma's included (it counts up as the gun
+  fires). The kit attribute panel shows no heat-capacity entry for
+  plasma (removed 2026-10-22 — heat capacity is not an attribute;
+  plasma's capacity is its max ammo). The FOCUS paperdoll slot
+  (equippable ammo items granting passive weapon stats) is unchanged.
 - Magazines persist in saves (TUR3 format; older saves load full).
 
 **FOCUS slot.** "Ammo" survives as a paperdoll inventory slot renamed
@@ -605,13 +622,13 @@ composer (deferred; revisit only if hand-authored affixes feel flat).
 ~14 rare guns, two signature affixes per gun. Every affix is a flag plus
 one small hook; no new subsystems except where noted.
 
-**Plasma Rifle (Heat)**
+**Plasma Rifle (Inverted Ammo)**
 
 | Affix | Effect |
 |-------|--------|
-| of the Phoenix | Kills vent 50 heat (kill-reset). |
-| Overclocked | +25 heat dissipation per 10 seconds. |
-| Caldera | Overheating detonates a fire nova around you instead of locking the weapon, then vents to 0. |
+| of the Phoenix | Kills vent 50 ammo (kill-reset). |
+| Overclocked | +25 ammo dissipation per 10 seconds. |
+| Caldera | Reaching max ammo detonates a fire nova around you instead of locking the weapon, then vents to 0. |
 
 **Rocket Launcher (Charges)**
 
@@ -665,7 +682,7 @@ also appear on rings, amulets, gloves, and focus items.
 | of Slaying | +15% AD | Pistol, Shotgun, Chaingun, Chainsaw |
 | of the Magus | +15% AP | Plasma Rifle, Rocket Launcher, SSG, BFG9000 |
 | of Haste | +20% haste (cooldown reduction) | SSG, BFG9000 |
-| of the Furnace | +30 heat capacity | Plasma Rifle |
+| of the Furnace | +30 plasma max ammo | Plasma Rifle |
 
 **Prefixes — flat/constant boosts:**
 
@@ -682,7 +699,7 @@ with % boosts. Flat cooldown applies after haste % (min 1 round).
 **Non-weapon affixes:** combat stats also spawn on jewelry and gloves:
 Ring/Amulet of Slaying (+10% AD), of the Magus (+10% AP), of Haste (+10%
 haste), Vampiric Ring (+5% leech); Gloves of Slaying (+3 flat AD), Gloves
-of Haste; Cooling Rounds focus (+20 heat max).
+of Haste; Cooling Rounds focus (+20 plasma max ammo).
 
 **Affix difficulty tiers.** Higher difficulties drop stronger affix
 variants (`diff_tier` field, filtered by `D_DifficultyTier()`):
@@ -690,8 +707,8 @@ variants (`diff_tier` field, filtered by `D_DifficultyTier()`):
 | Tier | Difficulty | Example upgrades |
 |------|-----------|------------------|
 | 0 | Normal | Base affixes (above) |
-| 1 | Nightmare / NG+1 | of Slaughter (+25% AD), of the Archmagus (+25% AP), of Speed (+30% haste), Veteran's (+8 flat AD), Sorcerer's (+14 flat AP), Bloodthirsty (+8% leech), of the Inferno (+50 heat) |
-| 2 | Hell / NG+2 | of Carnage (+40% AD), of the Godslayer (+40% AP), of Lightning (+45% haste), Champion's (+12 flat AD), Archmage's (+20 flat AP), Soulrender (+12% leech), of the Sun (+80 heat) |
+| 1 | Nightmare / NG+1 | of Slaughter (+25% AD), of the Archmagus (+25% AP), of Speed (+30% haste), Veteran's (+8 flat AD), Sorcerer's (+14 flat AP), Bloodthirsty (+8% leech), of the Inferno (+50 plasma max ammo) |
+| 2 | Hell / NG+2 | of Carnage (+40% AD), of the Godslayer (+40% AP), of Lightning (+45% haste), Champion's (+12 flat AD), Archmage's (+20 flat AP), Soulrender (+12% leech), of the Sun (+80 plasma max ammo) |
 slots; `D_MechDesc()` provides the one-line display text.
 
 ### Essence: salvage and repair
@@ -991,7 +1008,7 @@ point, the input contract has failed.
 |-------|------|------|
 | 5 | Weapon kits + enemy-targeted abilities. All six kits; rockets/BFG select an enemy and preview splash around it. | All six kits distinct; no attack or ability accepts a ground point or crosshair target. |
 | 6 | Cover and telegraphs. Multi-point cover traces, telegraphs. | Full cover blocks attacks; newly alerted enemies telegraph before acting. |
-| 7 | Tactical loot pass. Affixes for AD/AP ratios, AS, Haste, charge, heat, move thresholds; selected unique traits. | Tooltips explain every change; equip/unequip reverses state exactly. |
+| 7 | Tactical loot pass. Affixes for AD/AP ratios, AS, Haste, charge, inverted ammo, move thresholds; selected unique traits. | Tooltips explain every change; equip/unequip reverses state exactly. |
 
 **Combat checkpoint:** finish the complete one-map tactical loop before
 persistence begins. The same fixed-seed encounter must support distinct
@@ -1042,7 +1059,7 @@ quit + relaunch restores the same named hero and loadout; the exported
 character sheet matches the profile; the bio fits 150 characters.
 
 **Three proof encounters:** hallway breach (cover, telegraphed hitscan) · projectile arena (movement pulses, rockets in
-flight, charge timing, heat) · boss room (cooldown planning, BFG
+flight, charge timing, plasma drain) · boss room (cooldown planning, BFG
 commitment, build identity).
 
 **Post-slice order:** chainsaw + super shotgun, wider unique pool, more
