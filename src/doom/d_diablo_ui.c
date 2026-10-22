@@ -1313,9 +1313,14 @@ static void UIDrawTooltip(int id)
     h = n * 10 + 8;
 
     // Place right of the cursor; flip left when near the right edge.
+    // The flipped position can go negative for wide tooltips; clamp.
     x = ui_cx + 12;
     if (x + w > SCREENWIDTH)
         x = ui_cx - 12 - w;
+    if (x + w > SCREENWIDTH)
+        x = SCREENWIDTH - w;
+    if (x < 0)
+        x = 0;
     y = ui_cy - 8;
     if (y + h > SCREENHEIGHT)
         y = SCREENHEIGHT - h;
@@ -1515,15 +1520,24 @@ void D_UIDrawer(void)
     if (ui_msg[0] && gametic < ui_msgtic)
         UIDrawTextCentered(SCREENWIDTH / 2, 168, ui_msg);
 
-    // Held item follows the cursor.
+    // Held item follows the cursor. Clamp the draw origin so the
+    // whole icon (and its rarity border) stays on screen even with
+    // the cursor parked on an edge.
     if (ui_held != D_NOITEM)
     {
         const diablo_itemdef_t *def = UIHeldDef();
         if (def)
-            UIDrawItemIcon(ui_cx - 8, ui_cy - 8,
-                           def->grid_w * UI_CELL,
-                           def->grid_h * UI_CELL,
-                           ui_held);
+        {
+            int hx = ui_cx - 8, hy = ui_cy - 8;
+            int hw = def->grid_w * UI_CELL, hh = def->grid_h * UI_CELL;
+
+            if (hx < 0) hx = 0;
+            if (hy < 0) hy = 0;
+            if (hx + hw > SCREENWIDTH)  hx = SCREENWIDTH - hw;
+            if (hy + hh > SCREENHEIGHT) hy = SCREENHEIGHT - hh;
+
+            UIDrawItemIcon(hx, hy, hw, hh, ui_held);
+        }
     }
 
     // Tooltip for the hovered item (mouse cursor or kb selection;
@@ -1533,9 +1547,19 @@ void D_UIDrawer(void)
         UIDrawTooltip(hover);
 
     // Cursor crosshair (mouse mode only; kb mode has the highlight box).
+    // Keep the whole 9x9 cross inside the screen: ui_cx/ui_cy are only
+    // clamped to the screen edges, so an edge cursor used to draw up
+    // to 4 px past the frame buffer (heap corruption, crash on quit).
     if (!ui_kb_active)
     {
-        V_DrawHorizLine(ui_cx - 4, ui_cy, 9, c_white);
-        V_DrawVertLine(ui_cx, ui_cy - 4, 9, c_white);
+        int cx = ui_cx, cy = ui_cy;
+
+        if (cx < 4) cx = 4;
+        if (cx > SCREENWIDTH - 5)  cx = SCREENWIDTH - 5;
+        if (cy < 4) cy = 4;
+        if (cy > SCREENHEIGHT - 5) cy = SCREENHEIGHT - 5;
+
+        V_DrawHorizLine(cx - 4, cy, 9, c_white);
+        V_DrawVertLine(cx, cy - 4, 9, c_white);
     }
 }

@@ -537,6 +537,18 @@ void V_DrawFilledBox(int x, int y, int w, int h, int c)
     pixel_t *buf, *buf1;
     int x1, y1;
 
+    // Clip to the frame buffer. Callers can pass origins on or past
+    // the screen edges (e.g. UI elements that follow the mouse), and
+    // an unclipped write runs past I_VideoBuffer into the heap chunk
+    // that follows the screen surface -- the corruption then only
+    // surfaces when that chunk is freed (crash on quit, 2026-10-22).
+    if (x < 0) { w += x; x = 0; }
+    if (y < 0) { h += y; y = 0; }
+    if (x + w > SCREENWIDTH)  w = SCREENWIDTH - x;
+    if (y + h > SCREENHEIGHT) h = SCREENHEIGHT - y;
+    if (w <= 0 || h <= 0)
+        return;
+
     buf = I_VideoBuffer + SCREENWIDTH * y + x;
 
     for (y1 = 0; y1 < h; ++y1)
@@ -557,6 +569,14 @@ void V_DrawHorizLine(int x, int y, int w, int c)
     pixel_t *buf;
     int x1;
 
+    // Clip to the frame buffer (see V_DrawFilledBox).
+    if (y < 0 || y >= SCREENHEIGHT)
+        return;
+    if (x < 0) { w += x; x = 0; }
+    if (x + w > SCREENWIDTH) w = SCREENWIDTH - x;
+    if (w <= 0)
+        return;
+
     buf = I_VideoBuffer + SCREENWIDTH * y + x;
 
     for (x1 = 0; x1 < w; ++x1)
@@ -569,6 +589,14 @@ void V_DrawVertLine(int x, int y, int h, int c)
 {
     pixel_t *buf;
     int y1;
+
+    // Clip to the frame buffer (see V_DrawFilledBox).
+    if (x < 0 || x >= SCREENWIDTH)
+        return;
+    if (y < 0) { h += y; y = 0; }
+    if (y + h > SCREENHEIGHT) h = SCREENHEIGHT - y;
+    if (h <= 0)
+        return;
 
     buf = I_VideoBuffer + SCREENWIDTH * y + x;
 
