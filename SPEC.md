@@ -875,6 +875,14 @@ next rotation slot on:
 - level completion (`G_DoCompleted`),
 - level start (`G_DoLoadLevel`).
 
+Auto-save never fires from a demo or a netgame (2026-10-22):
+`D_AutoSaveGame` returns immediately while `demoplayback`, `netdemo`,
+or `netgame` is set, and `G_DoCompleted` likewise skips its profile
+save. The trigger events all occur during demo playback, and the
+Freedoom IWAD's attract demos DEMO2/DEMO3 were recorded as netgames —
+an unattended title screen overwrote the player's real slot-1 pair
+with demo state before this gate existed.
+
 **Load Game menu:** auto-save slots list first (positions 1–3), then
 manual slots (positions 4–6 = Doom slots 3–5). An auto-save is a
 **pair**: `progress_autoN.dat` (Diablo state) plus `doomsav(N-1).dsg`
