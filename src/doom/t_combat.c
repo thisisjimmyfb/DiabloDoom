@@ -538,7 +538,10 @@ void T_KitResetCadence(void)
     d_diablo_damage_cb = T_DiabloDamageCallback;
 }
 
-// Time-based cadence: called every game tic from T_Ticker.
+// Time-based cadence: called from T_Ticker on every game tic EXCEPT
+// during the planning phase (TS_PLANNING/TS_TARGETING/TS_CONFIRM),
+// where it is frozen -- no charge regen, no cooldown progress, and no
+// heat vent while the player plans (Jimmy, 2026-10-22).
 // - Rocket charges: 1 per ROCKET_REGEN_TICS (2 seconds)
 // - Cooldowns (BFG/SSG): 1 round per TICS_PER_ROUND (10 seconds)
 // - Plasma heat: vents heat_vent per TICS_PER_ROUND, continuously

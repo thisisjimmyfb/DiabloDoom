@@ -1601,8 +1601,15 @@ void T_Ticker(void)
             t_last_miss_tics--;
     }
 
-    // Time-based cadence (charges, cooldowns, heat): independent of rounds.
-    T_TickCadence();
+    // Time-based cadence (charges, cooldowns, heat): independent of
+    // rounds, but frozen during the planning phase, same as the ammo
+    // trickle -- nothing about the player's weapons improves while
+    // they plan (Jimmy, 2026-10-22).
+    if (turnctrl.state != TS_PLANNING && turnctrl.state != TS_TARGETING &&
+        turnctrl.state != TS_CONFIRM)
+    {
+        T_TickCadence();
+    }
 
     // VM progress persistence: write the save every 120 tics.
     {
