@@ -32,16 +32,16 @@ The workflow feeds you a screenshot per iteration (captured via the game's `CAPT
 Write commands to /tmp/doom_cmd.txt (one per line). It's a FIFO — do NOT delete it.
 
 **Explore mode:**
-- `GOTO fwd strafe` — THE movement command for exploration. Move to a
-  facing-relative destination in units (e.g. `GOTO 300 0` = 300 units
-  ahead of where you face, `GOTO 0 50` = 50 units to the right,
-  `GOTO -60 0` = back up 60). The game pathfinds to that exact spot,
-  clamping to the nearest walkable cell, and logs the outcome:
-  `[GOTO] arrived at (x,y), moved N from (x,y)` on success,
+- `GOTO x y` — THE movement command for exploration. Move to ABSOLUTE
+  map coordinates (e.g. `GOTO 850 400`). The game pathfinds to that
+  exact spot, clamping to the nearest walkable cell, and logs the
+  outcome: `[GOTO] arrived at (x,y), moved N from (x,y)` on success,
   `[GOTO] blocked at waypoint K` if the path stalls, or
-  `[GOTO] no path to (x,y)` if no route exists. Send one GOTO, wait for
-  its outcome line, then observe and pick the next destination from what
-  you see. Explore mode only.
+  `[GOTO] no path to (x,y)` if no route exists. Coordinates come from
+  the game's own stamps: your position is in every outcome line and in
+  your HISTORY trail, SCAN reports keys as absolute coordinates, and
+  death/loot events stamp their positions. Send one GOTO, wait for its
+  outcome line, then observe. Explore mode only.
 - `TURNL` / `TURNR` — turn left/right
 - `USE` — open the door or press the switch directly in front of you (explore mode). If GOTO ends `blocked` while you're facing a door, you're up against it: send `USE`, then GOTO again.
 - `COLLECT` — pick up Diablo loot or corpse (when "Loot nearby, press G to loot" prompt visible). The prompt only appears for loot the game can physically walk to — same height rules as real movement (it can't climb more than a step at a time), so prompted loot is genuinely collectable.

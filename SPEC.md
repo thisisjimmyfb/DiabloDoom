@@ -401,7 +401,12 @@ to target a cache no magazine has room for.)
 **Navigation awareness (2026-10-21):** the agent drives from
 screenshots and the log, so the engine reports where movement
 actually went. WALK and GOTO results are position-stamped (start
-position, end position, net units moved). A movement-history ring
+position, end position, net units moved). **GOTO takes absolute map
+coordinates** (2026-10-22, Jimmy's order — the facing-relative form
+is removed), and SCAN reports keys by absolute coordinates; the
+coordinates an agent may navigate to are the ones the game itself
+stamps — its own position trail and stamped event positions (corpse,
+loot, keys) — never unearned map data. A movement-history ring
 buffer samples the player's position at command start/end and every
 ~48 units of travel; the `HISTORY` diagnostic command dumps it,
 flagging when the newest points cluster in a small box (the trap
