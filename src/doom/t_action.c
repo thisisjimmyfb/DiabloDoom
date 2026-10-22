@@ -187,7 +187,8 @@ boolean T_IsContinuousWeapon(weapontype_t weapon)
 // continuous weapons strong in open ground and poor for corner
 // peeking (Jimmy's design, 2026-10-22).
 
-static boolean T_ExecAttack(mobj_t *target, int cost);
+static boolean T_ExecAttack(mobj_t *target, int cost,
+                            boolean from_tick);
 
 void T_ClearContinuousFire(void)
 {
@@ -262,7 +263,7 @@ void T_TickContinuousFire(void)
         turnctrl.cont_fire_tics--;
         return;
     }
-    T_ExecAttack(lt, 0);
+    T_ExecAttack(lt, 0, true);
     turnctrl.cont_fire_tics =
         T_AttackInterval(player, player->readyweapon);
 }
@@ -2079,7 +2080,8 @@ static boolean T_ExecUse(void)
 // begun (drain pauses until T_EndPulse), false on a graceful skip
 // (drain continues inline, TP refunded). T_ExecMove/T_ExecUse are
 // defined above.
-static boolean T_ExecAttack(mobj_t *target, int cost);
+static boolean T_ExecAttack(mobj_t *target, int cost,
+                            boolean from_tick);
 static void T_NativeFire(player_t *player);
 
 // ------------------------------------------------------------------
@@ -2214,7 +2216,7 @@ boolean T_ExecuteOne(void)
         pulsed = T_ExecTurn(false);
         break;
       case TA_ATTACK:
-        pulsed = T_ExecAttack(e.target, e.cost);
+        pulsed = T_ExecAttack(e.target, e.cost, false);
         break;
       case TA_USE:
         pulsed = T_ExecUse();
@@ -2744,7 +2746,8 @@ void T_DoAttack(void)
 // A successful shot begins an attack_tics pulse and returns true, so
 // the drain pauses until the fire animation has played out before
 // the next queued entry executes.
-static boolean T_ExecAttack(mobj_t *target, int cost)
+static boolean T_ExecAttack(mobj_t *target, int cost,
+                            boolean from_tick)
 {
     player_t *player = &players[consoleplayer];
     boolean untargeted = (target == NULL);
@@ -2923,7 +2926,9 @@ static boolean T_ExecAttack(mobj_t *target, int cost)
     // made T_ExecuteNext fire every queued attack in the same tic;
     // the pulses just stacked into one long pause afterwards --
     // commands looked like they all resolved at once instead of one
-    // at a time.)
+    // at a time.) Tick-fired shots skip the pulse entirely (below):
+    // for them the interval is just the countdown to the next shot.
+    if (!from_tick)
     {
         int interval = T_AttackInterval(player, player->readyweapon);
         if (interval > 0)
@@ -2933,6 +2938,13 @@ static boolean T_ExecAttack(mobj_t *target, int cost)
             return true;
         }
     }
+    // Tick-fired shots (continuous autofire) begin NO pulse: the
+    // stream is the animation carrying on after the command has
+    // executed, and each shot adding its interval back is what kept
+    // the progress phase alive until the target died -- one attack
+    // command 'executing' for ~10s while the player stood under
+    // fire (Jimmy, 2026-10-22). Execution duration belongs to
+    // commands, not to the stream.
     T_DumpState("exec-attack");
     return false;
 }
