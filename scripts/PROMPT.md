@@ -15,7 +15,7 @@ The replay always comes *after* your commands play out, never before. This guara
 - Turn to face a doorway or direction you want to explore (TURNL/TURNR), then send `WALK`. The game handles the rest.
 - Send WALK, wait ~5 seconds, then REPLAY. The 15s buffer captures your movement in the moment.
 - After the replay, view the frames: if WALK stopped for loot, check the frames for the game's "Loot nearby" message — COLLECT only if it is shown (see the COLLECT rule under Priorities). A WALK loot stop alone is not a reason to COLLECT. If WALK stopped for an enemy, prepare for combat. If blocked, turn and WALK again.
-- If WALK stops `blocked` while you are facing a door, send `USE` to open it, then `WALK` again.
+- **Doors are the way to the next area — look for them.** Actively scan for doors as you explore (door texture/panel set into a wall, often in a recessed frame). When you spot one, face its center, move right up to it (WALK toward it, or GOTO in steps until you're close and square-on in front of it), then send `USE` to open it, wait briefly for it to rise, and `WALK` through into the next area. A closed door is not a wall — never turn away from one or keep bumping it with repeated WALKs. If WALK stops `blocked` while you are facing a door, you're up against it: send `USE`, then `WALK` again.
 - For precise positioning (e.g. moving toward a specific key you see), use `GOTO fwd strafe` (facing-relative, e.g. `GOTO 150 0` = 150 forward). The game pathfinds there.
 - Keep vision fast: extract only 2 frames at half resolution (`-vf fps=1/8,scale=480:300` as JPEG). You don't need 4 full-res PNGs — 2 small frames show position, enemies, and loot just fine.
 
@@ -105,9 +105,10 @@ When in EXPLORE mode (not in combat), priority order:
 
 3. **Vanilla pickup on ground** (weapon, ammo, health, armor) → Walk toward it. These are walk-over pickups, no key needed.
 
-4. **Colored door** (red/blue/yellow markings on a door) → You need the matching key. Send `KEYS` to check which keys you have:
-   - If you have the key: walk through the door (GOTO toward it)
-   - If not: send `SCAN` to get the direction/distance to nearby keys (e.g. `[SCAN] red_key: 150 fwd, 30 right`). Then use GOTO to move toward it. If SCAN finds no keys, explore systematically — visit every room, check corners, alcoves, platforms.
+4. **Door visible** (any door — plain or colored) → Go to it and open it. Doors lead to the next area, so look for them and treat one as your destination: face its center, move right up to it (WALK toward it, or GOTO in steps until you're close and square-on in front of it), send `USE` to open it, wait briefly for it to rise, then WALK through. Don't turn away from a closed door as if it were a wall, and don't keep WALK-ing into it — up close + `USE` is how it opens.
+   - **Colored door** (red/blue/yellow markings) → You also need the matching key. Send `KEYS` to check which keys you have:
+     - If you have the key: move up to the door, send `USE`, then walk through once it opens.
+     - If not: send `SCAN` to get the direction/distance to nearby keys (e.g. `[SCAN] red_key: 150 fwd, 30 right`). Then use GOTO to move toward it. If SCAN finds no keys, explore systematically — visit every room, check corners, alcoves, platforms.
 
 5. **Key visible** (small red/blue/yellow card on ground or pedestal) → GOTO toward it immediately. Walk over it to pick up. This is high priority.
    - You don't need precise coordinates. Estimate the direction (ahead/left/right) and a rough distance: close (~50), medium (~150), far (~300). Send e.g. `GOTO 150 0` for a key that looks medium-distance ahead.
@@ -124,8 +125,8 @@ When in EXPLORE mode (not in combat), priority order:
 Your goal is to progress through the level: explore → find keys → unlock doors → reach the exit.
 
 **Exploration strategy:**
-- Doom levels are divided into sectors connected by doorways. To explore the full level, go through every doorway you see.
-- A doorway is an opening in the wall, often with a door texture or a visible passage. When you see one, GOTO through it.
+- Doom levels are divided into sectors connected by doorways and doors. To explore the full level, go through every doorway and open every door you see.
+- A doorway is an opening in the wall, often with a door texture or a visible passage. When you see one, GOTO through it. When you see a closed door, don't treat it as a wall: move right up to it, send `USE` to open it, then WALK/GOTO through into the next area.
 - Send `SECTORS` to check your progress (e.g. `[SECTORS] current=5 visited=12 total=48`). If visited isn't increasing, you're backtracking — find a doorway you haven't been through.
 - **You don't need 100%.** Some sectors are secrets (hidden behind fake walls or triggered by switches). If you've visited most sectors (>80%) and can't find new doorways, stop trying — focus on finding the exit in the areas you've already explored.
 - **If stuck**: If SECTORS visited hasn't increased in several minutes, you're likely missing a secret or the exit is in an area you've already visited. Try pressing USE on suspicious-looking walls (different texture, slightly misaligned), or re-check areas for an exit switch you might have missed.
@@ -139,8 +140,8 @@ Your goal is to progress through the level: explore → find keys → unlock doo
 
 **The full loop:**
 1. Explore new areas (GOTO through doorways)
-2. If you see a colored door, check KEYS — find the key if needed (SCAN or vision)
-3. Unlock doors and continue exploring
+2. If you see a door, move up to it and send `USE` to open it, then proceed through to the next area
+3. If you see a colored door, check KEYS — find the key if needed (SCAN or vision), then move up to it, `USE`, and go through
 4. When you find the exit, go to it
 
 ## Death and Corpse Recovery
