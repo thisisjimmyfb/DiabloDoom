@@ -376,6 +376,24 @@ out to be invisible: it was drawn from the status bar at rows
 160-170, and the 3D view, rendered after the bar, painted over
 it every frame.
 
+**Inventory presentation** (2026-10-22): gun items draw the loaded
+WAD's own pickup sprite (`D_ItemWadSpriteName`: SHOTA0, MGUNA0,
+LAUNA0, PLASA0, BFUGA0, CSAWA0, SGN2A0 where present) in the
+backpack, paperdoll, and status-bar weapon panel, so the
+inventory matches the WAD in use; the built-in 32x32 icons remain
+the fallback (the pistol has no pickup sprite in any Doom WAD,
+the SSG's is Doom II only, and non-gun items keep their icons).
+Weapon footprints are horizontal, shaped like those sprites:
+pistol 2x1, shotgun/SSG/chainsaw 3x1, chaingun/rocket/plasma/BFG
+3x2; non-gun footprints are unchanged. Footprints live in the def
+tables, not in saves, so loading runs `D_RepairBackpackLayout`,
+which first-fit re-places only the items a footprint change has
+left out of bounds or overlapping. Placing a held item onto an
+occupied backpack cell swaps Diablo-style: the blocking item
+comes onto the cursor and the held item takes its place when it
+fits the vacated space (blocker's anchor first, then the clicked
+cell); otherwise nothing moves.
+
 **Corpse recovery** (2026-10-21): death stores the whole inventory
 (equipped, backpack, essence) on the corpse; respawn clears the
 player. Touching the corpse (walk-over, or COLLECT) recovers it

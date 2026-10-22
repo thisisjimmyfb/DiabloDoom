@@ -25,7 +25,13 @@ pauses while the screen is open.
   focus items (Piercing Rounds, Incendiary Shells, …) that grant stat
   bonuses to the equipped weapon.
 - **Backpack** (right): 10×4 grid. Items occupy their grid_w × grid_h
-  footprint (e.g., weapons 2×3, potions 1×1).
+  footprint. Weapons lie horizontal, shaped like their sprites:
+  pistol 2×1, shotgun/Super Shotgun/chainsaw 3×1, chaingun/rocket
+  launcher/plasma rifle/BFG 3×2; potions 1×1.
+- **Item icons**: guns show the loaded WAD's own pickup sprite (the
+  art lying in the world) when the WAD carries one, so the screen
+  matches the WAD in use; other items — and the pistol, which has no
+  pickup sprite — use the built-in icons.
 - **Stats** (bottom): damage, defense, strength, dexterity, vitality,
   energy, resistances, life steal, magic find, movement speed,
   crit chance, crit damage.
@@ -38,7 +44,9 @@ The UI uses click-to-pick-up / click-to-place (not hold-and-drag):
 - **Left-click** a valid equipment slot: equip it. If the slot is
   occupied, the items swap.
 - **Left-click** a backpack cell: place the held item (top-left at the
-  clicked cell). Rejected if out of bounds or overlapping.
+  clicked cell). If the cell is occupied, the items swap Diablo-style:
+  the blocking item comes onto the cursor and the held item takes its
+  place, provided it fits the vacated space; otherwise nothing moves.
 - **Left-click** empty space: nothing.
 - **Right-click**: if holding a consumable, use it. Else if holding an
   item, cancel (stash it back). Else close the screen.
