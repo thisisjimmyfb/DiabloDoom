@@ -1162,39 +1162,36 @@ static int UIPatchPixel(patch_t *patch, int sx, int sy)
     return -1;
 }
 
-// Draw a WAD patch inside the (x,y,w,h) box, aspect preserved and
-// centered (letterboxed); transparent pixels leave what is beneath.
+// Draw a WAD patch STRETCHED to fill the (x,y,w,h) box exactly
+// (Jimmy, 2026-10-22): the sprite fills the item's whole footprint
+// -- a 3x1 shotgun spans all 3 cells -- instead of letterboxing
+// inside it.  Independent x/y scaling; transparent pixels leave
+// what is beneath.
 static void UIDrawPatchFit(int x, int y, int w, int h, patch_t *patch)
 {
     int pw = SHORT(patch->width);
     int ph = SHORT(patch->height);
-    int dw, dh, ox, oy, dx, dy;
+    int dx, dy;
     pixel_t *dest;
 
     if (pw < 1 || ph < 1)
         return;
-    if (pw * h > ph * w) { dw = w; dh = ph * w / pw; }
-    else                 { dh = h; dw = pw * h / ph; }
-    if (dw < 1) dw = 1;
-    if (dh < 1) dh = 1;
-    ox = x + (w - dw) / 2;
-    oy = y + (h - dh) / 2;
-    for (dy = 0; dy < dh; ++dy)
+    for (dy = 0; dy < h; ++dy)
     {
-        int sy = dy * ph / dh;
-        int yy = oy + dy;
+        int sy = dy * ph / h;
+        int yy = y + dy;
         if (yy < 0 || yy >= SCREENHEIGHT)
             continue;
-        dest = I_VideoBuffer + SCREENWIDTH * yy + ox;
-        for (dx = 0; dx < dw; ++dx)
+        dest = I_VideoBuffer + SCREENWIDTH * yy + x;
+        for (dx = 0; dx < w; ++dx)
         {
             int px;
-            if (ox + dx < 0 || ox + dx >= SCREENWIDTH)
+            if (x + dx < 0 || x + dx >= SCREENWIDTH)
             {
                 dest++;
                 continue;
             }
-            px = UIPatchPixel(patch, dx * pw / dw, sy);
+            px = UIPatchPixel(patch, dx * pw / w, sy);
             if (px >= 0)
                 *dest = (pixel_t)px;
             dest++;
