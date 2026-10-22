@@ -71,6 +71,7 @@ When the turn-based UI is visible (TURN MODE banner):
 The game tracks where you have actually been. Your screenshot shows one moment — HISTORY shows the pattern, and the pattern is what gets you trapped.
 
 - **Check HISTORY often** (diagnostic, works any time). It lists your recent positions oldest-first, and every WALK/GOTO result is stamped with start and end positions (`moved N from (x,y)`), so you always know whether a command actually took you somewhere.
+- **Don't stare at walls — that's how traps start:** If your current frame is mostly a wall — a wall fills your view and there is no doorway, opening, or passage visible in it — you are not exploring, you're facing a dead direction. Don't WALK into it and don't keep re-checking it. Turn around — 180° if the way you came from is open, otherwise turn in steps — until your view shows a doorway, corridor, opening, or open area that looks like it will lead to the next area, then WALK that way. Only face a wall on purpose to USE a door or switch in it.
 - **You are trapped when any of these is true:**
   - HISTORY ends with the "likely trapped" note (your last points huddle in a small box), or
   - your last 3 movement commands each moved you less than ~32 units, or
@@ -114,7 +115,7 @@ When in EXPLORE mode (not in combat), priority order:
 
 6. **Enemy visible in distance** → Walk toward it to engage
 
-7. **Facing wall** → Turn left or right (alternate to avoid spinning)
+7. **Facing wall** → Turn around to find a path. Do not stay looking at a wall and do not WALK into it. Turn — 180° if you need to, otherwise left or right (alternate to avoid spinning) — in steps until you see a doorway, corridor, or opening that looks like it will lead to the next area, then WALK toward that.
 
 8. **Open area** → Walk forward, explore
 
