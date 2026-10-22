@@ -486,6 +486,19 @@ is the limiter. Attack speed is the command execution delay
 (`attack_tics` in the kit): pistol 15, shotgun 40, chaingun 16, rocket 80,
 plasma 16, BFG 80, chainsaw 12, SSG 50 tics (35 tics = 1 second).
 
+**Continuous fire** (chainsaw/chaingun/plasma, 2026-10-22): committing
+an attack with a continuous weapon arms a lock on the target via
+`T_SetupContinuousFire` — called from BOTH commit paths (F-key confirm
+and Ctrl-release; the Ctrl path previously never armed it, so
+continuous weapons fired exactly one shot per round). While game time
+runs, `T_TickContinuousFire` (called per tic from `T_PulseOneTic`)
+performs the attack directly at an interval of `attack_tics` scaled
+by the derived attack-speed stat (`attack_tp`: interval =
+attack_tics × attack_tp / 4) — the held-trigger behavior. The
+progress phase stays alive while the lock is armed; the lock breaks
+on target death/removal, weapon switch, empty magazine, overheat,
+target switch, or combat exit.
+
 **No vanilla weapon auto-switch** (2026-10-19): Doom's `P_CheckAmmo`
 no longer picks a new weapon when the current one runs dry, and the
 Berserk pack no longer forces a switch to fists — the ready weapon
