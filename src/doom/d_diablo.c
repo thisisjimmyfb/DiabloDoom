@@ -1260,14 +1260,23 @@ boolean D_SlotFits(int slot, const diablo_itemdef_t *def)
     return def->slot == slot;
 }
 
-// Two-handed weapons: BFG, rocket launcher, chaingun, super shotgun.
-// They occupy both hands, so no shield can be equipped with them.
+// Two-handed rule (Jimmy, 2026-10-22): a weapon is two-handed iff
+// its backpack footprint takes up 2 rows; a 1-row weapon is
+// one-handed and leaves the shield hand free.  The footprint comes
+// from the weapon's plain base item (every variant of a base
+// shares its grid size), so reshaping a footprint reclassifies
+// the weapon -- with the horizontal footprints, the 3x2 guns
+// (chaingun, rocket, plasma, BFG) are two-handed and the 3x1/2x1
+// guns (shotgun, SSG, chainsaw, pistol) are one-handed.
 boolean D_IsTwoHandedWeapon(int doomweapon)
 {
-    return doomweapon == wp_bfg
-        || doomweapon == wp_missile
-        || doomweapon == wp_chaingun
-        || doomweapon == wp_supershotgun;
+    int id = D_BaseItemForWeapon(doomweapon);
+    const diablo_itemdef_t *def;
+
+    if (id == D_NOITEM)
+        return false;
+    def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
+    return def && def->grid_h >= 2;
 }
 
 // Use the consumable at backpack index bpi (no-op when not consumable).
