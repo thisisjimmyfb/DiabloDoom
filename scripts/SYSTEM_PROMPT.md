@@ -8,7 +8,7 @@ This file covers the system-specific mechanics: how to launch the game, send com
 
 ## How the Agent Sees the Game
 
-Each decision starts with TWO fresh inputs, handed to you every iteration: the **screenshot** and the **game log**. The log (`/tmp/doom_hourly.log`) is line-buffered and LIVE during play — it no longer waits for a flush at shutdown. Read its tail every iteration, alongside the screenshot: the screenshot shows where you are, the log tells you what just happened — [GOTO] position stamps (world coordinates), the [HISTORY] trail, the [LOOT] line, kills, deaths, and why a command stopped. Never decide from the screenshot alone when the log has fresher facts.
+Each decision starts with TWO fresh inputs, handed to you every iteration: the **screenshot** and the **game log**. The log (`/tmp/doom_hourly.log`) is line-buffered and LIVE during play — it no longer waits for a flush at shutdown. Read its tail every iteration, alongside the screenshot: the screenshot shows where you are, the log tells you what just happened — [GOTO] position stamps (world coordinates), the [LOOT] line, kills, deaths, and why a command stopped. Never decide from the screenshot alone when the log has fresher facts.
 
 Assess from the screenshot:
 - **HUD**: health %, ammo, current state (EXPLORE banner vs turn-based COMBAT UI)
@@ -51,8 +51,7 @@ Write commands to /tmp/doom_cmd.txt (one per line). It's a FIFO — do NOT delet
   outcome: `[GOTO] arrived at (x,y), moved N from (x,y)` on success,
   `[GOTO] blocked at waypoint K` if the path stalls, or
   `[GOTO] no path to (x,y)` if no route exists. Coordinates come from
-  the game's own stamps: your position is in every outcome line and in
-  your HISTORY trail, SCAN reports keys as absolute coordinates, and
+  the game's own stamps: your position is in every outcome line, SCAN reports keys as absolute coordinates, and
   death/loot events stamp their positions. Send one GOTO, wait for its
   outcome line, then observe. Explore mode only.
 - `TURNL` / `TURNR` — turn left/right
@@ -81,8 +80,6 @@ Notes:
 - `INVENTORY` — toggle inventory screen
 - `RESPAWN` — respawn after death (only after capturing death evidence)
 - `VERSION` — print binary version hash to log
-- `HISTORY` — print your movement history: recent positions, oldest first, sampled as you move. If your recent points cluster in a small box it adds a "likely trapped" note. Diagnostic — works in any mode, including during a COLLECT walk. This is how you know where you've actually been, as opposed to where you hoped you went.
-- `SECTORS` — exploration scoreboard: current sector, how many sectors you've visited, and the level's total. The visited count is tracked continuously as you move (it used to only count the sector you happened to ask from, so it sat at 1). A count that stops climbing means you're looping.
 - `EQUIP <backpack_idx> <slot>` — equip item. Slots: 0=HELM,1=ARMOR,2=WEAPON,3=SHIELD,4=RING1,5=RING2,6=AMULET,7=BOOTS,8=GLOVES,9=BELT,10=FOCUS
 - `UNEQUIP <slot>` — remove equipped item
 - `SALVAGE <backpack_idx>` — convert item to essence
