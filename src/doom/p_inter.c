@@ -1129,23 +1129,6 @@ P_KillMobj
 
     target->flags &= ~(MF_SHOOTABLE|MF_FLOAT|MF_SKULLFLY);
 
-    // Auto-capture: a player kill earns a replay, but the snapshot is
-    // deferred until the progress phase has completely finished (the
-    // queue fully drained) -- see T_RequestCapture in t_turn.c. Firing
-    // here, mid-phase, cut replays off while queued actions were
-    // still playing out. Debounced 5s: back-to-back kills share one
-    // pending capture.
-    if (source && source->player && target->player == NULL
-        && (target->flags & MF_COUNTKILL))
-    {
-        static int last_kill_request_tic = -1000;
-        extern void T_RequestCapture(int reason);
-        if (leveltime - last_kill_request_tic >= 175)
-        {
-            last_kill_request_tic = leveltime;
-            T_RequestCapture(1); // CAPTURE_REASON_KILL
-        }
-    }
 
     if (target->type != MT_SKULL)
 	target->flags &= ~MF_NOGRAVITY;
@@ -1485,27 +1468,6 @@ P_DamageMobj
 		target->health = 0;
 	}
 
-	// Auto-capture: when HP drops below 50%, save a replay automatically.
-	// The agent's 10-20s vision latency means it can't time captures reliably.
-	// This fires once per low-HP event (resets when HP recovers above 60%).
-	{
-	    static boolean replay_lowhp_triggered = false;
-	    if (player->health < 50 && !replay_lowhp_triggered && player->health > 0)
-	    {
-		char filename[256];
-		D_ReplayNextFilename(filename, sizeof(filename));
-		if (D_ReplaySaveMP4(filename) == 0)
-		{
-		    printf("[REPLAY] auto-captured low-HP (health=%d): %s\n",
-		           player->health, filename);
-		}
-		replay_lowhp_triggered = true;
-	    }
-	    else if (player->health >= 60)
-	    {
-		replay_lowhp_triggered = false;
-	    }
-	}
 	
 	player->attacker = source;
 	player->damagecount += damage;	// add damage after armor / invuln
