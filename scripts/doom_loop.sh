@@ -162,7 +162,7 @@ launch_game() {
     # log only lands in 4-8KB blocks and at exit, blinding the agent mid-run.
     SDL_VIDEODRIVER=${SDL_VIDEODRIVER:-dummy} nohup stdbuf -oL -eL "$GAME" -iwad "$DOOM_WAD" \
         -width "$GAME_WIDTH" -height "$GAME_HEIGHT" -warp $WARP \
-        -autocapture \
+        --continuous-capture \
         -nosound 9>&- > "$GAME_LOG" 2>&1 &
     disown
     sleep 15

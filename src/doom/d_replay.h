@@ -37,7 +37,7 @@ void D_ReplayNextFilename(char *buf, size_t bufsz);
 // Number of frames currently in the buffer.
 int D_ReplayFrameCount(void);
 
-// Continuous capture (-autocapture): when on, every full 15-second
+// Continuous capture (--continuous-capture): when on, every full 15-second
 // segment in the buffer is queued for encode automatically (see
 // D_ReplayTick), so the whole session lands on disk as consecutive
 // timestamped segment MP4s instead of only on-demand captures.

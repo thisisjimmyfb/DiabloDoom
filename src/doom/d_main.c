@@ -506,14 +506,14 @@ void D_DoomLoop (void)
         extern void D_ReplayInit(void);
         extern void D_ReplaySetAutoCapture(int on);
         D_ReplayInit();
-        if (M_CheckParm("-autocapture") > 0)
+        if (M_CheckParm("--continuous-capture") > 0)
         {
             // Continuous video capture: the replay buffer saves a
             // timestamped 15-second segment MP4 every 15 seconds for
             // the whole session (see d_replay.c). The farm launches
             // with this so a full run's footage survives the run.
             D_ReplaySetAutoCapture(1);
-            printf("[REPLAY] autocapture on: a 15s segment every 15s\n");
+            printf("[REPLAY] continuous capture on: a 15s segment every 15s\n");
         }
     }
     EnableLoadingDisk();

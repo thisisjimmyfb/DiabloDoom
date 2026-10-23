@@ -53,7 +53,7 @@ over as destinations), `KEYS`, `SCAN` (nearby keys by absolute coordinates), `SE
 (visited-sector progress), `TURNL`/`TURNR`, `ATTACK`, `END`, `COLLECT`,
 `SCREENSHOT`, `CAPTURE`/`REPLAY` (15 s MP4; the encode runs on a
 worker thread since 2026-10-19, so the game never stalls waiting for
-x264). Launching with `-autocapture` turns on continuous capture:
+x264). Launching with `--continuous-capture` turns on continuous capture:
 every full 15-second buffer is queued for encode automatically and
 saved as its own timestamped segment MP4, so a whole session lands
 on disk without any CAPTURE command (the farm launches this way). `SAVE n`/`LOAD n` drive the save slots (0 = the autosave pair,
