@@ -36,9 +36,9 @@ On Muse VMs (`D_OnMuseVM()` — `JARVIS_FQDN` contains `metaaivm.com`),
 line, then deletes the file. Commands include: `WALK` (persistent — keeps
 walking until enemy, *reachable* loot (once per item: later walks ignore
 an item WALK already stopped for, until it's gone), or blocked;
-`WALK <angle>` turns to face that absolute heading first (degrees,
-0 = east, counterclockwise) and walks forward a small fixed distance
-(64 units) instead), `USE`
+`WALK <angle>` turns by that relative angle first (-90..+90 degrees;
+negative turns left, positive turns right) and walks forward a small
+fixed distance (64 units) instead), `USE`
 (use the door/switch in front of the player; explore mode), `WAIT`
 (hold every later queued command — diagnostics included — for one
 fixed 2-second beat while the world keeps ticking; stacks, capped at

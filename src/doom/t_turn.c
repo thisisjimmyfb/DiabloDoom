@@ -1156,10 +1156,10 @@ static void cmd_dispatch(const char *cmd)
         // loot nearby, combat starts, or blocked. The worker sends WALK
         // once; the game handles the rest. A manual WALK cancels GOTO.
         // (Also cancels any active walk and restarts it.)
-        // WALK <angle>: turn to face that absolute heading first
-        // (degrees, 0 = east, counterclockwise), then walk forward a
-        // small fixed distance instead of until a stop condition
-        // (Jimmy, 2026-10-23).
+        // WALK <angle>: turn by that relative angle first
+        // (-90..+90 degrees; negative turns left, positive turns
+        // right), then walk forward a small fixed distance instead
+        // of until a stop condition (Jimmy, 2026-10-23).
         int deg;
         if (sscanf(cmd + 4, "%d", &deg) == 1)
             T_WalkStartStep(deg);

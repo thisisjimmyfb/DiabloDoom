@@ -1296,24 +1296,28 @@ void T_WalkStart(void)
     T_WalkBegin(0);
 }
 
-// WALK <angle>: turn first -- face the absolute heading (degrees,
-// 0 = east, increasing counterclockwise, the log's convention) --
-// then walk forward a small fixed distance instead of walking
-// until a stop condition (Jimmy, 2026-10-23). The turn is instant,
-// the same way T_FaceTarget snaps facing.
+// WALK <angle>: turn first -- a RELATIVE turn of -90..+90 degrees
+// (negative turns left, positive turns right; clamped to that
+// range) -- then walk forward a small fixed distance instead of
+// walking until a stop condition (Jimmy, 2026-10-23). The turn is
+// instant, the same way T_FaceTarget snaps facing. Doom angles
+// increase counterclockwise, so a right (positive) turn subtracts.
 void T_WalkStartStep(int degrees)
 {
     player_t *pl = &players[consoleplayer];
-    int deg;
+    int deg = degrees;
     if (pl->mo == NULL || !T_InExplore())
         return;
-    deg = ((degrees % 360) + 360) % 360;
+    if (deg < -90)
+        deg = -90;
+    if (deg > 90)
+        deg = 90;
     // degrees -> angle_t: a full turn is 2^32, computed in 16.16
     // fixed point to stay in 32-bit arithmetic.
-    pl->mo->angle = (angle_t) (((deg << 16) / 360) << 16);
+    pl->mo->angle -= (angle_t) (((deg << 16) / 360) << 16);
     T_WalkBegin(WALK_STEP_DIST * FRACUNIT);
-    printf("[WALK] facing %d degrees, stepping %d units\n",
-           deg, WALK_STEP_DIST);
+    printf("[WALK] turned %+d degrees (%s), stepping %d units\n",
+           deg, deg < 0 ? "left" : "right", WALK_STEP_DIST);
 }
 
 void T_WalkCancel(void)
