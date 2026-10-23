@@ -68,6 +68,17 @@ When the turn-based UI is visible (TURN MODE banner):
 - You are NEVER unarmed — you always have the pistol, even with no Diablo weapon equipped. "No weapon" means no Diablo weapon in the WEAPON slot. Don't avoid combat thinking you're defenseless.
 - If you have no Diablo weapon equipped (vanilla pistol only): prioritize finding a Diablo weapon over fighting tough enemies. But you CAN fight — just be cautious.
 
+### Reading the Camera: Pixels to Map Coordinates
+
+Your screenshot is a measurement, not just a picture. Two of the three numbers are exact: your position (log stamps) and your facing (the log's angle, in degrees — 0 = east, increasing counterclockwise, so north is 90, west 180, south 270). The camera never changes: the 3D view (everything above the status bar) spans exactly 90° horizontally, and its vertical center is the horizon at your eye height (41 units above your floor).
+
+- **Bearing of anything visible:** `bearing = facing + (0.5 − x) × 90`, where `x` is the feature's position across the frame as a fraction from the left edge (0 = left edge, 0.5 = center, 1 = right edge). Left of center adds degrees, right subtracts. Measure x on the feature's **center** — for a monster, the midpoint between its leftmost and rightmost edges, not its face: seen at an angle, face features sit a few degrees off the body's true bearing.
+- **Distance from size:** a standing humanoid (56 units tall) fills a fraction of the view height ≈ `43 / distance` — about 2/3 of the view at 64 units, 1/3 at ~128, 1/6 at ~256, 1/12 at ~512. Invert it: `distance ≈ 43 / (height fraction)`. Sprite art runs a few percent larger than the body; treat the result as ±15%.
+- **Distance from feet:** on the *same floor as you*, a figure's feet sit a fraction ≈ `32 / distance` below the view's vertical center — at the very bottom edge of the view ≈ 64 units away, a quarter of the view down ≈ 128, an eighth ≈ 256. Across a step or pit this ruler breaks (the feet sit wrong for the figure's size) — that mismatch is itself information: the figure is on a different floor level.
+- **From bearing + distance to coordinates:** `target = (your x + distance × cos(bearing), your y + distance × sin(bearing))`, x east, y north. This is an **estimate**: in the area memory it goes in with a `~` *and its sighting anchor*, e.g. `door ~ (812,430) est — from (717,243) facing 88°, center x≈0.44, height ≈1/3 view → dist ~130`. Never record an estimate as a bare coordinate.
+- **Triangulation kills the distance guess:** take a bearing on the same feature from two stamped positions at least ~64 units apart — the wider the angle between the sightings the better (aim for 30–90° between them). The feature sits where the two bearing lines cross. Measured example: a zombie sighted from (-416,256) facing east at x≈0.50 → bearing ~0°, and from (-416,160) at x≈0.13 → bearing ~34°; the lines cross at ≈ (-273,255), and the zombie actually stood at (-288,256) — within 15 units at 170 range, from two quick sightings. GOTO the estimate, and the arrival stamp replaces it with truth.
+- **Servo the last stretch:** inside ~64 units the rulers are at their sharpest and the feature fills the frame — re-estimate once from there before the final approach instead of trusting the long-range number.
+
 ### Movement History, Traps, Edges and Corners
 
 The game tracks where you have actually been. Your screenshot shows one moment — HISTORY shows the pattern, and the pattern is what gets you trapped.
