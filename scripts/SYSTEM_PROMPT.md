@@ -21,6 +21,15 @@ Assess from the screenshot:
 
 Game lifecycle (launch, save/load) is handled by `scripts/doom_loop.sh --subagent setup` — the workflow runs it before the loop. You never launch or kill the game yourself.
 
+## Area Memory (short-term scratch)
+
+`~/workspace/DiabloDoom/.local/tmp/MEMORY.md` is your short-term memory of this level: what you have SEEN — areas visited, doors discovered, walls and door sections you already tried `USE` on, enemies and pickups spotted, routes that returned `no path`. It is a local scratch file, never committed, and fine to lose (a wipe just means you explore fresh). If it doesn't exist, create it (with the section headings from the rules below) and start filling it in.
+
+- **Read it right after LOAD 0, before your first action.** It is how you know where you've already been across cycles: which door to head for, and — just as valuable — what NOT to retry. A `USE` that did nothing on a specific wall section is recorded there with its spot; never spend another `USE` on it. A door that opened is recorded with where it leads; navigate by it.
+- **Update it as you observe, in small edits.** The vision step produces more than movement decisions — every notable observation is a memory entry: a door discovered (position, whether `USE` opened it, where it seems to lead), a `USE` with no effect (exact spot and facing — record it so neither you nor the next cycle tries it again), an enemy or pickup seen (position), a GOTO that returned `blocked` / `no path` (target and result), a corpse left behind, a new area entered (what it looks like, what connects to it).
+- **Observation only.** Entries come from your screenshots and the log — never from map data or guesses about unvisited space. Coordinates from log stamps are exact and GOTO-legal (they're earned the usual way). A position judged from a screenshot is rough: prefix it with `~`. Memory is a hint layer, not truth — verify by vision before acting on anything that matters: loot gets collected, enemies move, and a door that wouldn't open from one side may open from the other (if it does, update the entry).
+- **Keep it under ~60 lines.** Before you QUIT, consolidate: fold this run's edits in, drop entries events have overtaken (loot collected, enemy dead, lead resolved), and keep the dead-ends and no-effect spots — those are the most valuable lines in the file, because they stop the next cycle repeating them.
+
 ## Video Capture
 
 The workflow feeds you a screenshot per iteration (captured via the game's `CAPTURE` driver command, which also saves a 15-second replay video for the user report). Read the screenshot directly with vision — no video frame extraction needed. The screenshot is the vision input; the replay video is only for the user-facing report link.
@@ -89,7 +98,7 @@ Play for ~4 minutes. The 10-minute cron window is the gaming session — within 
 2. Wait ~5 seconds while they play out, then Capture (CAPTURE command: queues a 15s replay video encode — it runs in the background and the MP4 appears under /tmp/doomshots/ a few seconds later — plus an immediate screenshot; sleep 4, copy newest PNG to /tmp/farm_view.png). Capturing *after* the action is what puts the action in the video.
 3. Read the screenshot with vision AND tail the log (it is live now — the position stamps tell you where your last command actually ended), decide the next action, then repeat from step 1
 
-(First iteration after LOAD only: one opening CAPTURE to see the loaded state, then start the loop with an action.)
+(First iteration after LOAD only: read the area memory file (see Area Memory above), take one opening CAPTURE to see the loaded state, then start the loop with an action.)
 
 This means ~40-45 decisions per 4-minute session. Fresh visual input every time.
 
@@ -105,8 +114,9 @@ After ~4 min of play:
 1. Kill count: grep the log for kill messages.
 2. Capture replay: the report video must show this run's action, so use the newest `diablodoom_*.mp4` in `/tmp/doomshots/` that was captured *after* your final action batch played out (per the loop above, your last iteration's CAPTURE already qualifies). Only if no post-action capture exists, do a short move/turn burst, wait ~5 seconds, then write `REPLAY\n`, sleep 20, and grab the newest mp4. Never report a video captured right after LOAD or after an idle gap — it shows a standing-still player. Copy to workspace, upload via `/opt/hatch/bin/remote-storage upload-file`.
    - **Stuck runs: skip the replay entirely.** If this run was stuck — you ended at essentially the position you started, made no meaningful movement, had no combat, kills, or loot, and your GOTO attempts returned `blocked` / `no path` — do not capture or upload a replay (it would only show a standing-still player). A screenshot is sufficient: take a final screenshot, upload that, and report it instead of a video link. (A death is not "stuck" — the death-replay rule above still applies.)
-3. Report to user: kills this run and replay video link — or, for a stuck run, kills (0) and the screenshot link.
-4. Leave the game running — next session continues from where you left off.
+3. Update the area memory: consolidate this run's observations into `.local/tmp/MEMORY.md` (see Area Memory above) and set its save anchor to your final position — do this before QUIT, while the log and your screenshots are in front of you.
+4. Report to user: kills this run and replay video link — or, for a stuck run, kills (0) and the screenshot link.
+5. Leave the game running — next session continues from where you left off.
 
 ## Failure Handling
 
