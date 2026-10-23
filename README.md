@@ -113,7 +113,7 @@ Pick up drops by walking over them.
 
 ### Equipment backend (Phase 1)
 
-All 42 loot items have data-driven definitions (src/doom/d_diablo.c) with
+All 42 loot items have data-driven definitions (src/diablo/d_diablo.c) with
 names, tiers, equipment slots, Diablo-style grid sizes, and stats.
 
 Equipment slots: helm, armor, weapon, shield, two rings, amulet, boots,

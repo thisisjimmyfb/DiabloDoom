@@ -71,9 +71,9 @@ RESPAWN
 
 ## Implementation
 
-- Driver FIFO: `src/doom/t_turn.c` — `cmd_init()` creates `/tmp/doom_cmd.txt` via `mkfifo()` (Muse VM only), opens `O_RDWR|O_NONBLOCK`; `cmd_drain()` reads available bytes each tick without blocking; `cmd_dispatch()` executes each line.
+- Driver FIFO: `src/diablo/t_turn.c` — `cmd_init()` creates `/tmp/doom_cmd.txt` via `mkfifo()` (Muse VM only), opens `O_RDWR|O_NONBLOCK`; `cmd_drain()` reads available bytes each tick without blocking; `cmd_dispatch()` executes each line.
 - Explore movement: `WALK` teleports + manual `P_TouchSpecialThing` check (see `cmd_dispatch` WALK handler).
-- Combat movement: `T_DoMove(dir)` in `src/doom/t_action.c` — queues `TA_MOVE_*` actions.
-- Combat attacks: `T_DoAttack()` in `src/doom/t_action.c`.
-- Loot: `T_DoCollect()` in `src/doom/t_action.c`.
+- Combat movement: `T_DoMove(dir)` in `src/diablo/t_action.c` — queues `TA_MOVE_*` actions.
+- Combat attacks: `T_DoAttack()` in `src/diablo/t_action.c`.
+- Loot: `T_DoCollect()` in `src/diablo/t_action.c`.
 - Respawn: `P_DoCorpseRespawn()` in `src/doom/p_inter.c`.
