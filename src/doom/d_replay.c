@@ -88,6 +88,13 @@ void D_ReplayNextFilename(char *buf, size_t bufsz)
 static byte *replay_buffer = NULL;
 static int replay_head = 0;
 static int replay_count = 0;
+static int replay_autocapture = 0;   // -autocapture: save every segment
+static volatile int replay_encode_busy = 0;  // an encode job is in flight
+
+void D_ReplaySetAutoCapture(int on)
+{
+    replay_autocapture = on;
+}
 
 // Audio ring buffer: 15 seconds of 44.1kHz stereo 16-bit PCM.
 // Written by the SDL_mixer post-mix hook (audio thread), read when saving.
@@ -146,6 +153,21 @@ void D_ReplayTick(void)
            I_VideoBuffer, REPLAY_FRAME_SIZE);
     replay_head = (replay_head + 1) % REPLAY_MAXFRAMES;
     if (replay_count < REPLAY_MAXFRAMES) replay_count++;
+
+    // Continuous capture: the moment the buffer holds a full segment,
+    // queue its encode (async, on the encoder thread) and start the
+    // next segment -- D_ReplaySaveMP4 snapshots and clears the ring.
+    // If the encoder is still busy with the previous segment, hold:
+    // the ring keeps the newest frames (oldest overwritten) and the
+    // save fires the tic the encoder frees up, so the segment that
+    // lands is always a full 15 seconds.
+    if (replay_autocapture && replay_count >= REPLAY_MAXFRAMES
+        && !replay_encode_busy)
+    {
+        char name[256];
+        D_ReplayNextFilename(name, sizeof(name));
+        D_ReplaySaveMP4(name);
+    }
 }
 
 int D_ReplayFrameCount(void) { return replay_count; }
@@ -395,8 +417,6 @@ typedef struct {
     char filename[256];
     char tmpname[264];
 } replay_job_t;
-
-static volatile int replay_encode_busy = 0;
 
 static void *replay_encode_worker(void *arg)
 {
