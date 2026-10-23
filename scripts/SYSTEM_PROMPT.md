@@ -34,11 +34,9 @@ Game lifecycle (launch, save/load) is handled by `scripts/doom_loop.sh --subagen
 
 ## Video Capture
 
-The workflow feeds you a screenshot per iteration (captured via the game's `CAPTURE` driver command, which also saves a 15-second replay video for the user report). Read the screenshot directly with vision — no video frame extraction needed. The screenshot is the vision input; the replay video is only for the user-facing report link.
+The game is launched with `--continuous-capture`: it saves a 15-second segment MP4 (`diablodoom_<date>_<time>.mp4`) every 15 seconds, all run long, into `/tmp/doomshots/`. The segments tile the whole session — they are the full-run record, and they are your video input: to see what just happened, find the newest segment covering your last commands and review its frames (if your commands aren't in the newest segment yet, wait for the next one to land). Never issue CAPTURE or REPLAY to make a video — the segments are already being made.
 
-**The replay is a rolling last-15-seconds buffer, not a recording of your session.** Whatever the player did more than 15 seconds before the CAPTURE is gone from the video. A CAPTURE issued right after LOAD, or after a long think gap, contains only a standing-still player — that footage is useless as a report replay. So: CAPTURE *after* your commands play out (act, wait ~5 seconds, then CAPTURE), never as the first thing after a load or a long pause. The one exception is a single opening CAPTURE right after LOAD purely to see the loaded state — fine for vision, but never use that video in the user report.
-
-**Continuous capture is also running** (the game is launched with `--continuous-capture`): every full 15 seconds of play is saved automatically as its own timestamped segment MP4 (`diablodoom_<date>_<time>.mp4`) in the doomshots directory — no command needed, and combat/kill moments are in the segments whether or not you CAPTUREd them. The segments are the full-run record: when you report, the segments covering a fight are the combat replay. Before QUIT, copy this run's segment files somewhere durable if your report flow needs them after the run (the doomshots directory is ephemeral).
+Your other vision input is the screenshot: read it directly with vision. Right after LOAD, take one opening SCREENSHOT to see the loaded state.
 
 ## Command Reference
 
@@ -75,8 +73,8 @@ Notes:
 
 **System:**
 - `SCREENSHOT` — capture screenshot to doomshots/
-- `REPLAY` — capture 15-second replay video (H.264 + AAC)
-- `CAPTURE` — capture 15s replay video + screenshot in one command (use this for the vision loop; the screenshot is your vision input, the video is for the user report)
+- `REPLAY` — capture 15-second replay video (H.264 + AAC) (legacy — the continuous segments cover this; don't issue it)
+- `CAPTURE` — capture 15s replay video + screenshot in one command (legacy — the vision loop uses SCREENSHOT plus the continuous segments; don't issue it)
 - `INVENTORY` — toggle inventory screen
 - `RESPAWN` — respawn after death (only after capturing death evidence)
 - `VERSION` — print binary version hash to log
@@ -94,17 +92,17 @@ Notes:
 
 Play for 18 minutes. The cron window is 1 hour — within it, make decisions frequently.
 
-Do not reuse a stale screenshot for multiple decisions. The loop is ACT → CAPTURE → THINK:
+Do not reuse a stale screenshot for multiple decisions. The loop is ACT → WATCH → THINK:
 1. Send command(s) via FIFO (based on the previous screenshot and PROMPT.md strategy)
-2. Wait ~5 seconds while they play out, then Capture (CAPTURE command: queues a 15s replay video encode — it runs in the background and the MP4 appears under /tmp/doomshots/ a few seconds later — plus an immediate screenshot; sleep 4, copy newest PNG to /tmp/farm_view.png). Capturing *after* the action is what puts the action in the video.
+2. Wait ~5 seconds while they play out, then observe: SCREENSHOT for the current still (copy the newest PNG from /tmp/doomshots/ to /tmp/farm_view.png) and find the newest segment MP4 covering the action for the motion. Observing *after* the action is what puts the action in front of you.
 3. Read the screenshot with vision AND tail the log (it is live now — the position stamps tell you where your last command actually ended), decide the next action, then repeat from step 1
 
-(First iteration after LOAD only: read the area memory file (see Area Memory above), take one opening CAPTURE to see the loaded state, then start the loop with an action.)
+(First iteration after LOAD only: read the area memory file (see Area Memory above), take one opening SCREENSHOT to see the loaded state, then start the loop with an action.)
 
 Fresh visual input every time.
 
 Check the tail of /tmp/doom_hourly.log every iteration (it is live) for: position stamps, kills, PLAYER_DIED, errors.
-- If you see PLAYER_DIED: capture a REPLAY video (write `REPLAY\n`, sleep 20, grab newest mp4) for the death moment, upload it with your report. Mention what killed you and where your corpse is. Then send RESPAWN. Do not send RESPAWN until you've uploaded the death video.
+- If you see PLAYER_DIED: the death is in the continuous segments — note the segment covering it (its timestamp) in your report, and mention what killed you and where your corpse is. Then send RESPAWN.
   - RESPAWN preflight (added 2026-10-16 after two silent RESPAWN failures): confirm `pgrep -c -f "chocolate-doo[m]"` is exactly 1 BEFORE writing RESPAWN — a dead/missing game means your write blocks forever, and two games split the FIFO so the command can vanish.
   - Verify with the log, not just the screenshot: look for `[FARM] RESPAWN confirmed` (worked) vs `[FARM] RESPAWN failed - no dead player found` (the command ARRIVED but nobody was dead — do NOT resend blindly; check the screenshot). No line at all means the command never reached the game — check the process count, don't assume the engine is broken. Note: every game launch truncates /tmp/doom_hourly.log, so only trust lines written after the latest launch.
 - After RESPAWN: corpse recovery is #1 priority (see PROMPT.md).
