@@ -705,14 +705,10 @@ static void T_PulseOneTic(boolean freeze_monsters)
     P_RespawnSpecials();
     leveltime++;
 
-    // Gradual ammo trickle. The rate is tied to the weapon's cooldown or
-    // attack speed (see T_KitTrickleAmmo). Runs when the game is unfrozen
-    // (explore, progress phase) — not during the frozen planning phase.
-    if (turnctrl.state != TS_PLANNING && turnctrl.state != TS_TARGETING &&
-        turnctrl.state != TS_CONFIRM)
-    {
-        T_KitTrickleAmmo();
-    }
+    // (Ammo replenish is NOT here: the one cadence loop,
+    // T_TickCadence, moves every magazine on every unfrozen game
+    // tic from T_Ticker -- pulses included, since T_Ticker drives
+    // them -- so no second regen path lives in the pulse simulator.)
 
     // Continuous weapon fire: while the lock is armed, the tick
     // performs the attack at the weapon's attack-speed interval --

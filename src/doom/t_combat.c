@@ -377,6 +377,7 @@ static int t_ammo[NUMWEAPONS];      // THE per-weapon resource counter:
 static int t_charge_tics[NUMWEAPONS]; // tics since last charge regen
 static int t_cooldown_tics[NUMWEAPONS]; // tics since last cooldown tick
 static int t_decay_acc[NUMWEAPONS];   // fractional drain accumulator
+static int t_trickle_tics[NUMWEAPONS]; // tics since last trickle +1
                                       // (inverted magazines)
 static boolean t_cadence_inited;
 
@@ -491,7 +492,7 @@ void T_KitOnFire(player_t *player)
     if (kit->max_charges > 0 && t_charges[w] > 0)
         t_charges[w]--;
     // NOTE: Firing does NOT set a cooldown. CD is just the ammo replenish
-    // rate (see T_KitTrickleAmmo). Ammo is the limiter, not a separate CD
+    // rate (see T_TickCadence). Ammo is the limiter, not a separate CD
     // resource.
 }
 
@@ -558,9 +559,9 @@ void T_KitResetCadence(void)
 
 // THE ammo replenish rate: tics per unit of magazine movement for a
 // kit, from its explicit replenish model. One rate system for every
-// weapon: normal magazines trickle UP at this rate during the
-// progress phase (T_KitTrickleAmmo); inverted magazines drain DOWN
-// at this rate on every game tic (T_TickCadence).
+// weapon, applied by the one cadence loop (T_TickCadence, every
+// unfrozen game tic): normal magazines trickle UP at this rate;
+// inverted magazines drain DOWN at this rate.
 static int T_KitReplenishTics(const t_kitdef_t *kit, player_t *player)
 {
     if (kit->replenish == REPLENISH_CD)
@@ -603,6 +604,8 @@ static void T_RefillOnCooldownReady(weapontype_t w);
 void T_TickCadence(void)
 {
     int w;
+    if (!t_cadence_inited)
+        T_KitResetCadence();
     for (w = 0; w < NUMWEAPONS; w++)
     {
         // Charges (rocket)
@@ -678,6 +681,32 @@ void T_TickCadence(void)
         {
             t_decay_acc[w] = 0;
         }
+
+        // Normal magazine (every non-inverted kit): trickle UP at
+        // the same replenish rate the inverted magazine drains at --
+        // one code path moves every magazine, in the direction the
+        // kit declares. This loop is the ONLY over-time ammo regen:
+        // it runs on every unfrozen game tic (explore included), so
+        // a magazine refills whenever game time runs, not only while
+        // combat pulses simulate. (Before 2026-10-23 the trickle-up
+        // lived in the pulse simulator alone, so explore-heavy play
+        // never refilled anything -- the BFG sat at 7/20 across whole
+        // farm cycles with no combat.)
+        if (!t_kits[w].ammo_inverted && t_kits[w].ammo_max > 0
+            && t_kits[w].ammo_cost > 0 && t_ammo[w] < t_kits[w].ammo_max)
+        {
+            int interval = T_KitReplenishTics(&t_kits[w],
+                                              &players[consoleplayer]);
+            if (++t_trickle_tics[w] >= interval)
+            {
+                t_trickle_tics[w] = 0;
+                t_ammo[w]++;
+            }
+        }
+        else
+        {
+            t_trickle_tics[w] = 0;
+        }
     }
 }
 
@@ -730,12 +759,12 @@ void T_KitLoadCadence(const int *cool, const int *heat,
 }
 
 // AP magazine refill when a cooldown-gated weapon (SSG/BFG) finishes
-// its cooldown. Now a no-op: the trickle (T_KitTrickleAmmo) handles
+// its cooldown. Now a no-op: the cadence trickle (T_TickCadence) handles
 // replenishment at a cooldown-driven rate, so weapons don't instant-refill.
 static void T_RefillOnCooldownReady(weapontype_t w)
 {
     (void)w;
-    // Intentionally empty. See T_KitTrickleAmmo for cooldown-rate replenish.
+    // Intentionally empty. See T_TickCadence for cooldown-rate replenish.
 }
 
 void T_KitTickCooldowns(void)
@@ -834,42 +863,6 @@ void T_KitSpendAmmo(weapontype_t w)
         t_ammo[w] -= kit->ammo_cost;
         if (t_ammo[w] < 0)
             t_ammo[w] = 0;
-    }
-}
-
-// Gradual ammo trickle: +1 to each magazine if below max. Called
-// per-tic during the progress phase for visible replenishment. The
-// rate is THE replenish rate (T_KitReplenishTics): cooldown-gated
-// weapons trickle slower, attack-speed weapons scale with tp_cost.
-// Inverted magazines never trickle up -- they drain on the cadence
-// instead (T_TickCadence), at this same rate.
-void T_KitTrickleAmmo(void)
-{
-    player_t *player = &players[consoleplayer];
-    const t_kitdef_t *kit;
-    static int trickle_tick[NUMWEAPONS] = {0};
-    int w, interval;
-    if (!t_cadence_inited)
-        T_KitResetCadence();
-    // Trickle all weapons, not just the ready one: if the ready weapon
-    // ran dry, vanilla falls back to fist (ammo_max=0) and the real
-    // weapon would never refill.
-    for (w = 0; w < NUMWEAPONS; w++)
-    {
-        kit = &t_kits[w];
-        if (kit->ammo_max <= 0 || kit->ammo_cost <= 0)
-            continue;
-        if (kit->ammo_inverted)
-            continue;
-        if (t_ammo[w] >= kit->ammo_max)
-            continue;
-        interval = T_KitReplenishTics(kit, player);
-        if (++trickle_tick[w] < interval)
-            continue;
-        trickle_tick[w] = 0;
-        t_ammo[w]++;
-        if (t_ammo[w] > kit->ammo_max)
-            t_ammo[w] = kit->ammo_max;
     }
 }
 

@@ -167,7 +167,6 @@ void T_KitPickupAmmo(void);             // ammo pickup: half-fill all mags
                                         // (inverted: vent half)
 void T_KitRefillAllAmmo(void);          // mana potion: full mags
                                         // (inverted: vent to 0)
-void T_KitTrickleAmmo(void);             // +1 ammo to ready weapon (progress phase)
                                         // charges, zero Lucky counters
 // The heat array in the cadence snapshot is a save-format compat slot:
 // it carries plasma's counter (an alias of its ammo) so savegames
