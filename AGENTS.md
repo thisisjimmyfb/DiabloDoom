@@ -36,7 +36,11 @@ On Muse VMs (`D_OnMuseVM()` — `JARVIS_FQDN` contains `metaaivm.com`),
 line, then deletes the file. Commands include: `WALK` (persistent — keeps
 walking until enemy, *reachable* loot (once per item: later walks ignore
 an item WALK already stopped for, until it's gone), or blocked), `USE`
-(use the door/switch in front of the player; explore mode), `GOTO <x> <y>`
+(use the door/switch in front of the player; explore mode), `WAIT`
+(hold every later queued command — diagnostics included — for one
+fixed 2-second beat while the world keeps ticking; stacks, capped at
+10 s; exists so a door crossing can be one batch: `USE`, `WAIT`,
+`GOTO`, with no vision round-trip inside the door's open window), `GOTO <x> <y>`
 (absolute map coordinates — grid-BFS pathfind, Z-aware: a cell step up of more
 than 24 units doesn't exist to the pathfinder, matching the engine's
 own step limit, so targets on a drastically different height are

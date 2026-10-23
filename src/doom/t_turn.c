@@ -916,6 +916,19 @@ static char cmd_queue[CMD_QUEUE_MAX][CMD_LINE_MAX];
 static int cmd_q_head = 0;   // slot of the next command to execute
 static int cmd_q_count = 0;  // commands currently queued
 
+// WAIT command state: while >0, cmd_drain counts down one per tick
+// and dispatches NOTHING (diagnostics included) — the wait is what
+// makes a batched USE, WAIT, GOTO sequence cross a door: the GOTO
+// must not execute until the door has had time to open, and no
+// agent round-trip (screenshot, vision, decision) fits inside a
+// door's open window. One WAIT is a fixed beat (no scalar input,
+// per the standing rule); stack WAITs for slower doors. The total
+// is capped so a pathological batch can't park the driver for
+// minutes (QUIT included — it waits like everything else).
+#define CMD_WAIT_TICS 70        // 2 seconds at 35 tics/s
+#define CMD_WAIT_MAX  350       // 10 seconds
+static int cmd_wait_tics = 0;
+
 // Returns false when the queue is full: the caller must leave the
 // line unconsumed (it stays in the FIFO) rather than drop it.
 static boolean cmd_queue_push(const char *line)
@@ -1084,6 +1097,18 @@ static void cmd_drain(void (*dispatch)(const char *))
             break; // ran dry mid-line: resume it next tick
     }
 
+    // WAIT gate: a dispatched WAIT holds every later command —
+    // diagnostics too — until the beat elapses. The screenshot in
+    // a USE, WAIT, SCREENSHOT sequence must show the door AFTER
+    // the wait, not before it.
+    if (cmd_wait_tics > 0)
+    {
+        cmd_wait_tics--;
+        if (cmd_wait_tics == 0)
+            printf("[WAIT] elapsed\n");
+        return;
+    }
+
     if (cmd_q_count > 0)
     {
         // While the COLLECT autonomous walk is running, gameplay input
@@ -1154,6 +1179,20 @@ static void cmd_dispatch(const char *cmd)
         }
         else
             printf("[USE] ignored (explore mode only)\n");
+    }
+    else if (!strcmp(cmd, "WAIT"))
+    {
+        // Hold all later commands for one fixed beat while the
+        // world keeps ticking (Jimmy, 2026-10-22): doors open over
+        // seconds and don't stay open, so crossing one is a batched
+        // sequence — USE, WAIT, GOTO — with no vision round-trip in
+        // between. First encounter with a door: USE, WAIT, SCREENSHOT
+        // to confirm by vision that it opened. No argument: the beat
+        // is fixed (no scalar input); send WAIT again to wait longer.
+        cmd_wait_tics += CMD_WAIT_TICS;
+        if (cmd_wait_tics > CMD_WAIT_MAX)
+            cmd_wait_tics = CMD_WAIT_MAX;
+        printf("[WAIT] holding %d tics\n", cmd_wait_tics);
     }
     else if (!strncmp(cmd, "GOTO", 4))
     {
