@@ -3,7 +3,7 @@
 
 Reads WebP icons from assets/items/ (repo-relative), resizes to 32x32,
 quantizes to the Doom PLAYPAL palette, and writes
-src/doom/d_diablo_icons.c + src/doom/d_diablo_icons.h.
+src/diablo/d_diablo_icons.c + src/diablo/d_diablo_icons.h.
 
 Icon policy (AD/AP gun rework):
 - The 8 gun bases share one icon each (variants reuse the base icon).
@@ -16,8 +16,8 @@ from PIL import Image
 
 REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ASSETS_DIR = os.path.join(REPO_DIR, "assets", "items")
-OUTPUT_C = os.path.join(REPO_DIR, "src", "doom", "d_diablo_icons.c")
-OUTPUT_H = os.path.join(REPO_DIR, "src", "doom", "d_diablo_icons.h")
+OUTPUT_C = os.path.join(REPO_DIR, "src", "diablo", "d_diablo_icons.c")
+OUTPUT_H = os.path.join(REPO_DIR, "src", "diablo", "d_diablo_icons.h")
 PALETTE_RAW = "/tmp/doom_palette.raw"
 ICON_SIZE = 32
 

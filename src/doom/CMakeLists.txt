@@ -11,13 +11,13 @@ add_library(doom STATIC
             deh_thing.c
             deh_weapon.c
                             d_englsh.h
-            d_diablo.c      d_diablo.h
-            d_diablo_ui.c   d_diablo_ui.h
-            d_diablo_icons.c d_diablo_icons.h
-            d_pistol_sprite.c d_pistol_sprite.h
-            d_progress.c    d_progress.h
-            d_replay.c      d_replay.h
-            d_items.c       d_items.h
+            ../diablo/d_diablo.c      ../diablo/d_diablo.h
+            ../diablo/d_diablo_ui.c   ../diablo/d_diablo_ui.h
+            ../diablo/d_diablo_icons.c ../diablo/d_diablo_icons.h
+            ../diablo/d_pistol_sprite.c ../diablo/d_pistol_sprite.h
+            ../diablo/d_progress.c    ../diablo/d_progress.h
+            ../diablo/d_replay.c      ../diablo/d_replay.h
+            ../diablo/d_items.c       ../diablo/d_items.h
             d_main.c        d_main.h
             d_net.c
                             doomdata.h
@@ -71,13 +71,15 @@ add_library(doom STATIC
             statdump.c      statdump.h
             st_lib.c        st_lib.h
             st_stuff.c      st_stuff.h
-            t_action.c
-            t_combat.c      t_combat.h
-            t_input.c
-            t_turn.c        t_turn.h
+            ../diablo/t_action.c
+            ../diablo/t_combat.c      ../diablo/t_combat.h
+            ../diablo/t_input.c
+            ../diablo/t_turn.c        ../diablo/t_turn.h
             wi_stuff.c      wi_stuff.h)
 
-target_include_directories(doom PRIVATE "../" "${CMAKE_CURRENT_BINARY_DIR}/../../")
+target_include_directories(doom PRIVATE "../" "${CMAKE_CURRENT_BINARY_DIR}/../../"
+                           "${CMAKE_CURRENT_SOURCE_DIR}"
+                           "${CMAKE_CURRENT_SOURCE_DIR}/../diablo")
 # x264 for H.264 replay encoding: prefer system via pkg-config, fall back to in-repo third_party/x264.
 # If neither is available, build without replay support (NO_X264).
 find_package(PkgConfig QUIET)

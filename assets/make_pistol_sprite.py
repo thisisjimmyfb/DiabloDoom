@@ -23,7 +23,7 @@ background is recovered by flood-filling the near-black region
 connected to the image borders; enclosed dark details (screw heads,
 the trigger-guard opening) stay opaque, like a hand-made sprite.
 
-Output: src/doom/d_pistol_sprite.c (byte array + patch accessor).
+Output: src/diablo/d_pistol_sprite.c (byte array + patch accessor).
 The PLAYPAL palette is read from an IWAD (PLAYPAL lump); pass the
 WAD path as an argument or set DOOMWADDIR.
 """
@@ -36,7 +36,7 @@ from PIL import Image
 
 REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_WEBP = os.path.join(REPO_DIR, "assets", "items", "gun_pistol.webp")
-OUTPUT_C = os.path.join(REPO_DIR, "src", "doom", "d_pistol_sprite.c")
+OUTPUT_C = os.path.join(REPO_DIR, "src", "diablo", "d_pistol_sprite.c")
 
 SPRITE_W = 48   # one-handed family: SHOTA0 38x13, CSAWA0 47x19
 SPRITE_H = 18
