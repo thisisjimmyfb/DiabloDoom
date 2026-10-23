@@ -95,7 +95,7 @@ Notes:
 
 ## Game Loop
 
-Play for ~4 minutes. The 10-minute cron window is the gaming session — within it, make decisions frequently.
+Play for 18 minutes. The cron window is 1 hour — within it, make decisions frequently.
 
 Do not reuse a stale screenshot for multiple decisions. The loop is ACT → CAPTURE → THINK:
 1. Send command(s) via FIFO (based on the previous screenshot and PROMPT.md strategy)
@@ -104,7 +104,7 @@ Do not reuse a stale screenshot for multiple decisions. The loop is ACT → CAPT
 
 (First iteration after LOAD only: read the area memory file (see Area Memory above), take one opening CAPTURE to see the loaded state, then start the loop with an action.)
 
-This means ~40-45 decisions per 4-minute session. Fresh visual input every time.
+Fresh visual input every time.
 
 Check the tail of /tmp/doom_hourly.log every iteration (it is live) for: position stamps, kills, PLAYER_DIED, errors.
 - If you see PLAYER_DIED: capture a REPLAY video (write `REPLAY\n`, sleep 20, grab newest mp4) for the death moment, upload it with your report. Mention what killed you and where your corpse is. Then send RESPAWN. Do not send RESPAWN until you've uploaded the death video.
