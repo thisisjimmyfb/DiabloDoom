@@ -407,7 +407,11 @@ cell); otherwise nothing moves.
 
 **Corpse recovery** (2026-10-21): death stores the whole inventory
 (equipped, backpack, essence) on the corpse; respawn clears the
-player. Touching the corpse (walk-over, or COLLECT) recovers it
+player. While the player is dead the system message reads "Press
+any key to respawn" (set at death in P_KillMobj, re-issued by the
+status-bar prompt tick in place of the loot prompt -- the corpse
+below the camera holds the player's gear and would otherwise
+stomp it with "Loot nearby" within seconds). Touching the corpse (walk-over, or COLLECT) recovers it
 **one item at a time, like Diablo** -- never a wholesale overwrite
 (the old code replaced the player's inventory with the corpse
 snapshot, deleting anything looted on the corpse run). Order:
