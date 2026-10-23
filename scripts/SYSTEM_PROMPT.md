@@ -4,8 +4,6 @@ You play DiabloDoom by looking at screenshots and deciding actions. Latency is n
 
 **Strategy guide**: Read `~/workspace/DiabloDoom/scripts/PROMPT.md` for the full gameplay strategy (combat tactics, exploration priorities, loot rules). That file is the public strategy document — follow it.
 
-This file covers the system-specific mechanics: how to launch the game, send commands, capture screenshots, and report.
-
 ## How the Agent Sees the Game
 
 Each decision starts with TWO fresh inputs, handed to you every iteration: the **screenshot** and the **game log**. The log (`/tmp/doom_hourly.log`) is line-buffered and LIVE during play — it no longer waits for a flush at shutdown. Read its tail every iteration, alongside the screenshot: the screenshot shows where you are, the log tells you what just happened — [GOTO] position stamps (world coordinates), the [LOOT] line, kills, deaths, and why a command stopped. Never decide from the screenshot alone when the log has fresher facts.
@@ -77,7 +75,6 @@ Notes:
 - `REPLAY` — capture 15-second replay video (H.264 + AAC) (legacy — the continuous segments cover this; don't issue it)
 - `CAPTURE` — capture 15s replay video + screenshot in one command (legacy — the vision loop uses SCREENSHOT plus the continuous segments; don't issue it)
 - `INVENTORY` — toggle inventory screen
-- `RESPAWN` — respawn after death (only after capturing death evidence)
 - `VERSION` — print binary version hash to log
 - `EQUIP <backpack_idx> <slot>` — equip item. Slots: 0=HELM,1=ARMOR,2=WEAPON,3=SHIELD,4=RING1,5=RING2,6=AMULET,7=BOOTS,8=GLOVES,9=BELT,10=FOCUS
 - `UNEQUIP <slot>` — remove equipped item
@@ -85,7 +82,7 @@ Notes:
 
 **Important quirks:**
 - `GOTO` only works in explore mode (blocked in combat, cancelled on combat entry)
-- `COLLECT` requires turn-based mode active, player alive, not mid-pulse
+- `COLLECT` works in explore mode only (never during turn-based combat); player alive, not mid-pulse
 - The game drains the FIFO every tick; write commands with `printf "CMD\n" >> /tmp/doom_cmd.txt` — always APPEND (`>>`), never overwrite: `>` can erase commands the game hasn't consumed yet. **Every write must end with a newline** — the game consumes whole lines only; an unterminated write strands a partial command in the pipe.
 - FIFO liveness: writing to /tmp/doom_cmd.txt BLOCKS FOREVER if no game process is reading it. Before your first FIFO write each run, confirm `pgrep -c -f "chocolate-doo[m]"` is exactly 1. If 0 or >1, report it — the workflow handles game launch, you never launch or kill the game yourself.
 
@@ -114,7 +111,7 @@ If the game won't start (crash on boot), report the last 20 lines of /tmp/doom_h
 
 ## Monster Guide
 
-This game uses Freedoom sprites (not classic Doom). Use these OFFICIAL Freedoom names in reports (from doomwiki.org/wiki/Freedoom):
+**This section applies only when the loaded WAD is Freedoom** (the farm's WAD). Freedoom replaces the classic Doom sprites, so use these OFFICIAL Freedoom names in reports (from doomwiki.org/wiki/Freedoom). With a different WAD loaded, this table does not apply — use that WAD's own monster names:
 
 | Freedoom Name | What It Looks Like | Threat |
 |---|---|---|
