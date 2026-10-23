@@ -234,6 +234,7 @@ boolean T_GotoActive(void);
 void T_GotoCancel(void);
 void T_GotoTick(void);      // step along the GOTO path (explore mode)
 void T_WalkStart(void);     // WALK: persistent forward movement
+void T_WalkStartStep(int degrees); // WALK <angle>: turn to heading, step forward
 void T_WalkCancel(void);
 void T_WalkTick(void);      // keep walking until enemy/loot/blocked (explore)
 void T_TrackTick(void);     // mark current sector visited (every tick)

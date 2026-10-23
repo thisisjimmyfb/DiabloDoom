@@ -1199,6 +1199,12 @@ static fixed_t walk_last_y = 0;
 static fixed_t walk_start_x = 0;
 static fixed_t walk_start_y = 0;
 
+// Step mode (WALK <angle>, Jimmy 2026-10-23): > 0 = the walk stops
+// once it has covered this much forward displacement, instead of
+// walking until a stop condition. Bare WALK leaves it 0.
+static fixed_t walk_step_target = 0;
+#define WALK_STEP_DIST 64   // units: a small step, ~2 grid cells
+
 // Stop-once set (Jimmy, 2026-10-20): WALK stops for a given item
 // exactly once; the item is then ignored by later walks until it is
 // collected or removed. One stray drop (a zombie's ammo clip) must
@@ -1263,7 +1269,7 @@ static void T_WalkIgnoreAdd(mobj_t *mo)
     walk_ignore_y[slot] = mo->y;
 }
 
-void T_WalkStart(void)
+static void T_WalkBegin(fixed_t step_target)
 {
     player_t *pl = &players[consoleplayer];
     if (pl->mo == NULL || !T_InExplore())
@@ -1275,6 +1281,7 @@ void T_WalkStart(void)
     T_WalkIgnorePrune();
     walk_active = true;
     walk_blocked_tics = 0;
+    walk_step_target = step_target;
     walk_last_x = pl->mo->x;
     walk_last_y = pl->mo->y;
     walk_start_x = pl->mo->x;
@@ -1282,6 +1289,31 @@ void T_WalkStart(void)
     T_HistorySample(true);
     printf("[WALK] started at (%d,%d)\n",
            pl->mo->x >> 16, pl->mo->y >> 16);
+}
+
+void T_WalkStart(void)
+{
+    T_WalkBegin(0);
+}
+
+// WALK <angle>: turn first -- face the absolute heading (degrees,
+// 0 = east, increasing counterclockwise, the log's convention) --
+// then walk forward a small fixed distance instead of walking
+// until a stop condition (Jimmy, 2026-10-23). The turn is instant,
+// the same way T_FaceTarget snaps facing.
+void T_WalkStartStep(int degrees)
+{
+    player_t *pl = &players[consoleplayer];
+    int deg;
+    if (pl->mo == NULL || !T_InExplore())
+        return;
+    deg = ((degrees % 360) + 360) % 360;
+    // degrees -> angle_t: a full turn is 2^32, computed in 16.16
+    // fixed point to stay in 32-bit arithmetic.
+    pl->mo->angle = (angle_t) (((deg << 16) / 360) << 16);
+    T_WalkBegin(WALK_STEP_DIST * FRACUNIT);
+    printf("[WALK] facing %d degrees, stepping %d units\n",
+           deg, WALK_STEP_DIST);
 }
 
 void T_WalkCancel(void)
@@ -1306,6 +1338,7 @@ void T_WalkCancel(void)
     }
     walk_active = false;
     walk_blocked_tics = 0;
+    walk_step_target = 0;
 }
 
 // Called each tick in explore mode. Moves forward until stop condition.
@@ -1322,6 +1355,27 @@ void T_WalkTick(void)
         return;
     }
     mo = pl->mo;
+
+    // Step mode: the distance budget is the stop condition, checked
+    // first -- reaching it ends the walk even before the scanners.
+    if (walk_step_target > 0)
+    {
+        int moved = P_AproxDistance(mo->x - walk_start_x,
+                                    mo->y - walk_start_y) >> 16;
+        if (moved >= (walk_step_target >> 16))
+        {
+            printf("[WALK] step complete at (%d,%d), moved %d from (%d,%d)\n",
+                   mo->x >> 16, mo->y >> 16, moved,
+                   walk_start_x >> 16, walk_start_y >> 16);
+            mo->momx = 0;
+            mo->momy = 0;
+            T_HistorySample(true);
+            walk_active = false;
+            walk_blocked_tics = 0;
+            walk_step_target = 0;
+            return;
+        }
+    }
 
     // Check for nearby enemies or loot using shared scanner.
     // Items in the stop-once set are skipped (see T_WalkIgnoreAdd).

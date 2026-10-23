@@ -1150,13 +1150,23 @@ static void cmd_dispatch(const char *cmd)
     }
     else if (!strcmp(cmd, "END"))
         T_DoEndTurn();
-    else if (!strcmp(cmd, "WALK"))
+    else if (!strncmp(cmd, "WALK", 4) && (cmd[4] == '\0' || cmd[4] == ' '))
     {
         // Persistent walk: keep moving forward until enemy nearby,
         // loot nearby, combat starts, or blocked. The worker sends WALK
         // once; the game handles the rest. A manual WALK cancels GOTO.
         // (Also cancels any active walk and restarts it.)
-        T_WalkStart();
+        // WALK <angle>: turn to face that absolute heading first
+        // (degrees, 0 = east, counterclockwise), then walk forward a
+        // small fixed distance instead of until a stop condition
+        // (Jimmy, 2026-10-23).
+        int deg;
+        if (sscanf(cmd + 4, "%d", &deg) == 1)
+            T_WalkStartStep(deg);
+        else if (cmd[4] == '\0')
+            T_WalkStart();
+        else
+            printf("[WALK] usage: WALK [angle_degrees]\n");
     }
     else if (!strcmp(cmd, "USE"))
     {
