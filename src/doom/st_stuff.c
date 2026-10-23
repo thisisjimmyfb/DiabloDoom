@@ -1221,6 +1221,21 @@ static void ST_drawTurnKits(void)
 static void ST_updateLootAlert(void)
 {
     static int last_prompt_tic = -1000;
+    // Dead player (Jimmy, 2026-10-23): the system message is
+    // the respawn prompt. The corpse under the camera holds
+    // the player's gear and counts as loot, so without this
+    // branch the loot prompt stomps "Press any key to
+    // respawn" within seconds. Re-issued on the loot
+    // prompt's cadence; the loot prompt returns on respawn.
+    if (plyr->playerstate == PST_DEAD)
+    {
+        if (gametic - last_prompt_tic >= 3 * TICRATE)
+        {
+            plyr->message = "Press any key to respawn";
+            last_prompt_tic = gametic;
+        }
+        return;
+    }
     boolean avail = T_LootAvailable();
     if (avail)
     {

@@ -1201,6 +1201,11 @@ P_KillMobj
 	    // NOTE: G_PlayerReborn / P_SpawnPlayer moved to RESPAWN command.
 	    // Player remains PST_DEAD at 0% until confirmed.
 	    p->playerstate = PST_DEAD;
+	    // Death prompt (Jimmy, 2026-10-23): the system message
+	    // says how to get back in. ST_updateLootAlert re-issues
+	    // it while the player is dead (the loot prompt would
+	    // otherwise stomp it -- the corpse below is loot too).
+	    p->message = "Press any key to respawn";
 	    // Play the death animation. The vanilla deathstate
 	    // transition below never runs for players -- this branch
 	    // returns first -- so without this the corpse keeps its
