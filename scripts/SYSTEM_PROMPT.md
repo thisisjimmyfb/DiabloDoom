@@ -52,6 +52,7 @@ Write commands to /tmp/doom_cmd.txt (one per line). It's a FIFO — do NOT delet
   the game's own stamps: your position is in every outcome line, SCAN reports keys as absolute coordinates, and
   death/loot events stamp their positions. Send one GOTO, wait for its
   outcome line, then observe. Explore mode only.
+- `WALK <angle>` — turn by a relative angle (-90..+90 degrees; negative = left, positive = right), then walk forward one small fixed step (64 units). **Door work only:** line up square on a door's center, and step through it after `USE` (crossing batch: `USE`, `WAIT`, `WALK 0`). General movement is `GOTO` — do not use WALK, with or without an angle, for anything else.
 - `TURNL` / `TURNR` — turn left/right
 - `USE` — open the door or press the switch directly in front of you (explore mode). If GOTO ends `blocked` while you're facing a door, you're up against it: send `USE`, then GOTO again.
 - `COLLECT` — pick up Diablo loot or corpse (when "Loot nearby, press G to loot" prompt visible). The prompt only appears for loot the game can physically walk to — same height rules as real movement (it can't climb more than a step at a time), so prompted loot is genuinely collectable.
