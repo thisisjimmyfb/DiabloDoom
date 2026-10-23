@@ -1201,6 +1201,18 @@ P_KillMobj
 	    // NOTE: G_PlayerReborn / P_SpawnPlayer moved to RESPAWN command.
 	    // Player remains PST_DEAD at 0% until confirmed.
 	    p->playerstate = PST_DEAD;
+	    // Play the death animation. The vanilla deathstate
+	    // transition below never runs for players -- this branch
+	    // returns first -- so without this the corpse keeps its
+	    // standing play state forever instead of falling.
+	    if (target->health < -target->info->spawnhealth
+		&& target->info->xdeathstate)
+		P_SetMobjState(target, target->info->xdeathstate);
+	    else
+		P_SetMobjState(target, target->info->deathstate);
+	    target->tics -= P_Random()&3;
+	    if (target->tics < 1)
+		target->tics = 1;
 	    return;
 	}
 
