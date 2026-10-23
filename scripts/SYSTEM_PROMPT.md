@@ -15,7 +15,7 @@ Assess from the screenshot:
 - **3D view**: facing a wall? Open area? Doorway? Enemy visible?
 - **Loot**: is there a "Loot nearby, press G to loot" prompt? Visible pickups on the ground?
 
-**Decision cadence**: A fresh screenshot AND a fresh log tail every ~5 seconds. The game state changes fast in combat, so stale input leads to bad decisions.
+**Fresh inputs**: You get a fresh screenshot AND a fresh log tail every iteration. The game state changes fast in combat, so stale input leads to bad decisions.
 
 ## Setup
 
@@ -97,7 +97,7 @@ Notes:
 
 Play for ~4 minutes. The 10-minute cron window is the gaming session — within it, make decisions frequently.
 
-**Decision cadence: Take a fresh screenshot every 5 seconds.** Do not reuse a stale screenshot for multiple decisions. The loop is ACT → CAPTURE → THINK:
+Do not reuse a stale screenshot for multiple decisions. The loop is ACT → CAPTURE → THINK:
 1. Send command(s) via FIFO (based on the previous screenshot and PROMPT.md strategy)
 2. Wait ~5 seconds while they play out, then Capture (CAPTURE command: queues a 15s replay video encode — it runs in the background and the MP4 appears under /tmp/doomshots/ a few seconds later — plus an immediate screenshot; sleep 4, copy newest PNG to /tmp/farm_view.png). Capturing *after* the action is what puts the action in the video.
 3. Read the screenshot with vision AND tail the log (it is live now — the position stamps tell you where your last command actually ended), decide the next action, then repeat from step 1
@@ -111,16 +111,6 @@ Check the tail of /tmp/doom_hourly.log every iteration (it is live) for: positio
   - RESPAWN preflight (added 2026-10-16 after two silent RESPAWN failures): confirm `pgrep -c -f "chocolate-doo[m]"` is exactly 1 BEFORE writing RESPAWN — a dead/missing game means your write blocks forever, and two games split the FIFO so the command can vanish.
   - Verify with the log, not just the screenshot: look for `[FARM] RESPAWN confirmed` (worked) vs `[FARM] RESPAWN failed - no dead player found` (the command ARRIVED but nobody was dead — do NOT resend blindly; check the screenshot). No line at all means the command never reached the game — check the process count, don't assume the engine is broken. Note: every game launch truncates /tmp/doom_hourly.log, so only trust lines written after the latest launch.
 - After RESPAWN: corpse recovery is #1 priority (see PROMPT.md).
-
-## Report
-
-After ~4 min of play:
-1. Kill count: grep the log for kill messages.
-2. Capture replay: with `--continuous-capture` the game saves a 15-second segment MP4 every 15 seconds all run long, so this run's action — combat included — is already on disk as timestamped segments in `/tmp/doomshots/`; stitch or pick the segments covering the action for the report video (the newest segment after your final action batch is the minimum). The CAPTURE flow remains as a fallback: only if no usable segment exists, do a short move/turn burst, wait ~5 seconds, then write `REPLAY\n`, sleep 20, and grab the newest mp4. Never report a video captured right after LOAD or after an idle gap — it shows a standing-still player. Copy to workspace, upload via `/opt/hatch/bin/remote-storage upload-file`.
-   - **Stuck runs: skip the replay entirely.** If this run was stuck — you ended at essentially the position you started, made no meaningful movement, had no combat, kills, or loot, and your GOTO attempts returned `blocked` / `no path` — do not capture or upload a replay (it would only show a standing-still player). A screenshot is sufficient: take a final screenshot, upload that, and report it instead of a video link. (A death is not "stuck" — the death-replay rule above still applies.)
-3. Update the area memory: consolidate this run's observations into `~/workspace/MEMORY.md` (see Area Memory above) and set its save anchor to your final position — do this before QUIT, while the log and your screenshots are in front of you.
-4. Report to user: kills this run and replay video link — or, for a stuck run, kills (0) and the screenshot link.
-5. Leave the game running — next session continues from where you left off.
 
 ## Failure Handling
 
