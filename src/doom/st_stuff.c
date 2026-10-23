@@ -56,6 +56,7 @@
 #include "i_swap.h"
 #include "d_diablo.h"
 #include "d_diablo_icons.h"
+#include "d_pistol_sprite.h"
 
 // Needs access to LFB.
 #include "v_video.h"
@@ -1277,24 +1278,26 @@ static void ST_drawDiabloWeapon(void)
     def = (id != D_NOITEM) ? D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id)) : NULL;
     if (def == NULL)
     {
-        // No Diablo weapon equipped: show the Diablo pistol icon
-        // (the game defaults to pistol when unarmed; see D_SyncDoomWeapon).
-        // Use the Diablo icon, not the Doom view-model sprite.
-        if (D_ICON_GUN_PISTOL >= 0 && D_ICON_GUN_PISTOL < d_num_item_icons
-            && d_item_icons[D_ICON_GUN_PISTOL] != NULL)
-            STWepDrawIcon(ST_WEPX0, ST_WEPY, ST_WEPW, ST_WEPH,
-                          d_item_icons[D_ICON_GUN_PISTOL]);
+        // No Diablo weapon equipped: show the built-in pistol sprite
+        // (the game defaults to pistol when unarmed; see
+        // D_SyncDoomWeapon).  A real patch through the patch path --
+        // not the Doom view-model sprite, not the opaque icon.
+        STWepDrawPatch(ST_WEPX0, ST_WEPY, ST_WEPW, ST_WEPH,
+                       D_PistolSprite());
         return;
     }
 
     // Guns prefer the WAD's own pickup sprite when the loaded IWAD
-    // carries one (same rule as the inventory screen); the built-in
-    // icon is the fallback.
+    // carries one (same rule as the inventory screen); failing
+    // that, the built-in patch (pistol); the built-in icon is the
+    // last resort.
     {
         const char *sprname = D_ItemWadSpriteName(def);
         patch_t *patch = NULL;
         if (sprname && W_CheckNumForName(sprname) >= 0)
             patch = W_CacheLumpName(sprname, PU_CACHE);
+        if (!patch)
+            patch = D_ItemBuiltinPatch(def);
         if (patch)
             STWepDrawPatch(ST_WEPX0, ST_WEPY, ST_WEPW, ST_WEPH, patch);
         else

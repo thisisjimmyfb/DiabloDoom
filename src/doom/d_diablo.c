@@ -35,6 +35,7 @@
 
 #include "d_diablo.h"
 #include "d_diablo_icons.h"
+#include "d_pistol_sprite.h"
 #include "d_player.h"
 #include "deh_misc.h"
 #include "deh_str.h"
@@ -541,6 +542,18 @@ const char *D_ItemWadSpriteName(const diablo_itemdef_t *def)
         case wp_chainsaw:     return "CSAWA0";
         default:              return NULL;
     }
+}
+
+// Built-in patch standing in for a WAD pickup sprite, for guns the
+// IWAD cannot supply: the pistol has no pickup sprite in any WAD
+// (the player starts holding it), so it uses the embedded patch
+// (d_pistol_sprite.c) and draws through the same patch path as the
+// WAD sprites, transparency included.  NULL when the gun has none.
+patch_t *D_ItemBuiltinPatch(const diablo_itemdef_t *def)
+{
+    if (def && def->slot == ESLOT_WEAPON && def->doomweapon == wp_pistol)
+        return D_PistolSprite();
+    return NULL;
 }
 
 void D_ResetPlayer(struct player_s *pl)

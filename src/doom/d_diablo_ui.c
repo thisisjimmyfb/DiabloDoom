@@ -12,6 +12,7 @@
 
 #include "d_diablo.h"
 #include "d_diablo_icons.h"
+#include "d_pistol_sprite.h"
 #include "d_diablo_ui.h"
 #include "d_player.h"
 #include "doomdef.h"
@@ -1218,14 +1219,17 @@ static void UIDrawItemIcon(int x, int y, int w, int h, int id)
     // square that fits in w x h so tall/wide items don't stretch.
     // Guns prefer the WAD's own pickup sprite (the art the player
     // saw lying in the world) when the loaded IWAD carries one, so
-    // the inventory matches the WAD in use; the built-in icon is
-    // the fallback (pistol everywhere, SSG outside Doom II WADs).
+    // the inventory matches the WAD in use; the fallback is the
+    // built-in pistol patch (the pistol has no WAD sprite anywhere),
+    // then the compiled icon (SSG outside Doom II WADs).
     icon_idx = D_GetItemIconIdx(D_ITEMTIER(id), D_ITEMIDX(id));
     {
         const char *sprname = D_ItemWadSpriteName(def);
         patch_t *patch = NULL;
         if (sprname && W_CheckNumForName(sprname) >= 0)
             patch = W_CacheLumpName(sprname, PU_CACHE);
+        if (!patch)
+            patch = D_ItemBuiltinPatch(def);
         if (patch)
         {
             V_DrawFilledBox(x, y, w, h, c_rarity_dark[def->tier]);
