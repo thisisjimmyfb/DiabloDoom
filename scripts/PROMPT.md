@@ -63,7 +63,7 @@ When the turn-based UI is visible (TURN MODE banner):
 - **Check ammo first:** Never queue more attacks than your current ammo. If you see "NO AMMO" skips in the log, you're queuing too many.
 - **Kill ranged first:** Serpentipedes and Imps out-DPS the pistol at range. If multiple enemies are visible, target the ranged ones before melee — or break LOS and force them to come to you.
 - **Use cover:** Peek around corners and doors. Move out, queue a full batch of attacks, move back behind cover, END turn. Repeat. Don't stand in the open against ranged enemies.
-- **Captures are automatic:** The game auto-saves a replay when your HP drops below 50%. Use CAPTURE (not SCREENSHOT) when you want both a 15s video and a screenshot — it's one command that does both cleanly. After you see the screenshot, decide whether the paired video is worth sharing.
+- **See with CAPTURE:** Use CAPTURE (not SCREENSHOT) when you want both a 15s video and a screenshot — it's one command that does both cleanly, and the video's frames are how you read what just happened: enemy movement, your own path, the moment a fight turned.
 
 ### Gear Check
 - You are NEVER unarmed — you always have the pistol, even with no Diablo weapon equipped. "No weapon" means no Diablo weapon in the WEAPON slot. Don't avoid combat thinking you're defenseless.
@@ -174,7 +174,7 @@ Your goal is to progress through the level: explore → find keys → unlock doo
 
 ## Death and Corpse Recovery
 
-- When you die, capture the moment (it's interesting!), then respawn.
+- When you die, CAPTURE before you respawn — the frames show what killed you and where your corpse fell, which is what you navigate back to.
 - **After respawning, recovering your corpse is the #1 priority.** Your inventory and equipment are on the corpse at the death location.
 - GOTO back to it immediately. Do NOT engage in new combat or explore for loot until you've recovered your corpse.
 - **You are NEVER unarmed.** Even with no Diablo weapon equipped, you always have the pistol (the game defaults to it). "No weapon" means no Diablo weapon in the WEAPON slot — you can still fight with the pistol. Don't avoid combat thinking you're defenseless.
