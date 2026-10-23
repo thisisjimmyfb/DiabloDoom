@@ -128,14 +128,19 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
    and the count drains at the replenish rate. There is no separate heat
    state anywhere: one counter, one gate, one spend, one rate system,
    with the direction declared in the kit def (`ammo_inverted`).
-   There is no per-round ammo grant (removed 2026-10-22); AD
-   magazines replenish only via the trickle while game time runs.
-   AP weapons reload on
-   cooldown completion (SSG/BFG, `T_RefillOnCooldownReady`) or charge regen
-   (rocket). AD magazine weapons also trickle +1 ammo per-tic interval
-   during the progress phase (`T_KitTrickleAmmo`; weapon-tied rate: 1 per
-   `tp_cost` × 2 tics for attack-speed weapons, 1 per `cooldown` × 12 tics
-   for cooldown-gated ones). During planning the HUD AMMO readout previews
+   There is no per-round ammo grant (removed 2026-10-22). ONE code
+   path replenishes every gun (2026-10-23): `T_TickCadence`'s
+   per-weapon loop moves every magazine at its kit's replenish rate
+   on every unfrozen game tic — normal magazines trickle UP +1 per
+   interval for all weapons (1 per `tp_cost` × 2 tics, clamped
+   3–20, for attack-speed weapons; 1 per effective `cooldown` × 12
+   tics for cooldown-driven ones: SSG 24, BFG 36), inverted
+   magazines drain DOWN in the same loop, and rocket charges regen
+   there too, each loading one attack's worth of ammo. There is no
+   refill-on-cooldown-complete (`T_RefillOnCooldownReady` is a
+   no-op) and no second regen path in the pulse simulator — until
+   2026-10-23 the trickle-up ran only inside `T_PulseOneTic`, so
+   explore-heavy play never refilled anything. During planning the HUD AMMO readout previews
    the deduction queued attacks will cause (display-only; the spend happens
    on execute), so players can see when further attacks would be no-ops.
    Ammo pickups convert to Diablo loot: map-placed ammo is replaced

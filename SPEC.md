@@ -603,19 +603,28 @@ Damage model:
 
 Cadence plumbing:
 
-- Cooldowns, charges, and the inverted-ammo drain tick on wall-clock
-  time, every game tic (`T_TickCadence`, called from `T_Ticker`):
-  cooldowns count down 1 round per 10 seconds (350 tics), rocket
-  charges regenerate 1 per 2 seconds (70 tics), and inverted
-  magazines (plasma) drain toward 0 at the weapon's replenish rate
-  (`T_KitReplenishTics` — the same rate normal magazines trickle up
-  at, run in reverse) with fractional accumulation — all independent
-  of round boundaries. `T_KitTickCooldowns` is kept as a no-op for
-  save compatibility. **Frozen during the planning phase**
-  (2026-10-22): like the magazine trickle, the cadence does not run
+- Cooldowns, charges, and magazine movement tick on wall-clock
+  time, every game tic (`T_TickCadence`, called from `T_Ticker`) —
+  ONE code path replenishes every gun: cooldowns count down 1 round
+  per 10 seconds (350 tics), rocket charges regenerate 1 per
+  2 seconds (70 tics) and load one attack's worth of ammo each,
+  normal magazines trickle UP +1 per replenish interval (all
+  weapons, not just the ready one), and inverted magazines
+  (plasma) drain toward 0 in the same loop — all at the weapon's
+  one replenish rate (`T_KitReplenishTics`; the inverted drain
+  accumulates fractionally) and all independent of round
+  boundaries. No other over-time regen path exists: no per-round
+  grant, no refill-on-cooldown-complete (`T_RefillOnCooldownReady`
+  is a no-op; `T_KitTickCooldowns` likewise, kept for save
+  compatibility). **Frozen during the planning phase**
+  (2026-10-22): the cadence does not run
   in TS_PLANNING / TS_TARGETING / TS_CONFIRM — no charge regen,
-  cooldown progress, or inverted-ammo drain while the player plans.
-  It runs in explore and during the progress phase.
+  cooldown progress, magazine trickle, or inverted-ammo drain while the player plans.
+  It runs in explore and during the progress phase. (Until
+  2026-10-23 the trickle-up lived only in the progress-pulse
+  simulator, so explore-heavy play never refilled any magazine —
+  a BFG sat at 7/20, below its 20-ammo shot cost, across whole
+  farm cycles with no combat. Jimmy's order: one code path.)
 - `T_KitCanFire` is THE gate for every weapon: charges > 0 **and**
   the magazine rule — normal magazines need ammo_cost in the
   counter, inverted magazines need the counter below capacity.
@@ -640,27 +649,26 @@ cause (display-only; the actual spend happens on execute), so the player
 can see when further attacks would be no-ops — inverted magazines
 preview the counter rising toward capacity instead.
 
-- **AD weapons** replenish only via the **trickle** (below) while game
-  time runs — there is no per-round ammo grant (the round-boundary
-  `T_KitRegenAmmo` top-up was removed 2026-10-22). Ranged attacks cost
+- **Replenish — one code path for every gun** (2026-10-23): while
+  game time runs, `T_TickCadence` moves every magazine at its kit's
+  replenish rate — there is no per-round ammo grant (the
+  round-boundary `T_KitRegenAmmo` top-up was removed 2026-10-22)
+  and no separate AD/AP regen path. Ranged attacks cost
   0 TP -- ammo is the limiter,
   so a round can dump the whole magazine; the magazine is a burst
   buffer (e.g. Reaper TP refunds). Melee (fists, chainsaw) still costs
-  TP per attack, reduced by attack speed. Ammo **trickles visibly
-  during the progress phase** (`T_KitTrickleAmmo`, per-tic): +1 to the
-  ready weapon's magazine at a weapon-tied interval — cooldown-gated
-  weapons trickle 1 per `cooldown` × 12 tics, attack-speed weapons 1 per
-  `tp_cost` × 2 tics (clamped 3–20 tics: pistol 8, shotgun 4, chaingun
-  3). The trickle applies to magazine weapons (AD); AP weapons still
-  refill only via cooldown completion / charge regen, as above.
-- **AP weapons** replenish from **cooldown**: SSG/BFG refill to full
-  the moment their cooldown completes (`T_RefillOnCooldownReady`,
-  hooked in the wall-clock `T_TickCadence`); the rocket loads one attack's
-  worth of ammo per regenerated charge. Plasma's magazine is **inverted**
+  TP per attack, reduced by attack speed. Normal magazines trickle
+  UP +1 per interval for ALL weapons: cooldown-driven kits 1 per
+  effective `cooldown` × 12 tics (SSG 24, BFG 36 — haste/CDR gear
+  speeds the refill), attack-speed kits 1 per `tp_cost` × 2 tics
+  (clamped 3–20 tics: pistol 8, shotgun 4, chaingun 3). The rocket
+  additionally loads one attack's worth of ammo per regenerated
+  charge, in the same loop.
+- Plasma's magazine is **inverted**
   (2026-10-22): the ammo counter represents heat — it starts at 0,
   each shot adds 20, the weapon fires while the count is below its
   125 capacity, and the count drains at the replenish rate
-  (~43 per 10 s), which is its reload period. One counter, one gate,
+  (~43 per 10 s) in the same cadence loop, which is its reload period. One counter, one gate,
   one spend, one rate system — the direction is kit data
   (`ammo_inverted`), not a plasma code path. The old separate heat
   value survives only as a save-format slot that aliases plasma's
