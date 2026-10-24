@@ -889,7 +889,7 @@ static boolean cmd_is_diagnostic(const char *cmd)
 {
     static const char *diag[] = {
         "SCREENSHOT", "REPLAY", "CAPTURE", "VERSION",
-        "INVENTORY", "KEYS", "SECTORS", "HISTORY", NULL
+        "INVENTORY", "KEYS", "SECTORS", NULL
     };
     int i;
     for (i = 0; diag[i] != NULL; i++)
@@ -1288,14 +1288,6 @@ static void cmd_dispatch(const char *cmd)
             printf("[SECTORS] current=%d visited=%d total=%d\n",
                    cur, T_VisitedCount(), numsectors);
         }
-    }
-    else if (!strcmp(cmd, "HISTORY"))
-    {
-        // Dump the movement-history ring buffer (see t_action.c):
-        // where the player has actually been, newest last, with a
-        // cluster note when the recent points huddle in a small box
-        // -- the trap signature the agent navigates by.
-        T_HistoryDump();
     }
     else if (!strncmp(cmd, "EQUIP ", 6))
     {

@@ -470,14 +470,13 @@ loot) — plus positions estimated from what the agent sees, never
 unearned map data. SCAN is removed (2026-10-24, Jimmy's order — it
 reported keys map-wide through walls, which felt like cheating);
 keys are found by vision only. A movement-history ring
-buffer samples the player's position at command start/end and every
-~48 units of travel; the `HISTORY` diagnostic command dumps it,
-flagging when the newest points cluster in a small box (the trap
-signature). Visited sectors are tracked continuously (every tick,
+buffer and its `HISTORY` diagnostic command were removed
+(2026-10-24, Jimmy's order — the log itself is history).
+Visited sectors are tracked continuously (every tick,
 from the player's real position — the old `SECTORS` count only
 marked the sector occupied when polled), so the visited count is
 a truthful scoreboard for preferring new ground over re-treading
-old ground. Both trackers reset when the level's sector array changes.
+old ground. The tracker resets when the level's sector array changes.
 (A `FRONTIER` diagnostic that reported the nearest unvisited
 sectors with bearings shipped and was removed the same day,
 2026-10-21 — Jimmy ruled it cheating. The agent finds new ground

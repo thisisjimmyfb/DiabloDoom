@@ -31,7 +31,6 @@
 
 // Movement-history sampler (defined with the tracking block below;
 // T_GotoCancel above it records GOTO endpoints through it).
-static void T_HistorySample(boolean force);
 
 // ------------------------------------------------------------------
 // Shared nearby-entity detection for WALK and COLLECT.
@@ -1010,7 +1009,6 @@ boolean T_GotoStart(fixed_t tx, fixed_t ty)
         goto_last_y = players[consoleplayer].mo->y;
         goto_start_x = players[consoleplayer].mo->x;
         goto_start_y = players[consoleplayer].mo->y;
-        T_HistorySample(true);
     }
     printf("[GOTO] path to (%d,%d): %d waypoints\n", tx >> 16, ty >> 16, steps);
     return true;
@@ -1021,7 +1019,6 @@ static void goto_finish(int result)
 {
     mobj_t *mo = players[consoleplayer].mo;
     if (goto_active)
-        T_HistorySample(true);
     goto_result = result;
     goto_active = false;
     goto_wp_count = 0;
@@ -1052,7 +1049,7 @@ void T_GotoCancel(void)
 // ------------------------------------------------------------------
 
 // ------------------------------------------------------------------
-// Movement history + visited-sector tracking (Jimmy, 2026-10-21).
+// Visited-sector tracking (Jimmy, 2026-10-21).
 //
 // The farm agent navigates from screenshots and the game log, and
 // explore-mode movement used to report no positions at all --
@@ -1062,28 +1059,19 @@ void T_GotoCancel(void)
 // had the same problem: it only marked the sector the player was
 // standing in when SECTORS happened to be polled.
 //
-// The engine now keeps:
-//   - a ring buffer of recent player positions, sampled at movement
-//     command start/end and every ~48 units of travel, dumped by
-//     the HISTORY driver command, with a cluster note when the
-//     newest points huddle in a small box (the trap signature);
-//   - a continuous visited-sector set, marked every tick from the
-//     player's real position and read by SECTORS, so the visited
-//     count is a truthful exploration scoreboard. (A FRONTIER
-//     command that reported unvisited sectors was removed the day
-//     it shipped, 2026-10-21: Jimmy ruled it cheating -- the agent
-//     finds new ground with its own eyes, not an oracle.)
-// Both reset when the level's sector array changes (new level or
-// save load), detected by the sectors pointer.
+// The engine now keeps a continuous visited-sector set, marked
+// every tick from the player's real position and read by SECTORS,
+// so the visited count is a truthful exploration scoreboard. (A
+// FRONTIER command that reported unvisited sectors was removed the
+// day it shipped, 2026-10-21: Jimmy ruled it cheating -- the agent
+// finds new ground with its own eyes, not an oracle.) A
+// movement-history ring buffer and its HISTORY driver command were
+// removed 2026-10-24 (Jimmy's order -- the log itself is history).
+// The tracker resets when the level's sector array changes (new
+// level or save load), detected by the sectors pointer.
 // ------------------------------------------------------------------
 
-#define HIST_MAX 48
-static fixed_t hist_x[HIST_MAX];
-static fixed_t hist_y[HIST_MAX];
-static int hist_tic[HIST_MAX];
-static int hist_count = 0;      // entries stored (<= HIST_MAX)
-static int hist_head = 0;       // next write slot
-static sector_t *hist_sector_base = NULL;
+static sector_t *track_sector_base = NULL;
 
 #define VISITED_MAX 4096
 static boolean visited_sectors[VISITED_MAX];
@@ -1091,38 +1079,12 @@ static int visited_count = 0;
 
 static void T_TrackResetIfLevelChanged(void)
 {
-    if (hist_sector_base != sectors)
+    if (track_sector_base != sectors)
     {
-        hist_sector_base = sectors;
-        hist_count = 0;
-        hist_head = 0;
+        track_sector_base = sectors;
         memset(visited_sectors, 0, sizeof(visited_sectors));
         visited_count = 0;
     }
-}
-
-// Record a history point. Travel sampling self-throttles to one
-// point per ~48 units; command start/end points pass force=true.
-static void T_HistorySample(boolean force)
-{
-    player_t *pl = &players[consoleplayer];
-    if (pl->mo == NULL)
-        return;
-    T_TrackResetIfLevelChanged();
-    if (!force && hist_count > 0)
-    {
-        int prev = (hist_head + HIST_MAX - 1) % HIST_MAX;
-        fixed_t d = P_AproxDistance(pl->mo->x - hist_x[prev],
-                                    pl->mo->y - hist_y[prev]);
-        if (d < 48 * FRACUNIT)
-            return;
-    }
-    hist_x[hist_head] = pl->mo->x;
-    hist_y[hist_head] = pl->mo->y;
-    hist_tic[hist_head] = gametic;
-    hist_head = (hist_head + 1) % HIST_MAX;
-    if (hist_count < HIST_MAX)
-        hist_count++;
 }
 
 // Mark the player's current sector visited. Called every tick from
@@ -1149,47 +1111,6 @@ int T_VisitedCount(void)
 {
     T_TrackResetIfLevelChanged();
     return visited_count;
-}
-
-void T_HistoryDump(void)
-{
-    int i;
-    printf("[HISTORY] %d entries (oldest first)\n", hist_count);
-    for (i = 0; i < hist_count; i++)
-    {
-        int slot = (hist_head + HIST_MAX - hist_count + i) % HIST_MAX;
-        int age = (gametic - hist_tic[slot]) / TICRATE;
-        printf("[HISTORY] %d: (%d,%d) %ds ago\n", i + 1,
-               hist_x[slot] >> 16, hist_y[slot] >> 16, age);
-    }
-    // Trap signature: the newest points huddled in a small box.
-    if (hist_count >= 6)
-    {
-        int k = hist_count < 8 ? hist_count : 8;
-        int j;
-        fixed_t minx = 0, miny = 0, maxx = 0, maxy = 0;
-        for (j = 0; j < k; j++)
-        {
-            int slot = (hist_head + HIST_MAX - 1 - j) % HIST_MAX;
-            if (j == 0)
-            {
-                minx = maxx = hist_x[slot];
-                miny = maxy = hist_y[slot];
-                continue;
-            }
-            if (hist_x[slot] < minx) minx = hist_x[slot];
-            if (hist_x[slot] > maxx) maxx = hist_x[slot];
-            if (hist_y[slot] < miny) miny = hist_y[slot];
-            if (hist_y[slot] > maxy) maxy = hist_y[slot];
-        }
-        if ((maxx - minx) < 128 * FRACUNIT
-            && (maxy - miny) < 128 * FRACUNIT)
-        {
-            printf("[HISTORY] note: last %d points within a %dx%d"
-                   " unit box -- likely trapped\n", k,
-                   (maxx - minx) >> 16, (maxy - miny) >> 16);
-        }
-    }
 }
 
 static boolean walk_active = false;
@@ -1286,7 +1207,6 @@ static void T_WalkBegin(fixed_t step_target)
     walk_last_y = pl->mo->y;
     walk_start_x = pl->mo->x;
     walk_start_y = pl->mo->y;
-    T_HistorySample(true);
     printf("[WALK] started at (%d,%d)\n",
            pl->mo->x >> 16, pl->mo->y >> 16);
 }
@@ -1333,7 +1253,6 @@ void T_WalkCancel(void)
             printf("[WALK] stopped at (%d,%d), moved %d from (%d,%d)\n",
                    pl->mo->x >> 16, pl->mo->y >> 16, moved,
                    walk_start_x >> 16, walk_start_y >> 16);
-            T_HistorySample(true);
         }
         else
         {
@@ -1373,7 +1292,6 @@ void T_WalkTick(void)
                    walk_start_x >> 16, walk_start_y >> 16);
             mo->momx = 0;
             mo->momy = 0;
-            T_HistorySample(true);
             walk_active = false;
             walk_blocked_tics = 0;
             walk_step_target = 0;
@@ -1447,7 +1365,6 @@ void T_WalkTick(void)
         mo->momx += FixedMul(thrust, finecosine[ang >> ANGLETOFINESHIFT]);
         mo->momy += FixedMul(thrust, finesine[ang >> ANGLETOFINESHIFT]);
     }
-    T_HistorySample(false);
 }
 
 // Called each tick in explore mode. Steps toward the current waypoint.
@@ -1563,7 +1480,6 @@ void T_GotoTick(void)
             goto_last_y = mo->y;
         }
     }
-    T_HistorySample(false);
 }
 
 // ------------------------------------------------------------------
@@ -1602,7 +1518,6 @@ void T_CollectCancel(void)
     if (collect_active)
     {
         printf("[COLLECT] walk cancelled\n");
-        T_HistorySample(true);
     }
     collect_active = false;
     collect_cand_count = 0;
