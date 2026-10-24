@@ -889,7 +889,7 @@ static boolean cmd_is_diagnostic(const char *cmd)
 {
     static const char *diag[] = {
         "SCREENSHOT", "REPLAY", "CAPTURE", "VERSION",
-        "INVENTORY", "KEYS", "SCAN", "SECTORS", "HISTORY", NULL
+        "INVENTORY", "KEYS", "SECTORS", "HISTORY", NULL
     };
     int i;
     for (i = 0; diag[i] != NULL; i++)
@@ -1296,43 +1296,6 @@ static void cmd_dispatch(const char *cmd)
         // cluster note when the recent points huddle in a small box
         // -- the trap signature the agent navigates by.
         T_HistoryDump();
-    }
-    else if (!strcmp(cmd, "SCAN"))
-    {
-        // List nearby keys by ABSOLUTE map coordinates (Jimmy,
-        // 2026-10-22: logs and GOTO both speak absolute coordinates,
-        // no facing-relative form). Format:
-        // [SCAN] <color>_key at (x, y) (<dist> units away)
-        // Feed the coordinates straight to GOTO.
-        player_t *pl = &players[consoleplayer];
-        if (pl->mo != NULL)
-        {
-            thinker_t *th;
-            int found = 0;
-            for (th = thinkercap.next; th != &thinkercap; th = th->next)
-            {
-                if (th->function.acp1 != (actionf_p1)P_MobjThinker)
-                    continue;
-                {
-                    mobj_t *mo = (mobj_t *)th;
-                    const char *name = NULL;
-                    if (mo->sprite == SPR_RKEY) name = "red_key";
-                    else if (mo->sprite == SPR_BKEY) name = "blue_key";
-                    else if (mo->sprite == SPR_YKEY) name = "yellow_key";
-                    if (name != NULL)
-                    {
-                        fixed_t dx = mo->x - pl->mo->x;
-                        fixed_t dy = mo->y - pl->mo->y;
-                        int dist = P_AproxDistance(dx, dy) >> 16;
-                        printf("[SCAN] %s at (%d, %d) (%d units away)\n",
-                               name, mo->x >> 16, mo->y >> 16, dist);
-                        found++;
-                    }
-                }
-            }
-            if (!found)
-                printf("[SCAN] no keys found\n");
-        }
     }
     else if (!strncmp(cmd, "EQUIP ", 6))
     {

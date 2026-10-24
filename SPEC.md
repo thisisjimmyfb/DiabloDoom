@@ -463,10 +463,13 @@ screenshots and the log, so the engine reports where movement
 actually went. WALK and GOTO results are position-stamped (start
 position, end position, net units moved). **GOTO takes absolute map
 coordinates** (2026-10-22, Jimmy's order — the facing-relative form
-is removed), and SCAN reports keys by absolute coordinates; the
+is removed), the
 coordinates an agent may navigate to are the ones the game itself
 stamps — its own position trail and stamped event positions (corpse,
-loot, keys) — never unearned map data. A movement-history ring
+loot) — plus positions estimated from what the agent sees, never
+unearned map data. SCAN is removed (2026-10-24, Jimmy's order — it
+reported keys map-wide through walls, which felt like cheating);
+keys are found by vision only. A movement-history ring
 buffer samples the player's position at command start/end and every
 ~48 units of travel; the `HISTORY` diagnostic command dumps it,
 flagging when the newest points cluster in a small box (the trap
