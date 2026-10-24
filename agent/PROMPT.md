@@ -2,14 +2,6 @@
 
 This is the public strategy guide for teaching our AI agent to play DiabloDoom — a turn-based Diablo-style mod of Doom. If you have ideas for better tactics, we want to hear them!
 
-## The Game
-
-DiabloDoom combines Doom's first-person shooting with Diablo's loot system and turn-based combat. The agent explores levels, fights monsters in turn-based mode, picks up loot, equips gear, and tries to survive.
-
-## Objective
-
-Play well — explore the level, engage enemies in turn-based combat, pick up loot. The goal is loot progression: collect better and better gear over time and equip upgrades. Play like a competent player, not a bot grinding a specific drop.
-
 ## Combat Strategy
 
 When the turn-based UI is visible (TURN MODE banner):
