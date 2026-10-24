@@ -140,6 +140,19 @@ target list so the player can still shoot them deliberately.
 targeting — a single-turn attack on a barrel, prop, or enemy without
 starting a full fight. Releasing Ctrl with no target fires in the facing
 direction (for shootable walls/secrets that aren't targetable mobjs).
+The FIFO driver's `ATTACK` is the same entry (start + confirm in one):
+in explore it queues the target-less attack and holds planning. Since
+2026-10-23 the entry cannot abort on an attack refusal (kit cannot
+fire / TP / ammo): the refusal message stands, nothing is queued, and
+planning holds — ATTACK from explore doubles as the agent's freeze
+against passive damage (damaging floors tick in real time while the
+vision loop thinks; planning replaces the world tick entirely). The
+agent deletes the queued attack with the FIFO `UNDO` command
+(Backspace parity, added the same day), queues movement to TP 0, and
+ENDs to execute its way out. Passive damage never cancels a GOTO —
+the walk rides out the ticks at run speed (forwardmove[1]) — so a
+plain GOTO to the last safe stamp is the sprint-out gear, and the
+freeze-escape is for exits that need thought.
 
 **Design intent:** the Diablo farm loop (walk room to room, grab loot,
 build the character) stays frictionless; the XCOM tactical layer appears

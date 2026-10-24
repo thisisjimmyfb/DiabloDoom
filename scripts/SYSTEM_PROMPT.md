@@ -62,6 +62,7 @@ Write commands to /tmp/doom_cmd.txt (one per line). It's a FIFO — do NOT delet
 
 Commands (queue during plan phase):
 - `ATTACK` — attack selected target (4 TP)
+- `UNDO` — remove the last queued action and refund its TP (free)
 - `MOVE_FWD` / `MOVE_BACK` — move (1 TP)
 - `STRAFE_L` / `STRAFE_R` — strafe (1 TP)
 - `END` — end turn (required after queueing actions; starts the progress phase)
@@ -69,6 +70,7 @@ Commands (queue during plan phase):
 Notes:
 - Dying clears the queue immediately and ends the phase.
 - `Ctrl` in explore mode starts mini-combat targeting for voluntary attacks (barrels/props/enemies).
+- `ATTACK` in explore mode enters turn-based combat with a target-less attack queued — and the world freezes the moment it lands, enemy or not. If the equipped weapon cannot fire (wrong kit state, no ammo), no attack is queued but planning still holds. `UNDO` removes the queued attack (TP refunded); queue movement instead and `END` to execute it. This is the passive-damage escape: see "Passive damage" in the strategy guide.
 
 **System:**
 - `SCREENSHOT` — capture screenshot to doomshots/

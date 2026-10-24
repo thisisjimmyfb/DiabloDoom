@@ -53,7 +53,7 @@ register in the right cell; GOTO walks re-centre onto
 the current cell when stalled off-centre across a face line, and
 COLLECT rides on GOTO — it filters loot positions and hands them
 over as destinations), `KEYS`, `SCAN` (nearby keys by absolute coordinates), `SECTORS`
-(visited-sector progress), `TURNL`/`TURNR`, `ATTACK`, `END`, `COLLECT`,
+(visited-sector progress), `TURNL`/`TURNR`, `ATTACK`, `UNDO`, `END`, `COLLECT`,
 `SCREENSHOT`, `CAPTURE`/`REPLAY` (15 s MP4; the encode runs on a
 worker thread since 2026-10-19, so the game never stalls waiting for
 x264). Launching with `--continuous-capture` turns on continuous capture:
