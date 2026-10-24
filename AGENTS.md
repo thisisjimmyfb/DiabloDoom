@@ -100,7 +100,7 @@ the load menu), and `QUIT` saves slot 0, flushes the log, and shuts the
 game down cleanly from inside — the farm uses QUIT instead of killing
 the process (SIGKILL discards the buffered log). QUIT skips the ENDOOM
 exit screen, which otherwise waits forever for a keypress nobody sends.
-Screenshots come from the game's own framebuffer
+Every executed driver command is also shown as an on-screen status message (`CMD <command>`, vanilla message pipeline, 4 s) so screenshots and replay segments show what the agent sent, not just the log. Screenshots come from the game's own framebuffer
 (`SCREENSHOT` driver command), so no tearing — files land
 timestamped as `diablodoom_<ts>_NN.png` under `/tmp/doomshots/doomshots/`
 (that nested dir must exist; the game only creates `/tmp/doomshots`).

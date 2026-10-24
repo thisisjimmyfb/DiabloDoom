@@ -1085,6 +1085,20 @@ static void cmd_dispatch(const char *cmd)
             mode_str = "OFF";
         printf("[CMD] %s (mode=%s)\n", cmd, mode_str);
     }
+    // Show the executed command as an on-screen status message
+    // (Jimmy, 2026-10-24): the vanilla message pipeline -- HU_Ticker
+    // picks plyr->message up next tic and shows it for HU_MSGTIMEOUT
+    // (4 s), so the command is visible in screenshots and replay
+    // segments, not just the log. Static buffer: the pointer must
+    // stay valid until HU_Ticker consumes it. Every executed
+    // command shows, diagnostics included; WAIT-held commands show
+    // only when they actually execute.
+    if (cmd[0] != '\0')
+    {
+        static char cmd_msg[96];
+        M_snprintf(cmd_msg, sizeof(cmd_msg), "CMD %s", cmd);
+        players[consoleplayer].message = cmd_msg;
+    }
     if (!strcmp(cmd, "ATTACK"))
     {
         T_StartCtrlTargeting();
