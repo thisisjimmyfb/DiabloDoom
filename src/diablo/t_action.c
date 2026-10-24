@@ -2537,26 +2537,34 @@ void T_ConfirmCtrlTarget(void)
         // Queues the attack but does NOT auto-end — user presses Enter.
         if (was_mini)
         {
-            // Queue an untargeted attack.
+            // Queue an untargeted attack. Entry into turn-based
+            // combat must not abort when the attack itself is
+            // refused (Jimmy, 2026-10-23): ATTACK from explore is
+            // also the agent's way to freeze the world against
+            // passive damage, and the equipped kit is often the
+            // one that cannot fire (a BFG under a full charge).
+            // The refusal message stands, no attack is queued,
+            // and planning HOLDS -- the agent UNDOs nothing,
+            // queues its moves, and ends the turn as usual.
             if (!T_KitCanFire(player->readyweapon))
             {
                 player->message = T_KitDenyReason(player->readyweapon);
-                turnctrl.mini_combat = false;
-                turnctrl.state = TS_EXPLORE;
+                printf("[TURN] ATTACK entry: kit cannot fire - planning holds, no attack queued\n");
+                turnctrl.state = TS_PLANNING;
                 return;
             }
             if (!T_CanAfford(TA_ATTACK))
             {
                 T_RefuseTP(TA_ATTACK);
-                turnctrl.mini_combat = false;
-                turnctrl.state = TS_EXPLORE;
+                printf("[TURN] ATTACK entry: attack TP unaffordable - planning holds, no attack queued\n");
+                turnctrl.state = TS_PLANNING;
                 return;
             }
             if (!T_HasAmmoForKit(player->readyweapon))
             {
                 T_RefuseMana(player->readyweapon);
-                turnctrl.mini_combat = false;
-                turnctrl.state = TS_EXPLORE;
+                printf("[TURN] ATTACK entry: no ammo for kit - planning holds, no attack queued\n");
+                turnctrl.state = TS_PLANNING;
                 return;
             }
             T_Enqueue(TA_ATTACK, T_CostFor(TA_ATTACK), 0, NULL);

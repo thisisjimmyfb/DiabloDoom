@@ -1090,6 +1090,14 @@ static void cmd_dispatch(const char *cmd)
         T_StartCtrlTargeting();
         T_ConfirmCtrlTarget();
     }
+    else if (!strcmp(cmd, "UNDO"))
+    {
+        // Backspace parity (Jimmy, 2026-10-23): remove the last
+        // queued action and refund its TP. The standing rule is
+        // that the driver supports whatever the keyboard supports;
+        // UNDO was keyboard-only until now.
+        T_DoUndoQueue();
+    }
     else if (!strcmp(cmd, "END"))
         T_DoEndTurn();
     else if (!strncmp(cmd, "WALK", 4) && (cmd[4] == '\0' || cmd[4] == ' '))
