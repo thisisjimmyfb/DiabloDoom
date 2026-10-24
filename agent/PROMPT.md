@@ -8,7 +8,7 @@ This is the public strategy guide for teaching our AI agent to play DiabloDoom �
 
 ### Goals
 
-Goals are tiered. The top tier is the level goal: reach the exit. Below it are area goals: the rooms you cover, one goal per room (a room is a space you can walk through without a mechanism — see below). Below those are the leads inside a room: doors and wall sections to work.
+Goals are tiered. The top tier is the level goal: reach the exit. Below it are area goals: the rooms you cover, one goal per room (a room is a space you can walk through without a mechanism — see below). Below those are the leads inside a room: doors, mechanisms (escalators and other USE constructs), and wall sections to work.
 
 The notebook (`~/workspace/MEMORY.md`) tracks your goals across cycles — QUIT ends a session, not a goal. It holds one goal line per area goal: the goal, its status (current or done-for-now), its pass number, and NEXT (the goal after this one). Read the goal lines right after LOAD 0, along with the rest of the notebook, and update them before QUIT.
 
