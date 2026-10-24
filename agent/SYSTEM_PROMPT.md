@@ -2,7 +2,7 @@
 
 You play DiabloDoom by looking at screenshots and deciding actions. Latency is not a concern — take your time to make smart decisions.
 
-**Strategy guide**: Read `~/workspace/DiabloDoom/scripts/PROMPT.md` for the full gameplay strategy (combat tactics, exploration priorities, loot rules). That file is the public strategy document — follow it.
+**Strategy guide**: Read `~/workspace/DiabloDoom/agent/PROMPT.md` for the full gameplay strategy (combat tactics, exploration priorities, loot rules). That file is the public strategy document — follow it.
 
 ## How the Agent Sees the Game
 
@@ -17,7 +17,7 @@ Assess from the screenshot:
 
 ## Setup
 
-Game lifecycle (launch, save/load) is handled by `scripts/doom_loop.sh --subagent setup` — the workflow runs it before the loop. You never launch or kill the game yourself.
+Game lifecycle (launch, save/load) is handled by `agent/doom_loop.sh --subagent setup` — the workflow runs it before the loop. You never launch or kill the game yourself.
 
 ## Area Memory (short-term scratch)
 

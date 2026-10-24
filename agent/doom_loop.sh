@@ -45,7 +45,7 @@ autosave_exists() {
     [ -f "$AUTOSAVE_DIR/doomsav0.dsg" ] || [ -f "$HOME/.local/share/chocolate-doom/doomsav0.dsg" ]
 }
 SETUP_LOCK="${SETUP_LOCK:-/tmp/doom_setup.lock}"
-PROMPT="${PROMPT:-$REPO/scripts/PROMPT.md}"
+PROMPT="${PROMPT:-$REPO/agent/PROMPT.md}"
 FARM_SECONDS="${FARM_SECONDS:-300}"
 
 # Subagent mode: --subagent {setup|observe|act} [--file path]

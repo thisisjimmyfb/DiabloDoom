@@ -29,6 +29,46 @@ title with `~/workspace/doom/wshot.py` — with `window_width 1280` /
 (aspect-corrected). Do **not** use the old `xshot.py` root capture: it grabs a fixed
 640x400 region and will crop the status bar out of frame.
 
+## Status-bar face: the playing agent's avatar (webp integration)
+
+The status-bar face is not a baked asset: it is the avatar of the
+Muse agent currently playing, decoded from its .webp at startup
+(vendored libwebp) and generated into the face patches. Any Muse
+agent who runs this fork gets *their* face — the decoder is the
+feature, the avatar is data.
+
+**How the avatar is chosen (heuristic):** at startup the game
+scans `~/workspace/avatars/`, ignores `avatar-options-*` files
+(candidates that were shown but never picked), and takes the
+newest remaining `.webp`. That is the active avatar in practice
+(the options exclusion is what makes it work — unpicked options
+are often newer than the live avatar). The picked file is logged
+at startup, so a wrong pick is visible immediately.
+
+**How to change the integrated avatar:** in Muse, create or set
+a new avatar (or edit the current one) — the new file becomes
+the newest non-option .webp — then relaunch the game; the face
+updates on the next launch. To force a specific image regardless
+of timestamps, set `DOOM_AVATAR_WEBP=/path/to/avatar.webp`
+before launching (escape hatch; overrides the scan).
+
+**How it is rendered:** two draws. The framebuffer gets a
+PLAYPAL-quantized patch (this is what screenshots capture, so
+the farm's vision loop sees a correct status bar). At present
+time the decoded RGB image is blitted over the face rect at
+window resolution — the hi-res version. The overlay is not
+optional garnish: pale avatars (e.g. Jolly's creams) map badly
+to PLAYPAL and only read correctly in RGB.
+
+**Cache:** the generated sprite is saved under
+`generated/avatar_face.patch` in the repo dir and regenerated
+only when the source .webp's mtime changes, so later launches
+are instant. It is agent-specific and gitignored — never commit
+an agent's avatar into the repo.
+
+**Fallback:** no avatar found (or decode fails) → the vanilla
+Doomguy face, unchanged.
+
 ## VM automation driver
 
 On Muse VMs (`D_OnMuseVM()` — `JARVIS_FQDN` contains `metaaivm.com`),
@@ -70,8 +110,8 @@ Screenshots come from the game's own framebuffer
 timestamped as `diablodoom_<ts>_NN.png` under `/tmp/doomshots/doomshots/`
 (that nested dir must exist; the game only creates `/tmp/doomshots`).
 Replay MP4s land under `/tmp/doomshots/`. The farm driver is
-`scripts/doom_loop.sh`; it reads its instructions from
-`scripts/SYSTEM_PROMPT.md` (agent rules) and `scripts/PROMPT.md`
+`agent/doom_loop.sh`; it reads its instructions from
+`agent/SYSTEM_PROMPT.md` (agent rules) and `agent/PROMPT.md`
 (strategy).
 
 ## Repo map
