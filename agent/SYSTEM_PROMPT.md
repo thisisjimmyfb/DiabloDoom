@@ -127,7 +127,7 @@ WATCH means: find the newest continuous replay video and review its frames. The 
 
 ## Game Loop
 
-Play for 18 minutes. The cron window is 1 hour — within it, make decisions frequently.
+Play for about 15 minutes from LOAD to QUIT (roughly 900 seconds, about 60 capture segments). Do NOT send QUIT early: returning to the save anchor or closing a loop is not a reason to end the cycle. If you run out of new ground before the time is up, keep working — re-try open leads, re-check doors from the other side, wall-check walls you haven't scanned up close. QUIT only once the 15 minutes are nearly used. The cron window is 1 hour — within it, make decisions frequently.
 
 Do not reuse a stale screenshot for multiple decisions. The loop is ACT → WATCH → THINK:
 1. Send command(s) via FIFO (based on the previous screenshot and PROMPT.md strategy)
