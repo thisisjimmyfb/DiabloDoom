@@ -29,45 +29,36 @@ title with `~/workspace/doom/wshot.py` — with `window_width 1280` /
 (aspect-corrected). Do **not** use the old `xshot.py` root capture: it grabs a fixed
 640x400 region and will crop the status bar out of frame.
 
-## Status-bar face: the playing agent's avatar (webp integration)
+## Status-bar face: the playing agent's avatar (reference image + generated assets)
 
-The status-bar face is not a baked asset: it is the avatar of the
-Muse agent currently playing, decoded from its .webp at startup
-(vendored libwebp) and generated into the face patches. Any Muse
-agent who runs this fork gets *their* face — the decoder is the
-feature, the avatar is data.
+SUPERSEDED 2026-10-23: the earlier design (decode the agent's .webp
+at startup via vendored libwebp) is DEAD — Jimmy killed it. The
+.webp is a single static frame; it cannot generate expressions on
+its own, and no expression variants exist in the avatar asset (its
+animated variants are activity states — idle, working, making
+something, milestone — not faces). So the engine does NOT read
+.webp files. Instead:
 
-**How the avatar is chosen (heuristic):** at startup the game
-scans `~/workspace/avatars/`, ignores `avatar-options-*` files
-(candidates that were shown but never picked), and takes the
-newest remaining `.webp`. That is the active avatar in practice
-(the options exclusion is what makes it work — unpicked options
-are often newer than the live avatar). The picked file is logged
-at startup, so a wrong pick is visible immediately.
+- **Reference image:** the repo carries a reference face image
+  (default: Jolly's face, the default Muse avatar) that the
+  generating agent works from.
+- **Agent instructions:** a doc in the repo tells the agent how to
+  generate the face-state asset set from the reference and wire it
+  into the Doomguy status-bar face system (STFST look frames,
+  STFST pain frames, STFGOD god mode, STFDEAD dead) — one image
+  per state, at the native 24x29 face size, as a PLAYPAL-quantized
+  patch for the framebuffer plus a hi-res RGB overlay at present
+  time (the overlay is essential, not garnish: Jolly's pale creams
+  map badly to PLAYPAL and only read correctly in RGB).
+- **Fallback:** no generated assets present → the vanilla Doomguy
+  face, unchanged.
 
-**How to change the integrated avatar:** in Muse, create or set
-a new avatar (or edit the current one) — the new file becomes
-the newest non-option .webp — then relaunch the game; the face
-updates on the next launch. To force a specific image regardless
-of timestamps, set `DOOM_AVATAR_WEBP=/path/to/avatar.webp`
-before launching (escape hatch; overrides the scan).
-
-**How it is rendered:** two draws. The framebuffer gets a
-PLAYPAL-quantized patch (this is what screenshots capture, so
-the farm's vision loop sees a correct status bar). At present
-time the decoded RGB image is blitted over the face rect at
-window resolution — the hi-res version. The overlay is not
-optional garnish: pale avatars (e.g. Jolly's creams) map badly
-to PLAYPAL and only read correctly in RGB.
-
-**Cache:** the generated sprite is saved under
-`generated/avatar_face.patch` in the repo dir and regenerated
-only when the source .webp's mtime changes, so later launches
-are instant. It is agent-specific and gitignored — never commit
-an agent's avatar into the repo.
-
-**Fallback:** no avatar found (or decode fails) → the vanilla
-Doomguy face, unchanged.
+Expression work done 2026-10-23 (previews, not shipped assets):
+Jolly at 24x29 in all six states (normal / look left / look right /
+pain / god / dead), god and dead made exactly mirror-symmetric,
+mouths drawn at final resolution (thin features get lost in the
+downscale otherwise). Files: `~/workspace/jolly_expressions_24x29.png`,
+`~/workspace/jolly_dead_24x29.png`.
 
 ## VM automation driver
 
