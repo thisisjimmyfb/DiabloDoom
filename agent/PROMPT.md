@@ -2,66 +2,6 @@
 
 This is the public strategy guide for teaching our AI agent to play DiabloDoom — a turn-based Diablo-style mod of Doom. If you have ideas for better tactics, we want to hear them!
 
-## Combat Strategy
-
-When the turn-based UI is visible (TURN MODE banner):
-
-### Targeting
-- Enemies are marked with numbers. The agent selects a target and queues attacks.
-- Always END the turn after queueing attacks, or the game stalls.
-
-### Melee vs Ranged Enemies
-
-**Melee enemies** (Flesh worm, Demon, Spectre, etc.):
-- With only the vanilla pistol: DO NOT fight up close. You will die.
-- ONLY back up (kite) if a melee enemy is almost in melee range (very close, about to hit you).
-- If the melee enemy is far away: do NOT back up — just attack from range.
-- Queue: `MOVE_BACK` then `ATTACK` x2 (only when the enemy is close).
-
-**Ranged enemies** (Serpentipede, Shotgun zombie, etc.):
-- Do NOT kite — backing up doesn't dodge projectiles.
-- Just ATTACK, or strafe sideways to dodge.
-
-### Staying Alive
-
-- **Passive damage (damaging floors, crushers) — two gears.** Bad ground kills by latency, not force: in explore the world runs in real time while you think, and the floor ticks the whole time. Passive damage does NOT stop a `GOTO` — it rides out the ticks at full run speed until it arrives.
-  - **Sprint out (first reaction):** if the way out is known and short — you just stepped in, or safety is one straight line back — immediately `GOTO` your last safe position. `GOTO` moves at run speed (the Shift-held speed). No screenshot first; the command is the reaction. And never `GOTO` *across* a hazard toward somewhere beyond it: the walk will not stop on its own when the ground turns bad, it will cross the whole pool if the target is past it.
-  - **Freeze-escape (when the exit isn't obvious):** send `ATTACK`. From explore it enters turn-based combat and freezes the world, with a target-less attack queued (if your weapon cannot fire, planning still holds with an empty queue — the freeze works either way). `UNDO` deletes the queued attack and refunds its TP. Read the frozen screenshot, decide the way out, queue movement (`MOVE_FWD`/`MOVE_BACK`/`STRAFE_L`/`STRAFE_R`, `TURNL`/`TURNR` to face) until TP is spent, then `END` to execute. Damage accrues only while the queue executes. If you are still on bad ground when explore resumes, `ATTACK` again and repeat. Never plan an escape from a live screenshot with the ticks running.
-- **Retreat when hurt:** If HP drops below 40% and you're fighting a ranged enemy, STOP attacking. Move behind a wall, door, or corner to break line of sight. Let your HP recover or reposition — don't trade shots you'll lose.
-- **Queue aggressively:** Fill the turn queue every round — batch 6-10 actions (moves + attacks) per iteration, then END turn — when enemies are far and no enemy projectiles are in flight toward you. When you are very close to an enemy or projectiles are inbound, drop to one move at a time with a fresh SCREENSHOT between moves (see the combat movement rule). A half-empty queue wastes the round. The old "2-3 attacks" caution is retired: more actions per loop means more progress per minute.
-- **Check ammo first:** Never queue more attacks than your current ammo. If you see "NO AMMO" skips in the log, you're queuing too many.
-- **Kill ranged first:** Serpentipedes and Imps out-DPS the pistol at range. If multiple enemies are visible, target the ranged ones before melee — or break LOS and force them to come to you.
-- **Use cover:** Peek around corners and doors. Move out, queue a full batch of attacks, move back behind cover, END turn. Repeat. Don't stand in the open against ranged enemies.
-- **See with the segment videos:** the game continuously saves 15-second segment videos — find the newest one in `/tmp/doomshots/` and read its frames to see what just happened: enemy movement, your own path, the moment a fight turned. For a single still frame, use SCREENSHOT.
-
-### Gear Check
-- You are NEVER unarmed — you always have the pistol, even with no Diablo weapon equipped. "No weapon" means no Diablo weapon in the WEAPON slot. Don't avoid combat thinking you're defenseless.
-- If you have no Diablo weapon equipped (vanilla pistol only): prioritize finding a Diablo weapon over fighting tough enemies. But you CAN fight — just be cautious.
-
-### Your Trail, Traps, Edges and Corners
-
-The game tracks where you have actually been. Your screenshot shows one moment — the stamps in the log show the pattern, and the pattern is what gets you trapped.
-
-- **Read your trail in the log.** Every GOTO result is stamped with start and end positions (`moved N from (x,y)`), so you always know whether a command actually took you somewhere — keep the recent stamps in mind and compare each new one against them.
-- **Your area memory carries your trail across cycles** (`~/workspace/MEMORY.md`, mechanics in SYSTEM_PROMPT.md): it records what you've seen — areas visited, doors found and whether they opened, wall sections where `USE` already did nothing, targets that returned `no path`. Read it at the start of the run; navigate by its doors, never re-probe its no-path targets, and never re-`USE` a plain-wall spot it records as no-effect — but a door it records as *didn't open* is a live lead, not a retirement: it stays on the hunt until it opens, or is proven keyed with the key still unfound after full coverage of every reachable area. And write this run's observations into it as you go, so the next cycle starts knowing what you learned.
-- **Revisit check — read your stamps in the live log:** The log updates during play now. After every GOTO, read its stamped end position and compare it with the end positions of your earlier moves this session (the log's stamps are the trail; all positions are world coordinates). If you land within ~128 units of a point already in your trail, you are revisiting — name it, and pick an opening or heading that is not in the trail instead of continuing the loop.
-- **Walls are where doors live — work them, don't avoid them:** A frame full of wall is not a dead end; it's an unscanned wall. The trap is facing a wall and doing nothing with it (or GOTO-ing into it repeatedly), not facing one. Work the wall: move along it in short hops and scan it section by section for the paired side strips, a colored side panel, or a seam-bounded section; when vision nominates a section, face its center square-on, move right up to it, and `USE` it. A wall stretch counts as *checked* only once you've seen it up close along its length — a glance from across the room doesn't count, because up close is where the side strips and panels become visible. Turn away only from wall you have actually scanned and found no bounded section in. Never test plain, unnominated wall at random with `USE` — but never skip a nominated section either.
-- **You are trapped when any of these is true:**
-  - your last stamped points huddle in a small box (read them back in the log), or
-  - your last 3 movement commands each moved you less than ~32 units, or
-  - your stamps show you revisiting the same ±48-unit area 3 or more times.
-- **When trapped, name it and run the escape ladder — don't keep poking:**
-  1. Step out sideways: GOTO to a point ~120 units perpendicular to your facing from your current stamp (left or right), then GOTO onward.
-  2. GOTO back out the way you came in — target an earlier stamp from your trail in the log.
-  3. Wall-follow: turn so a wall is on your left, then GOTO in hops along it — each hop a point ~150 units along the wall from your current stamp; at each stop (arrived or blocked), turn 45–90° toward the open side and GOTO again, keeping the wall on the same side. A corner ends when the wall ends — follow it around instead of bouncing off it.
-  4. In a trench or pit: move ALONG the low ground, parallel to the high wall, never straight at it. Look for the step up or the ramp at the trench's ends.
-- **Height changes and escalators:** A level change is not always a door. An escalator or lift is a moving platform between floor heights, and it is one of the mechanisms above: work it with the USE, WAIT, MOVE pattern and adapt to what it does — if it responds to `USE`, the batch brings it to you and steps you aboard; if it moves when you walk onto it, it is automatic and the walk itself is the activation. Either way, once aboard it carries you to the other level. If a long GOTO clamps or ends `blocked` on approach, use short hops instead. You can tell two floors apart by vision even though log stamps are (x,y) only: the camera sits at your eye height, so when you change levels the whole view's height relationship shifts, and the feet ruler breaks across a step (a figure's feet sit wrong for its size when it's on a different floor). A sheer ledge is different from a lift: no ramp, no step down, and a step up of more than 24 units doesn't exist to the pathfinder, so it will refuse targets across it — that is not a failed lift, it's a wall at that spot, so record it and look for the stepped or moving route, usually at the structure's ends.
-- **Edges and corners:**
-  - Approach openings square-on: face the CENTER of the doorway or gap before walking through. Clipping a corner post and stopping is the #1 way this farm gets wedged.
-  - If you stop against a door frame or a corner edge, don't GOTO again at the same angle — you will re-wedge in the same spot and your stamps will show the cluster. Back off: GOTO to a point ~60 units behind your current stamp (away from the opening), then a short hop 30–60 units toward the opening's center, then GOTO through.
-  - In tight or ledgy geometry, use SHORT hops — destinations 50–100 units from your current stamp — and wall-following: distant destinations get clamped or end `blocked`, so hop along the opening a little at a time.
-  - Never issue repeated forward GOTOs at slightly different angles hoping one slips through. Change something structural instead: strafe, back out, or follow the wall.
-
 ## Exploration Strategy
 
 **Prefer new ground over old ground.** You find it with your own eyes, not a map readout. Watch your own coverage: if your last several moves haven't taken you into a room you haven't recorded in your area memory, you are looping. Then do a **survey spin**: turn in steps all the way around (a full 360°), pausing briefly at each facing, then find the newest segment video — it now holds the whole panorama, so review its frames to catalog every opening, doorway, and corridor around you. Cross off the directions your stamped trail says you've already taken, and head for an opening you haven't tried, even if it means crossing known rooms to reach it. Backtracking is a means to reach new ground, never the activity itself. When two routes look equal, always take the one you haven't been down. Ground truth for where you've been is the live log: every GOTO result is stamped with world-coordinate start and end positions, and those stamps are your trail — read them before you pick a direction.

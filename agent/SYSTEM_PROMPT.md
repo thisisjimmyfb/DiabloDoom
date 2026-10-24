@@ -81,7 +81,7 @@ Commands (queue during plan phase):
 Notes:
 - Dying clears the queue immediately and ends the phase.
 - `Ctrl` in explore mode starts mini-combat targeting for voluntary attacks (barrels/props/enemies).
-- `ATTACK` in explore mode enters turn-based combat with a target-less attack queued — and the world freezes the moment it lands, enemy or not. If the equipped weapon cannot fire (wrong kit state, no ammo), no attack is queued but planning still holds. `UNDO` removes the queued attack (TP refunded); queue movement instead and `END` to execute it. This is the passive-damage escape: see "Passive damage" in the strategy guide.
+- `ATTACK` in explore mode enters turn-based combat with a target-less attack queued — and the world freezes the moment it lands, enemy or not. If the equipped weapon cannot fire (wrong kit state, no ammo), no attack is queued but planning still holds. `UNDO` removes the queued attack (TP refunded); queue movement instead and `END` to execute it. This is the passive-damage escape.
 
 **System:**
 - `SCREENSHOT` — capture screenshot to doomshots/
@@ -121,7 +121,7 @@ WATCH means: find the newest continuous replay video and review its frames. The 
 
 **Turn-based combat: use screenshots, refreshed after every single movement command.**
 - Combat is discrete — the game state only changes when you queue and execute.
-- Movement: when you are very close to an enemy, or enemy projectiles are in flight toward you, queue ONE move, take a new SCREENSHOT, see where you landed, then queue the next — never chain moves blind in close quarters; you can't see walls, enemies, or hazards between steps without a fresh frame. When enemies are far and no enemy projectiles are in flight toward you, batching several moves is fine (see Queue aggressively under Staying Alive).
+- Movement: when you are very close to an enemy, or enemy projectiles are in flight toward you, queue ONE move, take a new SCREENSHOT, see where you landed, then queue the next — never chain moves blind in close quarters; you can't see walls, enemies, or hazards between steps without a fresh frame. When enemies are far and no enemy projectiles are in flight toward you, batching several moves is fine.
 - After attacks, refresh the screenshot to check TP remaining, queue contents, target selection, enemy positions.
 - Don't rely on a stale screenshot from before you queued — the queue panel, TP, and target markers all change.
 
