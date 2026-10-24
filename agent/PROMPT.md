@@ -143,7 +143,6 @@ Your goal is to progress through the level: explore → find keys → unlock doo
 
 ## General Tips
 
-- Don't waste time on empty rooms; head toward doorways and corridors.
 - If health is low (<30%) and no enemy nearby, keep exploring for health pickups.
 - Equip upgrades immediately — don't save them for later.
 - In combat, always end your turn after queueing actions.
