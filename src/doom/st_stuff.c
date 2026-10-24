@@ -292,6 +292,11 @@ static st_multicon_t	w_keyboxes[3];
 // armor widget
 static st_percent_t	w_armor;
 
+// DiabloDoom: the ARMOR readout shows the total remaining durability of
+// the equipped defense pieces (D_EquippedDurabilitySum), refreshed in
+// ST_updateWidgets; vanilla armorpoints are no longer displayed.
+static int		st_armordur;
+
 // ammo widgets
 static st_number_t	w_ammo[4];
 
@@ -849,6 +854,9 @@ void ST_updateWidgets(void)
 	if (plyr->cards[i+3])
 	    keyboxes[i] = i+3;
     }
+
+    // DiabloDoom: ARMOR widget value = equipped defense durability sum
+    st_armordur = D_EquippedDurabilitySum(plyr);
 
     // refresh everything if this is him coming back to life
     ST_updateFaceWidget();
@@ -1659,12 +1667,13 @@ void ST_createWidgets(void)
 		       &st_faceindex,
 		       &st_statusbaron);
 
-    // armor percentage - should be colored later
+    // armor readout - DiabloDoom: total remaining durability of the
+    // equipped defense pieces (see st_armordur), not vanilla armorpoints
     STlib_initPercent(&w_armor,
 		      ST_ARMORX,
 		      ST_ARMORY,
 		      tallnum,
-		      &plyr->armorpoints,
+		      &st_armordur,
 		      &st_statusbaron, tallpercent);
 
     // keyboxes 0-2

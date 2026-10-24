@@ -1500,6 +1500,28 @@ int D_ItemMaxDurability(const diablo_itemdef_t *def)
     return 20 + def->armor / 20;
 }
 
+// HUD armor readout (Jimmy, 2026-10-23): the status-bar ARMOR value is
+// the total remaining durability of the equipped defense pieces (the
+// five durability slots), NOT vanilla armorpoints. Vanilla absorption
+// still runs underneath in P_DamageMobj; this is display only.
+int D_EquippedDurabilitySum(struct player_s *pl)
+{
+    player_t *player = (player_t *)pl;
+    int sum = 0, s;
+
+    for (s = 0; s < NUM_ESLOTS; s++)
+    {
+        int id = player->diablo_equipped[s];
+        const diablo_itemdef_t *def;
+        if (id == D_NOITEM)
+            continue;
+        def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
+        if (D_IsDurabilityItem(def))
+            sum += player->diablo_equipped_dur[s];
+    }
+    return sum;
+}
+
 void D_WearRandomPiece(struct player_s *pl)
 {
     player_t *player = (player_t *)pl;

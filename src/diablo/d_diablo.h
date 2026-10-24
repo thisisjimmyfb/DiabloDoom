@@ -234,6 +234,7 @@ boolean D_DefenseHitRoll(struct player_s *player, struct mobj_s *source); // tru
 boolean D_IsDurabilityItem(const diablo_itemdef_t *def);
 int D_ItemMaxDurability(const diablo_itemdef_t *def); // 0 = no durability
 void D_WearRandomPiece(struct player_s *player);     // one landed hit of wear
+int D_EquippedDurabilitySum(struct player_s *player); // HUD armor readout: total remaining durability of equipped defense pieces
 void D_RepairAllEquipped(struct player_s *player);   // vanilla armor pickup
 int D_RepairCost(int id, int cur_dur);               // essence to full; 0 = n/a or full
 void D_LifeSteal(struct player_s *player, int damage);
