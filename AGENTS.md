@@ -90,9 +90,11 @@ worker thread since 2026-10-19, so the game never stalls waiting for
 x264). Launching with `--continuous-capture` turns on continuous capture:
 every full 15-second buffer is queued for encode automatically and
 saved as its own timestamped segment MP4, so a whole session lands
-on disk without any CAPTURE command (the farm launches this way). Any
-LOAD restarts the capture: the in-progress segment is dropped, so no
-segment ever straddles a load cut (2026-10-24). `SAVE n`/`LOAD n` drive the save slots (0 = the autosave pair,
+on disk without any CAPTURE command (the farm launches this way). A
+driver-command LOAD restarts the capture: the in-progress segment is
+dropped, so no segment ever straddles a load cut (2026-10-24) — only
+driver loads need this, because a driver load shows no UI, so the cut
+looks abrupt in the video; menu loads show the menu. `SAVE n`/`LOAD n` drive the save slots (0 = the autosave pair,
 progress_auto1.dat + doomsav0.dsg; 3–5 = plain Doom savegames, mirroring
 the load menu), and `QUIT` saves slot 0, flushes the log, and shuts the
 game down cleanly from inside — the farm uses QUIT instead of killing

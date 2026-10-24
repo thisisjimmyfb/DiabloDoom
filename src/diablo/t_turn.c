@@ -1494,17 +1494,20 @@ static void cmd_dispatch(const char *cmd)
         extern void D_ProgressLoadAutoSlot(int auto_slot);
         extern char *P_SaveGameFile(int slot);
         extern void G_LoadGame(char *name);
+        extern void D_ReplayRequestRestartOnLoad(void);
         int n = 0;
         if (sscanf(cmd + 4, "%d", &n) != 1)
             n = 0;
         if (n >= 0 && n <= 2)
         {
             printf("[LOAD] auto slot %d\n", n + 1);
+            D_ReplayRequestRestartOnLoad();
             D_ProgressLoadAutoSlot(n + 1);
         }
         else if (n >= 3 && n <= 5)
         {
             printf("[LOAD] manual slot %d\n", n);
+            D_ReplayRequestRestartOnLoad();
             G_LoadGame(P_SaveGameFile(n));
         }
         else

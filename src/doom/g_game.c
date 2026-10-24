@@ -1796,6 +1796,11 @@ boolean g_loading_savegame = false; // true while G_DoLoadGame runs (skip map lo
 void G_DoLoadGame (void) 
 { 
     int savedleveltime;
+    // Consumed here so the request belongs to exactly this load even
+    // if the load fails below (a failed load leaves the world
+    // unchanged, so no restart happens and nothing leaks to a later
+    // load). Only the FIFO driver LOAD command requests a restart.
+    int restart_capture = D_ReplayTakeRestartRequest();
 	 
     gameaction = ga_nothing; 
     g_loading_savegame = true;
@@ -1854,10 +1859,12 @@ void G_DoLoadGame (void)
     T_OnLoad ();  // turn mode: land in PLANNING
     g_loading_savegame = false;
 
-    // Any LOAD restarts continuous capture: the in-progress segment is
-    // dropped so the next segment starts clean at the loaded world and
-    // no segment ever straddles the load cut.
-    D_ReplayRestartCapture();
+    // A driver-command LOAD restarts continuous capture: the
+    // in-progress segment is dropped so the next segment starts clean
+    // at the loaded world. Menu/-loadgame loads don't restart — their
+    // UI shows the load, so the cut isn't abrupt.
+    if (restart_capture)
+        D_ReplayRestartCapture();
 } 
  
 

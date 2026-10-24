@@ -96,6 +96,22 @@ void D_ReplaySetAutoCapture(int on)
     replay_autocapture = on;
 }
 
+// Pending capture-restart request (see D_ReplayRequestRestartOnLoad).
+// Set only by the FIFO driver LOAD command; consumed by G_DoLoadGame.
+static int replay_restart_requested = 0;
+
+void D_ReplayRequestRestartOnLoad(void)
+{
+    replay_restart_requested = 1;
+}
+
+int D_ReplayTakeRestartRequest(void)
+{
+    int r = replay_restart_requested;
+    replay_restart_requested = 0;
+    return r;
+}
+
 // Restart continuous capture: drop the in-progress segment so the next
 // segment starts clean at the newly loaded world. Called when any load
 // completes (G_DoLoadGame) — a load cut must never straddle a segment.
