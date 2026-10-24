@@ -96,6 +96,20 @@ void D_ReplaySetAutoCapture(int on)
     replay_autocapture = on;
 }
 
+// Restart continuous capture: drop the in-progress segment so the next
+// segment starts clean at the newly loaded world. Called when any load
+// completes (G_DoLoadGame) — a load cut must never straddle a segment.
+// An encode already in flight is untouched: it holds its own snapshot
+// of purely pre-load frames and lands as its own segment. The next
+// save fires only once the count rebuilds to a full segment, so the
+// audio window at save time is post-load too.
+void D_ReplayRestartCapture(void)
+{
+    replay_count = 0;
+    replay_head = 0;
+    printf("[REPLAY] capture restarted (load)\n");
+}
+
 // Audio ring buffer: 15 seconds of 44.1kHz stereo 16-bit PCM.
 // Written by the SDL_mixer post-mix hook (audio thread), read when saving.
 #define REPLAY_AUDIO_RATE 44100

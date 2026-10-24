@@ -43,4 +43,9 @@ int D_ReplayFrameCount(void);
 // timestamped segment MP4s instead of only on-demand captures.
 void D_ReplaySetAutoCapture(int on);
 
+// Restart continuous capture: drop the in-progress segment so the next
+// segment starts clean at the newly loaded world. Called when any load
+// completes (G_DoLoadGame) — a load cut must never straddle a segment.
+void D_ReplayRestartCapture(void);
+
 #endif

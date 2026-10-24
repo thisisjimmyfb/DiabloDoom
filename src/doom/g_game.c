@@ -66,6 +66,7 @@
 // Diablo equipment backend (mod).
 #include "d_diablo.h"
 #include "d_diablo_ui.h"
+#include "d_replay.h"
 
 #include "s_sound.h"
 
@@ -1852,6 +1853,11 @@ void G_DoLoadGame (void)
 
     T_OnLoad ();  // turn mode: land in PLANNING
     g_loading_savegame = false;
+
+    // Any LOAD restarts continuous capture: the in-progress segment is
+    // dropped so the next segment starts clean at the loaded world and
+    // no segment ever straddles the load cut.
+    D_ReplayRestartCapture();
 } 
  
 
