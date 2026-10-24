@@ -846,7 +846,11 @@ snapshot/recovery and savegames (format DIB3; DIB2 saves load with
 every piece at full; a corpse in a loaded world also returns at full —
 durability is not stored in the mobj stream). Picking up a vanilla
 Doom armor suit (green/blue) or a megasphere restores every equipped
-piece to full, free (`D_RepairAllEquipped`).
+piece to full, free (`D_RepairAllEquipped`). The status-bar ARMOR
+readout shows the total remaining durability of the equipped defense
+pieces (`D_EquippedDurabilitySum`, Jimmy 2026-10-23) — vanilla
+armorpoints are no longer displayed there, though vanilla absorption
+still applies underneath in `P_DamageMobj`.
 
 ---
 ## Selection combat
