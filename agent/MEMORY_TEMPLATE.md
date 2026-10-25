@@ -9,9 +9,12 @@ Save anchor (QUIT save, latest cycle): (x,y) <area>, <level>, <HP>% HP, <kit>. N
 
 ## Goals
 Level goal: reach the exit.
+### Current goal
 <room> | pass: <n> | ADOPTED: YYYY-MM-DD ~HH:MM PDT
+### Completed goals
+<room> | pass: <n> | ADOPTED: YYYY-MM-DD ~HH:MM PDT
+### Goal list
 <room>
-<room> | pass: <n> | ADOPTED: YYYY-MM-DD ~HH:MM PDT
 
 ## Open leads [top first]
 
