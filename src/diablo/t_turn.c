@@ -867,6 +867,19 @@ static int cmd_q_count = 0;  // commands currently queued
 #define CMD_WAIT_MAX  350       // 10 seconds
 static int cmd_wait_tics = 0;
 
+// Smooth-turn state: TURNL/TURNR rotate the full 45 degrees at a
+// fixed rate (5 degrees per tic, 9 tics) instead of snapping
+// instantly, so the rotation reads as smooth motion in screenshots
+// and replay segments. Fixed per-tic rate: deterministic, never
+// frame-rate dependent. While a turn runs, cmd_drain steps the
+// facing once per tick and dispatches NOTHING else (same
+// serialization as the WAIT gate), so a turn never interleaves
+// with the next command.
+#define CMD_TURN_STEP (ANG45 / 9)  // 5 degrees per tic
+#define CMD_TURN_TICS 9             // 45 degrees per turn command
+static int cmd_turn_tics_left = 0;  // >0 while a smooth turn runs
+static int cmd_turn_dir = 0;        // +1 left, -1 right
+
 // Returns false when the queue is full: the caller must leave the
 // line unconsumed (it stays in the FIFO) rather than drop it.
 static boolean cmd_queue_push(const char *line)
@@ -1035,6 +1048,20 @@ static void cmd_drain(void (*dispatch)(const char *))
             break; // ran dry mid-line: resume it next tick
     }
 
+    // Smooth-turn gate: while a TURNL/TURNR animation runs, step
+    // the facing by CMD_TURN_STEP per tick and dispatch NOTHING
+    // else, so the turn completes before the next command runs.
+    if (cmd_turn_tics_left > 0)
+    {
+        player_t *pl = &players[consoleplayer];
+        if (pl->mo != NULL)
+            pl->mo->angle += cmd_turn_dir * CMD_TURN_STEP;
+        cmd_turn_tics_left--;
+        if (cmd_turn_tics_left == 0)
+            printf("[TURN] done\n");
+        return;
+    }
+
     // WAIT gate: a dispatched WAIT holds every later command —
     // diagnostics too — until the beat elapses. The screenshot in
     // a USE, WAIT, SCREENSHOT sequence must show the door AFTER
@@ -1194,13 +1221,21 @@ static void cmd_dispatch(const char *cmd)
     {
         player_t *pl = &players[consoleplayer];
         if (pl->mo != NULL && T_Active())
-            pl->mo->angle += ANG45;
+        {
+            // Start a smooth turn: the facing steps 5 degrees per
+            // tick in cmd_drain until the full 45 degrees lands.
+            cmd_turn_tics_left = CMD_TURN_TICS;
+            cmd_turn_dir = +1;
+        }
     }
     else if (!strcmp(cmd, "TURNR"))
     {
         player_t *pl = &players[consoleplayer];
         if (pl->mo != NULL && T_Active())
-            pl->mo->angle -= ANG45;
+        {
+            cmd_turn_tics_left = CMD_TURN_TICS;
+            cmd_turn_dir = -1;
+        }
     }
     else if (!strcmp(cmd, "COLLECT"))
     {
