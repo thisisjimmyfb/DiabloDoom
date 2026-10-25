@@ -33,7 +33,7 @@ When in EXPLORE mode (not in combat), priority order:
 
 3. **Vanilla pickup on ground** (weapon, ammo, health, armor) → GOTO onto it. These are walk-over pickups, no key needed.
 
-4. **Door section spotted** (any door — plain or colored; identified by the paired narrow side strips bounding a narrow section of wall, NOT by its texture, which differs in every WAD) → Go to it and open it. Doors lead to the next area, so look for them and treat one as your destination: face its center, move up to it with GOTO until you're close, then line up square-on in front of it with `WALK <angle>` and cross it with the batched sequence — `USE`, `WAIT`, `WALK 0`, all in one batch (first time: `USE`, `WAIT`, `SCREENSHOT` to confirm it opens, then `WALK 0` through). Don't wait for a screenshot of the opening before crossing: the door won't hold it. Don't turn away from a closed door as if it were a wall, and don't keep GOTO-ing into it — up close + the batched `USE`/`WAIT`/`WALK 0` is how it opens. And don't send `USE` speculatively at wall sections vision hasn't nominated — USE confirms a door your eyes picked out, it isn't how you search for one.
+4. **Mechanism candidate spotted** (any piece of geometry that looks different from its neighbors) → Go to it and confirm it. Face its center, move up to it with GOTO until you're close, then line up square-on in front of it with `WALK <angle>` and send `USE`, `WAIT`, `SCREENSHOT` to confirm what it does. If it is a door, cross it with the batched sequence — `USE`, `WAIT`, `WALK 0`, all in one batch. Don't wait for a screenshot of the opening before crossing: the door won't hold it. Don't turn away from a candidate as if it were wall, and don't keep GOTO-ing into it — up close + the batched `USE`/`WAIT` is how it opens. And don't send `USE` at uniform wall — USE confirms a piece your eyes nominated by difference, it isn't how you search undifferentiated wall.
    - **Colored door** (a side panel colored red, green, or blue) → It's a keyed door: you need the matching key. Send `KEYS` to check which keys you have:
      - If you have the key: move up to the door, send `USE`, then walk through once it opens.
      - If not: the key is somewhere in the level — explore systematically (every room, corners, alcoves, platforms) until you SEE it as a small colored card, then GOTO toward it and walk over it to pick it up.
@@ -44,7 +44,7 @@ When in EXPLORE mode (not in combat), priority order:
 
 6. **Enemy visible in distance** → GOTO toward it to engage
 
-7. **Facing wall** → Work it, don't flee it: scan the stretch in front of you for a door section (paired side strips, a colored side panel, a seam-bounded panel) and `USE` any section vision nominates. Move along the wall in short hops, scanning as you go. Turn away only once the stretch is checked up close and holds no bounded section — then turn toward an opening or an unchecked wall, never just away from this one. Do not GOTO into the wall repeatedly.
+7. **Facing wall** → Work it, don't flee it: scan the stretch in front of you for geometry that looks different from its neighbors and `USE` any piece vision nominates. Move along the wall in short hops, scanning as you go. Turn away only once the stretch is checked up close and holds nothing that looks different from its neighbors — then turn toward an opening or an unchecked wall, never just away from this one. Do not GOTO into the wall repeatedly.
 
 8. **Open area** → GOTO forward into it, explore
 
@@ -52,7 +52,7 @@ When in EXPLORE mode (not in combat), priority order:
 
 USE mechanisms are how new areas, and therefore new leads, are discovered. Doors, escalators, lifts, wall switches, and kinds you have not met yet are all the same class: constructs that change the world when activated. They are discovered and confirmed one way: USE, WAIT, then SCREENSHOT.
 
-Vision nominates the candidate — a door section bounded by paired side strips, a set of steps, a platform, a panel, a switch-like feature, anything that reads as operable. USE activates it. WAIT gives it time to move: doors rise over seconds, escalators travel, switches trigger. The SCREENSHOT after the wait is the discovery: it shows what changed — what opened, where it took you, what new area appeared. Record it in area memory with its coordinates, its kind, and what it did.
+Vision nominates the candidate by the general rule: any piece of geometry that looks different from its neighbors is a potential mechanism and is worth trying — nominate it and confirm with USE, WAIT, SCREENSHOT even if it matches no known kind's shape. USE activates it. WAIT gives it time to move: doors rise over seconds, escalators travel, switches trigger. The SCREENSHOT after the wait is the discovery: it shows what changed — what opened, where it took you, what new area appeared. Record it in area memory with its coordinates, its kind, and what it did.
 
 A mechanism that shows no visible change after USE, WAIT, SCREENSHOT is still a lead, not scenery: record it with its state (didn't open from here, needs a key, needs a switch, needs another angle). Never retire a mechanism after one failed attempt from one spot.
 
