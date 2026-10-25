@@ -62,6 +62,8 @@ for arg in "$@"; do
         --subagent) SUBAGENT=true ;;
         setup|observe|act) SUBCMD="$arg" ;;
         --file=*) ACT_FILE="${arg#--file=}" ;;
+        --start-ms=*) START_MS="${arg#--start-ms=}" ;;
+        --limit-s=*) LIMIT_S="${arg#--limit-s=}" ;;
     esac
 done
 WARP="${WARP:-1 1}"
@@ -464,13 +466,15 @@ subagent_setup() {
         sleep 5
         save_status="initialized"
     fi
-    LAUNCHED="$launched" KILLED="$game_count" SAVE_STATUS="$save_status" python3 - <<'PYEOF'
+    cycle_start_ms=$(now_ms)
+    LAUNCHED="$launched" KILLED="$game_count" SAVE_STATUS="$save_status" CYCLE_START_MS="$cycle_start_ms" python3 - <<'PYEOF'
 import json, os
 print(json.dumps({
     "ok": True,
     "launched": os.environ.get("LAUNCHED") == "1",
     "killed": int(os.environ.get("KILLED", 0) or 0),
     "save": os.environ.get("SAVE_STATUS", ""),
+    "start_ms": int(os.environ.get("CYCLE_START_MS", 0) or 0),
     "notes": "setup complete"
 }))
 PYEOF
@@ -566,6 +570,20 @@ subagent_act() {
         echo '{"ok": false, "error": "game not running"}'
         exit 1
     fi
+    # Time-limit auto-QUIT: if the caller passed --start-ms and --limit-s
+    # and the limit is exceeded, end the cycle (final screenshot, then QUIT)
+    # instead of the file's commands. The agent never sends QUIT itself.
+    local quit_auto=0
+    if [ -n "${START_MS:-}" ] && [ -n "${LIMIT_S:-}" ]; then
+        local elapsed_ms=$(( $(now_ms) - START_MS ))
+        if [ "$elapsed_ms" -gt $(( LIMIT_S * 1000 )) ]; then
+            quit_auto=1
+            stage_log "act mark time-limit reached elapsed_ms=$elapsed_ms limit_s=$LIMIT_S, sending SCREENSHOT+QUIT instead of file commands"
+            local quit_file="/tmp/doom_quit.$$.txt"
+            printf 'SCREENSHOT\nQUIT\n' > "$quit_file"
+            ACT_FILE="$quit_file"
+        fi
+    fi
     # Log what's being sent (single line: commands separated by spaces).
     stage_log "act mark cmds: $(tr '\n' ' ' < "$ACT_FILE")"
     # Append (never overwrite unconsumed commands). The game drains
@@ -596,8 +614,13 @@ subagent_act() {
     sleep 2
     local t_act_end=$(now_ms)
     stage_state_set LAST_ACT_END_MS "$t_act_end"
-    stage_log "act end ok=true ms=$(( t_act_end - t_act_start ))"
-    echo '{"ok": true}'
+    stage_log "act end ok=true ms=$(( t_act_end - t_act_start )) quit_auto=$quit_auto"
+    if [ "$quit_auto" = 1 ]; then
+        rm -f "$quit_file"
+        echo '{"ok": true, "quit": true, "reason": "time limit reached"}'
+    else
+        echo '{"ok": true}'
+    fi
 }
 
 if [ "$SUBAGENT" = true ]; then
