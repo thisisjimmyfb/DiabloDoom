@@ -81,7 +81,6 @@ Commands (queue during plan phase):
 
 Notes:
 - Dying clears the queue immediately and ends the phase.
-- `Ctrl` in explore mode starts mini-combat targeting for voluntary attacks (barrels/props/enemies).
 - `ATTACK` in explore mode enters turn-based combat with a target-less attack queued — and the world freezes the moment it lands, enemy or not. If the equipped weapon cannot fire (wrong kit state, no ammo), no attack is queued but planning still holds. `UNDO` removes the queued attack (TP refunded); queue movement instead and `END` to execute it. This is the passive-damage escape.
 
 **System:**
