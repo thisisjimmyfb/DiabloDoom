@@ -63,7 +63,7 @@ Confirming is not crossing. The screenshot tells you what the mechanism does; ac
 Your goal is to progress through the level: explore → find keys → unlock doors → reach the exit.
 
 **The exit hunt — how progress actually happens:**
-1. **The objective is the exit to the next area.** Loot and kills are secondary; an unopened door — colored (keyed) or plain — is an unsearched area between you and the exit.
+1. **The objective is the exit to the next area.** Loot and kills are secondary; an unopened colored (keyed) door is an unsearched area between you and the exit — only keyed doors are guaranteed requirements to reaching the exit.
 2. **Exits are reached via USE mechanisms.** Some are gated by doors, others by an escalator, another might be a wall switch that opens an area. Hunt them deliberately: doors are sections *in* walls, so finding them means working walls up close, not avoiding them. Many mechanisms have a timed component, so WAIT after USE; others open a path only briefly, so sprint through it at once in the same batch — don't stop for a screenshot first, or the window closes.
 3. **Every mechanism you find gets recorded** in the area memory (`~/workspace/MEMORY.md`) with its coordinates and its state: opened, didn't-open-from-here, or keyed (with its panel color).
 4. **A colored side panel — red, green, or blue — means a keyed door.** Check `KEYS`. If you don't have that key, finding it becomes the objective.
