@@ -8,7 +8,7 @@ This is the public strategy guide for teaching our AI agent to play DiabloDoom �
 
 ### Goals
 
-Goals are tiered. The top tier is the level goal: reach the exit. Below it are area goals: the rooms you cover, one goal per room (a room is a space you can walk within without a mechanism — see below). Below those are the leads inside a room: doors, mechanisms (escalators and other USE constructs), and wall sections to work. To visually discover an escalator, USE, WAIT, then SCREENSHOT: an escalator reveals itself only after it is activated, so the screenshot taken after the wait is what shows where it took you.
+Goals are tiered. The top tier is the level goal: reach the exit. Below it are area goals: the rooms you cover, one goal per room (a room is a space you can walk within without a mechanism — see below). Below those are the leads inside a room: doors, mechanisms (escalators and other USE constructs), and wall sections to work.
 
 The notebook (`~/workspace/MEMORY.md`) tracks your goals across cycles — QUIT ends a session, not a goal. Its `## Goals` block has three headed sections, in this order: `### Current goal` (the goal being worked, with pass number and ADOPTED), `### Completed goals` (finished passes, most recently completed first, each with pass number and ADOPTED), and `### Goal list` (rooms entered but not yet worked this pass, bare names, in work order). Stamp ADOPTED when a goal becomes current — the adoption time for that pass, not the line-write time — so how long the current goal has been tried stays visible: time tried is now minus ADOPTED. Note the adoption time when it happens; the line itself may be written later, but the timestamp is the adoption time, not the write time. Read the three sections right after LOAD 0, along with the rest of the notebook, and update them before QUIT. The notebook follows the template in `agent/MEMORY_TEMPLATE.md`: a `## Goals` block after the save-anchor line (level goal, then the three sections in the template's format, ADOPTED as `YYYY-MM-DD ~HH:MM PDT`), then `## Open leads`, then cycle notes. If all three sections are empty, bootstrap at LOAD 0: your current area becomes the current goal, pass 1, ADOPTED = now.
 
@@ -47,6 +47,16 @@ When in EXPLORE mode (not in combat), priority order:
 7. **Facing wall** → Work it, don't flee it: scan the stretch in front of you for a door section (paired side strips, a colored side panel, a seam-bounded panel) and `USE` any section vision nominates. Move along the wall in short hops, scanning as you go. Turn away only once the stretch is checked up close and holds no bounded section — then turn toward an opening or an unchecked wall, never just away from this one. Do not GOTO into the wall repeatedly.
 
 8. **Open area** → GOTO forward into it, explore
+
+## USE mechanisms — how leads are discovered
+
+USE mechanisms are how new areas, and therefore new leads, are discovered. Doors, escalators, lifts, wall switches, and kinds you have not met yet are all the same class: constructs that change the world when activated. They are discovered and confirmed one way: USE, WAIT, then SCREENSHOT.
+
+Vision nominates the candidate — a door section bounded by paired side strips, a set of steps, a platform, a panel, a switch-like feature, anything that reads as operable. USE activates it. WAIT gives it time to move: doors rise over seconds, escalators travel, switches trigger. The SCREENSHOT after the wait is the discovery: it shows what changed — what opened, where it took you, what new area appeared. Record it in area memory with its coordinates, its kind, and what it did.
+
+A mechanism that shows no visible change after USE, WAIT, SCREENSHOT is still a lead, not scenery: record it with its state (didn't open from here, needs a key, needs a switch, needs another angle). Never retire a mechanism after one failed attempt from one spot.
+
+Confirming is not crossing. The screenshot tells you what the mechanism does; acting on it is a separate step, taken at once in one batch because timed openings do not hold: a door, USE, WAIT, WALK 0 through; an escalator or lift, USE, WAIT, MOVE onto it. On a first encounter the sequence is USE, WAIT, SCREENSHOT to confirm, then the crossing batch; on later crossings, the batch alone, no vision in between.
 
 ## Level Exploration and Exit
 
