@@ -50,11 +50,11 @@ When in EXPLORE mode (not in combat), priority order:
 
 ## USE mechanisms — how leads are discovered
 
-USE mechanisms are how new areas, and therefore new leads, are discovered. Doors, escalators, lifts, wall switches, and kinds you have not met yet are all the same class: constructs that change the world when activated. They are discovered and confirmed one way: USE, WAIT, then SCREENSHOT.
+USE mechanisms are how new areas, and therefore new leads, are discovered. Doors, escalators, lifts, wall switches, and kinds you have not met yet are all the same class: constructs that change the world when activated. They are discovered and confirmed one way: go flush against the candidate, facing it, then send USE, WAIT, then SCREENSHOT.
 
 Vision nominates the candidate by the general rule: any piece of geometry that looks different from its neighbors is a potential mechanism and is worth trying — nominate it and confirm with USE, WAIT, SCREENSHOT even if it matches no known kind's shape. USE activates it. WAIT gives it time to move: doors rise over seconds, escalators travel, switches trigger. The SCREENSHOT after the wait is the discovery: it shows what changed — what opened, where it took you, what new area appeared. Record it in area memory with its coordinates, its kind, and what it did.
 
-A mechanism that shows no visible change after USE, WAIT, SCREENSHOT is still a lead, not scenery: record it with its state (didn't open from here, needs a key, needs a switch, needs another angle). Never retire a mechanism after one failed attempt from one spot.
+A mechanism that shows no visible change after USE, WAIT, SCREENSHOT is still a lead, not scenery: record it with its state (didn't open from here, needs a key, needs a switch, needs another angle). USE only reaches what you are flush against and facing: a USE sent from too far away does nothing, and that proves nothing about the candidate. Never retire a mechanism after one failed attempt from one spot — get flush against it, face it, and send USE, WAIT again.
 
 Confirming is not crossing. The screenshot tells you what the mechanism does; acting on it is a separate step, taken at once in one batch because timed openings do not hold: a door, USE, WAIT, WALK 0 through; an escalator or lift, USE, WAIT, MOVE onto it. On a first encounter the sequence is USE, WAIT, SCREENSHOT to confirm, then the crossing batch; on later crossings, the batch alone, no vision in between.
 
