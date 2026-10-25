@@ -575,10 +575,13 @@ subagent_act() {
     # instead of the file's commands. The agent never sends QUIT itself.
     local quit_auto=0
     if [ -n "${START_MS:-}" ] && [ -n "${LIMIT_S:-}" ]; then
+        # Cap at the 20-minute budget even if the caller passes more.
+        local eff_limit_s=$LIMIT_S
+        if [ "$eff_limit_s" -gt 1200 ]; then eff_limit_s=1200; fi
         local elapsed_ms=$(( $(now_ms) - START_MS ))
-        if [ "$elapsed_ms" -gt $(( LIMIT_S * 1000 )) ]; then
+        if [ "$elapsed_ms" -gt $(( eff_limit_s * 1000 )) ]; then
             quit_auto=1
-            stage_log "act mark time-limit reached elapsed_ms=$elapsed_ms limit_s=$LIMIT_S, sending SCREENSHOT+QUIT instead of file commands"
+            stage_log "act mark time-limit reached elapsed_ms=$elapsed_ms limit_s=$eff_limit_s, sending SCREENSHOT+QUIT instead of file commands"
             local quit_file="/tmp/doom_quit.$$.txt"
             printf 'SCREENSHOT\nQUIT\n' > "$quit_file"
             ACT_FILE="$quit_file"
