@@ -20,7 +20,7 @@ Current: <area/room> | status: current | pass: <n> | NEXT: <next area> | ADOPTED
 Done-for-now:
 - <area/room> | status: done-for-now | pass: <n> | NEXT: <next area> | ADOPTED: YYYY-MM-DD ~HH:MM PDT
 
-One line per area goal. ADOPTED is the adoption time (not the line-write time), stamped at adoption — including re-adoption for a finer pass, with the pass number bumped — so time tried is now minus ADOPTED. QUIT ends a session, not a goal: goals persist across cycles. They do NOT persist across a level: on a level change this block resets to empty (see SYSTEM_PROMPT, Area Memory).
+One line per area goal. ADOPTED is the adoption time (not the line-write time), stamped at adoption — including re-adoption for a finer pass, with the pass number bumped — so time tried is now minus ADOPTED. QUIT ends a session, not a goal: goals persist across cycles. They do NOT persist across a level: on a level change the notebook is replaced by a fresh copy of this template (see SYSTEM_PROMPT, Area Memory) — never cleared down in place.
 Bootstrap: if this block is empty, adopt your current area as the current goal at LOAD 0, pass 1, ADOPTED = now.
 
 ## Open leads
