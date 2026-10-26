@@ -1724,6 +1724,27 @@ void P_UnArchiveThinkers (void)
 	    mobj->info = &mobjinfo[mobj->type];
 	    mobj->floorz = mobj->subsector->sector->floorheight;
 	    mobj->ceilingz = mobj->subsector->sector->ceilingheight;
+	    // Save-load ledge fix: the midpoint sector's floor is not
+	    // necessarily the floor the player was standing on -- if the
+	    // player's bounding box contacts a higher ledge, the runtime
+	    // floor is the highest contacted floor, and restoring the
+	    // midpoint floor drops the player off the ledge and wedges
+	    // them below it (DoomWiki: "Player stuck on ledge after
+	    // restoring savefile"). Re-run the engine's own bounding-box
+	    // floor test so the loaded floor matches the runtime rule.
+	    // Player only; other things keep vanilla load behavior.
+	    // (P_CheckPosition's return value is ignored: a saved
+	    // position was valid when saved. Its thing scan may miss
+	    // not-yet-loaded mobjs, but only the line scan feeds
+	    // tmfloorz/tmceilingz.)
+	    if (mobj->player)
+	    {
+		P_CheckPosition (mobj, mobj->x, mobj->y);
+		mobj->floorz = tmfloorz;
+		mobj->ceilingz = tmceilingz;
+		if (mobj->z < tmfloorz)
+		    mobj->z = tmfloorz;
+	    }
 	    mobj->thinker.function.acp1 = (actionf_p1)P_MobjThinker;
 	    P_AddThinker (&mobj->thinker);
 	    break;
