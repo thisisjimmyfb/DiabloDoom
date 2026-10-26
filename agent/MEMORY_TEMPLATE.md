@@ -2,7 +2,7 @@
 
 Level: <level, e.g. E1M1>
 
-LEVEL GEOMETRY ONLY — areas, doors, steps, dead ends, blocked routes. Not loot, corpses, or enemies.
+LEVEL GEOMETRY ONLY — areas, mechanisms, steps, dead ends, blocked routes. Not loot, corpses, or enemies.
 
 Last updated: YYYY-MM-DD ~HH:MM PDT
 Save anchor (QUIT save, latest cycle): (x,y) <area>, <level>, <HP>% HP, <kit>. No corpse pending. / Corpse pending at (x,y).
