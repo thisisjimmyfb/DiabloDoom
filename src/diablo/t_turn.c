@@ -880,6 +880,17 @@ static int cmd_wait_tics = 0;
 static int cmd_turn_tics_left = 0;  // >0 while a smooth turn runs
 static int cmd_turn_dir = 0;        // +1 left, -1 right
 
+// SURVEY: one driver command for a full 360-degree survey spin.
+// Same smooth-turn machinery as TURNL/TURNR (5 degrees per tic),
+// but 72 tics for the full circle (~2 seconds at 35 tics/s), so
+// the sweep finishes while a mechanism's effect is still unfolding
+// -- a slow screenshot-by-screenshot survey finishes after the
+// mechanism has already restored, and its effect is invisible.
+// No argument (no scalar input); always left, always 360 degrees.
+// The sweep lands inside one 15-second capture segment, and the
+// worker finds it by the [CMD] SURVEY log line.
+#define CMD_SURVEY_TICS 72          // 360 degrees at 5 degrees per tic
+
 // Returns false when the queue is full: the caller must leave the
 // line unconsumed (it stays in the FIFO) rather than drop it.
 static boolean cmd_queue_push(const char *line)
@@ -1236,6 +1247,23 @@ static void cmd_dispatch(const char *cmd)
             cmd_turn_tics_left = CMD_TURN_TICS;
             cmd_turn_dir = -1;
         }
+    }
+    else if (!strcmp(cmd, "SURVEY"))
+    {
+        // Full 360-degree survey spin (Jimmy, 2026-10-26): reuse
+        // the smooth-turn gate -- 72 tics at 5 degrees per tic,
+        // left -- so the sweep is atomic (no FIFO round-trips
+        // between steps) and lands inside one capture segment.
+        // Explore mode only, like USE: a survey spin is an explore
+        // observation, not a combat action.
+        player_t *pl = &players[consoleplayer];
+        if (T_InExplore() && pl->mo != NULL && pl->health > 0)
+        {
+            cmd_turn_tics_left = CMD_SURVEY_TICS;
+            cmd_turn_dir = +1;
+        }
+        else
+            printf("[SURVEY] ignored (explore mode only)\n");
     }
     else if (!strcmp(cmd, "COLLECT"))
     {
