@@ -922,6 +922,19 @@ static boolean cmd_turn_is_survey = false;
 static char cmd_survey_ts[32] = "";
 static int cmd_survey_frame = 0;
 
+// Async screenshots (Jimmy, 2026-10-26): the [SURVEY] frames line
+// (and the interrupt line) must fire only after the screenshot
+// queue drains, so every named file is actually on disk when the
+// worker reads the line. Completion/interrupt snapshots its stem +
+// count here; cmd_drain prints it once V_ScreenshotQueueEmpty().
+// A normal completion HOLDS dispatch until drained (the worker's
+// next command waits <1s); an interrupt NEVER holds dispatch
+// (combat commands must not wait on a screenshot drain).
+static boolean cmd_survey_log_pending = false;
+static boolean cmd_survey_log_interrupted = false;
+static char cmd_survey_log_ts[32] = "";
+static int cmd_survey_log_count = 0;
+
 // Returns false when the queue is full: the caller must leave the
 // line unconsumed (it stays in the FIFO) rather than drop it.
 static boolean cmd_queue_push(const char *line)
@@ -1090,6 +1103,43 @@ static void cmd_drain(void (*dispatch)(const char *))
             break; // ran dry mid-line: resume it next tick
     }
 
+    // Async screenshot drain: print a pending SURVEY log line once
+    // its frames are actually on disk. Ingest above already ran,
+    // so holding dispatch here loses no command -- lines keep
+    // accumulating in cmd_queue until the drain finishes.
+    if (cmd_survey_log_pending)
+    {
+        extern int V_ScreenshotQueueEmpty(void);
+        if (V_ScreenshotQueueEmpty())
+        {
+            if (cmd_survey_log_interrupted)
+            {
+                if (cmd_survey_log_count > 0)
+                    printf("[SURVEY] interrupted by combat: frames dumped %d (partial sweep, stem doomshots/survey_%s_NN.png, first doomshots/survey_%s_01.png last doomshots/survey_%s_%02d.png)\n",
+                           cmd_survey_log_count, cmd_survey_log_ts,
+                           cmd_survey_log_ts, cmd_survey_log_ts, cmd_survey_log_count);
+                else
+                    printf("[SURVEY] interrupted by combat: frames dumped 0 (partial sweep, stem doomshots/survey_%s_NN.png, no frames dumped)\n",
+                           cmd_survey_log_ts);
+            }
+            else
+            {
+                printf("[TURN] done\n");
+                printf("[SURVEY] frames: %d pattern doomshots/survey_%s_NN.png first doomshots/survey_%s_01.png last doomshots/survey_%s_%02d.png\n",
+                       cmd_survey_log_count, cmd_survey_log_ts,
+                       cmd_survey_log_ts, cmd_survey_log_ts, cmd_survey_log_count);
+            }
+            cmd_survey_log_pending = false;
+        }
+        else if (!cmd_survey_log_interrupted)
+        {
+            // Full sweep's frames still draining: hold dispatch.
+            return;
+        }
+        // Interrupted + still draining: fall through -- combat
+        // commands must never wait on a screenshot drain.
+    }
+
     // Smooth-turn gate: while a TURNL/TURNR animation runs, step
     // the facing per tick (CMD_TURN_STEP, or CMD_SURVEY_STEP
     // for a survey) and dispatch NOTHING
@@ -1109,13 +1159,14 @@ static void cmd_drain(void (*dispatch)(const char *))
             // log says so explicitly, so the worker never expects
             // 36 frames or treats this as a complete 360 sweep.
             // (No [TURN] done: the turn did not complete.)
-            if (cmd_survey_frame > 0)
-                printf("[SURVEY] interrupted by combat: frames dumped %d (partial sweep, stem doomshots/survey_%s_NN.png, first doomshots/survey_%s_01.png last doomshots/survey_%s_%02d.png)\n",
-                       cmd_survey_frame, cmd_survey_ts,
-                       cmd_survey_ts, cmd_survey_ts, cmd_survey_frame);
-            else
-                printf("[SURVEY] interrupted by combat: frames dumped 0 (partial sweep, stem doomshots/survey_%s_NN.png, no frames dumped)\n",
-                       cmd_survey_ts);
+            // Async: do NOT print yet -- the partial frames may
+            // still be queued. Snapshot + print on drain (above);
+            // dispatch is never held for an interrupt.
+            cmd_survey_log_pending = true;
+            cmd_survey_log_interrupted = true;
+            snprintf(cmd_survey_log_ts, sizeof(cmd_survey_log_ts),
+                     "%s", cmd_survey_ts);
+            cmd_survey_log_count = cmd_survey_frame;
             cmd_turn_tics_left = 0;
             cmd_turn_is_survey = false;
             return;
@@ -1140,14 +1191,24 @@ static void cmd_drain(void (*dispatch)(const char *))
         }
         if (cmd_turn_tics_left == 0)
         {
-            printf("[TURN] done\n");
             if (cmd_turn_is_survey)
             {
-                printf("[SURVEY] frames: %d pattern doomshots/survey_%s_NN.png first doomshots/survey_%s_01.png last doomshots/survey_%s_%02d.png\n",
-                       cmd_survey_frame, cmd_survey_ts,
-                       cmd_survey_ts, cmd_survey_ts, cmd_survey_frame);
+                // Async: the last step's screenshot was only
+                // REQUESTED (queued); the [SURVEY] frames line must
+                // wait until the queue drains, so snapshot + defer
+                // to the drain check above. [TURN] done rides with
+                // it (the turn is not "done" for the worker until
+                // its frames are reviewable). Dispatch holds until
+                // then (see the drain check).
+                cmd_survey_log_pending = true;
+                cmd_survey_log_interrupted = false;
+                snprintf(cmd_survey_log_ts, sizeof(cmd_survey_log_ts),
+                         "%s", cmd_survey_ts);
+                cmd_survey_log_count = cmd_survey_frame;
                 cmd_turn_is_survey = false;
             }
+            else
+                printf("[TURN] done\n");
         }
         return;
     }
@@ -1662,6 +1723,13 @@ static void cmd_dispatch(const char *cmd)
             D_AutoSaveGame();
         printf("[QUIT] save complete, goodbye\n");
         fflush(NULL);
+        // Async screenshots: drain the PNG queue before exiting,
+        // so a final screenshot (or pending survey frames) queued
+        // just before QUIT still lands on disk.
+        {
+            extern void V_ScreenshotFlush(void);
+            V_ScreenshotFlush();
+        }
         show_endoom = 0;
         I_Quit();
     }

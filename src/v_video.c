@@ -23,6 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <pthread.h>
 
 #include "i_system.h"
 
@@ -857,6 +858,10 @@ void WritePNGfile(char *filename, pixel_t *data,
 #endif
 
 //
+// Async screenshot queue (defined below V_ScreenShotFile).
+static void ss_enqueue(const char *filename);
+static boolean ss_filename_queued(const char *name);
+
 // V_ScreenShot
 //
 
@@ -885,7 +890,9 @@ void V_ScreenShot(const char *format)
     {
         M_snprintf(lbmname, sizeof(lbmname), format, i, ext);
 
-        if (!M_FileExists(lbmname))
+        // A queued-but-not-yet-written file counts as taken, or two
+        // screenshots in the same second could pick the same name.
+        if (!M_FileExists(lbmname) && !ss_filename_queued(lbmname))
         {
             break;      // file doesn't exist
         }
@@ -905,21 +912,10 @@ void V_ScreenShot(const char *format)
         }
     }
 
-#ifdef HAVE_LIBPNG
-    if (png_screenshots)
-    {
-    WritePNGfile(lbmname, I_VideoBuffer,
-                 SCREENWIDTH, SCREENHEIGHT,
-                 W_CacheLumpName (DEH_String("PLAYPAL"), PU_CACHE));
-    }
-    else
-#endif
-    {
-    // save the pcx file
-    WritePCXfile(lbmname, I_VideoBuffer,
-                 SCREENWIDTH, SCREENHEIGHT,
-                 W_CacheLumpName (DEH_String("PLAYPAL"), PU_CACHE));
-    }
+    // Async: copy + queue; the worker thread writes the file. The
+    // HUD message below now means "capture queued" (the ~23ms gap
+    // before the file lands is imperceptible).
+    ss_enqueue(lbmname);
     // Remember the filename for the HUD message
     M_StringCopy(last_screenshot_name, lbmname, sizeof(last_screenshot_name));
 }
@@ -931,21 +927,241 @@ void V_ScreenShot(const char *format)
 // reviews the dumped frames instead of hunting video segments.
 void V_ScreenShotFile(const char *filename)
 {
-#ifdef HAVE_LIBPNG
-    if (png_screenshots)
-    {
-        WritePNGfile((char *) filename, I_VideoBuffer,
-                     SCREENWIDTH, SCREENHEIGHT,
-                     W_CacheLumpName (DEH_String("PLAYPAL"), PU_CACHE));
-    }
-    else
-#endif
-    {
-        WritePCXfile((char *) filename, I_VideoBuffer,
-                     SCREENWIDTH, SCREENHEIGHT,
-                     W_CacheLumpName (DEH_String("PLAYPAL"), PU_CACHE));
-    }
+    // Async: copy + queue; the worker thread writes the file.
+    // Used by the SURVEY frame dump (one call per sweep step).
+    ss_enqueue(filename);
     M_StringCopy(last_screenshot_name, filename, sizeof(last_screenshot_name));
+}
+
+// ------------------------------------------------------------------
+// Async screenshot queue (Jimmy, 2026-10-26). Screenshots used to
+// encode synchronously in the game thread (~23ms per PNG), which
+// stretched a 36-frame SURVEY sweep from ~1.03s of game time to
+// ~1.16s+ wall-clock (and v2's 72-frame sweep to 3.77s). The encode
+// now runs on one dedicated PNG worker thread -- NOT the replay
+// video thread, so a video burst can never starve screenshots or
+// vice versa -- while the game thread only does a fast framebuffer
+// copy per screenshot.
+//
+// Correctness story: the worker NEVER reads the live I_VideoBuffer.
+// The game thread memcpys the buffer (~256KB at 640x400 8-bit, a
+// fraction of a millisecond -- ~500x faster than a 28ms tic) into a
+// heap entry at capture time, so the copy always beats the next
+// render. The worker encodes from that copy at its own pace. The
+// palette is copied per entry too (768 bytes, trivial), so the
+// worker never touches the WAD cache from its thread.
+//
+// Queue policy: bounded (SCREENSHOT_QUEUE_CAP). When full, the game
+// thread BLOCKS on a condition variable until a slot frees -- it
+// NEVER drops. Dropping oldest/newest would lose a sweep step,
+// which is exactly the sampling gap the SURVEY dump was built to
+// kill. Under load this degrades gracefully to the old synchronous
+// behavior: correct, just slower. A SURVEY burst (36 frames over
+// ~1s, worker drains ~43 frames/s) keeps the queue shallow; the cap
+// only binds under pathological load.
+//
+// Flush semantics: V_ScreenshotQueueEmpty() is true only when no
+// entry is queued AND the worker is not mid-encode, so a "frames
+// ready" log line gated on it means every file is actually on disk.
+// V_ScreenshotFlush() blocks until empty; the driver QUIT handler
+// calls it before exiting, so a final screenshot queued just
+// before QUIT still lands. The worker is detached and never exits
+// on its own -- it dies with the process after a QUIT flush (queue
+// empty, nothing in flight). Menu/error exits do not flush; only
+// the driver QUIT path guarantees pending frames.
+//
+// Fallbacks (never lose a frame, never wedge): if the worker thread
+// cannot start, or an entry cannot be allocated, the game thread
+// writes that frame synchronously itself (the old behavior). A
+// failed encode still pops its entry and continues -- one bad file
+// must never stall the queue behind it.
+// ------------------------------------------------------------------
+
+#define SCREENSHOT_QUEUE_CAP 16
+
+typedef struct
+{
+    char filename[256];
+    pixel_t *pixels;      // SCREENWIDTH*SCREENHEIGHT copy, owned
+    byte palette[256 * 3];
+    boolean use_png;      // png_screenshots snapshotted at queue time
+} screenshot_job_t;
+
+static screenshot_job_t *ss_queue[SCREENSHOT_QUEUE_CAP];
+static int ss_q_head = 0;
+static int ss_q_count = 0;
+static int ss_worker_busy = 0;
+static int ss_worker_started = 0;
+static int ss_worker_failed = 0;
+static pthread_mutex_t ss_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t ss_not_empty = PTHREAD_COND_INITIALIZER;
+static pthread_cond_t ss_not_full = PTHREAD_COND_INITIALIZER;
+static pthread_cond_t ss_empty = PTHREAD_COND_INITIALIZER;
+
+static void ss_write_job(screenshot_job_t *job)
+{
+#ifdef HAVE_LIBPNG
+    if (job->use_png)
+    {
+        WritePNGfile(job->filename, job->pixels,
+                     SCREENWIDTH, SCREENHEIGHT, job->palette);
+        return;
+    }
+#endif
+    WritePCXfile(job->filename, job->pixels,
+                 SCREENWIDTH, SCREENHEIGHT, job->palette);
+}
+
+static void *ss_worker(void *arg)
+{
+    (void) arg;
+    for (;;)
+    {
+        screenshot_job_t *job;
+        pthread_mutex_lock(&ss_mutex);
+        while (ss_q_count == 0)
+            pthread_cond_wait(&ss_not_empty, &ss_mutex);
+        job = ss_queue[ss_q_head];
+        ss_q_head = (ss_q_head + 1) % SCREENSHOT_QUEUE_CAP;
+        ss_q_count--;
+        ss_worker_busy = 1;
+        pthread_cond_signal(&ss_not_full);
+        pthread_mutex_unlock(&ss_mutex);
+
+        // Encode OUTSIDE the queue lock: holding it across a ~23ms
+        // encode would block the game thread on the mutex and
+        // defeat the whole point of async.
+        ss_write_job(job);
+        free(job->pixels);
+        free(job);
+
+        pthread_mutex_lock(&ss_mutex);
+        ss_worker_busy = 0;
+        if (ss_q_count == 0)
+            pthread_cond_signal(&ss_empty);
+        pthread_mutex_unlock(&ss_mutex);
+    }
+    return NULL;
+}
+
+// True when a filename is already queued (not yet written). The
+// timestamped picker must treat queued names as taken, or two
+// screenshots in the same second could pick the same NN and the
+// second would overwrite the first.
+static boolean ss_filename_queued(const char *name)
+{
+    int i;
+    boolean found = false;
+    pthread_mutex_lock(&ss_mutex);
+    for (i = 0; i < ss_q_count; i++)
+    {
+        if (!strcmp(ss_queue[(ss_q_head + i) % SCREENSHOT_QUEUE_CAP]->filename,
+                    name))
+        {
+            found = true;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&ss_mutex);
+    return found;
+}
+
+// Game-thread enqueue: fast copy, then push. Never called with the
+// queue lock held. Falls back to a synchronous write (old behavior)
+// when the worker cannot start or an entry cannot be allocated.
+static void ss_enqueue(const char *filename)
+{
+    screenshot_job_t *job;
+    pixel_t *pixels;
+    byte *pal;
+
+    job = (screenshot_job_t *) malloc(sizeof(*job));
+    pixels = (pixel_t *) malloc(SCREENWIDTH * SCREENHEIGHT * sizeof(pixel_t));
+    if (!job || !pixels)
+    {
+        // Allocation failure: write synchronously from the live
+        // buffer (old behavior) rather than lose the frame. The
+        // palette pointer goes straight to the writer, as before.
+        free(job);
+        free(pixels);
+        pal = W_CacheLumpName(DEH_String("PLAYPAL"), PU_CACHE);
+#ifdef HAVE_LIBPNG
+        if (png_screenshots)
+            WritePNGfile((char *) filename, I_VideoBuffer,
+                         SCREENWIDTH, SCREENHEIGHT, pal);
+        else
+#endif
+            WritePCXfile((char *) filename, I_VideoBuffer,
+                         SCREENWIDTH, SCREENHEIGHT, pal);
+        return;
+    }
+
+    M_StringCopy(job->filename, filename, sizeof(job->filename));
+    memcpy(pixels, I_VideoBuffer,
+           SCREENWIDTH * SCREENHEIGHT * sizeof(pixel_t));
+    job->pixels = pixels;
+    pal = W_CacheLumpName(DEH_String("PLAYPAL"), PU_CACHE);
+    if (pal)
+        memcpy(job->palette, pal, 256 * 3);
+    else
+        memset(job->palette, 0, sizeof(job->palette));
+#ifdef HAVE_LIBPNG
+    job->use_png = png_screenshots;
+#else
+    job->use_png = false;
+#endif
+
+    pthread_mutex_lock(&ss_mutex);
+    if (!ss_worker_started && !ss_worker_failed)
+    {
+        pthread_t th;
+        if (pthread_create(&th, NULL, ss_worker, NULL) == 0)
+        {
+            pthread_detach(th);
+            ss_worker_started = 1;
+        }
+        else
+            ss_worker_failed = 1;
+    }
+    if (ss_worker_failed)
+    {
+        pthread_mutex_unlock(&ss_mutex);
+        // Worker never started: synchronous write, old behavior.
+        ss_write_job(job);
+        free(job->pixels);
+        free(job);
+        return;
+    }
+    // Backpressure: block (mutex released while waiting) until a
+    // slot frees. Never drop -- a dropped sweep step is a gap.
+    while (ss_q_count >= SCREENSHOT_QUEUE_CAP)
+        pthread_cond_wait(&ss_not_full, &ss_mutex);
+    ss_queue[(ss_q_head + ss_q_count) % SCREENSHOT_QUEUE_CAP] = job;
+    ss_q_count++;
+    pthread_cond_signal(&ss_not_empty);
+    pthread_mutex_unlock(&ss_mutex);
+}
+
+// Non-blocking: true only when nothing is queued AND the worker is
+// not mid-encode, i.e. every requested file is actually on disk.
+int V_ScreenshotQueueEmpty(void)
+{
+    int empty;
+    pthread_mutex_lock(&ss_mutex);
+    empty = (ss_q_count == 0 && !ss_worker_busy);
+    pthread_mutex_unlock(&ss_mutex);
+    return empty;
+}
+
+// Blocking: wait until the queue drains. Called by the driver QUIT
+// handler before exiting. Returns at once when nothing is queued
+// (worker never started, sync fallback, or already drained).
+void V_ScreenshotFlush(void)
+{
+    pthread_mutex_lock(&ss_mutex);
+    while (!(ss_q_count == 0 && !ss_worker_busy))
+        pthread_cond_wait(&ss_empty, &ss_mutex);
+    pthread_mutex_unlock(&ss_mutex);
 }
 
 #define MOUSE_SPEED_BOX_WIDTH  120

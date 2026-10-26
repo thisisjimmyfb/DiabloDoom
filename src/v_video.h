@@ -95,6 +95,14 @@ void V_ScreenShot(const char *format);
 // (no auto-numbering). Used by SURVEY frame dumps.
 void V_ScreenShotFile(const char *filename);
 
+// Async screenshot queue (screenshots encode on a worker thread):
+// true only when nothing is queued AND the worker is not mid-encode,
+// i.e. every requested file is actually on disk.
+int V_ScreenshotQueueEmpty(void);
+// Block until the queue drains. Called by the driver QUIT handler
+// before exiting so pending frames are never lost on exit.
+void V_ScreenshotFlush(void);
+
 // Load the lookup table for translucency calculations from the TINTTAB
 // lump.
 
