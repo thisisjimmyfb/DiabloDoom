@@ -882,18 +882,19 @@ static int cmd_turn_tics_left = 0;  // >0 while a smooth turn runs
 static int cmd_turn_dir = 0;        // +1 left, -1 right
 
 // SURVEY: one driver command for a full 360-degree survey spin.
-// Same smooth-turn machinery as TURNL/TURNR (5 degrees per tic),
-// but 72 tics for the full circle (~2 seconds at 35 tics/s), so
+// Same smooth-turn machinery as TURNL/TURNR, but at double the
+// step (10 degrees per tic), so 36 tics for the full circle
+// (~1 second at 35 tics/s), so
 // the sweep finishes while a mechanism's effect is still unfolding
 // -- a slow screenshot-by-screenshot survey finishes after the
 // mechanism has already restored, and its effect is invisible.
 // No argument (no scalar input); always left, always 360 degrees.
 // SURVEY v2 (Jimmy, 2026-10-26): the sweep dumps its own frames.
-// After EACH 5-degree step the gate requests one framebuffer
-// screenshot, named survey_<ts>_NN.png (NN = 01..72 in rotation
+// After EACH 10-degree step the gate requests one framebuffer
+// screenshot, named survey_<ts>_NN.png (NN = 01..36 in rotation
 // order, one shared timestamp stem per sweep), straight to the
 // doomshots directory -- no video segment involved. The worker
-// reviews those 72 dumped frames, in order; motion shows as
+// reviews those 36 dumped frames, in order; motion shows as
 // change between consecutive frames. It cannot miss the effect
 // by sampling the wrong segment or too sparsely, because the
 // capture IS the frame set. (The 10:22 farm run reviewed the
@@ -907,11 +908,16 @@ static int cmd_turn_dir = 0;        // +1 left, -1 right
 // gate aborts at once: turning stops where it is, facing does
 // NOT return to start, frames dumped so far stay as a partial
 // set, and the log records the interrupt + the partial count.
-#define CMD_SURVEY_TICS 72          // 360 degrees at 5 degrees per tic
+// SURVEY v3 (Jimmy, 2026-10-26): 36 tics at 10 degrees per tic
+// (~1 second of game time at 35 tics/s). The blocking per-step
+// dump stays as-is: PNG encode time is accepted overhead and
+// does not count against the 1s sweep target.
+#define CMD_SURVEY_TICS 36          // 360 degrees at 10 degrees per tic
+#define CMD_SURVEY_STEP (ANG90 / 9)   // 10 degrees per tic; TURNL/TURNR keep CMD_TURN_STEP
 
 // SURVEY v2 dump state: set at SURVEY dispatch, consumed by the
 // smooth-turn gate, cleared at completion. cmd_survey_ts is the
-// shared timestamp stem for one sweep's 72 frames.
+// shared timestamp stem for one sweep's 36 frames.
 static boolean cmd_turn_is_survey = false;
 static char cmd_survey_ts[32] = "";
 static int cmd_survey_frame = 0;
@@ -1085,7 +1091,8 @@ static void cmd_drain(void (*dispatch)(const char *))
     }
 
     // Smooth-turn gate: while a TURNL/TURNR animation runs, step
-    // the facing by CMD_TURN_STEP per tick and dispatch NOTHING
+    // the facing per tick (CMD_TURN_STEP, or CMD_SURVEY_STEP
+    // for a survey) and dispatch NOTHING
     // else, so the turn completes before the next command runs.
     if (cmd_turn_tics_left > 0)
     {
@@ -1100,7 +1107,7 @@ static void cmd_drain(void (*dispatch)(const char *))
             // are: facing does NOT return to start. Frames dumped
             // so far stay on disk as a valid partial set; the
             // log says so explicitly, so the worker never expects
-            // 72 frames or treats this as a complete 360 sweep.
+            // 36 frames or treats this as a complete 360 sweep.
             // (No [TURN] done: the turn did not complete.)
             if (cmd_survey_frame > 0)
                 printf("[SURVEY] interrupted by combat: frames dumped %d (partial sweep, stem doomshots/survey_%s_NN.png, first doomshots/survey_%s_01.png last doomshots/survey_%s_%02d.png)\n",
@@ -1114,7 +1121,8 @@ static void cmd_drain(void (*dispatch)(const char *))
             return;
         }
         if (pl->mo != NULL)
-            pl->mo->angle += cmd_turn_dir * CMD_TURN_STEP;
+            pl->mo->angle += cmd_turn_dir *
+                (cmd_turn_is_survey ? CMD_SURVEY_STEP : CMD_TURN_STEP);
         cmd_turn_tics_left--;
         if (cmd_turn_is_survey)
         {
@@ -1322,12 +1330,12 @@ static void cmd_dispatch(const char *cmd)
     else if (!strcmp(cmd, "SURVEY"))
     {
         // Full 360-degree survey spin (Jimmy, 2026-10-26): reuse
-        // the smooth-turn gate -- 72 tics at 5 degrees per tic,
+        // the smooth-turn gate -- 36 tics at 10 degrees per tic,
         // left -- so the sweep is atomic (no FIFO round-trips
         // between steps). Explore mode only, like USE: a survey
         // spin is an explore observation, not a combat action.
         // v2: stamp the shared timestamp stem for this sweep's
-        // 72 frame dumps (see the gate above).
+        // 36 frame dumps (see the gate above).
         player_t *pl = &players[consoleplayer];
         if (T_InExplore() && pl->mo != NULL && pl->health > 0)
         {
