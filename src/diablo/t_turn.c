@@ -7,6 +7,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <time.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -887,9 +888,33 @@ static int cmd_turn_dir = 0;        // +1 left, -1 right
 // -- a slow screenshot-by-screenshot survey finishes after the
 // mechanism has already restored, and its effect is invisible.
 // No argument (no scalar input); always left, always 360 degrees.
-// The sweep lands inside one 15-second capture segment, and the
-// worker finds it by the [CMD] SURVEY log line.
+// SURVEY v2 (Jimmy, 2026-10-26): the sweep dumps its own frames.
+// After EACH 5-degree step the gate requests one framebuffer
+// screenshot, named survey_<ts>_NN.png (NN = 01..72 in rotation
+// order, one shared timestamp stem per sweep), straight to the
+// doomshots directory -- no video segment involved. The worker
+// reviews those 72 dumped frames, in order; motion shows as
+// change between consecutive frames. It cannot miss the effect
+// by sampling the wrong segment or too sparsely, because the
+// capture IS the frame set. (The 10:22 farm run reviewed the
+// right segments but sampled frames and missed a lift lowering
+// the human saw plainly in the clip.)
+// The sweep is NOT uninterruptible: the gate's "atomic" property
+// means it dispatches no other FIFO commands during the sweep --
+// it does NOT block a combat-mode transition (combat entry is an
+// engine event, not a FIFO command). If combat starts mid-sweep
+// (e.g. the USE just opened a line of sight to a monster), the
+// gate aborts at once: turning stops where it is, facing does
+// NOT return to start, frames dumped so far stay as a partial
+// set, and the log records the interrupt + the partial count.
 #define CMD_SURVEY_TICS 72          // 360 degrees at 5 degrees per tic
+
+// SURVEY v2 dump state: set at SURVEY dispatch, consumed by the
+// smooth-turn gate, cleared at completion. cmd_survey_ts is the
+// shared timestamp stem for one sweep's 72 frames.
+static boolean cmd_turn_is_survey = false;
+static char cmd_survey_ts[32] = "";
+static int cmd_survey_frame = 0;
 
 // Returns false when the queue is full: the caller must leave the
 // line unconsumed (it stays in the FIFO) rather than drop it.
@@ -1065,11 +1090,57 @@ static void cmd_drain(void (*dispatch)(const char *))
     if (cmd_turn_tics_left > 0)
     {
         player_t *pl = &players[consoleplayer];
+        if (cmd_turn_is_survey && !T_InExplore())
+        {
+            // Combat interrupted the sweep (Jimmy, 2026-10-26):
+            // the gate's "atomic" property only blocks FIFO
+            // dispatch -- it must never delay or block a combat
+            // entry, and turning must not continue inside combat
+            // mode as if it were still explore. Stop where we
+            // are: facing does NOT return to start. Frames dumped
+            // so far stay on disk as a valid partial set; the
+            // log says so explicitly, so the worker never expects
+            // 72 frames or treats this as a complete 360 sweep.
+            // (No [TURN] done: the turn did not complete.)
+            if (cmd_survey_frame > 0)
+                printf("[SURVEY] interrupted by combat: frames dumped %d (partial sweep, stem doomshots/survey_%s_NN.png, first doomshots/survey_%s_01.png last doomshots/survey_%s_%02d.png)\n",
+                       cmd_survey_frame, cmd_survey_ts,
+                       cmd_survey_ts, cmd_survey_ts, cmd_survey_frame);
+            else
+                printf("[SURVEY] interrupted by combat: frames dumped 0 (partial sweep, stem doomshots/survey_%s_NN.png, no frames dumped)\n",
+                       cmd_survey_ts);
+            cmd_turn_tics_left = 0;
+            cmd_turn_is_survey = false;
+            return;
+        }
         if (pl->mo != NULL)
             pl->mo->angle += cmd_turn_dir * CMD_TURN_STEP;
         cmd_turn_tics_left--;
+        if (cmd_turn_is_survey)
+        {
+            // SURVEY v2 frame dump: one screenshot per step, in
+            // rotation order. The named capture runs on the NEXT
+            // tick's gameaction switch, after the new view renders,
+            // so frame NN shows the view after step NN.
+            extern void G_ScreenShotFile(const char *filename);
+            char fname[256];
+            cmd_survey_frame++;
+            snprintf(fname, sizeof(fname),
+                     "doomshots/survey_%s_%02d.png",
+                     cmd_survey_ts, cmd_survey_frame);
+            G_ScreenShotFile(fname);
+        }
         if (cmd_turn_tics_left == 0)
+        {
             printf("[TURN] done\n");
+            if (cmd_turn_is_survey)
+            {
+                printf("[SURVEY] frames: %d pattern doomshots/survey_%s_NN.png first doomshots/survey_%s_01.png last doomshots/survey_%s_%02d.png\n",
+                       cmd_survey_frame, cmd_survey_ts,
+                       cmd_survey_ts, cmd_survey_ts, cmd_survey_frame);
+                cmd_turn_is_survey = false;
+            }
+        }
         return;
     }
 
@@ -1253,12 +1324,21 @@ static void cmd_dispatch(const char *cmd)
         // Full 360-degree survey spin (Jimmy, 2026-10-26): reuse
         // the smooth-turn gate -- 72 tics at 5 degrees per tic,
         // left -- so the sweep is atomic (no FIFO round-trips
-        // between steps) and lands inside one capture segment.
-        // Explore mode only, like USE: a survey spin is an explore
-        // observation, not a combat action.
+        // between steps). Explore mode only, like USE: a survey
+        // spin is an explore observation, not a combat action.
+        // v2: stamp the shared timestamp stem for this sweep's
+        // 72 frame dumps (see the gate above).
         player_t *pl = &players[consoleplayer];
         if (T_InExplore() && pl->mo != NULL && pl->health > 0)
         {
+            time_t now = time(NULL);
+            struct tm *tm = localtime(&now);
+            snprintf(cmd_survey_ts, sizeof(cmd_survey_ts),
+                     "%04d%02d%02d_%02d%02d%02d",
+                     tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
+                     tm->tm_hour, tm->tm_min, tm->tm_sec);
+            cmd_survey_frame = 0;
+            cmd_turn_is_survey = true;
             cmd_turn_tics_left = CMD_SURVEY_TICS;
             cmd_turn_dir = +1;
         }

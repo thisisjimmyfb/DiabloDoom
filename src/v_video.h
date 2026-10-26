@@ -91,6 +91,10 @@ void V_RestoreBuffer(void);
 
 void V_ScreenShot(const char *format);
 
+// Save a screenshot of the current screen to exactly this filename
+// (no auto-numbering). Used by SURVEY frame dumps.
+void V_ScreenShotFile(const char *filename);
+
 // Load the lookup table for translucency calculations from the TINTTAB
 // lump.
 

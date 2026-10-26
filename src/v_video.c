@@ -924,6 +924,30 @@ void V_ScreenShot(const char *format)
     M_StringCopy(last_screenshot_name, lbmname, sizeof(last_screenshot_name));
 }
 
+// V_ScreenShotFile: same framebuffer capture as V_ScreenShot, but
+// writes exactly the filename given (no auto-numbering). Used by
+// SURVEY v2 (Jimmy, 2026-10-26): one sweep dumps 72 frames named
+// survey_<ts>_01.png ... _72.png, in rotation order, so the worker
+// reviews the dumped frames instead of hunting video segments.
+void V_ScreenShotFile(const char *filename)
+{
+#ifdef HAVE_LIBPNG
+    if (png_screenshots)
+    {
+        WritePNGfile((char *) filename, I_VideoBuffer,
+                     SCREENWIDTH, SCREENHEIGHT,
+                     W_CacheLumpName (DEH_String("PLAYPAL"), PU_CACHE));
+    }
+    else
+#endif
+    {
+        WritePCXfile((char *) filename, I_VideoBuffer,
+                     SCREENWIDTH, SCREENHEIGHT,
+                     W_CacheLumpName (DEH_String("PLAYPAL"), PU_CACHE));
+    }
+    M_StringCopy(last_screenshot_name, filename, sizeof(last_screenshot_name));
+}
+
 #define MOUSE_SPEED_BOX_WIDTH  120
 #define MOUSE_SPEED_BOX_HEIGHT 9
 #define MOUSE_SPEED_BOX_X (SCREENWIDTH - MOUSE_SPEED_BOX_WIDTH - 10)

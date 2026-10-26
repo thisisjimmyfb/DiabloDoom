@@ -991,6 +991,13 @@ boolean G_Responder (event_t* ev)
  
  
 //
+// Named screenshot (SURVEY frame dumps): pending exact filename
+// for the next ga_screenshot tick, set by G_ScreenShotFile below.
+//
+static char screenshot_file[256] = "";
+static boolean screenshot_file_set = false;
+
+//
 // G_Ticker
 // Make ticcmd_ts for the players.
 //
@@ -1038,20 +1045,32 @@ void G_Ticker (void)
 	    {
 	        extern void D_EnsureDoomshotsDir(void);
 	        extern char last_screenshot_name[128];
+	        extern void V_ScreenShotFile(const char *filename);
 	        char fmt[64];
 	        time_t now = time(NULL);
 	        struct tm *tm = localtime(&now);
 	        D_EnsureDoomshotsDir();
-	        // Timestamped: doomshots/diablodoom_20261015_113042_00.png
-	        snprintf(fmt, sizeof(fmt), "doomshots/diablodoom_%04d%02d%02d_%02d%02d%02d_%%02i.%%s",
-	                 tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
-	                 tm->tm_hour, tm->tm_min, tm->tm_sec);
-	        V_ScreenShot(fmt);
-	        // Show the saved filename in the HUD message
+	        if (screenshot_file_set)
 	        {
-	            static char msg[160];
-	            snprintf(msg, sizeof(msg), "Screenshot: %s", last_screenshot_name);
-	            players[consoleplayer].message = msg;
+	            // Named capture (SURVEY frame dump): exact filename,
+	            // no HUD message -- the message text would land in
+	            // the following survey frames and pollute them.
+	            V_ScreenShotFile(screenshot_file);
+	            screenshot_file_set = false;
+	        }
+	        else
+	        {
+	            // Timestamped: doomshots/diablodoom_20261015_113042_00.png
+	            snprintf(fmt, sizeof(fmt), "doomshots/diablodoom_%04d%02d%02d_%02d%02d%02d_%%02i.%%s",
+	                     tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
+	                     tm->tm_hour, tm->tm_min, tm->tm_sec);
+	            V_ScreenShot(fmt);
+	            // Show the saved filename in the HUD message
+	            {
+	                static char msg[160];
+	                snprintf(msg, sizeof(msg), "Screenshot: %s", last_screenshot_name);
+	                players[consoleplayer].message = msg;
+	            }
 	        }
 	    }
 	    gameaction = ga_nothing; 
@@ -1487,7 +1506,17 @@ void G_DoReborn (int playernum)
 void G_ScreenShot (void) 
 { 
     gameaction = ga_screenshot; 
-} 
+}
+
+// Named screenshot (SURVEY frame dumps): the next ga_screenshot
+// tick writes exactly this file instead of a timestamped default.
+// The pending name is consumed by the ga_screenshot case above.
+void G_ScreenShotFile (const char *filename)
+{
+    M_StringCopy(screenshot_file, filename, sizeof(screenshot_file));
+    screenshot_file_set = true;
+    gameaction = ga_screenshot;
+}
  
 
 
