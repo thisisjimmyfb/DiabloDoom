@@ -2,10 +2,10 @@
 
 Level: <level, e.g. E1M1>
 
-IN-GAME DECISIONS ONLY — areas, goals, leads, mechanism states, and what to do next. No system, driver, crash, setup, or tooling notes — those go in the cycle's agent log. Not loot, corpses, or enemies.
+IN-GAME DECISIONS ONLY — areas, goals, leads, mechanism states, and what to do next. No system, driver, crash, setup, or tooling notes — those go in the run's agent log. Not loot, corpses, or enemies.
 
 Last updated: YYYY-MM-DD ~HH:MM PDT
-Save anchor (QUIT save, latest cycle): (x,y) <area>, <level>, <HP>% HP, <kit>. No corpse pending. / Corpse pending at (x,y).
+Save anchor (QUIT save): (x,y) <area>, <level>, <HP>% HP, <kit>. No corpse pending. / Corpse pending at (x,y).
 
 ## Goals
 Level goal: reach the exit.
@@ -18,7 +18,7 @@ Level goal: reach the exit.
 
 ## Open leads [top first]
 
-## Cycle notes (YYYY-MM-DD ~HH:MM) — <summary> (hourly farm) [newest first]
+## Notes (YYYY-MM-DD ~HH:MM) — <summary> [newest first]
 - Trail: ...
 - Staged: ...
-- Next cycle: from (x,y) <area>. Live leads: ...
+- Next: from (x,y) <area>. Live leads: ...
