@@ -1124,7 +1124,7 @@ static fixed_t walk_start_y = 0;
 // once it has covered this much forward displacement, instead of
 // walking until a stop condition. Bare WALK leaves it 0.
 static fixed_t walk_step_target = 0;
-#define WALK_STEP_DIST 64   // units: a small step, ~2 grid cells
+#define WALK_STEP_DIST 80   // units: a small step, ~2.5 grid cells
 
 // Stop-once set (Jimmy, 2026-10-20): WALK stops for a given item
 // exactly once; the item is then ignored by later walks until it is
