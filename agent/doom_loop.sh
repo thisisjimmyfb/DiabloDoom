@@ -570,13 +570,14 @@ subagent_act() {
         echo '{"ok": false, "error": "game not running"}'
         exit 1
     fi
-    # Time-limit auto-QUIT: if the caller passed --start-ms and --limit-s
-    # and the limit is exceeded, end the cycle (final screenshot, then QUIT)
-    # instead of the file's commands. The agent never sends QUIT itself.
+    # Run-end auto-QUIT: enforced here, never mentioned to the agent.
+    # If the caller passed --start-ms, end the run (final screenshot,
+    # then QUIT) instead of the file's commands once the limit is
+    # exceeded. The agent never sends QUIT itself.
     local quit_auto=0
-    if [ -n "${START_MS:-}" ] && [ -n "${LIMIT_S:-}" ]; then
-        # Cap at the 20-minute budget even if the caller passes more.
-        local eff_limit_s=$LIMIT_S
+    if [ -n "${START_MS:-}" ]; then
+        # Default 1200, capped at 1200 even if the caller passes more.
+        local eff_limit_s=${LIMIT_S:-1200}
         if [ "$eff_limit_s" -gt 1200 ]; then eff_limit_s=1200; fi
         local elapsed_ms=$(( $(now_ms) - START_MS ))
         if [ "$elapsed_ms" -gt $(( eff_limit_s * 1000 )) ]; then

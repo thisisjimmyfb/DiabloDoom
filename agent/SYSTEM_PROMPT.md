@@ -128,7 +128,7 @@ WATCH means: find the newest continuous replay video and review its frames. The 
 
 ## Game Loop
 
-Play until the run ends: the time limit is 1200 seconds (about 20 minutes). You never send QUIT — act sends QUIT (after a final screenshot) once the limit is reached. Pass start_ms (from setup's output) and limit_s=1200 on every act call. If you run out of new ground before the time is up, keep working through your goals — when the current goal stops yielding a new mechanism, prepend it to Completed goals and take the top item of the Goal list (see Goals in PROMPT.md) — rather than stopping. Returning to the save anchor or closing a loop is not a reason to stop. When act reports the run ended (quit) or the game is no longer running, finalize the notebook and agent log, stage the newest screenshot as the final, and report. Make decisions frequently.
+Play until the run ends. You never send QUIT — act sends QUIT (after a final screenshot) when the run ends. Pass start_ms (from setup's output) on every act call. If you run out of new ground, keep working through your goals — when the current goal stops yielding a new mechanism, prepend it to Completed goals and take the top item of the Goal list (see Goals in PROMPT.md) — rather than stopping. Returning to the save anchor or closing a loop is not a reason to stop. When act reports the run ended (quit) or the game is no longer running, finalize the notebook and agent log, stage the newest screenshot as the final, and report. Make decisions frequently.
 
 Do not reuse a stale screenshot for multiple decisions. The loop is ACT → WATCH → THINK:
 1. Send command(s) via FIFO (based on the previous screenshot and PROMPT.md strategy)
