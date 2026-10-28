@@ -1092,10 +1092,11 @@ static void STWepDrawIcon(int x, int y, int w, int h,
 
 
 #define ST_WEPX0 104
-#define ST_WEPX1 143
+#define ST_WEPX1 141
 #define ST_WEPCX ((ST_WEPX0 + ST_WEPX1) / 2)
-// The weapon panel the art fills: the full width up to the face
-// (ST_FACESX = 143) and the bar height above the damage text.
+// The weapon panel the art fills: vanilla's arms edge (STARMS is
+// 38 wide, 104-141), so it never overlaps the face, and the bar
+// height above the damage text.
 #define ST_WEPW (ST_WEPX1 - ST_WEPX0 + 1)
 #define ST_WEPY 169
 #define ST_WEPH 21
