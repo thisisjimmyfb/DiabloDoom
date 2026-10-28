@@ -23,8 +23,8 @@ not be revived. You generate the assets; the engine just loads them.
 
 This repo ships a default avatar so a first-time user starts with a
 working face instead of vanilla Doomguy: **Jolly**, the default Muse
-avatar, as `agent/jolly.wad` (42 distinct lumps, v2 — no
-duplication, pain-graded, and sized to fill the face box; built from
+avatar, as `agent/jolly.wad` (42 distinct lumps, v3 — no
+duplication, pain-graded, and sized to fill the entire face window, frame included; built from
 the Jolly expression sheet, and smoke-tested in-game). First-time setup is one copy:
 
 ```sh
@@ -110,8 +110,8 @@ before shipping).
 
 You need one front-facing head image of the user's avatar: eyes and
 mouth visible, head roughly centered, high enough resolution to
-downscale cleanly (work at ~10× the final size, e.g. 300×290, then
-downscale to 30×29). The user supplies it, or you use your own
+downscale cleanly (work at ~10× the final size, e.g. 350×310, then
+downscale to 35×31). The user supplies it, or you use your own
 current avatar image if the user is asking about your face.
 
 Know this before you start: avatar assets carry no facial-expression
@@ -122,11 +122,12 @@ whole job, and it is a drawing job, not a decoding job.
 
 ## Generation procedure
 
-Work at the final patch size: **30 wide × 29 tall**, offsets
-**(-2,-2)**. The STBAR face recess is ~30 wide, so a 24-wide patch
-sits inset with dark recess showing on both sides — a light avatar
-against the dark recess makes that inset glaring, and the face
-reads as not filling its box. Size the patch to the recess (the
+Work at the final patch size: **35 wide × 31 tall**, offsets
+**(0,0)**. The STBAR face window, bevel frame included, is 35×31
+(exactly the STFB faceback panel size), so a narrower patch leaves
+the bright bevel frame showing around it as gaps — a light avatar
+against the frame makes those gaps glaring, and the face reads as
+not filling its box. Size the patch to the whole window (the
 widget draws any size patch; vanilla faces themselves vary from
 24 to 31 wide), and crop the head tight so it fills the frame
 rather than floating in it.
@@ -136,7 +137,7 @@ rather than floating in it.
    is derived from this one crop. Crop tight: the head should fill
    the frame, with minimal body and minimal margin around it.
 2. **Derive the 8 expressions.** Use judgment; the requirement is
-   that all 8 read as different at 30×29, not any particular pixel
+   that all 8 read as different at 35×31, not any particular pixel
    layout:
    - Straight: the reference as-is.
    - Turn left / turn right: shift the pupils (and, if needed, the
@@ -154,7 +155,7 @@ rather than floating in it.
    left, 1 px right). Every one of the 42 resulting images must
    differ from every other — see "Distinct expressions" above.
 4. **Draw thin features at final resolution.** Mouths in particular
-   must be drawn at 30×29, not downscaled: thin mouths vanish in a
+   must be drawn at 35×31, not downscaled: thin mouths vanish in a
    NEAREST downscale and the face goes blank. Downscale the head
    with NEAREST, then draw/retouch the mouth (and any thin eye
    detail) at final size.
@@ -168,8 +169,8 @@ rather than floating in it.
    gray-pink), and a face that reads in RGB can go muddy in palette.
    If it reads wrong, adjust the source colors — do not ship a face
    you have only judged in RGB.
-7. **Encode as Doom patches.** Each patch is a `patch_t`: width 30,
-   height 29, offsets (-2,-2), column offsets, and per-column
+7. **Encode as Doom patches.** Each patch is a `patch_t`: width 35,
+   height 31, offsets (0,0), column offsets, and per-column
    posts. Transparency is encoded the Doom way: background pixels
    simply have no posts in their columns, so the face composites
    over the status bar behind it. (An opaque patch that fills its
@@ -234,13 +235,15 @@ a 30×29 six-state preview set (normal / look left / look right /
 pain / god / dead) was generated first, and the lessons above —
 god and dead symmetric, mouths at final resolution, pale creams
 failing in PLAYPAL — all came from that pass. That validation is
-now shipped as `agent/jolly.wad` v2 (all 42 lumps distinct, pain-graded, and
-sized to fill the face box). v1 shipped the duplication default
+now shipped as `agent/jolly.wad` v3 (all 42 lumps distinct, pain-graded, and
+sized 35×31 to fill the entire face window, frame included). v2
+sized 30×29 to the window's dark interior and left the bevel frame
+showing as gaps; v1 shipped the duplication default
 and was pulled after it was found to make 50% health look exactly
 like 100% with a frozen idle face — that failure is why distinct
-expressions are required, not optional. v2 was verified two ways:
+expressions are required, not optional. v3 was verified two ways:
 a labeled montage of all 42 faces (grading progression and idle
 variants judged before shipping) and an in-game smoke test
 (launched with `-file`, the status-bar face shows Jolly at 100%
-health filling its box, and relaunching without `-file` returns
+health filling the entire window with no frame showing, and relaunching without `-file` returns
 vanilla Doomguy).

@@ -48,7 +48,7 @@ something, milestone — not faces). So the engine does NOT read
   generate the face-state asset set from a reference image and wire
   it into the Doomguy status-bar face system (42 lumps: STFST look
   frames, STFST pain frames, STFGOD god mode, STFDEAD dead) — at
-  the native 24x29 face size, as PLAYPAL-quantized patches packed
+  35x31, the full face window, as PLAYPAL-quantized patches packed
   into a PWAD loaded with `-file`. The hi-res RGB overlay is
   future engine work, not a present mechanism (see MUSE.md). The
   shipped default is `agent/jolly.wad` (Jolly, smoke-tested in-game); first-time
