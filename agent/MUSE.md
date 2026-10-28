@@ -24,9 +24,8 @@ not be revived. You generate the assets; the engine just loads them.
 This repo ships a default avatar so a first-time user starts with a
 working face instead of vanilla Doomguy: **Jolly**, the default Muse
 avatar, as `agent/jolly.wad` (42 distinct lumps, v2 — no
-duplication, pain-graded, and sized to fill the face box; built by
-`agent/make_jolly_face.py` from the Jolly expression sheet, and
-smoke-tested in-game). First-time setup is one copy:
+duplication, pain-graded, and sized to fill the face box; built from
+the Jolly expression sheet, and smoke-tested in-game). First-time setup is one copy:
 
 ```sh
 mkdir -p avatar && cp agent/jolly.wad avatar/
@@ -235,8 +234,7 @@ a 30×29 six-state preview set (normal / look left / look right /
 pain / god / dead) was generated first, and the lessons above —
 god and dead symmetric, mouths at final resolution, pale creams
 failing in PLAYPAL — all came from that pass. That validation is
-now shipped as `agent/jolly.wad` v2 (built by
-`agent/make_jolly_face.py`, all 42 lumps distinct, pain-graded, and
+now shipped as `agent/jolly.wad` v2 (all 42 lumps distinct, pain-graded, and
 sized to fill the face box). v1 shipped the duplication default
 and was pulled after it was found to make 50% health look exactly
 like 100% with a frozen idle face — that failure is why distinct
