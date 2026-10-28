@@ -57,13 +57,20 @@ FARM_SECONDS="${FARM_SECONDS:-300}"
 SUBAGENT=false
 SUBCMD=""
 ACT_FILE=""
+PREV=""
 for arg in "$@"; do
+    if [ "$PREV" = "-s" ]; then START_MS="$arg"; PREV=""; continue; fi
+    if [ "$PREV" = "-l" ]; then LIMIT_S="$arg"; PREV=""; continue; fi
     case "$arg" in
         --subagent) SUBAGENT=true ;;
         setup|observe|act) SUBCMD="$arg" ;;
         --file=*) ACT_FILE="${arg#--file=}" ;;
         --start-ms=*) START_MS="${arg#--start-ms=}" ;;
         --limit-s=*) LIMIT_S="${arg#--limit-s=}" ;;
+        -s) PREV="-s" ;;
+        -s=*) START_MS="${arg#-s=}" ;;
+        -l) PREV="-l" ;;
+        -l=*) LIMIT_S="${arg#-l=}" ;;
     esac
 done
 WARP="${WARP:-1 1}"
@@ -474,7 +481,7 @@ print(json.dumps({
     "launched": os.environ.get("LAUNCHED") == "1",
     "killed": int(os.environ.get("KILLED", 0) or 0),
     "save": os.environ.get("SAVE_STATUS", ""),
-    "start_ms": int(os.environ.get("CYCLE_START_MS", 0) or 0),
+    "s": int(os.environ.get("CYCLE_START_MS", 0) or 0),
     "notes": "setup complete"
 }))
 PYEOF
