@@ -23,7 +23,8 @@ not be revived. You generate the assets; the engine just loads them.
 
 This repo ships a default avatar so a first-time user starts with a
 working face instead of vanilla Doomguy: **Jolly**, the default Muse
-avatar, as `agent/jolly_face.wad` (42 lumps, built by
+avatar, as `agent/jolly_face.wad` (42 distinct lumps, v2 — no
+duplication, pain-graded, and sized to fill the face box; built by
 `agent/make_jolly_face.py` from the Jolly expression sheet, and
 smoke-tested in-game). First-time setup is one copy:
 
@@ -78,26 +79,40 @@ dead > evil grin > turned head > straight ahead, with god and
 rampage slotted in by their own rules — you don't need to implement
 any of this, you only need to fill the slots.
 
-### Default duplication (do this first)
+### Distinct expressions (required)
 
-You only need 8 distinguishable images. Duplicate bytes across
-slots to fill all 42 names:
+Every one of the 42 slots gets its OWN image. Do NOT duplicate
+bytes across slots — no sharing across pain bands, and no sharing
+across the 3 straight variants in a band. This is a requirement,
+not an enhancement, and it comes from a shipped mistake: v1
+duplicated one image per expression across all bands and straight
+variants, and the result was that 50% health looked exactly like
+100% and the idle face never animated. The engine's only periodic
+face change is the straight-variant cycle (~0.5 s) plus the band
+progression as health falls; duplication flattens both, so a
+duplicated set reads as a frozen face. Concretely:
 
-- Same expression image in all 5 pain bands.
-- Same image for the 3 straight variants in each band.
-- God and dead each get their own image.
+- Each band's straight face must visibly differ from the other
+  bands (pain grading: damage marks, grimacing mouth, narrowing
+  eyes as the band rises).
+- The 3 straight variants within each band must visibly differ
+  (subtle eye shifts are enough — that is what makes idle cycle).
+- Turn, ouch, grin, and rampage must also differ per band
+  (damage marks at minimum, so a low-health ouch is not the same
+  image as a full-health ouch).
+- God and dead are singles; they differ from each other and from
+  every band face by construction.
 
-Optional enhancement, not required: pain-graded variants (add damage
-marks as the band rises) and distinct straight variants (subtle eye
-shifts). Do the duplication default first and verify it in-game
-before spending effort on grading.
+Verify distinctness mechanically (hash all 42 patch byte strings;
+any collision is a bug), and visually (a labeled montage of all 42
+before shipping).
 
 ## Input: the avatar reference image
 
 You need one front-facing head image of the user's avatar: eyes and
 mouth visible, head roughly centered, high enough resolution to
-downscale cleanly (work at ~10× the final size, e.g. 240×290, then
-downscale to 24×29). The user supplies it, or you use your own
+downscale cleanly (work at ~10× the final size, e.g. 300×290, then
+downscale to 30×29). The user supplies it, or you use your own
 current avatar image if the user is asking about your face.
 
 Know this before you start: avatar assets carry no facial-expression
@@ -108,13 +123,21 @@ whole job, and it is a drawing job, not a decoding job.
 
 ## Generation procedure
 
-Work at the native face size: **24 wide × 29 tall** per patch.
+Work at the final patch size: **30 wide × 29 tall**, offsets
+**(-2,-2)**. The STBAR face recess is ~30 wide, so a 24-wide patch
+sits inset with dark recess showing on both sides — a light avatar
+against the dark recess makes that inset glaring, and the face
+reads as not filling its box. Size the patch to the recess (the
+widget draws any size patch; vanilla faces themselves vary from
+24 to 31 wide), and crop the head tight so it fills the frame
+rather than floating in it.
 
-1. **Crop to the head** and scale to your working size (~240×290).
+1. **Crop to the head** and scale to your working size (~300×290).
    Keep the head centered and front-facing; every expression below
-   is derived from this one crop.
+   is derived from this one crop. Crop tight: the head should fill
+   the frame, with minimal body and minimal margin around it.
 2. **Derive the 8 expressions.** Use judgment; the requirement is
-   that all 8 read as different at 24×29, not any particular pixel
+   that all 8 read as different at 30×29, not any particular pixel
    layout:
    - Straight: the reference as-is.
    - Turn left / turn right: shift the pupils (and, if needed, the
@@ -124,30 +147,39 @@ Work at the native face size: **24 wide × 29 tall** per patch.
    - Rampage: gritted teeth, narrowed eyes, angled brows.
    - God: a radiant / invulnerable treatment of the straight face.
    - Dead: closed or X eyes, slack mouth.
-3. **Draw thin features at final resolution.** Mouths in particular
-   must be drawn at 24×29, not downscaled: thin mouths vanish in a
+3. **Grade the 5 bands and vary the straights.** From each base
+   expression, build its 5 band images: band 0 stays clean, and
+   bands 1–4 get progressively grimier (damage marks, grimacing
+   mouth on the straight face, narrowing eyes at low health).
+   Build 3 straight variants per band (eye shifts: center, 1 px
+   left, 1 px right). Every one of the 42 resulting images must
+   differ from every other — see "Distinct expressions" above.
+4. **Draw thin features at final resolution.** Mouths in particular
+   must be drawn at 30×29, not downscaled: thin mouths vanish in a
    NEAREST downscale and the face goes blank. Downscale the head
    with NEAREST, then draw/retouch the mouth (and any thin eye
    detail) at final size.
-4. **Make god and dead exactly mirror-symmetric.** Asymmetric god
+5. **Make god and dead exactly mirror-symmetric.** Asymmetric god
    and dead faces read as broken at this size; symmetry is a
    requirement for those two, not a preference.
-5. **Quantize to PLAYPAL.** Read the PLAYPAL lump from the IWAD
+6. **Quantize to PLAYPAL.** Read the PLAYPAL lump from the IWAD
    (`doom.wad` or `freedoom1.wad`) and map every RGB pixel to its
    nearest PLAYPAL entry. Check the quantized result visually before
    shipping it: pale colors map badly (light creams collapse to
    gray-pink), and a face that reads in RGB can go muddy in palette.
    If it reads wrong, adjust the source colors — do not ship a face
    you have only judged in RGB.
-6. **Encode as Doom patches.** Each patch is a `patch_t`: width 24,
-   height 29, column offsets, and per-column posts. Transparency is
-   encoded the Doom way: background pixels simply have no posts in
-   their columns, so the face composites over the status bar behind
-   it. Precedent in this repo: `assets/make_pistol_sprite.py` builds
-   a genuine `patch_t` from an image with PLAYPAL from the IWAD —
-   read it before writing your encoder and follow the same approach.
-7. **Pack the PWAD.** Write all 42 lumps with the exact names from
-   the table above, using the duplication defaults. Name the file
+7. **Encode as Doom patches.** Each patch is a `patch_t`: width 30,
+   height 29, offsets (-2,-2), column offsets, and per-column
+   posts. Transparency is encoded the Doom way: background pixels
+   simply have no posts in their columns, so the face composites
+   over the status bar behind it. (An opaque patch that fills its
+   box needs no transparency posts.) Precedent in this repo:
+   `assets/make_pistol_sprite.py` builds a genuine `patch_t` from
+   an image with PLAYPAL from the IWAD — read it before writing
+   your encoder and follow the same approach.
+8. **Pack the PWAD.** Write all 42 lumps with the exact names from
+   the table above, each a distinct image. Name the file
    something like `<avatar>_face.wad`. Keep a user's personal avatar
    PWAD with the user — do not commit it to this repo. The one
    exception is the shipped Jolly default (`agent/jolly_face.wad`); a
@@ -184,24 +216,33 @@ back to the IWAD face for that slot. Check names first.
 - **Hi-res RGB overlay.** The face draws through the paletted patch
   path (`V_DrawPatch` via the `w_faces` multicon widget). No RGB
   overlay draw path exists in this codebase, so a pale avatar will
-  read imperfectly in v1 — that is the known PLAYPAL limitation from
-  step 5, not something this guide can work around. An overlay is
+  read imperfectly — that is the known PLAYPAL limitation from
+  step 6, not something this guide can work around. An overlay is
   future engine work.
-- **Loader slot-sharing.** The engine loads 42 names; v1 duplicates
-  bytes across names. Loading 8 images and sharing them across slots
-  needs a loader change — also future engine work.
+- **Loader slot-sharing.** The engine loads 42 names; the shipped
+  default fills all 42 with distinct images, so sharing is
+  unnecessary there. Loading 8 images and sharing them across slots
+  needs a loader change — future engine work for anyone who wants
+  fewer images, and it must not be used to reintroduce duplication
+  (see "Distinct expressions" above).
 - **File-based loading.** There is no "drop PNGs in a folder" path;
-  v1 is a PWAD via `-file`.
+  the shipped default is a PWAD via `-file`.
 
 ## Worked example (how this procedure was validated)
 
 The default Muse avatar (Jolly) was used to validate this procedure:
-a 24×29 six-state preview set (normal / look left / look right /
+a 30×29 six-state preview set (normal / look left / look right /
 pain / god / dead) was generated first, and the lessons above —
 god and dead symmetric, mouths at final resolution, pale creams
 failing in PLAYPAL — all came from that pass. That validation is
-now shipped as `agent/jolly_face.wad` (built by
-`agent/make_jolly_face.py`, all 42 lumps, duplication defaults) and
-was smoke-tested in-game: launched with `-file`, the status-bar
-face shows Jolly at 100% health, and relaunching without `-file`
-returns vanilla Doomguy.
+now shipped as `agent/jolly_face.wad` v2 (built by
+`agent/make_jolly_face.py`, all 42 lumps distinct, pain-graded, and
+sized to fill the face box). v1 shipped the duplication default
+and was pulled after it was found to make 50% health look exactly
+like 100% with a frozen idle face — that failure is why distinct
+expressions are required, not optional. v2 was verified two ways:
+a labeled montage of all 42 faces (grading progression and idle
+variants judged before shipping) and an in-game smoke test
+(launched with `-file`, the status-bar face shows Jolly at 100%
+health filling its box, and relaunching without `-file` returns
+vanilla Doomguy).
