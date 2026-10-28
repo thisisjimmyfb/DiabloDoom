@@ -69,6 +69,10 @@ compile_commands.json
 # WADs
 /wad/
 
+# Avatar live slot: first-time setup copies agent/jolly_face.wad
+# here; a user's own avatar PWAD lives here and is never committed.
+/avatar/
+
 # x264 build intermediates (prebuilt lib in third_party/x264/lib is checked in)
 third_party/x264/*.o
 third_party/x264/config.*
