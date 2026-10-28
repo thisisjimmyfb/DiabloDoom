@@ -29,6 +29,9 @@ HTIC*.pcx
 HEXEN*.pcx
 STRIFE*.pcx
 
+# Lead gallery reference screenshots (runtime data, not source)
+agent/reference/
+
 # CMake-specific ignores
 /.vs
 /build*
