@@ -69,7 +69,7 @@ compile_commands.json
 # WADs
 /wad/
 
-# Avatar live slot: first-time setup copies agent/jolly_face.wad
+# Avatar live slot: first-time setup copies agent/jolly.wad
 # here; a user's own avatar PWAD lives here and is never committed.
 /avatar/
 

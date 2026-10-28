@@ -35,7 +35,7 @@ God/dead are singles (no bands); after the fill transform they
 are forced mirror-symmetric (left half mirrored), per the
 symmetry lesson.
 
-Output: agent/jolly_face.wad — 42 lumps, the exact names
+Output: agent/jolly.wad — 42 lumps, the exact names
 src/doom/st_stuff.c loads (ST_loadUnloadGraphics).
 PLAYPAL comes from the IWAD (freedoom1.wad here).
 Precedent for patch encoding: assets/make_pistol_sprite.py.
@@ -49,7 +49,7 @@ REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SHEET = os.path.expanduser("~/workspace/jolly_expressions_24x29.png")
 DEAD_STANDALONE = os.path.expanduser("~/workspace/jolly_dead_24x29.png")
 IWAD = os.path.expanduser("~/workspace/doom/freedoom1.wad")
-OUTPUT = os.path.join(REPO_DIR, "agent", "jolly_face.wad")
+OUTPUT = os.path.join(REPO_DIR, "agent", "jolly.wad")
 PREVIEW_ALL = "/tmp/jolly_face_v2_preview_all.png"
 PREVIEW_FOCUSED = "/tmp/jolly_face_v2_preview.png"
 

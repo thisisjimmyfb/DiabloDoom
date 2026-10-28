@@ -51,10 +51,10 @@ something, milestone — not faces). So the engine does NOT read
   the native 24x29 face size, as PLAYPAL-quantized patches packed
   into a PWAD loaded with `-file`. The hi-res RGB overlay is
   future engine work, not a present mechanism (see MUSE.md). The
-  shipped default is `agent/jolly_face.wad` (Jolly, built by
+  shipped default is `agent/jolly.wad` (Jolly, built by
   `agent/make_jolly_face.py`, smoke-tested in-game); first-time
   setup copies it to the gitignored `avatar/` slot and launches
-  with `-file avatar/jolly_face.wad`.
+  with `-file avatar/jolly.wad`.
 - **Fallback:** no generated assets present → the vanilla Doomguy
   face, unchanged.
 
@@ -64,7 +64,7 @@ pain / god / dead), god and dead made exactly mirror-symmetric,
 mouths drawn at final resolution (thin features get lost in the
 downscale otherwise). Files: `~/workspace/jolly_expressions_24x29.png`,
 `~/workspace/jolly_dead_24x29.png`. The 42-lump Jolly PWAD built
-from these previews shipped 2026-10-28 (`agent/jolly_face.wad`,
+from these previews shipped 2026-10-28 (`agent/jolly.wad`,
 generator `agent/make_jolly_face.py`, guide `agent/MUSE.md`).
 
 ## VM automation driver
