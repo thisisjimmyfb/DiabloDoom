@@ -582,6 +582,45 @@ int P_RollDiabloItemDrop(int magic_find)
     return D_MAKEITEM(tier, index);
 }
 
+// Roll a random armor-slot Diablo item id using the kill-drop rarity
+// table, for the green-armor grant (Jimmy, 2026-10-29). Armor slots
+// are the durability slots (helm/armor/boots/gloves/belt, per
+// D_IsDurabilityItem); shields are excluded — they carry no
+// durability and produce no Defense. Difficulty-filtered like
+// D_RollWeaponItem. Falls back to NORMAL tier if the rolled tier
+// has no difficulty-valid armor piece. Returns -1 if nothing fits.
+int P_RollArmorItemDrop(int magic_find)
+{
+    int tier = P_RollRarityTier(magic_find);
+    int attempt, i, count, pick;
+    const diablo_itemdef_t *def;
+
+    for (attempt = 0; attempt < 2; attempt++)
+    {
+        int t = (attempt == 0) ? tier : TIER_NORMAL;
+        count = 0;
+        for (i = 0; i < D_TierCount(t); i++)
+        {
+            def = D_GetItemDef(t, i);
+            if (def && !def->consumable && D_IsDurabilityItem(def)
+                && def->diff_tier <= D_DifficultyTier())
+                count++;
+        }
+        if (!count)
+            continue;
+        pick = P_Random() % count;
+        for (i = 0; i < D_TierCount(t); i++)
+        {
+            def = D_GetItemDef(t, i);
+            if (def && !def->consumable && D_IsDurabilityItem(def)
+                && def->diff_tier <= D_DifficultyTier()
+                && pick-- == 0)
+                return D_MAKEITEM(t, i);
+        }
+    }
+    return -1;
+}
+
 // Roll loot for a dead monster and spawn the pickup.
 static void P_DropDiabloLoot(mobj_t *target, mobj_t *source)
 {
@@ -810,6 +849,39 @@ P_TouchSpecialThing
 	// Diablo durability (mod): a vanilla armor pickup restores
 	// every equipped piece to full durability.
 	D_RepairAllEquipped(player);
+	// Green-armor grant (Jimmy, 2026-10-29): on a successful
+	// green pickup, also grant one random armor-slot item straight
+	// into the backpack. Vanilla armorpoints are left alone
+	// (grant and refusal gate above unchanged; a future change
+	// may repurpose them as the Diablo damage reduction modifier).
+	// Backpack-full fallback: spawn the rolled loot at the
+	// player's feet so it is not lost — collectable after
+	// freeing space, under the normal loot rules.
+	{
+	    int magic_find = player->diablo_stats[DSTAT_MAGICFIND]
+	                     + D_LoopMagicFind();
+	    int item_id = P_RollArmorItemDrop(magic_find);
+	    if (item_id >= 0)
+	    {
+		const diablo_itemdef_t *def =
+		    D_GetItemDef(D_ITEMTIER(item_id), D_ITEMIDX(item_id));
+		char namebuf[96];
+		D_ItemDisplayName(def, namebuf, sizeof(namebuf));
+		if (D_BackpackAdd((struct player_s *)player,
+		                  D_ITEMTIER(item_id), D_ITEMIDX(item_id)))
+		{
+		    printf("[GREENARMOR] granted \"%s\" tier=%d idx=%d\n",
+		           namebuf, D_ITEMTIER(item_id), D_ITEMIDX(item_id));
+		}
+		else
+		{
+		    P_SpawnDiabloLootAt(player->mo->x, player->mo->y, item_id);
+		    player->message = "Backpack full - armor loot dropped at your feet.";
+		    printf("[GREENARMOR] backpack full, spawned \"%s\" at player\n",
+		           namebuf);
+		}
+	    }
+	}
 	break;
 
       case SPR_ARM2:

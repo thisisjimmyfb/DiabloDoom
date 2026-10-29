@@ -163,6 +163,14 @@ restores every equipped piece to full for free. The +1 armor bonus
 shards don't repair. Hover any piece in the character screen to see
 its durability.
 
+A successful **green** armor pickup also grants one random
+armor-slot item (helm, armor, boots, gloves, or belt — shields
+excluded) straight into the backpack, rolled with the kill-drop
+rarity table. If the backpack cannot fit it, the item spawns at
+your feet instead, collectable after freeing space. Blue armor and
+megaspheres repair only; they grant no loot. Vanilla armorpoints
+themselves are unchanged for now.
+
 ## Building
 
 ```sh
