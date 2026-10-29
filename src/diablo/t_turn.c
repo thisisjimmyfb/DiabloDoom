@@ -35,6 +35,7 @@
 #include "m_random.h"
 #include "r_state.h"
 #include "v_video.h"
+#include "t_console_font.h"
 #include "w_wad.h"
 #include "z_zone.h"
 
@@ -1933,159 +1934,59 @@ void T_Ticker(void)
 // ------------------------------------------------------------------
 
 // Minimal text drawer using the already-loaded HU font (STCFN033+).
+// Combat-menu text width: the 8x16 console font is fixed-width, so
+// every character, space included, is exactly T_FONT_W pixels.
+#define T_FONT_W 8
+#define T_FONT_H 16
 static int T_TextWidth(const char *s)
 {
-    int w = 0;
-    while (*s)
-    {
-        unsigned char c = (unsigned char)*s++;
-        if (c == ' ')
-        {
-            w += 5;
-            continue;
-        }
-        if (c < '!' || c > '_') // hu_font covers '!'..'_' only (no lowercase)
-            continue;
-        w += SHORT(hu_font[c - '!']->width) + 1;
-    }
-    return w;
+    return (int)strlen(s) * T_FONT_W;
 }
 
 // ------------------------------------------------------------------
-// Turn-chrome tint: the turn-based HUD draws in warm gold (STCFN red
-// ramp remapped to the Doom gold ramp) to signal deviation from classic
-// Doom. Unaffordable actions draw dim/desaturated gold — still the turn
-// tint, never classic grey. Diablo UI (inventory, status bar) stays red
-// and is untouched.
+// Combat-menu font: the textscreen 8x16 console font
+// (t_console_font.h, generated from textscreen/fonts/normal.h —
+// no custom font added). The old HUD font was STCFN, 7 pixels tall
+// with 1-pixel strokes, remapped from a 16-shade red ramp into an
+// 8-shade gold ramp; the 8x16 glyphs are more than twice as tall,
+// fixed-width, and drawn here in solid palette colours, so normal,
+// dim and highlight are genuinely distinct: bright gold (160),
+// dark gold (165), pure white (4, PLAYPAL's white).
 //
-// The video API has no translated-patch draw, so at first HUD draw we
-// clone each HU font glyph and remap its pixel runs in place.
+// Drawing is the same single HUD pass as before, not an extra blit:
+// V_DrawBitmapGlyph writes the set bits straight into the view
+// buffer, in the same pass V_DrawPatch used for STCFN, and clear
+// bits stay transparent so the 3D view shows through.
 // ------------------------------------------------------------------
 
-static patch_t *t_font_gold[HU_FONTSIZE];
-static patch_t *t_font_golddim[HU_FONTSIZE];
-static patch_t *t_font_goldhi[HU_FONTSIZE];
-static boolean t_fonts_ready = false;
+#define T_FONT_GOLD 160
+#define T_FONT_DIM 165
+#define T_FONT_HI 4
 
-static void T_BuildTintTables(byte *gold, byte *dim, byte *hi)
-{
-    int i;
-    for (i = 0; i < 256; i++)
-        gold[i] = dim[i] = hi[i] = (byte)i;
-    // STCFN red ramp (176-191) -> Doom gold ramp (160-167).
-    for (i = 0; i < 16; i++)
-        gold[176 + i] = (byte)(160 + i / 2);
-    // Disabled: dim/desaturated -> dark end of the gold ramp (163-167).
-    for (i = 0; i < 16; i++)
-        dim[176 + i] = (byte)(163 + (i * 5) / 16);
-    // Highlight: brightest end of the gold ramp (160-161). Used for the
-    // selected target and the END TURN exit row — still turn gold, just
-    // the hottest tier, so it pops against both gold and dim gold.
-    for (i = 0; i < 16; i++)
-        hi[176 + i] = (byte)(160 + i / 8);
-    // Pink/white highlight ramp (168-175) -> bright gold / mid gold.
-    for (i = 168; i <= 175; i++)
-    {
-        gold[i] = (byte)(160 + (i - 168) / 4);
-        dim[i] = (byte)(164 + (i - 168) / 4);
-        hi[i] = (byte)160;
-    }
-}
-
-// Remap every pixel run of a patch through a 256-entry table.
-static void T_RemapPatch(patch_t *patch, const byte *table)
-{
-    int x, w = SHORT(patch->width);
-    for (x = 0; x < w; x++)
-    {
-        byte *p = (byte *)patch + LONG(patch->columnofs[x]);
-        for (;;)
-        {
-            int len, k;
-            byte *px;
-            if (p[0] == 0xFF)
-                break;
-            len = p[1];
-            px = p + 3;
-            for (k = 0; k < len; k++)
-                px[k] = table[px[k]];
-            p = px + len + 1;
-        }
-    }
-}
-
-static void T_TintFonts(void)
-{
-    byte gold[256], dim[256], hi[256];
-    char name[16];
-    int i;
-
-    if (t_fonts_ready)
-        return;
-    T_BuildTintTables(gold, dim, hi);
-    for (i = 0; i < HU_FONTSIZE; i++)
-    {
-        int lump, len;
-        patch_t *src, *g, *d, *h;
-        M_snprintf(name, sizeof(name), "STCFN%.3d", HU_FONTSTART + i);
-        lump = W_GetNumForName(name);
-        len = W_LumpLength(lump);
-        src = (patch_t *)W_CacheLumpNum(lump, PU_STATIC);
-        g = (patch_t *)Z_Malloc(len, PU_STATIC, NULL);
-        d = (patch_t *)Z_Malloc(len, PU_STATIC, NULL);
-        h = (patch_t *)Z_Malloc(len, PU_STATIC, NULL);
-        memcpy(g, src, len);
-        memcpy(d, src, len);
-        memcpy(h, src, len);
-        T_RemapPatch(g, gold);
-        T_RemapPatch(d, dim);
-        T_RemapPatch(h, hi);
-        t_font_gold[i] = g;
-        t_font_golddim[i] = d;
-        t_font_goldhi[i] = h;
-    }
-    t_fonts_ready = true;
-}
-
-static void T_DrawTextF(int x, int y, const char *s, patch_t **font)
+static void T_DrawTextF(int x, int y, const char *s, pixel_t colour)
 {
     while (*s)
     {
         unsigned char c = (unsigned char)*s++;
-        if (c == ' ')
-        {
-            x += 5;
-            continue;
-        }
-        if (c < '!' || c > '_') // hu_font covers '!'..'_' only (no lowercase)
-            continue;
-        {
-            patch_t *p = font[c - '!'];
-            int w = SHORT(p->width);
-            int h = SHORT(p->height);
-            // Clamp into the framebuffer; never trip V_DrawPatch rangecheck.
-            if (x < 0)
-                x = 0;
-            if (x + w <= 320 && y >= 0 && y + h <= 200)
-                V_DrawPatch(x, y, p);
-            x += w + 1;
-        }
+        V_DrawBitmapGlyph(x, y, &t_console_font_data[c * T_FONT_H],
+                          T_FONT_W, T_FONT_H, colour);
+        x += T_FONT_W;
     }
 }
 
 static void T_DrawText(int x, int y, const char *s)
 {
-    T_DrawTextF(x, y, s, t_font_gold);
+    T_DrawTextF(x, y, s, T_FONT_GOLD);
 }
 
 static void T_DrawTextDim(int x, int y, const char *s)
 {
-    T_DrawTextF(x, y, s, t_font_golddim);
+    T_DrawTextF(x, y, s, T_FONT_DIM);
 }
 
 static void T_DrawTextHi(int x, int y, const char *s)
 {
-    T_DrawTextF(x, y, s, t_font_goldhi);
+    T_DrawTextF(x, y, s, T_FONT_HI);
 }
 
 static void T_DrawTextCenteredHi(int y, const char *s)
@@ -2279,13 +2180,20 @@ static boolean T_ActionEnabled(turnaction_t action)
     return T_CanAfford(action);
 }
 
+// Clip threshold for menu rows: rows above this y are scrolled off
+// and skipped, not drawn. Planning sets it to its base (18);
+// targeting sets it to 54, below the header+footer block, so a
+// scrolled menu never draws over the footer. Pulse queue calls
+// leave it at its initial 8.
+static int t_menu_clip_y = 8;
+
 // One action row: key, name, TP cost. Unaffordable rows draw dim gold.
-// Rows scrolled off-screen (y < 8) are skipped but still advance y.
+// Rows scrolled off-screen (y < clip) are skipped but still advance y.
 static void T_DrawActionRow(int x, int *y, const char *key, const char *name,
                             turnaction_t action, const char *coststr)
 {
     char line[64];
-    if (*y >= 8)
+    if (*y >= t_menu_clip_y)
     {
         M_snprintf(line, sizeof(line), "%s %-8s %s", key, name, coststr);
         if (T_ActionEnabled(action))
@@ -2293,7 +2201,7 @@ static void T_DrawActionRow(int x, int *y, const char *key, const char *name,
         else
             T_DrawTextDim(x, *y, line);
     }
-    *y += 9;
+    *y += 17;
 }
 
 // Gate state for the target-preview line: " CD2", " CHG 1/2",
@@ -2368,9 +2276,9 @@ static int T_DrawQueuePanelAt(int start_y)
         return y;
     // Show the queue during execution so commands visibly pop off as
     // they run.
-    if (y >= 8)
+    if (y >= t_menu_clip_y)
         T_DrawText(x, y, "QUEUE");
-    y += 9;
+    y += 17;
     // Show ALL queued commands (no collapsing). The unified scrolling
     // in T_DrawPlanningUI ensures the bottom-most are visible.
     for (i = 0; i < turnctrl.queue_len; i++)
@@ -2378,26 +2286,30 @@ static int T_DrawQueuePanelAt(int start_y)
         t_queueentry_t *e = &turnctrl.queue[i];
         T_QueueEntryName(e, name, sizeof(name));
         M_snprintf(line, sizeof(line), "%d %s %dTP", i + 1, name, e->cost);
-        if (y >= 8)
+        if (y >= t_menu_clip_y)
             T_DrawText(x, y, line);
-        y += 9;
+        y += 17;
     }
     M_snprintf(line, sizeof(line), "%d ACTS %dTP RSVD",
                turnctrl.queue_len, turnctrl.queue_tp);
-    if (y >= 8)
+    if (y >= t_menu_clip_y)
         T_DrawTextHi(x, y, line);
-    y += 9;
-    return y + 9; // gap before the menu
+    y += 17;
+    return y + 17; // gap before the menu
 }
 
 // Unified planning UI: menu and queue act as one scrolling text area.
 // Only the bottom-most lines are visible; older content scrolls off
 // the top as new commands are queued. No collapsing.
-static void T_DrawPlanningUI(void)
+static void T_DrawPlanningUI(int base_y, int visible_bottom)
 {
-    // Menu is ~8 rows. Queue is 1 (header) + N (items) + 1 (total) + 1 (gap).
-    // Visible area: y=18 to y=160 = ~15 rows. Scroll so bottom is visible.
-    int menu_rows = 8;
+    // Menu is 6 rows. Queue is 1 (header) + N (items) + 1 (total) + 1 (gap).
+    // Visible area: base_y to visible_bottom, at 17px pitch.
+    // Scroll so bottom is visible. In targeting, visible_bottom is
+    // the preview panel top (132), so the menu/queue never run
+    // under the preview line.
+    int menu_rows = 6; // action list rows, not the old 8-row estimate
+    t_menu_clip_y = base_y;
     int queue_rows = 0;
     int total_rows, max_rows, scroll_rows, start_y;
 
@@ -2407,15 +2319,15 @@ static void T_DrawPlanningUI(void)
     }
 
     total_rows = menu_rows + queue_rows;
-    max_rows = 15; // (160 - 18) / 9
+    max_rows = (visible_bottom - base_y) / 17;
     scroll_rows = total_rows > max_rows ? total_rows - max_rows : 0;
-    start_y = 18 - scroll_rows * 9;
+    start_y = base_y - scroll_rows * 17;
 
     // Draw menu at the scrolled position (it clips when off-screen).
     T_DrawActionList(start_y);
 
     // Draw queue below the menu.
-    T_DrawQueuePanelAt(start_y + menu_rows * 9);
+    T_DrawQueuePanelAt(start_y + menu_rows * 17);
 }
 
 void T_DrawHUD(void)
@@ -2429,7 +2341,7 @@ void T_DrawHUD(void)
     // Hide turn UI when the player is dead.
     if (player->mo == NULL || player->mo->health <= 0)
         return;
-    T_TintFonts();
+    t_menu_clip_y = 8; // planning UI overwrites this with its base
 
     // EXPLORE mode: minimal header, no turn UI. Combat UI appears only
     // once an enemy is spotted. The controls hint shows only at the
@@ -2453,11 +2365,11 @@ void T_DrawHUD(void)
     // is spendable now, "(6 IN QUEUE)" is already committed.
     if (turnctrl.queue_len > 0)
         M_snprintf(line, sizeof(line),
-                   "TURN MODE - ROUND %d - TP %d/%d (%d IN QUEUE)",
+                   "ROUND %d - TP %d/%d (%d IN QUEUE)",
                    turnctrl.round, turnctrl.tp, turnctrl.tp_max,
                    turnctrl.queue_tp);
     else
-        M_snprintf(line, sizeof(line), "TURN MODE - ROUND %d - TP %d/%d",
+        M_snprintf(line, sizeof(line), "ROUND %d - TP %d/%d",
                    turnctrl.round, turnctrl.tp, turnctrl.tp_max);
     T_DrawTextCentered(2, line);
 
@@ -2468,18 +2380,20 @@ void T_DrawHUD(void)
         T_DrawTextCentered(12, "RESOLVING");
         // Keep the queue visible during the progress phase so commands
         // visibly pop off one by one as they execute.
-        T_DrawQueuePanelAt(24);
+        T_DrawQueuePanelAt(32);
     }
     else if (turnctrl.state == TS_PLANNING)
-        T_DrawPlanningUI();
+        T_DrawPlanningUI(18, 160);
     else
     {
         // TARGETING / CONFIRM: the always-legal outs stay visible.
-        // The action list keeps drawing (left column): it repaints the
-        // border-zone pixels every frame and keeps costs/disabled states
-        // visible while targeting.
-        T_DrawTextCentered(12, "T END TURN  BKSP UNDO  Z CLEAR  <> TURN  ESC BACK");
-        T_DrawPlanningUI();
+        // Header is at y=2 (16px tall, ends 18); the footer sits
+        // below it at 20/37, and the action list starts below the
+        // footer at 54 — with 16px glyphs the old y=12 footer and
+        // y=18 menu overlapped every row, so the menu must move.
+        T_DrawTextCentered(20, "T END TURN  BKSP UNDO  Z CLEAR");
+        T_DrawTextCentered(37, "<> TURN  ESC BACK");
+        T_DrawPlanningUI(54, 132);
     }
 
     // Target markers removed: no floating numbers on enemy heads.
@@ -2527,9 +2441,9 @@ void T_DrawHUD(void)
     // Target list (right side) and preview (bottom) while targeting.
     if (turnctrl.state == TS_TARGETING || turnctrl.state == TS_CONFIRM)
     {
-        int y = 44;
-        T_DrawText(224, y, "TARGETS");
-        y += 10;
+        int y = 60;
+        T_DrawText(208, y, "TARGETS");
+        y += 17;
         for (i = 0; i < t_numtargets && i < 9; i++)
         {
             mobj_t *mo = t_targets[i];
@@ -2541,15 +2455,15 @@ void T_DrawHUD(void)
                 // cursor-shifted left so the shape change is visible.
                 M_snprintf(line, sizeof(line), ">[%d:%s %d]<",
                            i + 1, T_TargetName(mo), mo->health);
-                T_DrawTextHi(216, y, line);
+                T_DrawTextHi(200, y, line);
             }
             else
             {
                 M_snprintf(line, sizeof(line), "%d:%s %d",
                            i + 1, T_TargetName(mo), mo->health);
-                T_DrawTextDim(224, y, line);
+                T_DrawTextDim(208, y, line);
             }
-            y += 9;
+            y += 17;
         }
         // Preview panel for the selected target (above status bar).
         {
@@ -2587,9 +2501,9 @@ void T_DrawHUD(void)
                                    T_CostFor(TA_ATTACK),
                                    gate);
                 }
-                T_DrawTextCenteredHi(148, line);
+                T_DrawTextCenteredHi(132, line);
                 if (turnctrl.state == TS_CONFIRM)
-                    T_DrawTextCenteredHi(158,
+                    T_DrawTextCenteredHi(149,
                         "CONFIRM: F FIRE  ESC CANCEL");
             }
         }
@@ -2829,7 +2743,7 @@ static void T_DrawKillBanner(void)
     if (t_killbanner_tics <= 0)
         return;
     T_DrawTextCenteredHi(70, t_killbanner_title);
-    T_DrawTextCentered(82, t_killbanner_sub);
+    T_DrawTextCentered(88, t_killbanner_sub);
 }
 
 void T_CountDamage(int dmg)

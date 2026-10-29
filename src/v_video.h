@@ -69,6 +69,16 @@ void V_DrawBlock(int x, int y, int width, int height, pixel_t *src);
 void V_MarkRect(int x, int y, int width, int height);
 
 void V_DrawFilledBox(int x, int y, int w, int h, int c);
+// Draw one bitmap-font glyph into the view buffer, in the same pass
+// as patch draws (no extra blit). glyph is w pixels wide, h rows tall,
+// packed LSB-first like the textscreen fonts: bit 0 of the first byte
+// is the leftmost pixel of row 0, bits run continuously across rows.
+// Set bits draw in colour; clear bits are transparent (the 3D view
+// behind shows through). Pixels outside the framebuffer are skipped,
+// never written, so a partially off-screen glyph cannot corrupt the
+// heap past I_VideoBuffer.
+void V_DrawBitmapGlyph(int x, int y, const byte *glyph, int w, int h,
+                       pixel_t colour);
 void V_DrawHorizLine(int x, int y, int w, int c);
 void V_DrawVertLine(int x, int y, int h, int c);
 void V_DrawBox(int x, int y, int w, int h, int c);
