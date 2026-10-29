@@ -134,14 +134,24 @@ rather than floating in it.
 
 1. **Crop to the head** and scale to your working size (~300×290).
    Keep the head centered and front-facing; every expression below
-   is derived from this one crop. Crop tight: the head should fill
-   the frame, with minimal body and minimal margin around it.
+   is derived from this one crop. Framing is the user's call: a
+   tight crop makes the head fill the frame with minimal body and
+   minimal margin, while a looser head-and-shoulders crop (head
+   ~70% of frame height, shoulders below, light margin above)
+   reads as the avatar a little further back. Whichever framing
+   is picked, derive ALL expressions from that one base at final
+   size — do not mix bases with different framing. Mixing was
+   tried and rejected: one base's eyes sat at y~10 with mouth at
+   y~13 while the other's sat at y15-16 with mouth at y18-19,
+   so the face jumped 5-6 px on every expression change.
 2. **Derive the 8 expressions.** Use judgment; the requirement is
    that all 8 read as different at 35×31, not any particular pixel
    layout:
    - Straight: the reference as-is.
    - Turn left / turn right: shift the pupils (and, if needed, the
-     whole eye/mouth block a pixel) toward the side.
+     whole eye/mouth block) toward the side, further than the
+     straight idle shift (v4: turns shift 2 px, straights shift
+     1 px), so a turn reads as a turn, not just idle variation.
    - Ouch: open mouth, widened eyes — a wince.
    - Evil grin: asymmetric smirk.
    - Rampage: gritted teeth, narrowed eyes, angled brows.
@@ -156,9 +166,13 @@ rather than floating in it.
    differ from every other — see "Distinct expressions" above.
 4. **Draw thin features at final resolution.** Mouths in particular
    must be drawn at 35×31, not downscaled: thin mouths vanish in a
-   NEAREST downscale and the face goes blank. Downscale the head
-   with NEAREST, then draw/retouch the mouth (and any thin eye
-   detail) at final size.
+   NEAREST downscale and the face goes blank, and a thin smile
+   can fragment into separate dots. Downscale the head
+   with NEAREST, inpaint any fragmented source mouth, then
+   draw/retouch the mouth (and any thin eye
+   detail) at final size, centred on the source mouth's position.
+   If the user asks to move the mouth, move the drawn mouth —
+   do not re-crop the source, or the framing changes with it.
 5. **Make god and dead exactly mirror-symmetric.** Asymmetric god
    and dead faces read as broken at this size; symmetry is a
    requirement for those two, not a preference.
@@ -246,4 +260,13 @@ a labeled montage of all 42 faces (grading progression and idle
 variants judged before shipping) and an in-game smoke test
 (launched with `-file`, the status-bar face shows Jolly at 100%
 health filling the entire window with no frame showing, and relaunching without `-file` returns
-vanilla Doomguy).
+vanilla Doomguy). v4 (2026-10-28) replaces v3's head-fill framing with
+the further-back framing above: the Normal base comes directly
+from the original hatch image with a loose crop, all 42 faces
+are derived from that one base at final size (sheet mixing
+rejected for the eye/mouth jump above), the Normal straight
+mouth is a 5 px smile drawn at final size, 1 px lower than the
+source mouth, per the user's pick, God is the symmetrised Normal
+with a wider 7 px smile, and Dead is X eyes with a slack mouth.
+v4 was verified the same two ways: a labeled montage of all 42
+and an in-game smoke test.
