@@ -23,11 +23,12 @@ not be revived. You generate the assets; the engine just loads them.
 
 This repo ships a default avatar so a first-time user starts with a
 working face instead of vanilla Doomguy: **Jolly**, the default Muse
-avatar, as `agent/jolly.wad` (42 lumps, 26 distinct images — straights
-pain-graded and distinct, transient faces share across bands by
-design since marks were removed; sized to fill the entire face
-window, frame included; built from the Jolly hatch reference with
-a further-back framing, and smoke-tested in-game). First-time setup is one copy:
+avatar, as `agent/jolly.wad` (42 lumps, 38 distinct images — straights,
+turns, ouch, and rampage pain-graded and distinct per band; only
+evil grin shares across bands, pending a grading decision; sized to
+fill the entire face window, frame included; built from the Jolly
+hatch reference with a further-back framing, a transparent
+background with a preblended edge, and smoke-tested in-game). First-time setup is one copy:
 
 ```sh
 mkdir -p avatar && cp agent/jolly.wad avatar/
@@ -105,11 +106,16 @@ damage marks that used to differentiate them were removed
   (subtle eye shifts are enough — that is what makes idle cycle).
 - Turn, ouch, grin, and rampage must differ from each other
   (different expressions, not the same image across expressions),
-  but need not differ per band: the shipped default shares turn
-  bands 0–2 and shares ouch, grin, and rampage across all bands
-  (42 lumps, 26 distinct images), because marks were the only
-  band differentiator for those faces and marks were removed.
-  Turn bands 3–4 stay distinct through eye narrowing.
+  but need not differ per band: the shipped default grades turns
+  (straight mouths per band, plus eye narrowing at bands 3–4),
+  ouch (widening open mouth, then agape mouth with shortened eyes,
+  then wide grimace), and rampage (mixed eye × mouth combinations,
+  bands 3–4 angrier: diagonal slits return, then longer slits with
+  a thick clenched bar) per band, and shares only evil grin across
+  all bands (42 lumps, 38 distinct images), because a grin grading
+  has not been ordered yet. Marks were the only band
+  differentiator for those faces before grading, and marks were
+  removed — see below.
 - God and dead are singles; they differ from each other and from
   every band face by construction.
 
@@ -173,7 +179,10 @@ rather than floating in it.
      1 px), so a turn reads as a turn, not just idle variation.
    - Ouch: open mouth, widened eyes — a wince.
    - Evil grin: asymmetric smirk.
-   - Rampage: gritted teeth, narrowed eyes, angled brows.
+   - Rampage: gritted teeth, narrowed eyes, angled brows
+     (except Jolly: brows were tried 2026-10-29 and rejected —
+     no other Jolly sprite has brows, so they read as odd; do
+     not add brows to Jolly).
    - God: a radiant / invulnerable treatment of the straight face.
    - Dead: closed or X eyes, slack mouth.
 3. **Grade the 5 bands and vary the straights.** From each base
@@ -208,7 +217,15 @@ rather than floating in it.
    posts. Transparency is encoded the Doom way: background pixels
    simply have no posts in their columns, so the face composites
    over the status bar behind it. (An opaque patch that fills its
-   box needs no transparency posts.) Precedent in this repo:
+   box needs no transparency posts.) The shipped Jolly default
+   uses transparency: background pixels have no posts, using one
+   shared mask for all 42 faces (derived from Normal, flood-fill
+   from the corners through neutral grey) so the silhouette never
+   changes between expressions, and the 1 px edge ring is
+   preblended 50% with the STBAR face grey (50,50,50 on Freedoom)
+   in RGB before quantization, to soften the 1-to-0 edge — Doom
+   patches have no alpha, so this is the only softening available
+   short of engine work. Precedent in this repo:
    `assets/make_pistol_sprite.py` builds a genuine `patch_t` from
    an image with PLAYPAL from the IWAD — read it before writing
    your encoder and follow the same approach.
