@@ -2279,12 +2279,15 @@ static boolean T_ActionEnabled(turnaction_t action)
 }
 
 // One action row: key, name, TP cost. Unaffordable rows draw dim red.
-// Rows scrolled off-screen (y < 8) are skipped but still advance y.
+// Rows scrolled above the text area (y < 18) are skipped but still
+// advance y: the title at y=2 (7px tall, ends at 9) keeps its gap to
+// the text area even when a long queue scrolls the menu up — the
+// first visible row is always at y=18 or below, never at y=9.
 static void T_DrawActionRow(int x, int *y, const char *key, const char *name,
                             turnaction_t action, const char *coststr)
 {
     char line[64];
-    if (*y >= 8)
+    if (*y >= 18)
     {
         M_snprintf(line, sizeof(line), "%s %-8s %s", key, name, coststr);
         if (T_ActionEnabled(action))
@@ -2367,7 +2370,7 @@ static int T_DrawQueuePanelAt(int start_y)
         return y;
     // Show the queue during execution so commands visibly pop off as
     // they run.
-    if (y >= 8)
+    if (y >= 18)
         T_DrawText(x, y, "QUEUE");
     y += 9;
     // Show ALL queued commands (no collapsing). The unified scrolling
@@ -2377,13 +2380,13 @@ static int T_DrawQueuePanelAt(int start_y)
         t_queueentry_t *e = &turnctrl.queue[i];
         T_QueueEntryName(e, name, sizeof(name));
         M_snprintf(line, sizeof(line), "%d %s %dTP", i + 1, name, e->cost);
-        if (y >= 8)
+        if (y >= 18)
             T_DrawText(x, y, line);
         y += 9;
     }
     M_snprintf(line, sizeof(line), "%d ACTS %dTP RSVD",
                turnctrl.queue_len, turnctrl.queue_tp);
-    if (y >= 8)
+    if (y >= 18)
         T_DrawTextHi(x, y, line);
     y += 9;
     return y + 9; // gap before the menu
@@ -2391,7 +2394,9 @@ static int T_DrawQueuePanelAt(int start_y)
 
 // Unified planning UI: menu and queue act as one scrolling text area.
 // Only the bottom-most lines are visible; older content scrolls off
-// the top as new commands are queued. No collapsing.
+// the top as new commands are queued. No collapsing. Scrolling never
+// closes the title gap: rows above y=18 are skipped, so the first
+// visible row stays at y=18 even with a long queue.
 static void T_DrawPlanningUI(void)
 {
     // Menu is ~8 rows. Queue is 1 (header) + N (items) + 1 (total) + 1 (gap).
