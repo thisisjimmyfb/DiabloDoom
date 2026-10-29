@@ -565,27 +565,6 @@ void V_DrawFilledBox(int x, int y, int w, int h, int c)
     }
 }
 
-void V_DrawBitmapGlyph(int x, int y, const byte *glyph, int w, int h,
-                       pixel_t colour)
-{
-    int row, col, bitpos = 0;
-
-    if (glyph == NULL || w <= 0 || h <= 0)
-        return;
-    for (row = 0; row < h; row++)
-    {
-        for (col = 0; col < w; col++, bitpos++)
-        {
-            int dx = x + col, dy = y + row;
-            if ((glyph[bitpos / 8] & (1 << (bitpos % 8))) == 0)
-                continue;
-            if (dx < 0 || dx >= SCREENWIDTH || dy < 0 || dy >= SCREENHEIGHT)
-                continue;
-            dest_screen[dy * SCREENWIDTH + dx] = colour;
-        }
-    }
-}
-
 void V_DrawHorizLine(int x, int y, int w, int c)
 {
     pixel_t *buf;
