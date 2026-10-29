@@ -69,13 +69,16 @@ boolean P_DoCorpseRespawn(void)
         players[pnum].diablo_equipped[i] = -1; // D_NOITEM
         players[pnum].diablo_equipped_dur[i] = 0;
     }
-    for (i = 0; i < 40; i++) {
+    for (i = 0; i < D_BACKPACK_MAX; i++) {
         players[pnum].diablo_backpack[i] = -1;
         players[pnum].diablo_bp_gx[i] = -1;
         players[pnum].diablo_bp_gy[i] = -1;
+        players[pnum].diablo_bp_page[i] = 0;
         players[pnum].diablo_backpack_dur[i] = 0;
     }
     players[pnum].diablo_bp_count = 0;
+    /* Unlocked pages persist through death; only the view resets. */
+    players[pnum].diablo_bp_cur = 0;
     players[pnum].diablo_essence = 0;
     players[pnum].playerstate = PST_LIVE;
     P_SpawnPlayer(&playerstarts[pnum]);
@@ -763,6 +766,7 @@ P_TouchSpecialThing
 		    special->corpse_backpack[w] = id;
 		    special->corpse_bp_gx[w] = special->corpse_bp_gx[r];
 		    special->corpse_bp_gy[w] = special->corpse_bp_gy[r];
+		    special->corpse_bp_page[w] = special->corpse_bp_page[r];
 		    special->corpse_backpack_dur[w] =
 			special->corpse_backpack_dur[r];
 		    w++;
@@ -770,6 +774,8 @@ P_TouchSpecialThing
 		}
 	    }
 	    special->corpse_bp_count = w;
+    if (special->corpse_bp_pages > player->diablo_bp_pages)
+        player->diablo_bp_pages = special->corpse_bp_pages;
 	}
 
 	if (equipped_changed)
@@ -1121,7 +1127,22 @@ P_TouchSpecialThing
 	}
 	for (i=0 ; i<NUMAMMO ; i++)
 	    P_GiveAmmo (player, i, 1);
-	player->message = DEH_String(GOTBACKPACK);
+	/* Backpack pages (Jimmy, 2026-10-29): every vanilla backpack
+	   pickup unlocks one more Diablo backpack page, 1 by default
+	   up to 4.  Ammo doubling above stays first-pickup-only. */
+	if (player->diablo_bp_pages < D_BP_MAX_PAGES)
+	{
+	    player->diablo_bp_pages++;
+	    {
+		static char buf[64];  /* message pointer must outlive this call */
+		M_snprintf(buf, sizeof(buf),
+			   "Backpack expanded! Page %d of %d unlocked.",
+			   player->diablo_bp_pages, D_BP_MAX_PAGES);
+		player->message = buf;
+	    }
+	}
+	else
+	    player->message = DEH_String(GOTBACKPACK);
 	break;
 	
 	// weapons
@@ -1251,13 +1272,15 @@ P_KillMobj
 		target->corpse_equipped[i] = p->diablo_equipped[i];
 		target->corpse_equipped_dur[i] = p->diablo_equipped_dur[i];
 	    }
-	    for (i = 0; i < 40; i++) {
+	    for (i = 0; i < D_BACKPACK_MAX; i++) {
 		target->corpse_backpack[i] = p->diablo_backpack[i];
 		target->corpse_bp_gx[i] = p->diablo_bp_gx[i];
 		target->corpse_bp_gy[i] = p->diablo_bp_gy[i];
+		target->corpse_bp_page[i] = p->diablo_bp_page[i];
 		target->corpse_backpack_dur[i] = p->diablo_backpack_dur[i];
 	    }
 	    target->corpse_bp_count = p->diablo_bp_count;
+	    target->corpse_bp_pages = p->diablo_bp_pages;
 	    target->corpse_essence = p->diablo_essence;
 	    // Detach corpse from player so new spawn doesn't conflict.
 	    // Leave it solid=false but touchable for inventory recovery.

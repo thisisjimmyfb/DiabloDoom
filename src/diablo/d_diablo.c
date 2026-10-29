@@ -566,14 +566,17 @@ void D_ResetPlayer(struct player_s *pl)
         player->diablo_equipped[i] = D_NOITEM;
         player->diablo_equipped_dur[i] = 0;
     }
-    for (i = 0; i < D_BACKPACK_SIZE; i++)
+    for (i = 0; i < D_BACKPACK_MAX; i++)
     {
         player->diablo_backpack[i] = D_NOITEM;
         player->diablo_bp_gx[i] = -1;
         player->diablo_bp_gy[i] = -1;
         player->diablo_backpack_dur[i] = 0;
+        player->diablo_bp_page[i] = 0;
     }
     player->diablo_bp_count = 0;
+    player->diablo_bp_pages = 1;
+    player->diablo_bp_cur = 0;
     player->diablo_recent = -1;
     for (i = 0; i < NUM_DSTATS; i++)
         player->diablo_stats[i] = 0;
@@ -761,7 +764,29 @@ int D_MaxHealth(struct player_s *pl)
 // Phase 2 backpack grid helpers.  Each backpack entry tracks the
 // top-left cell of its footprint (diablo_bp_gx/gy), or -1/-1.
 
-boolean D_GridFindSpace(struct player_s *pl, int w, int h, int *gx, int *gy)
+int D_BpPages(struct player_s *pl)
+{
+    player_t *player = (player_t *)pl;
+    if (player->diablo_bp_pages < 1)
+        return 1;
+    if (player->diablo_bp_pages > D_BP_MAX_PAGES)
+        return D_BP_MAX_PAGES;
+    return player->diablo_bp_pages;
+}
+
+int D_BpCurPage(struct player_s *pl)
+{
+    player_t *player = (player_t *)pl;
+    int pages = D_BpPages(pl);
+    if (player->diablo_bp_cur < 0)
+        return 0;
+    if (player->diablo_bp_cur >= pages)
+        return pages - 1;
+    return player->diablo_bp_cur;
+}
+
+boolean D_GridFindSpacePage(struct player_s *pl, int page,
+                            int w, int h, int *gx, int *gy)
 {
     player_t *player = (player_t *)pl;
     int x, y, i, ox, oy, ow, oh, oid;
@@ -778,6 +803,8 @@ boolean D_GridFindSpace(struct player_s *pl, int w, int h, int *gx, int *gy)
             blocked = false;
             for (i = 0; i < player->diablo_bp_count; i++)
             {
+                if (player->diablo_bp_page[i] != page)
+                    continue;
                 ox = player->diablo_bp_gx[i];
                 oy = player->diablo_bp_gy[i];
                 if (ox < 0 || oy < 0)
@@ -807,6 +834,12 @@ boolean D_GridFindSpace(struct player_s *pl, int w, int h, int *gx, int *gy)
     return false;
 }
 
+// Current-page search, for UI placement (the UI shows one page).
+boolean D_GridFindSpace(struct player_s *pl, int w, int h, int *gx, int *gy)
+{
+    return D_GridFindSpacePage(pl, D_BpCurPage(pl), w, h, gx, gy);
+}
+
 // Heal a loaded backpack layout: re-place, first-fit and in stored
 // order, any item whose stored position no longer fits under the
 // current def footprints (out of bounds, or overlapping an item
@@ -818,8 +851,12 @@ void D_RepairBackpackLayout(struct player_s *pl)
 {
     player_t *player = (player_t *)pl;
     boolean occupied[D_BP_GRID_H][D_BP_GRID_W];
-    int i, x, y, cx, cy;
+    int i, x, y, cx, cy, page;
 
+    // Repair page by page: occupancy is per page, so an item on
+    // page 2 must never block (or be blocked by) a page 1 item.
+    for (page = 0; page < D_BP_MAX_PAGES; page++)
+    {
     memset(occupied, 0, sizeof(occupied));
     for (i = 0; i < player->diablo_bp_count; i++)
     {
@@ -829,6 +866,8 @@ void D_RepairBackpackLayout(struct player_s *pl)
         boolean ok;
 
         if (id == D_NOITEM)
+            continue;
+        if (player->diablo_bp_page[i] != page)
             continue;
         def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
         if (!def)
@@ -888,6 +927,7 @@ void D_RepairBackpackLayout(struct player_s *pl)
                  && cy >= 0 && cy < D_BP_GRID_H)
                     occupied[cy][cx] = true;
     }
+    }
 }
 
 // Remove the backpack entry at index bpi, shifting the rest down.
@@ -900,12 +940,14 @@ static void D_BackpackRemove(player_t *player, int bpi)
         player->diablo_bp_gx[i] = player->diablo_bp_gx[i + 1];
         player->diablo_bp_gy[i] = player->diablo_bp_gy[i + 1];
         player->diablo_backpack_dur[i] = player->diablo_backpack_dur[i + 1];
+        player->diablo_bp_page[i] = player->diablo_bp_page[i + 1];
     }
     player->diablo_bp_count--;
     player->diablo_backpack[player->diablo_bp_count] = D_NOITEM;
     player->diablo_bp_gx[player->diablo_bp_count] = -1;
     player->diablo_bp_gy[player->diablo_bp_count] = -1;
     player->diablo_backpack_dur[player->diablo_bp_count] = 0;
+    player->diablo_bp_page[player->diablo_bp_count] = 0;
 }
 
 // Public wrapper for the UI.
@@ -1174,12 +1216,37 @@ boolean D_BackpackAddDur(struct player_s *pl, int tier, int idx, int dur)
 
     if (!def)
         return false;
-    if (player->diablo_bp_count >= D_BACKPACK_SIZE)
+    if (player->diablo_bp_count >= D_BACKPACK_MAX)
         return false;
 
-    // Phase 2: the item needs a free footprint on the backpack grid.
-    if (!D_GridFindSpace(pl, def->grid_w, def->grid_h, &gx, &gy))
-        return false;
+    // Phase 2: the item needs a free footprint on a backpack grid.
+    // Try the current page first, then the other unlocked pages in
+    // order, so a pickup never fails while another page has room.
+    {
+        int pages = D_BpPages(pl);
+        int cur = D_BpCurPage(pl);
+        int page, found = 0;
+        /* Current page first, then the other unlocked pages. */
+        if (D_GridFindSpacePage(pl, cur, def->grid_w, def->grid_h,
+                                &gx, &gy))
+        {
+            player->diablo_bp_page[player->diablo_bp_count] = cur;
+            found = 1;
+        }
+        for (page = 0; page < pages && !found; page++)
+        {
+            if (page == cur)
+                continue;
+            if (D_GridFindSpacePage(pl, page, def->grid_w, def->grid_h,
+                                    &gx, &gy))
+            {
+                player->diablo_bp_page[player->diablo_bp_count] = page;
+                found = 1;
+            }
+        }
+        if (!found)
+            return false;
+    }
 
     player->diablo_backpack[player->diablo_bp_count] = D_MAKEITEM(tier, idx);
     player->diablo_bp_gx[player->diablo_bp_count] = gx;
@@ -1204,10 +1271,18 @@ boolean D_BackpackFull(struct player_s *pl)
     player_t *player = (player_t *)pl;
     int gx, gy;
 
-    if (player->diablo_bp_count >= D_BACKPACK_SIZE)
+    if (player->diablo_bp_count >= D_BACKPACK_MAX)
         return true;
-    // Nothing can be added when not even a 1x1 item finds space.
-    return !D_GridFindSpace(pl, 1, 1, &gx, &gy);
+    // Nothing can be added when not even a 1x1 item finds space on
+    // any unlocked page.
+    {
+        int pages = D_BpPages(pl);
+        int page;
+        for (page = 0; page < pages; page++)
+            if (D_GridFindSpacePage(pl, page, 1, 1, &gx, &gy))
+                return false;
+    }
+    return true;
 }
 
 // Throttled "Backpack full!" (pickup is re-attempted every tic while
@@ -1358,7 +1433,7 @@ void D_EquipRecent(struct player_s *pl)
         int gx, gy;
         odef = D_GetItemDef(D_ITEMTIER(old), D_ITEMIDX(old));
         if (!odef
-         || player->diablo_bp_count >= D_BACKPACK_SIZE
+         || player->diablo_bp_count >= D_BACKPACK_MAX
          || !D_GridFindSpace(pl, odef->grid_w, odef->grid_h, &gx, &gy))
         {
             // No room to stash the swapped-out item.
@@ -1380,6 +1455,8 @@ void D_EquipRecent(struct player_s *pl)
             player->diablo_backpack[player->diablo_bp_count] = old;
             player->diablo_bp_gx[player->diablo_bp_count] = gx;
             player->diablo_bp_gy[player->diablo_bp_count] = gy;
+            player->diablo_bp_page[player->diablo_bp_count] =
+                D_BpCurPage(pl);
             player->diablo_backpack_dur[player->diablo_bp_count] =
                 player->diablo_equipped_dur[slot];
             player->diablo_bp_count++;
@@ -1426,6 +1503,8 @@ void D_UnequipAll(struct player_s *pl)
         player->diablo_backpack[player->diablo_bp_count] = id;
         player->diablo_bp_gx[player->diablo_bp_count] = gx;
         player->diablo_bp_gy[player->diablo_bp_count] = gy;
+        player->diablo_bp_page[player->diablo_bp_count] =
+            D_BpCurPage(pl);
         player->diablo_backpack_dur[player->diablo_bp_count] =
             player->diablo_equipped_dur[s];
         player->diablo_equipped_dur[s] = 0;

@@ -168,17 +168,20 @@ typedef struct player_s
     // top-left cell of the item's footprint, or -1 when not placed.
     // NOTE: not yet saved to savegames (Phase 2); gear resets on load.
     int			diablo_equipped[NUM_ESLOTS];
-    int			diablo_backpack[D_BACKPACK_SIZE];
-    int			diablo_bp_gx[D_BACKPACK_SIZE];
-    int			diablo_bp_gy[D_BACKPACK_SIZE];
+    int			diablo_backpack[D_BACKPACK_MAX];
+    int			diablo_bp_gx[D_BACKPACK_MAX];
+    int			diablo_bp_gy[D_BACKPACK_MAX];
+    int			diablo_bp_page[D_BACKPACK_MAX];
     // Per-instance durability (points) for the durability slots
     // (helm, armor, boots, gloves, belt); other slots stay 0.
     // A piece at 0 contributes no Defense. Max is per-item
     // (D_ItemMaxDurability). Travels with the item everywhere the
     // packed id travels: backpack, corpse, savegames.
     int			diablo_equipped_dur[NUM_ESLOTS];
-    int			diablo_backpack_dur[D_BACKPACK_SIZE];
-    int			diablo_bp_count;
+    int			diablo_backpack_dur[D_BACKPACK_MAX];
+    int			diablo_bp_count;	// total across all pages
+    int			diablo_bp_pages;	// unlocked pages, 1..D_BP_MAX_PAGES
+    int			diablo_bp_cur;	// current UI page, 0..pages-1
     int			diablo_recent;	// backpack idx of latest pickup
     int			diablo_stats[NUM_DSTATS];
     int			diablo_essence;	// salvage currency from junking loot

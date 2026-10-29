@@ -94,9 +94,15 @@ typedef enum
 #define D_BACKPACK_SIZE  40
 #define D_NOITEM         (-1)
 
-// Phase 2 backpack grid dimensions (cells).  10x4 = 40 cells.
+// Phase 2 backpack grid dimensions (cells).  10x4 = 40 cells per page.
 #define D_BP_GRID_W  10
 #define D_BP_GRID_H  4
+
+// Backpack pages (Jimmy, 2026-10-29): 1 page by default, +1 per
+// vanilla backpack pickup, up to 4 pages.  Each page is its own
+// 10x4 grid; items live on exactly one page (diablo_bp_page[]).
+#define D_BP_MAX_PAGES  4
+#define D_BACKPACK_MAX  (D_BACKPACK_SIZE * D_BP_MAX_PAGES)
 
 // Packed item id: (tier << 8) | index.  D_NOITEM means "empty".
 #define D_MAKEITEM(tier, idx)  (((tier) << 8) | (idx))
@@ -208,8 +214,15 @@ void D_UnequipAll(struct player_s *player);    // Q key (Phase 1)
 void D_BackpackFullMsg(struct player_s *player);
 
 // Phase 2 backpack grid.  bpi is an index into diablo_backpack[].
+// D_GridFindSpace searches the player's current page;
+// D_GridFindSpacePage searches one named page.
 boolean D_GridFindSpace(struct player_s *player, int w, int h,
                         int *gx, int *gy);
+boolean D_GridFindSpacePage(struct player_s *player, int page,
+                            int w, int h, int *gx, int *gy);
+// Clamped unlocked page count (1..4) and current page (0..pages-1).
+int D_BpPages(struct player_s *player);
+int D_BpCurPage(struct player_s *player);
 // Re-place loaded backpack items whose stored position no longer
 // fits the current def footprints (load-time layout repair).
 void D_RepairBackpackLayout(struct player_s *player);

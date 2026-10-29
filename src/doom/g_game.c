@@ -1280,18 +1280,24 @@ void G_PlayerReborn (int player)
     // every respawn path.
     {
 	int rec, st[NUM_DSTATS];
+	int rec_pages;
 	int i2;
 	rec = p->diablo_recent;
+	rec_pages = p->diablo_bp_pages;
 	for (i2 = 0; i2 < NUM_DSTATS; i2++) st[i2] = p->diablo_stats[i2];
 	memset (p, 0, sizeof(*p));
 	for (i2 = 0; i2 < NUM_ESLOTS; i2++) p->diablo_equipped[i2] = -1;
-	for (i2 = 0; i2 < D_BACKPACK_SIZE; i2++)
+	for (i2 = 0; i2 < D_BACKPACK_MAX; i2++)
 	{
 	    p->diablo_backpack[i2] = -1;
 	    p->diablo_bp_gx[i2] = -1;
 	    p->diablo_bp_gy[i2] = -1;
+	    p->diablo_bp_page[i2] = 0;
+	    p->diablo_backpack_dur[i2] = 0;
 	}
 	p->diablo_bp_count = 0;
+	p->diablo_bp_pages = (rec_pages >= 1 && rec_pages <= D_BP_MAX_PAGES) ? rec_pages : 1;
+	p->diablo_bp_cur = 0;
 	p->diablo_recent = rec;
 	for (i2 = 0; i2 < NUM_DSTATS; i2++) p->diablo_stats[i2] = st[i2];
     }

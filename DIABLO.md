@@ -24,8 +24,10 @@ pauses while the screen is open.
   boots, gloves, belt, plus a **FOCUS** slot — passive, non-consumable
   focus items (Piercing Rounds, Incendiary Shells, …) that grant stat
   bonuses to the equipped weapon.
-- **Backpack** (right): 10×4 grid. Items occupy their grid_w × grid_h
-  footprint. Weapons lie horizontal, shaped like their sprites:
+- **Backpack** (right): 10×4 grid per page, 1 page by default.
+  Every vanilla backpack pickup unlocks one more page, up to 4
+  pages (160 cells total). Items occupy their grid_w × grid_h
+  footprint on exactly one page. Weapons lie horizontal, shaped like their sprites:
   pistol 2×1, shotgun/Super Shotgun/chainsaw 3×1, chaingun/rocket
   launcher/plasma rifle/BFG 3×2; potions 1×1.
 - **Item icons**: guns show the loaded WAD's own pickup sprite (the
@@ -53,6 +55,8 @@ The UI uses click-to-pick-up / click-to-place (not hold-and-drag):
 - **Hover**: tooltip shows name, rarity, damage, defense, durability,
   attributes, resistances, life steal, magic find, movement speed.
 - **ESC** or **C**: close (stashes any held item).
+- **Tab**: cycle backpack pages, then gear slots, then back to
+  page 1 (with one page unlocked, this is just backpack <-> gear).
 
 ### Rarity colors
 

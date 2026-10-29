@@ -235,6 +235,8 @@ static int UIBackpackAt(player_t *player, int gx, int gy)
         int oy = player->diablo_bp_gy[i];
         int id = player->diablo_backpack[i];
         const diablo_itemdef_t *def;
+        if (player->diablo_bp_page[i] != D_BpCurPage((struct player_s *)player))
+            continue;
         if (ox < 0 || oy < 0)
             continue;
         def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
@@ -292,6 +294,8 @@ static boolean UICanPlaceAt(player_t *player, int id, int gx, int gy)
         int oid = player->diablo_backpack[i];
         const diablo_itemdef_t *odef;
         int ow, oh;
+        if (player->diablo_bp_page[i] != D_BpCurPage((struct player_s *)player))
+            continue;
         if (ox < 0 || oy < 0)
             continue;
         odef = D_GetItemDef(D_ITEMTIER(oid), D_ITEMIDX(oid));
@@ -311,12 +315,13 @@ static boolean UICanPlaceAt(player_t *player, int id, int gx, int gy)
 static void UIAppendAt(player_t *player, int id, int gx, int gy, int dur)
 {
     int bpi;
-    if (player->diablo_bp_count >= D_BACKPACK_SIZE)
+    if (player->diablo_bp_count >= D_BACKPACK_MAX)
         return;
     bpi = player->diablo_bp_count++;
     player->diablo_backpack[bpi] = id;
     player->diablo_bp_gx[bpi] = gx;
     player->diablo_bp_gy[bpi] = gy;
+    player->diablo_bp_page[bpi] = D_BpCurPage((struct player_s *)player);
     player->diablo_backpack_dur[bpi] = dur;
 }
 
@@ -391,6 +396,8 @@ void D_UIOpen(void)
     ui_kb_gy = 0;
     for (i = 0; i < player->diablo_bp_count; i++)
     {
+        if (player->diablo_bp_page[i] != D_BpCurPage((struct player_s *)player))
+            continue;
         if (player->diablo_bp_gx[i] >= 0 && player->diablo_bp_gy[i] >= 0)
         {
             ui_kb_gx = player->diablo_bp_gx[i];
@@ -739,8 +746,24 @@ static void UIKbMove(int dx, int dy)
 
 static void UIKbTogglePane(void)
 {
+    player_t *player = &players[consoleplayer];
     ui_kb_active = true;
-    ui_kb_pane = 1 - ui_kb_pane;
+    /* Tab cycles backpack pages first, then the gear slots, then
+       back to page 1: P1 -> P2 -> ... -> gear -> P1.  With one page
+       unlocked this is exactly the old backpack <-> gear toggle. */
+    if (ui_kb_pane == 0)
+    {
+        if (D_BpCurPage((struct player_s *)player) + 1
+            < D_BpPages((struct player_s *)player))
+            player->diablo_bp_cur = D_BpCurPage((struct player_s *)player) + 1;
+        else
+            ui_kb_pane = 1;
+    }
+    else
+    {
+        ui_kb_pane = 0;
+        player->diablo_bp_cur = 0;
+    }
     UIKbSyncCursor();
 }
 
@@ -1563,8 +1586,14 @@ void D_UIDrawer(void)
     for (i = 0; i < NUM_ESLOTS; i++)
         UIDrawSlot(player, ui_slots[i].slot, ui_slots[i].x, ui_slots[i].y);
 
-    // Backpack.
-    UIDrawText(UI_BP_X, 26, "BACKPACK");
+    // Backpack, with the current page out of the unlocked pages.
+    {
+        char bptitle[32];
+        M_snprintf(bptitle, sizeof(bptitle), "BACKPACK %d/%d",
+                   D_BpCurPage((struct player_s *)player) + 1,
+                   D_BpPages((struct player_s *)player));
+        UIDrawText(UI_BP_X, 26, bptitle);
+    }
     // Essence display (salvage currency)
     {
         char essbuf[32];
@@ -1583,6 +1612,8 @@ void D_UIDrawer(void)
         const diablo_itemdef_t *def;
         int ox = player->diablo_bp_gx[i];
         int oy = player->diablo_bp_gy[i];
+        if (player->diablo_bp_page[i] != D_BpCurPage((struct player_s *)player))
+            continue;
         if (ox < 0 || oy < 0)
             continue;
         def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
@@ -1626,7 +1657,7 @@ void D_UIDrawer(void)
     }
 
     // Hint lines.
-    UIDrawText(10, 180, "ARROWS:MOVE TAB:PANE ENTER:PICK/PLACE E:EQUIP");
+    UIDrawText(10, 180, "ARROWS:MOVE TAB:PAGE/GEAR ENTER:PICK/PLACE E:EQUIP");
     UIDrawText(10, 190, "R:CANCEL Q:UNEQUIP ALL X:DROP  MOUSE:DRAG/CLICK");
 
     // Transient message.

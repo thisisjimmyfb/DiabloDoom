@@ -1603,7 +1603,7 @@ static void cmd_dispatch(const char *cmd)
         int bpi, slot;
         player_t *pl = &players[consoleplayer];
         if (sscanf(cmd + 6, "%d %d", &bpi, &slot) == 2
-            && bpi >= 0 && bpi < 40 && slot >= 0 && slot <= 10)
+            && bpi >= 0 && bpi < D_BACKPACK_MAX && slot >= 0 && slot <= 10)
         {
             int id = pl->diablo_backpack[bpi];
             if (id != -1)
@@ -1623,12 +1623,13 @@ static void cmd_dispatch(const char *cmd)
                 {
                     // D_BackpackAdd needs tier/idx; use direct placement instead
                     int i;
-                    for (i = 0; i < 40; i++)
+                    for (i = 0; i < D_BACKPACK_MAX; i++)
                     {
                         if (pl->diablo_backpack[i] == -1)
                         {
                             pl->diablo_backpack[i] = old;
                             pl->diablo_backpack_dur[i] = old_dur;
+                            pl->diablo_bp_page[i] = pl->diablo_bp_cur;
                             break;
                         }
                     }
@@ -1650,13 +1651,14 @@ static void cmd_dispatch(const char *cmd)
             {
                 extern void D_RecalcStats(struct player_s *player);
                 int i;
-                for (i = 0; i < 40; i++)
+                for (i = 0; i < D_BACKPACK_MAX; i++)
                 {
                     if (pl->diablo_backpack[i] == -1)
                     {
                         pl->diablo_backpack[i] = id;
                         pl->diablo_backpack_dur[i] =
                             pl->diablo_equipped_dur[slot];
+                        pl->diablo_bp_page[i] = pl->diablo_bp_cur;
                         pl->diablo_equipped[slot] = -1;
                         pl->diablo_equipped_dur[slot] = 0;
                         D_RecalcStats((struct player_s *)pl);
@@ -1672,7 +1674,7 @@ static void cmd_dispatch(const char *cmd)
         // SALVAGE <backpack_index>: turn backpack item into essence.
         int bpi;
         player_t *pl = &players[consoleplayer];
-        if (sscanf(cmd + 8, "%d", &bpi) == 1 && bpi >= 0 && bpi < 40)
+        if (sscanf(cmd + 8, "%d", &bpi) == 1 && bpi >= 0 && bpi < D_BACKPACK_MAX)
         {
             int id = pl->diablo_backpack[bpi];
             if (id != -1)

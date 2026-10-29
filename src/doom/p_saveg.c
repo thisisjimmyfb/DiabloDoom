@@ -2014,19 +2014,22 @@ void P_UnArchiveSpecials (void)
 #define DIABLO_SAVE_MAGIC 0x44494142  // 'DIAB' (first byte 0x44 != 0x1d)
 #define DIABLO_SAVE_MAGIC2 0x44494232 // 'DIB2': versioned item database
 #define DIABLO_SAVE_MAGIC3 0x44494233 // 'DIB3': + per-item durability
+#define DIABLO_SAVE_MAGIC4 0x44494234 // 'DIB4': + backpack pages
 
 // Item-database version. Bumped when the item tables are rewritten (the
 // gun rework replaced melee weapons with gun bases and reordered magic),
 // so old saves never silently reinterpret shifted item IDs. Version 3
 // (DIB3) adds per-item durability; DIB2 saves still load, with every
-// piece defaulted to full durability.
-#define DIABLO_SAVE_VERSION 3
+// piece defaulted to full durability. Version 4 (DIB4) adds backpack
+// pages (1 by default, up to 4); DIB2/DIB3 saves still load, with
+// 1 page and every item on page 1.
+#define DIABLO_SAVE_VERSION 4
 
 void P_ArchiveDiablo(void)
 {
     int i, j;
 
-    saveg_write32(DIABLO_SAVE_MAGIC3);
+    saveg_write32(DIABLO_SAVE_MAGIC4);
     saveg_write32(DIABLO_SAVE_VERSION);
 
     for (i = 0; i < MAXPLAYERS; i++)
@@ -2040,12 +2043,15 @@ void P_ArchiveDiablo(void)
             saveg_write32(players[i].diablo_equipped_dur[j]);
 
         saveg_write32(players[i].diablo_bp_count);
-        for (j = 0; j < D_BACKPACK_SIZE; j++)
+        saveg_write32(players[i].diablo_bp_pages);
+        saveg_write32(players[i].diablo_bp_cur);
+        for (j = 0; j < D_BACKPACK_MAX; j++)
         {
             saveg_write32(players[i].diablo_backpack[j]);
             saveg_write32(players[i].diablo_bp_gx[j]);
             saveg_write32(players[i].diablo_bp_gy[j]);
             saveg_write32(players[i].diablo_backpack_dur[j]);
+            saveg_write32(players[i].diablo_bp_page[j]);
         }
         saveg_write32(players[i].diablo_recent);
         // diablo_stats[] is derived; recalculated on load.
@@ -2092,11 +2098,17 @@ boolean P_UnArchiveDiablo(void)
                "equipment cleared.\n");
         return true;
     }
-    if (magic != DIABLO_SAVE_MAGIC2 && magic != DIABLO_SAVE_MAGIC3)
+    if (magic != DIABLO_SAVE_MAGIC2 && magic != DIABLO_SAVE_MAGIC3
+        && magic != DIABLO_SAVE_MAGIC4)
         I_Error("P_UnArchiveDiablo: bad magic 0x%x", magic);
-    with_dur = (magic == DIABLO_SAVE_MAGIC3);
-    if (saveg_read32() != (with_dur ? DIABLO_SAVE_VERSION : 2))
-        I_Error("P_UnArchiveDiablo: unsupported item database version");
+    with_dur = (magic == DIABLO_SAVE_MAGIC3 || magic == DIABLO_SAVE_MAGIC4);
+    {
+        int ver = saveg_read32();
+        int want = (magic == DIABLO_SAVE_MAGIC4) ? DIABLO_SAVE_VERSION
+                   : (with_dur ? 3 : 2);
+        if (ver != want)
+            I_Error("P_UnArchiveDiablo: unsupported item database version");
+    }
 
     for (i = 0; i < MAXPLAYERS; i++)
     {
@@ -2123,10 +2135,31 @@ boolean P_UnArchiveDiablo(void)
         players[i].diablo_bp_count = saveg_read32();
         if (players[i].diablo_bp_count < 0)
             players[i].diablo_bp_count = 0;
-        if (players[i].diablo_bp_count > D_BACKPACK_SIZE)
-            players[i].diablo_bp_count = D_BACKPACK_SIZE;
+        if (magic == DIABLO_SAVE_MAGIC4)
+        {
+            players[i].diablo_bp_pages = saveg_read32();
+            players[i].diablo_bp_cur = saveg_read32();
+            if (players[i].diablo_bp_pages < 1)
+                players[i].diablo_bp_pages = 1;
+            if (players[i].diablo_bp_pages > D_BP_MAX_PAGES)
+                players[i].diablo_bp_pages = D_BP_MAX_PAGES;
+            if (players[i].diablo_bp_cur < 0
+             || players[i].diablo_bp_cur >= players[i].diablo_bp_pages)
+                players[i].diablo_bp_cur = 0;
+            if (players[i].diablo_bp_count > D_BACKPACK_MAX)
+                players[i].diablo_bp_count = D_BACKPACK_MAX;
+        }
+        else
+        {
+            /* DIB2/DIB3: one page, every item on page 1. */
+            players[i].diablo_bp_pages = 1;
+            players[i].diablo_bp_cur = 0;
+            if (players[i].diablo_bp_count > D_BACKPACK_SIZE)
+                players[i].diablo_bp_count = D_BACKPACK_SIZE;
+        }
 
-        for (j = 0; j < D_BACKPACK_SIZE; j++)
+        for (j = 0; j < ((magic == DIABLO_SAVE_MAGIC4)
+                         ? D_BACKPACK_MAX : D_BACKPACK_SIZE); j++)
         {
             int dur;
             id = saveg_read32();
@@ -2135,6 +2168,11 @@ boolean P_UnArchiveDiablo(void)
             players[i].diablo_bp_gy[j] = saveg_read32();
             dur = with_dur ? saveg_read32() : 0;
             players[i].diablo_backpack_dur[j] = dur < 0 ? 0 : dur;
+            players[i].diablo_bp_page[j] =
+                (magic == DIABLO_SAVE_MAGIC4) ? saveg_read32() : 0;
+            if (players[i].diablo_bp_page[j] < 0
+             || players[i].diablo_bp_page[j] >= D_BP_MAX_PAGES)
+                players[i].diablo_bp_page[j] = 0;
             // Invalidate out-of-range entries.
             if (j >= players[i].diablo_bp_count
              || (id != D_NOITEM && !D_ValidItem(D_ITEMTIER(id), D_ITEMIDX(id))))
@@ -2143,6 +2181,7 @@ boolean P_UnArchiveDiablo(void)
                 players[i].diablo_bp_gx[j] = -1;
                 players[i].diablo_bp_gy[j] = -1;
                 players[i].diablo_backpack_dur[j] = 0;
+                players[i].diablo_bp_page[j] = 0;
             }
         }
 
