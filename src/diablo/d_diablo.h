@@ -91,16 +91,16 @@ typedef enum
     NUM_USETYPES
 } diablo_use_t;
 
-#define D_BACKPACK_SIZE  40
+#define D_BACKPACK_SIZE  70  // cells per page (10x7 grid)
 #define D_NOITEM         (-1)
 
-// Phase 2 backpack grid dimensions (cells).  10x4 = 40 cells per page.
+// Phase 2 backpack grid dimensions (cells).  10x7 = 70 cells per page.
 #define D_BP_GRID_W  10
-#define D_BP_GRID_H  4
+#define D_BP_GRID_H  7
 
 // Backpack pages (Jimmy, 2026-10-29): 1 page by default, +1 per
 // vanilla backpack pickup, up to 4 pages.  Each page is its own
-// 10x4 grid; items live on exactly one page (diablo_bp_page[]).
+// 10x7 grid; items live on exactly one page (diablo_bp_page[]).
 #define D_BP_MAX_PAGES  4
 #define D_BACKPACK_MAX  (D_BACKPACK_SIZE * D_BP_MAX_PAGES)
 

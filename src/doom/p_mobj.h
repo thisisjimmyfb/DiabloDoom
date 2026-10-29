@@ -291,12 +291,12 @@ typedef struct mobj_s
     // Sizes match player_t diablo_* fields (see d_diablo.h).
     boolean		is_player_corpse;
     int			corpse_equipped[10];  // NUM_ESLOTS
-    int			corpse_backpack[160];  // D_BACKPACK_MAX (40 x 4 pages)
+    int			corpse_backpack[280];  // D_BACKPACK_MAX (70 x 4 pages)
     int			corpse_equipped_dur[10];
-    int			corpse_backpack_dur[160];
-    int			corpse_bp_gx[160];
-    int			corpse_bp_gy[160];
-    int			corpse_bp_page[160];
+    int			corpse_backpack_dur[280];
+    int			corpse_bp_gx[280];
+    int			corpse_bp_gy[280];
+    int			corpse_bp_page[280];
     int			corpse_bp_count;
     int			corpse_bp_pages;  // unlocked pages at death
     int			corpse_essence;
