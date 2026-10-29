@@ -154,6 +154,24 @@ the walk rides out the ticks at run speed (forwardmove[1]) — so a
 plain GOTO to the last safe stamp is the sprint-out gear, and the
 freeze-escape is for exits that need thought.
 
+**Passive-damage auto-trigger (2026-10-29):** a health drop in explore
+mode now enters mini-combat planning on its own, damage-first
+immediately after `P_Ticker()` in `T_ExploreTick()`, with no attack
+queued, no autosave, no spotter message, and no exclusions for now.
+It fires only on landed damage (dodges, godmode, and invulnerability
+do not drop health, so they do not fire), never at health zero or
+below (deaths take the normal path), and never during planning or
+the progress phase — the check lives only in `T_ExploreTick()`, which
+runs only in explore mode. Entering planning freezes a running
+GOTO/WALK by itself (their ticks stop in planning); it does not
+cancel them, so they resume on return to explore unless the agent
+issues a new movement command. The agent must never END with an
+empty queue while standing on a hazard, or it will return to
+explore, take damage again, and re-enter planning. `T_EnterExplore()`
+clears the stale `mini_combat` flag, and re-baselines the health
+tracker so damage taken during the progress phase alone does not
+re-trigger on the first explore tic after a safe escape.
+
 **Design intent:** the Diablo farm loop (walk room to room, grab loot,
 build the character) stays frictionless; the XCOM tactical layer appears
 only when an enemy spots the player. Combat entry is on acquisition,

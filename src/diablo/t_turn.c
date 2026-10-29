@@ -184,14 +184,51 @@ static mobj_t *T_ExploreDetect(void)
     return spotter;
 }
 
+// Passive-damage auto-trigger (Jimmy, 2026-10-29): a health drop in
+// explore mode enters mini-combat planning with no attack queued, no
+// autosave, and no spotter message — the FREEZE-ESCAPE gear, without
+// sending ATTACK. Damage-first: the check runs immediately after
+// P_Ticker(), before any GOTO/WALK/COLLECT tick, so the world freezes
+// at the damage position. No exclusions for now. The check lives only
+// in T_ExploreTick, which T_Ticker calls only in explore mode, so it
+// cannot fire during planning or the progress phase (already in
+// combat then). Entering planning freezes GOTO/WALK by itself —
+// T_Ticker stops calling their ticks in planning — so no explicit
+// cancel is needed, and a paused GOTO/WALK resumes on return to
+// explore unless the agent issues a new movement command.
+static void T_EnterPassiveCombat(void);
+static int passive_last_hp = -1;
+
 // One explore-mode tick: run the world, then run throttled detection.
 // Shared by T_Ticker and the test harness.
 void T_ExploreTick(void)
 {
     static int explore_sight_tic = 0;
     mobj_t *spotter;
+    player_t *pl = &players[consoleplayer];
+    int hp;
 
     P_Ticker();
+    // Passive-damage trigger, damage-first (see above). A drop to
+    // zero or below is a death, not a planning entry — let the
+    // normal death path handle it.
+    hp = pl->health;
+    if (passive_last_hp < 0)
+    {
+        passive_last_hp = hp;
+    }
+    else if (hp < passive_last_hp && hp > 0)
+    {
+        printf("[PASSIVE] damage: HP %d -> %d, entering planning\n",
+               passive_last_hp, hp);
+        passive_last_hp = hp;
+        T_EnterPassiveCombat();
+        return;
+    }
+    else
+    {
+        passive_last_hp = hp;
+    }
     // GOTO path stepping (explore mode only; cancelled on combat entry).
     T_GotoTick();
     // WALK persistent movement (explore mode only; stops on enemy/loot/blocked).
@@ -285,6 +322,7 @@ void T_NewGame(void)
 {
     if (!t_ready)
         return;
+    passive_last_hp = -1;
     memset(&turnctrl, 0, sizeof(turnctrl));
     turnctrl.tp_max = 10;
     turnctrl.tp = turnctrl.tp_max;
@@ -303,6 +341,7 @@ void T_OnLoad(void)
     // the player can move freely; combat triggers on sight.
     if (!T_Active())
         return;
+    passive_last_hp = -1;
     turnctrl.state = TS_EXPLORE;
     turnctrl.pulse_left = 0;
     turnctrl.queue_len = 0;
@@ -319,6 +358,40 @@ boolean T_InExplore(void)
     return T_Active() && turnctrl.state == TS_EXPLORE;
 }
 
+// Passive-damage entry: mini-combat planning with no attack queued,
+// no targeting, no autosave. Mirrors the Ctrl mini-combat entry's
+// state setup, minus the targeting step. GOTO/WALK/COLLECT are NOT
+// cancelled here (Jimmy, 2026-10-29): entering planning freezes them
+// by itself, and they resume on return to explore unless the agent
+// issues a new movement command.
+static void T_EnterPassiveCombat(void)
+{
+    player_t *player = &players[consoleplayer];
+
+    if (turnctrl.state != TS_EXPLORE)
+        return;
+    if (player->mo == NULL || player->health <= 0)
+        return;
+    turnctrl.state = TS_PLANNING;
+    turnctrl.round = 1;
+    turnctrl.tp = turnctrl.tp_max;
+    turnctrl.queue_len = 0;
+    turnctrl.queue_tp = 0;
+    turnctrl.selected_target = -1;
+    turnctrl.executing = false;
+    turnctrl.mini_combat = true;
+    if (player->mo != NULL)
+    {
+        turnctrl.turn_start_x = player->mo->x;
+        turnctrl.turn_start_y = player->mo->y;
+        turnctrl.turn_start_z = player->mo->z;
+        turnctrl.turn_start_angle = player->mo->angle;
+    }
+    player->message =
+        "Passive damage! Turn-based planning - queue moves to safety, then END.";
+    T_DumpState("enter-passive-combat");
+}
+
 void T_EnterExplore(void)
 {
     thinker_t *th;
@@ -330,6 +403,14 @@ void T_EnterExplore(void)
     turnctrl.selected_target = -1;
     turnctrl.executing = false;
     turnctrl.pulse_left = 0;
+    // Stale mini-combat flag leak fix (Jimmy, 2026-10-29): a passive
+    // entry that ends without a combatant must not leave the flag
+    // set for the next fight. Also re-baseline the passive health
+    // tracker, so damage taken during the progress phase alone does
+    // not re-trigger planning on the first explore tic after a
+    // safe escape — a fresh drop after P_Ticker() will still fire.
+    turnctrl.mini_combat = false;
+    passive_last_hp = players[consoleplayer].health;
     // The fight is over: the continuous-fire lock stands down too.
     T_ClearContinuousFire();
     // Stand down: the fight is over, so every monster forgets the

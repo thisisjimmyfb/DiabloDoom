@@ -160,6 +160,11 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
    sector noise, so the next encounter starts clean. No visible combatants at round
    end returns to explore mode. Barrels never trigger combat but stay in the Tab
    target list. There is no `-turnbased` flag.
+   Passive damage is a separate planning entry (2026-10-29): a health
+   drop in explore mode enters mini-combat planning with no attack
+   queued, no autosave, and no spotter message, damage-first after
+   `P_Ticker()`; it pauses (does not cancel) a running GOTO/WALK,
+   and cannot fire during planning or the progress phase.
 2. **No scalar input, ever** (Jimmy's words: *"We shouldn't have actions
    that require scalar input because that will be too difficult to aim."*).
    Turn-mode actions are discrete: directions and actor IDs only. No

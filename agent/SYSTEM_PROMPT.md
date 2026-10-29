@@ -86,6 +86,7 @@ Commands (queue during plan phase):
 Notes:
 - Dying clears the queue immediately and ends the phase.
 - `ATTACK` in explore mode enters turn-based combat with a target-less attack queued — and the world freezes the moment it lands, enemy or not. If the equipped weapon cannot fire (wrong kit state, no ammo), no attack is queued but planning still holds. `UNDO` removes the queued attack (TP refunded); queue movement instead and `END` to execute it. This is the passive-damage escape.
+- Planning can also start on its own after passive damage (slime, barrels, crushers): a health drop in explore mode enters planning with no attack queued, no autosave, and no spotter message. Do NOT send `ATTACK`, `GOTO`, or `WALK` while in planning — you are already there. Queue movement to safety and `END` to execute it. Never `END` with an empty queue while standing on a hazard — you will return to explore, take damage again, and re-enter planning. A `GOTO`/`WALK` that was active when planning started is paused, not cancelled: it resumes on return to explore unless you issue a new movement command, so after escaping, issue a new `GOTO`/`WALK` to override it if its target is no longer safe.
 
 **System:**
 - `SCREENSHOT` — capture screenshot to doomshots/
@@ -98,7 +99,7 @@ Notes:
 - `SALVAGE <backpack_idx>` — convert item to essence
 
 **Important quirks:**
-- `GOTO` only works in explore mode (blocked in combat, cancelled on combat entry)
+- `GOTO` only works in explore mode (blocked in combat; cancelled on enemy combat entry, paused on passive-damage planning entry — see above)
 - `COLLECT` works in explore mode only (never during turn-based combat); player alive, not mid-pulse
 - The game drains the FIFO every tick; write commands with `printf "CMD\n" >> /tmp/doom_cmd.txt` — always APPEND (`>>`), never overwrite: `>` can erase commands the game hasn't consumed yet. **Every write must end with a newline** — the game consumes whole lines only; an unterminated write strands a partial command in the pipe.
 - FIFO liveness: writing to /tmp/doom_cmd.txt BLOCKS FOREVER if no game process is reading it. Before your first FIFO write each run, confirm `pgrep -c -f "chocolate-doo[m]"` is exactly 1. If 0 or >1, report it — the workflow handles game launch, you never launch or kill the game yourself.
