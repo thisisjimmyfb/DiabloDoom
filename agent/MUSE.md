@@ -23,9 +23,11 @@ not be revived. You generate the assets; the engine just loads them.
 
 This repo ships a default avatar so a first-time user starts with a
 working face instead of vanilla Doomguy: **Jolly**, the default Muse
-avatar, as `agent/jolly.wad` (42 distinct lumps, v3 — no
-duplication, pain-graded, and sized to fill the entire face window, frame included; built from
-the Jolly expression sheet, and smoke-tested in-game). First-time setup is one copy:
+avatar, as `agent/jolly.wad` (42 lumps, 26 distinct images — straights
+pain-graded and distinct, transient faces share across bands by
+design since marks were removed; sized to fill the entire face
+window, frame included; built from the Jolly hatch reference with
+a further-back framing, and smoke-tested in-game). First-time setup is one copy:
 
 ```sh
 mkdir -p avatar && cp agent/jolly.wad avatar/
@@ -78,32 +80,49 @@ dead > evil grin > turned head > straight ahead, with god and
 rampage slotted in by their own rules — you don't need to implement
 any of this, you only need to fill the slots.
 
-### Distinct expressions (required)
+### Distinct expressions (required for straights; sharing allowed for transient faces)
 
-Every one of the 42 slots gets its OWN image. Do NOT duplicate
-bytes across slots — no sharing across pain bands, and no sharing
-across the 3 straight variants in a band. This is a requirement,
-not an enhancement, and it comes from a shipped mistake: v1
-duplicated one image per expression across all bands and straight
-variants, and the result was that 50% health looked exactly like
-100% and the idle face never animated. The engine's only periodic
-face change is the straight-variant cycle (~0.5 s) plus the band
-progression as health falls; duplication flattens both, so a
-duplicated set reads as a frozen face. Concretely:
+Every straight face gets its OWN image. Do NOT duplicate bytes
+across straight slots — no sharing across pain bands, and no
+sharing across the 3 straight variants in a band. This is a
+requirement, not an enhancement, and it comes from a shipped
+mistake: v1 duplicated one image per expression across all bands
+and straight variants, and the result was that 50% health looked
+exactly like 100% and the idle face never animated. The engine's
+only periodic face change is the straight-variant cycle (~0.5 s)
+plus the band progression as health falls; duplicating straights
+flattens both, so a duplicated straight set reads as a frozen
+face. Transient faces (turn, ouch, grin, rampage) MAY share
+across bands when they have no band-specific feature left to
+differ by — that sharing is by design, not a bug, since the
+damage marks that used to differentiate them were removed
+(see below). Concretely:
 
 - Each band's straight face must visibly differ from the other
-  bands (pain grading: damage marks, grimacing mouth, narrowing
-  eyes as the band rises).
+  bands (pain grading: grimacing mouth, narrowing eyes as the
+  band rises).
 - The 3 straight variants within each band must visibly differ
   (subtle eye shifts are enough — that is what makes idle cycle).
-- Turn, ouch, grin, and rampage must also differ per band
-  (damage marks at minimum, so a low-health ouch is not the same
-  image as a full-health ouch).
+- Turn, ouch, grin, and rampage must differ from each other
+  (different expressions, not the same image across expressions),
+  but need not differ per band: the shipped default shares turn
+  bands 0–2 and shares ouch, grin, and rampage across all bands
+  (42 lumps, 26 distinct images), because marks were the only
+  band differentiator for those faces and marks were removed.
+  Turn bands 3–4 stay distinct through eye narrowing.
 - God and dead are singles; they differ from each other and from
   every band face by construction.
 
+Damage marks were tried (v4) and removed (v4 fix, 2026-10-28,
+per the user: "they don't look good on pixel art"). At 35×31 a
+1 px mark reads as a brown dot, and in the further-back framing
+most of the v2 head-fill mark coordinates fell OFF the face
+(above/beside the head, on hood/body/background). Do not re-add
+marks without a new design the user approves.
+
 Verify distinctness mechanically (hash all 42 patch byte strings;
-any collision is a bug), and visually (a labeled montage of all 42
+expect the known sharing groups above, and treat any other
+collision as a bug), and visually (a labeled montage of all 42
 before shipping).
 
 ## Input: the avatar reference image
@@ -159,11 +178,12 @@ rather than floating in it.
    - Dead: closed or X eyes, slack mouth.
 3. **Grade the 5 bands and vary the straights.** From each base
    expression, build its 5 band images: band 0 stays clean, and
-   bands 1–4 get progressively grimier (damage marks, grimacing
-   mouth on the straight face, narrowing eyes at low health).
-   Build 3 straight variants per band (eye shifts: center, 1 px
-   left, 1 px right). Every one of the 42 resulting images must
-   differ from every other — see "Distinct expressions" above.
+   bands 1–4 get progressively grimier (grimacing mouth on the
+   straight face, narrowing eyes at low health). Build 3 straight
+   variants per band (eye shifts: center, 1 px left, 1 px right).
+   Straights must all differ from each other; transient band
+   images may share when they have no band feature left to differ
+   by — see "Distinct expressions" above.
 4. **Draw thin features at final resolution.** Mouths in particular
    must be drawn at 35×31, not downscaled: thin mouths vanish in a
    NEAREST downscale and the face goes blank, and a thin smile
@@ -193,7 +213,8 @@ rather than floating in it.
    an image with PLAYPAL from the IWAD — read it before writing
    your encoder and follow the same approach.
 8. **Pack the PWAD.** Write all 42 lumps with the exact names from
-   the table above, each a distinct image. Name the file
+   the table above, following the distinctness rule above
+   (straights distinct, transient sharing allowed by design). Name the file
    something like `<avatar>_face.wad`. Keep a user's personal avatar
    PWAD with the user — do not commit it to this repo. The one
    exception is the shipped Jolly default (`agent/jolly.wad`); a
@@ -234,8 +255,9 @@ back to the IWAD face for that slot. Check names first.
   step 6, not something this guide can work around. An overlay is
   future engine work.
 - **Loader slot-sharing.** The engine loads 42 names; the shipped
-  default fills all 42 with distinct images, so sharing is
-  unnecessary there. Loading 8 images and sharing them across slots
+  default fills all 42 slots with 26 distinct images (transient
+  sharing by design, see "Distinct expressions" above), so
+  further sharing is unnecessary there. Loading 8 images and sharing them across slots
   needs a loader change — future engine work for anyone who wants
   fewer images, and it must not be used to reintroduce duplication
   (see "Distinct expressions" above).
@@ -269,4 +291,13 @@ mouth is a 5 px smile drawn at final size, 1 px lower than the
 source mouth, per the user's pick, God is the symmetrised Normal
 with a wider 7 px smile, and Dead is X eyes with a slack mouth.
 v4 was verified the same two ways: a labeled montage of all 42
-and an in-game smoke test.
+and an in-game smoke test. v4 fix (2026-10-28) removes the damage
+marks entirely (1 px marks read as brown dots and fell off-face
+in the further-back framing, per the user's pick), gentles the
+evil-grin smirk (flat 3 px, up 1 px, after the 2 px rise read too
+crooked), and widens the band-4 straight grimace to 7 px with a
+3 px centre gap (total width unchanged). With marks gone, the 42
+lumps collapse to 26 distinct images by design (turn bands 0–2
+share, ouch/grin/rampage share across all bands); straights stay
+distinct through mouths and eye narrowing. Verified the same two
+ways: labeled montage and in-game smoke test.
