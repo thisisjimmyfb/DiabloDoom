@@ -38,15 +38,15 @@ else
     SHOTDIR="${SHOTDIR:-$HOME/doomshots}"
 fi
 # Avatar face: the game launches with the user's avatar PWAD.
-# On a Muse VM the slot is ~/workspace/DiabloDoom/avatar/user.wad;
-# elsewhere it is $REPO/avatar/user.wad. If the slot is empty (user
-# never customized), launch_game() copies the default Jolly face
-# (agent/jolly.wad) there — an existing user.wad is never overwritten.
-# Overridable via AVATAR_WAD, like the script's other paths.
+# On a Muse VM the slot is ~/workspace/DiabloDoom/avatar/user.wad
+# (seeded from the default Jolly face if empty; an existing user.wad
+# is never overwritten). Elsewhere it is the committed default,
+# $REPO/agent/jolly.wad, directly. Overridable via AVATAR_WAD, like
+# the script's other paths.
 if [[ "${JARVIS_FQDN:-}" == *"metaaivm.com"* ]]; then
     AVATAR_WAD="${AVATAR_WAD:-$HOME/workspace/DiabloDoom/avatar/user.wad}"
 else
-    AVATAR_WAD="${AVATAR_WAD:-$REPO/avatar/user.wad}"
+    AVATAR_WAD="${AVATAR_WAD:-$REPO/agent/jolly.wad}"
 fi
 CMDFILE="${CMDFILE:-/tmp/doom_cmd.txt}"
 # Autosave location: chocolate-doom stores per-IWAD saves under
