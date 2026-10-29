@@ -264,6 +264,11 @@ void T_TopUpAmmo(void);
 
 // HUD: mode indicator + contextual help (called from HU_Drawer).
 void T_DrawHUD(void);
+// True while the turn-combat HUD is on: turn mode armed, level, and
+// not in explore/off. Status messages are mutually exclusive with
+// this — HU_Drawer hides them while it is true, so the combat header
+// and footer (same font, same red) never collide with a message.
+boolean T_InCombat(void);
 
 // Test harnesses (SPEC: fixed-seed arena, action replay, state dump).
 void T_DumpState(const char *why);

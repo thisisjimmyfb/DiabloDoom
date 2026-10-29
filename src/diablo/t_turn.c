@@ -358,6 +358,12 @@ boolean T_InExplore(void)
     return T_Active() && turnctrl.state == TS_EXPLORE;
 }
 
+boolean T_InCombat(void)
+{
+    return T_Active() && turnctrl.state != TS_OFF
+           && turnctrl.state != TS_EXPLORE;
+}
+
 // Passive-damage entry: mini-combat planning with no attack queued,
 // no targeting, no autosave. Mirrors the Ctrl mini-combat entry's
 // state setup, minus the targeting step. GOTO/WALK/COLLECT are NOT
