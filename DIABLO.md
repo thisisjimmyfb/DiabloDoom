@@ -33,8 +33,11 @@ pauses while the screen is open.
   launcher/plasma rifle/BFG 3×2; potions 1×1.
 - **Item icons**: guns show the loaded WAD's own pickup sprite (the
   art lying in the world) when the WAD carries one, so the screen
-  matches the WAD in use; other items — and the pistol, which has no
-  pickup sprite — use the built-in icons.
+  matches the WAD in use; guns the WAD cannot supply — the pistol,
+  which has no pickup sprite anywhere, and the super shotgun on
+  Doom 1 / Freedoom 1, where SGN2A0 is missing — use embedded
+  patches with real patch transparency, drawn through the same
+  path as the WAD sprites; other items use the built-in icons.
 - **Stats** (bottom): damage, defense, strength, dexterity, vitality,
   energy, resistances, life steal, magic find, movement speed,
   crit chance, crit damage.

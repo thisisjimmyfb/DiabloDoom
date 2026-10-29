@@ -15,6 +15,7 @@ add_library(doom STATIC
             ../diablo/d_diablo_ui.c   ../diablo/d_diablo_ui.h
             ../diablo/d_diablo_icons.c ../diablo/d_diablo_icons.h
             ../diablo/d_pistol_sprite.c ../diablo/d_pistol_sprite.h
+            ../diablo/d_ssg_sprite.c ../diablo/d_ssg_sprite.h
             ../diablo/d_progress.c    ../diablo/d_progress.h
             ../diablo/d_replay.c      ../diablo/d_replay.h
             ../diablo/d_items.c       ../diablo/d_items.h
