@@ -2060,7 +2060,7 @@ static void T_NativeFire(player_t *player);
 // ------------------------------------------------------------------
 // END TURN: drain the queued actions FIFO — each entry executes through
 // its normal implementation with its settle pulse — then the enemy
-// phase runs as before, then round bookkeeping. An empty queue skips
+// phase runs as before, then enemy-phase bookkeeping. An empty queue skips
 // straight to the enemy phase. END TURN is always legal (0 TP) from
 // every state.
 // ------------------------------------------------------------------
@@ -2163,7 +2163,6 @@ boolean T_ExecuteOne(void)
         {
             turnctrl.state = TS_PLANNING;
             turnctrl.tp = turnctrl.tp_max;
-            turnctrl.round++;
         }
         return false;
     }
@@ -2365,7 +2364,6 @@ void T_StartCtrlTargeting(void)
     {
         // Initialize a single-turn combat. No spotter, no telegraph.
         turnctrl.state = TS_PLANNING;
-        turnctrl.round = 1;
         turnctrl.tp = turnctrl.tp_max;
         turnctrl.queue_len = 0;
         turnctrl.queue_tp = 0;
@@ -3089,7 +3087,7 @@ static void T_TestSneakArena(void)
 //
 //   MOVE_N | MOVE_E | MOVE_S | MOVE_W | USE | END | DUMP | QUIT
 //   UNDO | CLEAR
-//   ASSERT_TP n | ASSERT_ROUND n     (gate checks; print PASS/FAIL)
+//   ASSERT_TP n                      (gate check; print PASS/FAIL)
 //   ASSERT_QUEUE n | ASSERT_QTP n    (queue length / reserved TP)
 //   ASSERT_SEL n | ASSERT_TGT n      (selection / target count checks)
 //   ASSERT_CRIT n                   (last attack crit: 1/0)
@@ -3116,15 +3114,6 @@ static void T_ScriptAssertTP(int want)
         printf("[TURN] ASSERT_TP %d: PASS\n", want);
     else
         printf("[TURN] ASSERT_TP %d: FAIL (have %d)\n", want, turnctrl.tp);
-}
-
-static void T_ScriptAssertRound(int want)
-{
-    if (turnctrl.round == want)
-        printf("[TURN] ASSERT_ROUND %d: PASS\n", want);
-    else
-        printf("[TURN] ASSERT_ROUND %d: FAIL (have %d)\n", want,
-               turnctrl.round);
 }
 
 void T_RunScript(const char *path)
@@ -3192,10 +3181,10 @@ void T_RunScript(const char *path)
         }
         else if (!strcmp(line, "PROFILE"))
         {
-            printf("[TURN] PROFILE: name='%s' L%d XP=%d SP=%d kills=%d dmg=%d rounds=%d\n",
+            printf("[TURN] PROFILE: name='%s' L%d XP=%d SP=%d kills=%d dmg=%d\n",
                    t_profile.name, t_profile.level, t_profile.xp,
                    t_profile.stat_points, t_profile.lifetime_kills,
-                   t_profile.lifetime_damage, t_profile.lifetime_rounds);
+                   t_profile.lifetime_damage);
         }
         else if (!strcmp(line, "DUMP"))   T_DumpState("script");
         else if (!strcmp(line, "CADENCE"))
@@ -3213,12 +3202,10 @@ void T_RunScript(const char *path)
                        T_KitCharges(w), T_KitShots(w));
         }
         else if (sscanf(line, "ASSERT_TP %d", &n) == 1) T_ScriptAssertTP(n);
-        else if (sscanf(line, "ASSERT_ROUND %d", &n) == 1)
-            T_ScriptAssertRound(n);
         else if (sscanf(line, "SAVE %d", &n) == 1 && n >= 0 && n < 8)
         {
             char desc[32];
-            M_snprintf(desc, sizeof(desc), "tb gate r%d", turnctrl.round);
+            M_snprintf(desc, sizeof(desc), "tb gate");
             G_DoSaveGameSlot(n, desc);
             printf("[TURN] saved slot %d\n", n);
         }

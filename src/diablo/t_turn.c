@@ -278,7 +278,6 @@ void T_Init(void)
     memset(&turnctrl, 0, sizeof(turnctrl));
     turnctrl.tp_max = 10;
     turnctrl.tp = turnctrl.tp_max;
-    turnctrl.round = 1;
     turnctrl.selected_target = -1;
     turnctrl.state = TS_OFF;
 
@@ -326,7 +325,6 @@ void T_NewGame(void)
     memset(&turnctrl, 0, sizeof(turnctrl));
     turnctrl.tp_max = 10;
     turnctrl.tp = turnctrl.tp_max;
-    turnctrl.round = 1;
     turnctrl.selected_target = -1;
     turnctrl.state = TS_EXPLORE;
     t_arena_done = (M_CheckParm("-tbarena") <= 0);
@@ -379,7 +377,6 @@ static void T_EnterPassiveCombat(void)
     if (player->mo == NULL || player->health <= 0)
         return;
     turnctrl.state = TS_PLANNING;
-    turnctrl.round = 1;
     turnctrl.tp = turnctrl.tp_max;
     turnctrl.queue_len = 0;
     turnctrl.queue_tp = 0;
@@ -469,7 +466,6 @@ void T_EnterCombat(mobj_t *spotter)
     unsigned int i;
 
     turnctrl.state = TS_PLANNING;
-    turnctrl.round = 1;
     turnctrl.tp = turnctrl.tp_max;
     turnctrl.queue_len = 0;
     turnctrl.queue_tp = 0;
@@ -823,10 +819,8 @@ static void T_EndPulse(void)
 
     if (turnctrl.pulse_enemy)
     {
-        // Enemy phase done: tick cooldowns (phase 5), new round.
+        // Enemy phase done: tick cooldowns (phase 5), TP refilled.
         turnctrl.pulse_enemy = false;
-        turnctrl.round++;
-        T_CountRound(); // Phase 8: lifetime rounds
         turnctrl.tp = turnctrl.tp_max; // TP economy lands in phase 2
         T_KitTickCooldowns();
         // No per-round ammo grant (removed at Jimmy's order,
@@ -854,11 +848,9 @@ static void T_EndPulse(void)
             // tick resumes firing in the next progress phase.
             static char msg[96];
             if (T_LootAvailable())
-                M_snprintf(msg, sizeof(msg), "Round %d - LOOT AVAILABLE! Press G.",
-                           turnctrl.round);
+                M_snprintf(msg, sizeof(msg), "LOOT AVAILABLE! Press G.");
             else
-                M_snprintf(msg, sizeof(msg), "Round %d - your move.",
-                           turnctrl.round);
+                M_snprintf(msg, sizeof(msg), "Your move.");
             players[consoleplayer].message = msg;
         }
     }
@@ -902,8 +894,7 @@ static void T_EndPulse(void)
             {
                 turnctrl.state = TS_PLANNING;
                 turnctrl.tp = turnctrl.tp_max;
-                turnctrl.round++;
-                if (players[consoleplayer].mo != NULL)
+                                if (players[consoleplayer].mo != NULL)
                 {
                     turnctrl.turn_start_x = players[consoleplayer].mo->x;
                     turnctrl.turn_start_y = players[consoleplayer].mo->y;
@@ -2461,12 +2452,11 @@ void T_DrawHUD(void)
     // is spendable now, "(6 IN QUEUE)" is already committed.
     if (turnctrl.queue_len > 0)
         M_snprintf(line, sizeof(line),
-                   "TURN MODE - ROUND %d - TP %d/%d (%d IN QUEUE)",
-                   turnctrl.round, turnctrl.tp, turnctrl.tp_max,
-                   turnctrl.queue_tp);
+                   "TURN MODE - TP %d/%d (%d IN QUEUE)",
+                   turnctrl.tp, turnctrl.tp_max, turnctrl.queue_tp);
     else
-        M_snprintf(line, sizeof(line), "TURN MODE - ROUND %d - TP %d/%d",
-                   turnctrl.round, turnctrl.tp, turnctrl.tp_max);
+        M_snprintf(line, sizeof(line), "TURN MODE - TP %d/%d",
+                   turnctrl.tp, turnctrl.tp_max);
     T_DrawTextCentered(2, line);
 
     if (turnctrl.state == TS_REACTION)
@@ -2482,11 +2472,12 @@ void T_DrawHUD(void)
         T_DrawPlanningUI();
     else
     {
-        // TARGETING / CONFIRM: the always-legal outs stay visible.
-        // The action list keeps drawing (left column): it repaints the
-        // border-zone pixels every frame and keeps costs/disabled states
-        // visible while targeting.
-        T_DrawTextCentered(12, "T END TURN  BKSP UNDO  Z CLEAR  <> TURN  ESC BACK");
+        // TARGETING / CONFIRM: the action list keeps drawing (left
+        // column): it repaints the border-zone pixels every frame and
+        // keeps costs/disabled states visible while targeting. The
+        // old footer hint (T END TURN / BKSP UNDO / Z CLEAR / <> TURN
+        // / ESC BACK) was removed 2026-10-29 as outdated and redundant:
+        // the action list already shows END TURN, UNDO and TURN.
         T_DrawPlanningUI();
     }
 
@@ -2645,7 +2636,7 @@ mobj_t *T_TargetMobj(int idx)
 void T_ValidateSelection(void)
 {
     // Drop the selection if the target died, left sight, or the list
-    // shrank. Called after pulses and round changes.
+    // shrank. Called after pulses and turn changes.
     if (turnctrl.selected_target < 0
         || turnctrl.selected_target >= t_numtargets)
     {
@@ -2680,9 +2671,9 @@ void T_DumpState(const char *why)
     const char *st = (turnctrl.state >= 0 && turnctrl.state <= TS_ROUND_END)
                      ? names[turnctrl.state] : "?";
 
-    printf("[TURN] %-10s round=%d tp=%d/%d qlen=%d qtp=%d exec=%d state=%s sel=%d hp=%d pos=(%d,%d,%d) floor=%d ceil=%d angle=%u\n",
+    printf("[TURN] %-10s tp=%d/%d qlen=%d qtp=%d exec=%d state=%s sel=%d hp=%d pos=(%d,%d,%d) floor=%d ceil=%d angle=%u\n",
            why ? why : "-",
-           turnctrl.round, turnctrl.tp, turnctrl.tp_max,
+           turnctrl.tp, turnctrl.tp_max,
            turnctrl.queue_len, turnctrl.queue_tp, turnctrl.executing ? 1 : 0,
            st,
            turnctrl.selected_target,
@@ -2844,10 +2835,5 @@ void T_CountDamage(int dmg)
 {
     if (dmg > 0)
         t_profile.lifetime_damage += dmg;
-}
-
-void T_CountRound(void)
-{
-    t_profile.lifetime_rounds++;
 }
 

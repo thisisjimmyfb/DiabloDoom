@@ -2244,9 +2244,10 @@ boolean P_UnArchiveDiablo(void)
 // ------------------------------------------------------------------
 // Turn-based decision state (mod). Trailing block after the Diablo
 // section; old saves without it load fine (P_UnArchiveTurn consumes the
-// EOF marker and returns false). Round/TP are the phase-2 decision
-// state; heat/charge/cooldowns ride along for phase 5+. Two reserved
-// slots keep the layout stable (hunker/overwatch were removed).
+// EOF marker and returns false). TP is the phase-2 decision state;
+// heat/charge/cooldowns ride along for phase 5+. Reserved slots keep
+// the layout stable (hunker/overwatch were removed, and the round
+// slot is reserved since rounds are no longer tracked).
 // ------------------------------------------------------------------
 #define TURN_SAVE_MAGIC 0x5455524E  // 'TURN' (first byte 0x54 != 0x1d)
 #define TURN_SAVE_MAGIC2 0x54555232 // 'TUR2': + gun cadence state
@@ -2259,7 +2260,7 @@ void P_ArchiveTurn(void)
     int charges[NUMWEAPONS], shots[NUMWEAPONS], ammo[NUMWEAPONS];
 
     saveg_write32(TURN_SAVE_MAGIC3);
-    saveg_write32(turnctrl.round);
+    saveg_write32(0); // reserved (was round; no round is tracked)
     saveg_write32(turnctrl.tp);
     saveg_write32(turnctrl.tp_max);
     saveg_write32(turnctrl.heat);
@@ -2298,12 +2299,10 @@ boolean P_UnArchiveTurn(void)
         && magic != TURN_SAVE_MAGIC3)
         I_Error("P_UnArchiveTurn: bad magic 0x%x", magic);
 
-    turnctrl.round = saveg_read32();
+    saveg_read32(); // reserved (was round)
     turnctrl.tp = saveg_read32();
     turnctrl.tp_max = saveg_read32();
     // Clamp garbage rather than trusting the file.
-    if (turnctrl.round < 1)
-        turnctrl.round = 1;
     if (turnctrl.tp_max < 1)
         turnctrl.tp_max = 10;
     if (turnctrl.tp < 0)

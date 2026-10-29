@@ -27,7 +27,7 @@ typedef struct mobj_s mobj_t;
 //
 // Queue model: PLANNING enqueues actions (TP reserved immediately);
 // END TURN drains the queue FIFO (each entry runs its own pulse),
-// then the enemy phase runs, then round bookkeeping.
+// then the enemy phase runs, then enemy-phase bookkeeping.
 // TARGETING/CONFIRM build an attack for the queue; they never execute.
 typedef enum
 {
@@ -75,8 +75,8 @@ typedef struct
 typedef struct
 {
     turnstate_t state;
-    int round;              // current round number (1-based)
-    int tp;                 // tempo points remaining this round
+    // (round counter removed 2026-10-29: no round number is tracked.)
+    int tp;                 // tempo points remaining this turn
     int tp_max;             // 10
     int selected_target;    // index into target list, -1 = none
     int selected_num;       // display number chosen via number keys
@@ -181,7 +181,7 @@ void T_Init(void);
 void T_NewGame(void);
 
 // Called after loading a savegame: reset the state machine only
-// (round/TP are the player's ongoing progress).
+// (TP is the player's ongoing progress).
 void T_OnLoad(void);
 // Test harness: re-assert the in-script context after LOAD (which runs
 // G_DoLoadLevel -> T_NewGame and would otherwise clear it).
@@ -275,7 +275,8 @@ void T_DumpState(const char *why);
 void T_SpawnArena(void);
 void T_RunScript(const char *path);
 
-// Save/load: turn decision state (round, TP, phase-5 fields). Written as
+// Save/load: turn decision state (TP, phase-5 fields; the round
+// slot is kept as reserved 0 for layout stability). Written as
 // a trailing block by G_DoSaveGame; restored by G_DoLoadGame. Old saves
 // without the block load fine (defaults kept). Implemented in p_saveg.c.
 void P_ArchiveTurn(void);
@@ -300,7 +301,7 @@ typedef struct
     int stat_points;                        // unspent attribute points
     int lifetime_kills;                     // enemies killed (turn mode)
     int lifetime_damage;                    // damage dealt (turn mode)
-    int lifetime_rounds;                    // rounds played (turn mode)
+    int lifetime_rounds;                    // reserved (was rounds played; no longer counted)
 } t_profile_t;
 
 extern t_profile_t t_profile;
@@ -318,7 +319,6 @@ void T_AddStatPoint(const char *stat);      // spend 1 point on str/dex/vit/ene
 // Lifetime counters (call from combat code).
 void T_CountKill(mobj_t *target);
 void T_CountDamage(int dmg);
-void T_CountRound(void);
 
 // Kill banner: latched on the first kill of an attack, drawn big over the
 // game view for ~2.5s so the kill moment is screenshot-able.
