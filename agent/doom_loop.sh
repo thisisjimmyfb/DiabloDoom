@@ -37,6 +37,17 @@ if [[ "${JARVIS_FQDN:-}" == *"metaaivm.com"* ]]; then
 else
     SHOTDIR="${SHOTDIR:-$HOME/doomshots}"
 fi
+# Avatar face: the game launches with the user's avatar PWAD.
+# On a Muse VM the slot is ~/workspace/DiabloDoom/avatar/user.wad;
+# elsewhere it is $REPO/avatar/user.wad. If the slot is empty (user
+# never customized), launch_game() copies the default Jolly face
+# (agent/jolly.wad) there — an existing user.wad is never overwritten.
+# Overridable via AVATAR_WAD, like the script's other paths.
+if [[ "${JARVIS_FQDN:-}" == *"metaaivm.com"* ]]; then
+    AVATAR_WAD="${AVATAR_WAD:-$HOME/workspace/DiabloDoom/avatar/user.wad}"
+else
+    AVATAR_WAD="${AVATAR_WAD:-$REPO/avatar/user.wad}"
+fi
 CMDFILE="${CMDFILE:-/tmp/doom_cmd.txt}"
 # Autosave location: chocolate-doom stores per-IWAD saves under
 # savegames/<wad-basename>/; a legacy flat doomsav0.dsg may also exist.
@@ -160,6 +171,21 @@ if [ ! -f "$GAME" ]; then
     exit 1
 fi
 
+# Seed the avatar slot from the default Jolly face if the user never
+# customized it. An existing user.wad is left alone, always.
+ensure_avatar_wad() {
+    if [ -z "${AVATAR_WAD:-}" ] || [ -f "$AVATAR_WAD" ]; then
+        return 0
+    fi
+    mkdir -p "$(dirname "$AVATAR_WAD")" 2>/dev/null || true
+    if [ -f "$REPO/agent/jolly.wad" ] && cp "$REPO/agent/jolly.wad" "$AVATAR_WAD"; then
+        echo "[$(date)] Avatar slot empty, copied default jolly.wad to $AVATAR_WAD" >> "$LOG"
+    else
+        echo "[$(date)] Avatar slot empty and default jolly.wad unavailable, launching without avatar" >> "$LOG"
+        AVATAR_WAD=""
+    fi
+}
+
 launch_game() {
     cd "$SHOTDIR"
     # Clear stale FIFO (game recreates it; avoids worker-written regular file race).
@@ -169,7 +195,13 @@ launch_game() {
     # stdbuf -oL -eL: force line buffering so the game log is LIVE during
     # play. stdout to a file is fully buffered by default; without this the
     # log only lands in 4-8KB blocks and at exit, blinding the agent mid-run.
+    ensure_avatar_wad
+    local avatar_args=()
+    if [ -n "${AVATAR_WAD:-}" ] && [ -f "$AVATAR_WAD" ]; then
+        avatar_args=(-file "$AVATAR_WAD")
+    fi
     SDL_VIDEODRIVER=${SDL_VIDEODRIVER:-dummy} nohup stdbuf -oL -eL "$GAME" -iwad "$DOOM_WAD" \
+        "${avatar_args[@]}" \
         -width "$GAME_WIDTH" -height "$GAME_HEIGHT" -warp $WARP \
         --continuous-capture \
         -nosound 9>&- > "$GAME_LOG" 2>&1 &
