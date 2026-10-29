@@ -1297,7 +1297,12 @@ static void ST_drawDiabloWeapon(void)
     char dmgbuf[16];
 
     // Erase: redraw the classic arms background, then paint on top.
-    V_DrawPatch(ST_ARMSBGX, ST_ARMSBGY, armsbg);
+    // Wad-agnostic: STARMS width varies by IWAD (Freedoom 38, Ultimate 40),
+    // and V_DrawPatch draws at native width, which let a wider STARMS
+    // overflow the panel into the face box (143) every frame. Scale the
+    // loaded STARMS art into the panel box (ST_WEPW x ST_HEIGHT) instead,
+    // so the panel ends at ST_WEPX1 (141) for any IWAD.
+    STWepDrawPatch(ST_ARMSBGX, ST_ARMSBGY, ST_WEPW, ST_HEIGHT, armsbg);
 
     def = (id != D_NOITEM) ? D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id)) : NULL;
     if (def == NULL)
