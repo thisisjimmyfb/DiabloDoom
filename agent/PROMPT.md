@@ -106,6 +106,7 @@ Your goal is to progress through the level: explore → find keys → unlock key
 
 ## General Tips
 
+- **No-regen damage rule (Jimmy, 2026-10-30): even if you did not die, do not take damage unnecessarily when you have no health regen.** HP does not come back on its own unless a replenish item is equipped (an equipped piece whose inventory tooltip reads "Replenish X HP/s"). If no replenish is equipped, treat HP as a depleting resource: do NOT voluntarily enter a damage area (slime, crusher, and the like), and do NOT start a trip whose route is known to gate on damage — including a return leg already known to gate — for routine work such as surveys, wall trials, or hall trips. Work a goal you can reach without damage instead, or hold safe ground. If the only route to the current goal gates, switch to a goal you can work damage-free rather than spending HP to keep one goal moving. This rule is about environmental damage areas, not combat damage — fighting an enemy is a separate decision. Exceptions, the only necessary crossings: escaping a hazard you are already standing on, and recovering your corpse (gear is at stake). Once a replenish item IS equipped, a known gating leg is acceptable again, because the lost HP regenerates — but still do not take damage for no reason. If you cannot confirm replenish from your inventory checks, assume none.
 - If health is low (<30%) and no enemy nearby, keep exploring for health pickups.
 - Equip upgrades immediately — don't save them for later.
 - In combat, always end your turn after queueing actions.

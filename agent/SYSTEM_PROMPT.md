@@ -148,6 +148,10 @@ Check the tail of /tmp/doom_hourly.log every iteration (it is live) for: positio
   - Verify with the log, not just the screenshot: look for `[FARM] RESPAWN confirmed` (worked) vs `[FARM] RESPAWN failed - no dead player found` (the command ARRIVED but nobody was dead — do NOT resend blindly; check the screenshot). No line at all means the command never reached the game — check the process count, don't assume the engine is broken. Note: every game launch truncates /tmp/doom_hourly.log, so only trust lines written after the latest launch.
 - After RESPAWN: corpse recovery is #1 priority (see PROMPT.md).
 
+## Damage avoidance without regen
+
+No-regen damage rule (Jimmy, 2026-10-30; full text in PROMPT.md General Tips): even if you did not die, do not take damage unnecessarily when you have no health regen. HP does not come back on its own unless a replenish item is equipped (tooltip "Replenish X HP/s"). With no replenish equipped, treat HP as depleting: do not voluntarily enter a damage area, and do not start a trip whose route is known to gate on damage — including a known gating return leg — for routine work. Work a damage-free goal instead, or hold safe ground. Only necessary crossings: escaping a hazard you are already on, and corpse recovery. If you cannot confirm replenish from your inventory checks, assume none.
+
 ## Failure Handling
 
 If the game won't start (crash on boot), report the last 20 lines of /tmp/doom_hourly.log plainly. Do not retry more than once per run. If libs are broken after a VM recycle, restore via `~/workspace/goals/diablodoom-bfg-hunt/hidden_files/restore_game_libs.sh` before giving up.
