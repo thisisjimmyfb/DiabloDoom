@@ -125,6 +125,7 @@ typedef enum
 #define MECH_REAPER     (1 << 11)  // kills refund 2 TP (any)
 #define MECH_LUCKY      (1 << 12)  // every 3rd pistol shot crits (pistol)
 #define MECH_GLACIER    (1 << 13)  // hits slow foes (STRETCH: enemy-phase hook)
+#define MECH_FRUSTUM    (1 << 14)  // attack hits everything in the view cone (frustum spray)
 
 typedef struct
 {

@@ -357,7 +357,7 @@ static const diablo_itemdef_t diablo_unique[] =
     IT("Harlequin Crest",       TIER_UNIQUE, ESLOT_HELM,  2,2, 0,0,0,  0, 0,720,
        0,0,10,0,   0,0,0,0,   0,25,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
     IT("BFG10K",              TIER_UNIQUE, ESLOT_WEAPON,3,2, 0,0,0, 25,50, 0,
-       10,0,0,0,   0,0,0,0,   0,0,0,0,0,0,15,50, 0, 0, 0, 0, 0, wp_bfg, 0),
+       10,0,0,0,   0,0,0,0,   0,0,0,0,0,0,15,50, 0, 0, 0, 0, 0, wp_bfg, MECH_FRUSTUM),
 
     IT("Unmaker",             TIER_UNIQUE, ESLOT_WEAPON,3,2, 0,0,0, 22,45, 0,
        0,10,0,0,   0,0,0,0,   0,0,0,0,0,0,20,0, 0, 0, 0, 0, 0, wp_plasma, 0),
@@ -696,6 +696,7 @@ const char *D_MechDesc(int mech_bit)
         case MECH_REAPER:    return "Reaper: kills refund 2 TP";
         case MECH_LUCKY:     return "Lucky: every 3rd shot crits";
         case MECH_GLACIER:   return "Glacier: hits slow foes";
+        case MECH_FRUSTUM:   return "Frustum: hits everything in the view cone";
         default:             return NULL;
     }
 }

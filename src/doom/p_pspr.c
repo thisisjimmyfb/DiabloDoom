@@ -35,6 +35,7 @@
 #include "sounds.h"
 
 #include "p_pspr.h"
+#include "d_diablo.h"
 
 #define LOWERSPEED		FRACUNIT*6
 #define RAISESPEED		FRACUNIT*6
@@ -736,24 +737,34 @@ void A_Light2 (player_t *player, pspdef_t *psp)
 
 
 //
-// A_BFGSpray
-// Spawn a BFG explosion on every monster in view
+// P_FrustumSpray
+// The BFG cone effect, separated from the BFG: fire 40 tracers over
+// a 90-degree cone around the originator's facing angle, damaging
+// every monster in view. Damage is the vanilla spray damage
+// (15 rolls of 1-8 per tracer), not Diablo AD/AP: spray tracers
+// carry no weapon id, so the Diablo damage callback does not apply
+// to them. Guarded against re-entry: spray damage itself must not
+// trigger another spray (see the P_DamageMobj frustum hook).
 //
-void A_BFGSpray (mobj_t* mo) 
+static boolean frustum_spraying = false;
+
+void P_FrustumSpray (mobj_t *originator, angle_t angle)
 {
     int			i;
     int			j;
     int			damage;
     angle_t		an;
-	
+
+    if (!originator || frustum_spraying)
+        return;
+    frustum_spraying = true;
+
     // offset angles from its attack angle
     for (i=0 ; i<40 ; i++)
     {
-	an = mo->angle - ANG90/2 + ANG90/40*i;
+	an = angle - ANG90/2 + ANG90/40*i;
 
-	// mo->target is the originator (player)
-	//  of the missile
-	P_AimLineAttack (mo->target, an, 16*64*FRACUNIT);
+	P_AimLineAttack (originator, an, 16*64*FRACUNIT);
 
 	if (!linetarget)
 	    continue;
@@ -762,13 +773,41 @@ void A_BFGSpray (mobj_t* mo)
 		     linetarget->y,
 		     linetarget->z + (linetarget->height>>2),
 		     MT_EXTRABFG);
-	
+
 	damage = 0;
 	for (j=0;j<15;j++)
 	    damage += (P_Random()&7) + 1;
 
-	P_DamageMobj (linetarget, mo->target,mo->target, damage);
+	P_DamageMobj (linetarget, originator, originator, damage);
     }
+
+    frustum_spraying = false;
+}
+
+boolean P_FrustumSpraying(void)
+{
+    return frustum_spraying;
+}
+
+//
+// A_BFGSpray
+// Spawn a BFG explosion on every monster in view -- but only when
+// the firing player has the frustum modifier on ANY equipped slot.
+// Without it, the BFG ball still deals its direct hit; the cone
+// effect is the modifier's, not the weapon's.
+//
+void A_BFGSpray (mobj_t* mo)
+{
+    player_t *player;
+
+    if (!mo || !mo->target)
+        return;
+    player = mo->target->player;
+    if (!player)
+        return;
+    if (!(D_ActiveMechs(player) & MECH_FRUSTUM))
+        return;
+    P_FrustumSpray(mo->target, mo->angle);
 }
 
 

@@ -1598,7 +1598,10 @@ P_DamageMobj
     // use Diablo AD/AP damage instead of vanilla damage.
     // - Projectile: inflictor->diablo_weapon >= 0 (set at fire time)
     // - Hitscan: d_diablo_hitscan_weapon >= 0 (set before P_LineAttack)
-    if (d_diablo_damage_cb && source && source->player && target->player == NULL)
+    // Spray tracers keep their precomputed vanilla damage: the Diablo
+    // callback must not overwrite it with weapon damage while spraying.
+    if (d_diablo_damage_cb && source && source->player && target->player == NULL
+        && !P_FrustumSpraying())
     {
         int weapon = -1;
         if (inflictor && inflictor->diablo_weapon >= 0)
@@ -1618,6 +1621,29 @@ P_DamageMobj
     // percentage of damage dealt to monsters.
     if (source && source->player && target->player == NULL)
 	D_LifeSteal(source->player, damage);
+
+    // Diablo frustum modifier (mod): on a primary hit by the player,
+    // if any equipped slot carries MECH_FRUSTUM and the firing weapon
+    // is not the BFG (its ball landing already sprays, gated the same
+    // way), spray the cone from the player's current facing angle.
+    // Weapon id: projectile inflictor first, then the turn-mode
+    // hitscan global, then the ready weapon for a synchronous
+    // hitscan/melee hit (inflictor is the player mobj itself).
+    // P_FrustumSpraying() blocks re-entry from spray damage itself.
+    if (source && source->player && target->player == NULL
+        && !P_FrustumSpraying())
+    {
+        int frustum_weapon = -1;
+        if (inflictor && inflictor->diablo_weapon >= 0)
+            frustum_weapon = inflictor->diablo_weapon;
+        else if (d_diablo_hitscan_weapon >= 0)
+            frustum_weapon = d_diablo_hitscan_weapon;
+        else if (inflictor == source)
+            frustum_weapon = source->player->readyweapon;
+        if (frustum_weapon >= 0 && frustum_weapon != wp_bfg
+            && (D_ActiveMechs(source->player) & MECH_FRUSTUM))
+            P_FrustumSpray(source, source->angle);
+    }
 
     if (target->health <= 0)
     {
