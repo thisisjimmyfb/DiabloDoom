@@ -378,6 +378,7 @@ static int t_charge_tics[NUMWEAPONS]; // tics since last charge regen
 static int t_cooldown_tics[NUMWEAPONS]; // tics since last cooldown tick
 static int t_decay_acc[NUMWEAPONS];   // fractional drain accumulator
 static int t_trickle_tics[NUMWEAPONS]; // tics since last trickle +1
+static int t_replenish_acc;            // HP/sec accumulator (35 tics = 1s)
                                       // (inverted magazines)
 static boolean t_cadence_inited;
 
@@ -706,6 +707,36 @@ void T_TickCadence(void)
         else
         {
             t_trickle_tics[w] = 0;
+        }
+    }
+
+    // Replenish life (Jimmy, 2026-10-30): HP per second from all
+    // equipped slots, on the same cadence as ammo replenish -- so it
+    // runs in explore and combat progress phases, and freezes in
+    // planning/targeting/confirm (T_Ticker's guard above). Accumulate
+    // fractionally so a 1 HP/s item heals 1 HP every 35 tics.
+    {
+        player_t *pl = &players[consoleplayer];
+        int rp = pl->diablo_stats[DSTAT_REPLENISH];
+        if (rp > 0 && pl->health > 0 && pl->health < D_MaxHealth(pl))
+        {
+            int heal, max;
+            t_replenish_acc += rp;
+            if (t_replenish_acc >= 35)
+            {
+                heal = t_replenish_acc / 35;
+                t_replenish_acc %= 35;
+                max = D_MaxHealth(pl);
+                pl->health += heal;
+                if (pl->health > max)
+                    pl->health = max;
+                if (pl->mo)
+                    pl->mo->health = pl->health;
+            }
+        }
+        else
+        {
+            t_replenish_acc = 0;
         }
     }
 }

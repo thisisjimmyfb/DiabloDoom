@@ -1388,6 +1388,8 @@ static int UITooltipLines(int id, int dur, char lines[12][48])
                  def->fres, def->cres, def->lres, def->pres);
     if (def->lifesteal)
         snprintf(lines[n++], 48, "Life steal %d%%", def->lifesteal);
+    if (def->replenish)
+        snprintf(lines[n++], 48, "Replenish %d HP/s", def->replenish);
     if (def->magicfind)
         snprintf(lines[n++], 48, "Magic find %d%%", def->magicfind);
     if (def->movespeed)

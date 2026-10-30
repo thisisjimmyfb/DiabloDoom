@@ -79,6 +79,7 @@ typedef enum
     DSTAT_AD_FLAT,     // flat bonus damage (added before AD%)
     DSTAT_AP_FLAT,     // flat bonus ability power (added before AP%)
     DSTAT_CD_FLAT,     // flat cooldown reduction in rounds
+    DSTAT_REPLENISH,   // HP per second regenerated (all slots sum)
     NUM_DSTATS
 } diablo_stat_t;
 
@@ -167,6 +168,7 @@ typedef struct
                      // Equipping syncs the Doom readyweapon so the
                      // first-person sprite and turn-mode kit follow the gun.
     int mech;        // MECH_* bitmask: rare affixes grant mechanics.
+    int replenish;   // HP per second regenerated (T_TickCadence).
 } diablo_itemdef_t;
 
 // Item table access.

@@ -266,6 +266,11 @@ static const diablo_itemdef_t diablo_magic[] =
        0,0,0,0,   0,0,0,0,   0,0,0,  0,0,20,0,0, 0, 0, 0, 0, 0, -1, 0),
     IT("Spotter Rounds",    TIER_MAGIC, ESLOT_FOCUS,   1,1, 0,0,0,   0, 0, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,  0,0,0,10,0, 0, 0, 0, 0, 0, -1, 0),
+    // Replenish life (Jimmy, 2026-10-30): rollable replenish items,
+    // appended at the end so existing indices never shift.
+    { .name = "Ring of Replenishment", .tier = TIER_MAGIC,
+      .slot = ESLOT_RING1, .grid_w = 1, .grid_h = 1,
+      .doomweapon = -1, .replenish = 1 },
 };
 
 static const diablo_itemdef_t diablo_rare[] =
@@ -322,6 +327,9 @@ static const diablo_itemdef_t diablo_rare[] =
        0,3,0,0,   0,0,0,0,   0,0,0,0,0,0,15,0, 0, 0, 0, 0, 0, wp_pistol, MECH_LUCKY),
     IT("Splitting Chaingun", TIER_RARE, ESLOT_WEAPON, 3,2, 0,0,0,  5,10, 0,
        2,4,0,0,   0,0,0,0,   0,0,0,0,0,0,10,0, 0, 0, 0, 0, 0, wp_chaingun, MECH_SPLITTING),
+    { .name = "Amulet of Replenishment", .tier = TIER_RARE,
+      .slot = ESLOT_AMULET, .grid_w = 1, .grid_h = 1,
+      .doomweapon = -1, .replenish = 2 },
 };
 
 static const diablo_itemdef_t diablo_set[] =
@@ -748,6 +756,7 @@ void D_RecalcStats(struct player_s *pl)
         player->diablo_stats[DSTAT_AD_FLAT] += def->ad_flat;
         player->diablo_stats[DSTAT_AP_FLAT] += def->ap_flat;
         player->diablo_stats[DSTAT_CD_FLAT] += def->cd_flat;
+        player->diablo_stats[DSTAT_REPLENISH] += def->replenish;
     }
 
     D_SyncDoomWeapon(player);
