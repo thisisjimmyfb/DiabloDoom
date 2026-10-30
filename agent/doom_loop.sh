@@ -203,8 +203,7 @@ launch_game() {
     SDL_VIDEODRIVER=${SDL_VIDEODRIVER:-dummy} nohup stdbuf -oL -eL "$GAME" -iwad "$DOOM_WAD" \
         "${avatar_args[@]}" \
         -width "$GAME_WIDTH" -height "$GAME_HEIGHT" -warp $WARP \
-        --continuous-capture \
-        -nosound 9>&- > "$GAME_LOG" 2>&1 &
+        --continuous-capture 9>&- > "$GAME_LOG" 2>&1 &
     disown
     sleep 15
 }
