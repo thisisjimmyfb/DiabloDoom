@@ -200,7 +200,7 @@ launch_game() {
     if [ -n "${AVATAR_WAD:-}" ] && [ -f "$AVATAR_WAD" ]; then
         avatar_args=(-file "$AVATAR_WAD")
     fi
-    SDL_VIDEODRIVER=${SDL_VIDEODRIVER:-dummy} nohup stdbuf -oL -eL "$GAME" -iwad "$DOOM_WAD" \
+    SDL_VIDEODRIVER=${SDL_VIDEODRIVER:-dummy} SDL_AUDIODRIVER=${SDL_AUDIODRIVER:-dummy} nohup stdbuf -oL -eL "$GAME" -iwad "$DOOM_WAD" \
         "${avatar_args[@]}" \
         -width "$GAME_WIDTH" -height "$GAME_HEIGHT" -warp $WARP \
         --continuous-capture 9>&- > "$GAME_LOG" 2>&1 &
