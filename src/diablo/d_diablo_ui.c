@@ -414,6 +414,10 @@ void D_UIOpen(void)
             break;
         }
     }
+
+    /* Log the exact equipped set once per open (driver and keyboard
+       opens alike); the vision loop reads stats from the log. */
+    D_DumpEquippedGear();
 }
 
 void D_UIClose(void)

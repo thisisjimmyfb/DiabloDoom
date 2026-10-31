@@ -92,7 +92,7 @@ Notes:
 - `SCREENSHOT` — capture screenshot to doomshots/
 - `REPLAY` — capture 15-second replay video (H.264 + AAC) (legacy — the continuous segments cover this; don't issue it)
 - `CAPTURE` — capture 15s replay video + screenshot in one command (legacy — the vision loop uses SCREENSHOT plus the continuous segments; don't issue it)
-- `INVENTORY` — toggle inventory screen
+- `INVENTORY` — toggle inventory screen; opening it also dumps the full equipped set to the game log as `[GEAR]` lines (per-slot item, durability, affixes, plus totals including replenish) — read those for exact equipment stats instead of tooltip screenshots
 - `VERSION` — print binary version hash to log
 - `EQUIP <backpack_idx> <slot>` — equip item. Slots: 0=HELM,1=ARMOR,2=WEAPON,3=SHIELD,4=RING1,5=RING2,6=AMULET,7=BOOTS,8=GLOVES,9=BELT,10=FOCUS
 - `UNEQUIP <slot>` — remove equipped item

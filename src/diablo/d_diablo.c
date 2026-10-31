@@ -770,6 +770,205 @@ int D_Stat(struct player_s *pl, int stat)
     return player->diablo_stats[stat];
 }
 
+// Equipment dump, tied to opening the inventory (Jimmy, 2026-10-31):
+// D_UIOpen calls this once per successful open, so the game log
+// carries the exact equipped set -- per-slot item, durability,
+// affixes, and aggregated totals -- instead of the vision loop
+// having to read tooltips off screenshots. Read-only: prints to
+// the log only, changes no state.
+void D_DumpEquippedGear(void)
+{
+    static const char *slotnames[NUM_ESLOTS] =
+    {
+        "HELM", "ARMOR", "WEAPON", "SHIELD", "RING1", "RING2",
+        "AMULET", "BOOTS", "GLOVES", "BELT", "FOCUS"
+    };
+    static const char *tiernames[NUM_TIERS] =
+    {
+        "Normal", "Magic", "Rare", "Set", "Unique"
+    };
+    player_t *player = &players[consoleplayer];
+    struct player_s *pl = (struct player_s *)player;
+    int s;
+    int b;
+
+    printf("[GEAR] equipped set:\n");
+    for (s = 0; s < NUM_ESLOTS; s++)
+    {
+        int id = player->diablo_equipped[s];
+        const diablo_itemdef_t *def;
+        char name[128];
+        char affix[1024];
+        char tmp[64];
+        int dur;
+        int maxdur;
+        const char *tiername;
+
+        if (id == D_NOITEM)
+        {
+            printf("[GEAR] %s: (empty)\n", slotnames[s]);
+            continue;
+        }
+        def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
+        if (!def)
+        {
+            printf("[GEAR] %s: (bad item id %d)\n", slotnames[s], id);
+            continue;
+        }
+        D_ItemDisplayName(def, name, sizeof(name));
+        tiername = (def->tier >= 0 && def->tier < NUM_TIERS)
+                       ? tiernames[def->tier] : "?";
+        dur = player->diablo_equipped_dur[s];
+        maxdur = D_ItemMaxDurability(def);
+        if (maxdur > 0)
+            printf("[GEAR] %s: %s (%s) dur %d/%d\n",
+                   slotnames[s], name, tiername, dur, maxdur);
+        else
+            printf("[GEAR] %s: %s (%s) dur n/a\n",
+                   slotnames[s], name, tiername);
+
+        /* One affix line listing only the nonzero stats. */
+        affix[0] = '\0';
+        if (def->dmg_max > 0)
+        {
+            snprintf(tmp, sizeof(tmp), " dmg %d-%d",
+                     def->dmg_min, def->dmg_max);
+            strcat(affix, tmp);
+        }
+        if (def->armor != 0)
+        {
+            snprintf(tmp, sizeof(tmp), " armor %d", def->armor);
+            strcat(affix, tmp);
+        }
+        if (D_IsDurabilityItem(def) && dur == 0)
+            strcat(affix, " worn-out(armor contributes 0)");
+        if (def->str != 0)
+        {
+            snprintf(tmp, sizeof(tmp), " STR %+d", def->str);
+            strcat(affix, tmp);
+        }
+        if (def->dex != 0)
+        {
+            snprintf(tmp, sizeof(tmp), " DEX %+d", def->dex);
+            strcat(affix, tmp);
+        }
+        if (def->vit != 0)
+        {
+            snprintf(tmp, sizeof(tmp), " VIT %+d", def->vit);
+            strcat(affix, tmp);
+        }
+        if (def->ene != 0)
+        {
+            snprintf(tmp, sizeof(tmp), " ENE %+d", def->ene);
+            strcat(affix, tmp);
+        }
+        if (def->fres != 0)
+        {
+            snprintf(tmp, sizeof(tmp), " fres %d%%", def->fres);
+            strcat(affix, tmp);
+        }
+        if (def->cres != 0)
+        {
+            snprintf(tmp, sizeof(tmp), " cres %d%%", def->cres);
+            strcat(affix, tmp);
+        }
+        if (def->lres != 0)
+        {
+            snprintf(tmp, sizeof(tmp), " lres %d%%", def->lres);
+            strcat(affix, tmp);
+        }
+        if (def->pres != 0)
+        {
+            snprintf(tmp, sizeof(tmp), " pres %d%%", def->pres);
+            strcat(affix, tmp);
+        }
+        if (def->lifesteal != 0)
+        {
+            snprintf(tmp, sizeof(tmp), " lifesteal %d%%", def->lifesteal);
+            strcat(affix, tmp);
+        }
+        if (def->magicfind != 0)
+        {
+            snprintf(tmp, sizeof(tmp), " magicfind %d%%", def->magicfind);
+            strcat(affix, tmp);
+        }
+        if (def->movespeed != 0)
+        {
+            snprintf(tmp, sizeof(tmp), " movespeed %d%%", def->movespeed);
+            strcat(affix, tmp);
+        }
+        if (def->ad_pct != 0)
+        {
+            snprintf(tmp, sizeof(tmp), " AD %d%%", def->ad_pct);
+            strcat(affix, tmp);
+        }
+        if (def->ap_pct != 0)
+        {
+            snprintf(tmp, sizeof(tmp), " AP %d%%", def->ap_pct);
+            strcat(affix, tmp);
+        }
+        if (def->haste != 0)
+        {
+            snprintf(tmp, sizeof(tmp), " haste %d%%", def->haste);
+            strcat(affix, tmp);
+        }
+        if (def->crit_chance != 0)
+        {
+            snprintf(tmp, sizeof(tmp), " crit %d%%", def->crit_chance);
+            strcat(affix, tmp);
+        }
+        if (def->crit_dmg != 0)
+        {
+            snprintf(tmp, sizeof(tmp), " critdmg %d%%", def->crit_dmg);
+            strcat(affix, tmp);
+        }
+        if (def->plasma_cap != 0)
+        {
+            snprintf(tmp, sizeof(tmp), " plasmacap %+d", def->plasma_cap);
+            strcat(affix, tmp);
+        }
+        if (def->ad_flat != 0)
+        {
+            snprintf(tmp, sizeof(tmp), " ADflat %+d", def->ad_flat);
+            strcat(affix, tmp);
+        }
+        if (def->ap_flat != 0)
+        {
+            snprintf(tmp, sizeof(tmp), " APflat %+d", def->ap_flat);
+            strcat(affix, tmp);
+        }
+        if (def->cd_flat != 0)
+        {
+            snprintf(tmp, sizeof(tmp), " CDR %+d", def->cd_flat);
+            strcat(affix, tmp);
+        }
+        if (def->replenish != 0)
+        {
+            snprintf(tmp, sizeof(tmp), " replenish %d HP/s",
+                     def->replenish);
+            strcat(affix, tmp);
+        }
+        if (affix[0] != '\0')
+            printf("[GEAR] %s affixes:%s\n", slotnames[s], affix);
+        for (b = 0; b < 15; b++)
+        {
+            const char *mdesc;
+            if (!(def->mech & (1 << b)))
+                continue;
+            mdesc = D_MechDesc(1 << b);
+            if (mdesc != NULL)
+                printf("[GEAR] %s mech: %s\n", slotnames[s], mdesc);
+        }
+    }
+    printf("[GEAR] TOTALS dmg %d-%d armor %d lifesteal %d%% "
+           "replenish %d HP/s crit %d%%/%d%% AD %d%% AP %d%% haste %d%%\n",
+           D_Stat(pl, DSTAT_DMG_MIN), D_Stat(pl, DSTAT_DMG_MAX),
+           D_Stat(pl, DSTAT_ARMOR), D_Stat(pl, DSTAT_LIFESTEAL),
+           D_Stat(pl, DSTAT_REPLENISH), D_Stat(pl, DSTAT_CRIT_CHANCE),
+           D_Stat(pl, DSTAT_CRIT_DMG), D_Stat(pl, DSTAT_AD_PCT),
+           D_Stat(pl, DSTAT_AP_PCT), D_Stat(pl, DSTAT_HASTE));
+}
+
 int D_MaxHealth(struct player_s *pl)
 {
     // vitality: +5 max HP per point, on top of the dehacked max.

@@ -196,6 +196,7 @@ int D_EquippedWeaponMech(struct player_s *player); // MECH_* of equipped gun
 int D_ActiveMechs(struct player_s *player); // OR of MECH_* from all equipped
 const char *D_MechDesc(int mech_bit); // short display text for one MECH_* bit
 int D_Stat(struct player_s *player, int stat);
+void D_DumpEquippedGear(void); // log dump of the equipped set, on inventory open
 int D_MaxHealth(struct player_s *player);
 
 // Backpack / equip.  Returns false when the backpack is full.
