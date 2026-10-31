@@ -274,7 +274,7 @@ static st_number_t	w_ready;
 static st_number_t	w_frags;
 
 // health widget
-static st_percent_t	w_health;
+static st_number_t	w_health;
 
 // arms background
 static st_binicon_t	w_armsbg; 
@@ -290,7 +290,7 @@ static st_multicon_t	w_faces;
 static st_multicon_t	w_keyboxes[3];
 
 // armor widget
-static st_percent_t	w_armor;
+static st_number_t	w_armor;
 
 // DiabloDoom: the ARMOR readout shows the total remaining durability of
 // the equipped defense pieces (D_EquippedDurabilitySum), refreshed in
@@ -1415,8 +1415,8 @@ void ST_drawWidgets(boolean refresh)
     if (T_InExplore() || !T_Active())
         ST_updateLootAlert();
 
-    STlib_updatePercent(&w_health, refresh);
-    STlib_updatePercent(&w_armor, refresh);
+    STlib_updateNum(&w_health, refresh);
+    STlib_updateNum(&w_armor, refresh);
 
     // DiabloDoom: the classic 2-7 arms are replaced by the equipped
     // Diablo weapon (icon + damage).  st_armson keeps the old condition
@@ -1643,14 +1643,14 @@ void ST_createWidgets(void)
     // the last weapon type
     w_ready.data = plyr->readyweapon; 
 
-    // health percentage
-    STlib_initPercent(&w_health,
+    // health number (no percent sign: health is an HP count, not a percent)
+    STlib_initNum(&w_health,
 		      ST_HEALTHX,
 		      ST_HEALTHY,
 		      tallnum,
 		      &plyr->health,
 		      &st_statusbaron,
-		      tallpercent);
+		      ST_HEALTHWIDTH);
 
     // DiabloDoom: the classic arms-background and weapon-ownership
     // widgets are retired; ST_drawDiabloWeapon paints the equipped
@@ -1675,12 +1675,12 @@ void ST_createWidgets(void)
 
     // armor readout - DiabloDoom: total remaining durability of the
     // equipped defense pieces (see st_armordur), not vanilla armorpoints
-    STlib_initPercent(&w_armor,
+    STlib_initNum(&w_armor,
 		      ST_ARMORX,
 		      ST_ARMORY,
 		      tallnum,
 		      &st_armordur,
-		      &st_statusbaron, tallpercent);
+		      &st_statusbaron, ST_ARMORWIDTH);
 
     // keyboxes 0-2
     STlib_initMultIcon(&w_keyboxes[0],
