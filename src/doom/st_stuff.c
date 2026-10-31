@@ -137,7 +137,7 @@
 
 // HEALTH number pos.
 #define ST_HEALTHWIDTH		3	
-#define ST_HEALTHX			90
+#define ST_HEALTHX			103
 #define ST_HEALTHY			171
 
 // Weapon pos.
@@ -155,7 +155,7 @@
 
 // ARMOR number pos.
 #define ST_ARMORWIDTH		3
-#define ST_ARMORX			221
+#define ST_ARMORX			234
 #define ST_ARMORY			171
 
 // Key icon positions.
