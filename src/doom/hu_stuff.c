@@ -39,6 +39,7 @@
 #include "s_sound.h"
 
 #include "doomstat.h"
+#include "t_turn.h"
 
 // Data.
 #include "dstrings.h"
@@ -435,11 +436,19 @@ void HU_Start(void)
 void HU_Drawer(void)
 {
 
-    HUlib_drawSText(&w_message);
+    // Turn combat and status messages are mutually exclusive: while
+    // the combat HUD is on it owns the top of the screen, so a status
+    // message there would overlap its header/footer in the same font
+    // and colour. Hide messages in combat; they still expire via
+    // HU_Ticker, so nothing bursts out when combat ends. In explore
+    // (and with turn mode off) messages draw normally.
+    if (!T_InCombat())
+        HUlib_drawSText(&w_message);
     HUlib_drawIText(&w_chat);
     if (automapactive)
 	HUlib_drawTextLine(&w_title, false);
 
+    T_DrawHUD();  // turn-based mode indicator (no-op in real-time)
 }
 
 void HU_Erase(void)

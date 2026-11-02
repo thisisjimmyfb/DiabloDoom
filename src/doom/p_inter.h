@@ -25,6 +25,15 @@
 
 boolean	P_GivePower(player_t*, int);
 
+// Spawn a loot pickup for a specific Diablo item id at (x, y).
+// Used by player-initiated drops from the inventory.
+void P_SpawnDiabloLootAt(fixed_t x, fixed_t y, int item_id);
+
+// Roll a random Diablo item id (kill-drop rarity table). magic_find
+// shifts rarity. Returns -1 if nothing is valid. Used by kill drops
+// and by map-ammo conversion.
+int P_RollDiabloItemDrop(int magic_find);
+
 
 
 #endif

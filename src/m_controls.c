@@ -29,10 +29,10 @@
 int key_right = KEY_RIGHTARROW;
 int key_left = KEY_LEFTARROW;
 
-int key_up = KEY_UPARROW;
-int key_down = KEY_DOWNARROW; 
-int key_strafeleft = ',';
-int key_straferight = '.';
+int key_up = 'w';
+int key_down = 's';
+int key_strafeleft = 'a';
+int key_straferight = 'd';
 int key_fire = KEY_RCTRL;
 int key_use = ' ';
 int key_strafe = KEY_RALT;
@@ -188,7 +188,7 @@ int key_menu_gamma     = KEY_F11;
 
 int key_menu_incscreen = KEY_EQUALS;
 int key_menu_decscreen = KEY_MINUS;
-int key_menu_screenshot = 0;
+int key_menu_screenshot = KEY_F12;
 
 //
 // Joystick controls

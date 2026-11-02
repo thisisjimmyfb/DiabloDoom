@@ -26,6 +26,10 @@
 
 #include "p_local.h"
 
+// Diablo equipment backend (mod).
+#include "d_diablo.h"
+#include "t_turn.h"
+
 #include "doomstat.h"
 
 
@@ -54,6 +58,10 @@ P_Thrust
   angle_t	angle,
   fixed_t	move ) 
 {
+    // Diablo equipment (mod): movespeed scales thrust, through the
+    // shared displacement scaling every movement path uses.
+    move = D_ScaleDisplacement(player, move);
+
     angle >>= ANGLETOFINESHIFT;
     
     player->mo->momx += FixedMul(move,finecosine[angle]); 
@@ -143,7 +151,15 @@ void P_MovePlayer (player_t* player)
     ticcmd_t*		cmd;
 	
     cmd = &player->cmd;
-	
+
+    // A COLLECT walk owns the player's movement: while it runs, the
+    // movement keys (and view turning) are disabled -- the walk sets
+    // velocity and facing itself every tick. Without this gate the
+    // player's own thrust fights the walk and keeps resetting its
+    // stuck watchdog, so a wedged walk stays wedged until the 20s cap.
+    if (player == &players[consoleplayer] && T_CollectActive())
+	return;
+
     player->mo->angle += (cmd->angleturn<<FRACBITS);
 
     // Do not let the player control movement

@@ -20,10 +20,12 @@
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
+#include <time.h>
 
 #include "doomdef.h" 
 #include "doomkeys.h"
 #include "doomstat.h"
+#include "t_turn.h"
 
 #include "deh_main.h"
 #include "deh_misc.h"
@@ -61,6 +63,11 @@
 
 #include "p_local.h" 
 
+// Diablo equipment backend (mod).
+#include "d_diablo.h"
+#include "d_diablo_ui.h"
+#include "d_replay.h"
+
 #include "s_sound.h"
 
 // Data.
@@ -77,6 +84,10 @@
 
 
 #define SAVEGAMESIZE	0x2c000
+// DiabloDoom: Diablo save data exceeds vanilla's 180KB limit.
+// Expanded to 4MB for modded savegames.
+#undef SAVEGAMESIZE
+#define SAVEGAMESIZE	0x400000
 
 void	G_ReadDemoTiccmd (ticcmd_t* cmd); 
 void	G_WriteDemoTiccmd (ticcmd_t* cmd); 
@@ -149,6 +160,10 @@ int             testcontrols_mousespeed;
 
  
 wbstartstruct_t wminfo;               	// parms for world map / intermission 
+
+// NG+ loop: when true, G_DoWorldDone warps to MAP01 instead of the
+// next map. Set when the final map's finale completes.
+boolean d_loop_warp = false;
  
 byte		consistancy[MAXPLAYERS][BACKUPTICS]; 
  
@@ -230,7 +245,10 @@ static char     savedescription[32];
 mobj_t*		bodyque[BODYQUESIZE]; 
 int		bodyqueslot; 
  
-int             vanilla_savegame_limit = 1;
+// DiabloDoom saves carry Diablo equipment/turn-state blocks and can
+// legitimately exceed the vanilla 180224-byte limit, so the limit
+// is off by default. (The farm config also sets it to 0.)
+int             vanilla_savegame_limit = 0;
 int             vanilla_demo_limit = 1;
  
 int G_CmdChecksum (ticcmd_t* cmd) 
@@ -328,6 +346,25 @@ static int G_NextWeapon(int direction)
 // or reads it from the demo buffer. 
 // If recording a demo, write it out 
 // 
+// Clear stale movement key states. Called on turn-mode transitions
+// (enter/exit combat) to prevent stuck keys when the mode changes
+// while keys are held.
+void G_ClearMovementKeys(void)
+{
+    int i;
+    // Clear WASD and arrow keys
+    static const int move_keys[] = {
+        'w', 'a', 's', 'd', 'W', 'A', 'S', 'D',
+        KEY_UPARROW, KEY_DOWNARROW, KEY_LEFTARROW, KEY_RIGHTARROW
+    };
+    for (i = 0; i < (int)(sizeof(move_keys) / sizeof(move_keys[0])); i++)
+    {
+        int k = move_keys[i];
+        if (k >= 0 && k < NUMKEYS)
+            gamekeydown[k] = false;
+    }
+}
+
 void G_BuildTiccmd (ticcmd_t* cmd, int maketic) 
 { 
     int		i; 
@@ -500,13 +537,16 @@ void G_BuildTiccmd (ticcmd_t* cmd, int maketic)
     // next_weapon variable is set to change weapons when
     // we generate a ticcmd.  Choose a new weapon.
 
-    if (gamestate == GS_LEVEL && next_weapon != 0)
+    // DiabloDoom: weapon switching via number keys is disabled.
+    // The visible weapon is driven by Diablo equipment (D_SyncDoomWeapon),
+    // not vanilla weapon slots. Number keys would desync the state machine.
+    if (false && gamestate == GS_LEVEL && next_weapon != 0)
     {
         i = G_NextWeapon(next_weapon);
         cmd->buttons |= BT_CHANGE;
         cmd->buttons |= i << BT_WEAPONSHIFT;
     }
-    else
+    else if (false)
     {
         // Check weapon keys.
 
@@ -721,6 +761,25 @@ void G_DoLoadLevel (void)
     memset(mousearray, 0, sizeof(mousearray));
     memset(joyarray, 0, sizeof(joyarray));
 
+    T_NewGame ();  // turn-based controller reset
+
+    // If we just loaded an auto-save with a pending teleport, move the
+    // player to the saved position now that the level is loaded.
+    {
+        extern void D_AutosaveTeleportCheck(void);
+        D_AutosaveTeleportCheck();
+    }
+
+    // Auto-save Diablo progress on starting a new level. This must run
+    // AFTER P_SetupLevel: gamemap has already been advanced to the new
+    // level when this function is entered (level transition), so a
+    // save taken before the setup archives the PREVIOUS level's world
+    // under the new level's label -- an unloadable pair (2026-10-22).
+    {
+        extern void D_AutoSaveGame(void);
+        D_AutoSaveGame();
+    }
+
     if (testcontrols)
     {
         players[consoleplayer].message = "Press escape to quit.";
@@ -787,6 +846,10 @@ static void SetMouseButtons(unsigned int buttons_mask)
 // 
 boolean G_Responder (event_t* ev) 
 { 
+    // Turn-based mode owns gameplay keys while planning/targeting.
+    if (T_Responder(ev))
+	return true;
+
     // allow spy mode changes even during the demo
     if (gamestate == GS_LEVEL && ev->type == ev_keydown 
      && ev->data1 == key_spy && (singledemo || !deathmatch) )
@@ -801,6 +864,30 @@ boolean G_Responder (event_t* ev)
 	return true; 
     }
     
+    // Diablo equipment (mod): temporary controls.
+    // E equips/uses the most recently picked-up item, Q unequips everything.
+    // C opens the character screen (backpack + paperdoll UI).
+    if (gamestate == GS_LEVEL && ev->type == ev_keydown
+     && !demoplayback && !singledemo)
+    {
+	if (ev->data1 == 'c' || ev->data1 == 'C')
+	{
+	    D_UIOpen();
+	    return true;
+	}
+	if (ev->data1 == 'e' || ev->data1 == 'E')
+	{
+	    D_EquipRecent(&players[consoleplayer]);
+	    return true;
+	}
+	if (ev->data1 == 'q' || ev->data1 == 'Q')
+	{
+	    D_UnequipAll(&players[consoleplayer]);
+	    players[consoleplayer].message = "Unequipped everything.";
+	    return true;
+	}
+    }
+
     // any other key pops up menu if in demos
     if (gameaction == ga_nothing && !singledemo && 
 	(demoplayback || gamestate == GS_DEMOSCREEN) 
@@ -904,6 +991,13 @@ boolean G_Responder (event_t* ev)
  
  
 //
+// Named screenshot (SURVEY frame dumps): pending exact filename
+// for the next ga_screenshot tick, set by G_ScreenShotFile below.
+//
+static char screenshot_file[256] = "";
+static boolean screenshot_file_set = false;
+
+//
 // G_Ticker
 // Make ticcmd_ts for the players.
 //
@@ -948,8 +1042,37 @@ void G_Ticker (void)
 	    G_DoWorldDone (); 
 	    break; 
 	  case ga_screenshot: 
-	    V_ScreenShot("DOOM%02i.%s"); 
-            players[consoleplayer].message = DEH_String("screen shot");
+	    {
+	        extern void D_EnsureDoomshotsDir(void);
+	        extern char last_screenshot_name[128];
+	        extern void V_ScreenShotFile(const char *filename);
+	        char fmt[64];
+	        time_t now = time(NULL);
+	        struct tm *tm = localtime(&now);
+	        D_EnsureDoomshotsDir();
+	        if (screenshot_file_set)
+	        {
+	            // Named capture (SURVEY frame dump): exact filename,
+	            // no HUD message -- the message text would land in
+	            // the following survey frames and pollute them.
+	            V_ScreenShotFile(screenshot_file);
+	            screenshot_file_set = false;
+	        }
+	        else
+	        {
+	            // Timestamped: doomshots/diablodoom_20261015_113042_00.png
+	            snprintf(fmt, sizeof(fmt), "doomshots/diablodoom_%04d%02d%02d_%02d%02d%02d_%%02i.%%s",
+	                     tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
+	                     tm->tm_hour, tm->tm_min, tm->tm_sec);
+	            V_ScreenShot(fmt);
+	            // Show the saved filename in the HUD message
+	            {
+	                static char msg[160];
+	                snprintf(msg, sizeof(msg), "Screenshot: %s", last_screenshot_name);
+	                players[consoleplayer].message = msg;
+	            }
+	        }
+	    }
 	    gameaction = ga_nothing; 
 	    break; 
 	  case ga_nothing: 
@@ -1060,7 +1183,10 @@ void G_Ticker (void)
     switch (gamestate) 
     { 
       case GS_LEVEL: 
-	P_Ticker (); 
+	if (T_Ready())
+	    T_Ticker ();   // turn controller: frozen planning + pulses
+	else
+	    P_Ticker (); 
 	ST_Ticker (); 
 	AM_Ticker (); 
 	HU_Ticker ();            
@@ -1139,7 +1265,42 @@ void G_PlayerReborn (int player)
     secretcount = players[player].secretcount; 
 	 
     p = &players[player]; 
-    memset (p, 0, sizeof(*p)); 
+    // Diablo equipment (mod): gear does NOT survive death. It
+    // lives on the corpse (snapshotted by P_KillMobj) until the
+    // player runs back and recovers it, so the reborn player starts
+    // with empty slots, an empty backpack and no essence; only
+    // derived stats and the recent-item marker carry over. The
+    // driver's P_DoCorpseRespawn used to clear the gear by hand
+    // after this function preserved it, but the local respawn path
+    // (G_DoReborn) never did -- the player kept wearing everything
+    // while the corpse held duplicates, and corpse recovery then
+    // stuffed copies of the whole equipped set into the backpack
+    // (2026-10-21: "Don't ever move my currently equipped
+    // items when collecting corpse loot"). Clearing here covers
+    // every respawn path.
+    {
+	int rec, st[NUM_DSTATS];
+	int rec_pages;
+	int i2;
+	rec = p->diablo_recent;
+	rec_pages = p->diablo_bp_pages;
+	for (i2 = 0; i2 < NUM_DSTATS; i2++) st[i2] = p->diablo_stats[i2];
+	memset (p, 0, sizeof(*p));
+	for (i2 = 0; i2 < NUM_ESLOTS; i2++) p->diablo_equipped[i2] = -1;
+	for (i2 = 0; i2 < D_BACKPACK_MAX; i2++)
+	{
+	    p->diablo_backpack[i2] = -1;
+	    p->diablo_bp_gx[i2] = -1;
+	    p->diablo_bp_gy[i2] = -1;
+	    p->diablo_bp_page[i2] = 0;
+	    p->diablo_backpack_dur[i2] = 0;
+	}
+	p->diablo_bp_count = 0;
+	p->diablo_bp_pages = (rec_pages >= 1 && rec_pages <= D_BP_MAX_PAGES) ? rec_pages : 1;
+	p->diablo_bp_cur = 0;
+	p->diablo_recent = rec;
+	for (i2 = 0; i2 < NUM_DSTATS; i2++) p->diablo_stats[i2] = st[i2];
+    }
  
     memcpy (players[player].frags, frags, sizeof(players[player].frags)); 
     players[player].killcount = killcount; 
@@ -1152,7 +1313,7 @@ void G_PlayerReborn (int player)
     p->readyweapon = p->pendingweapon = wp_pistol; 
     p->weaponowned[wp_fist] = true; 
     p->weaponowned[wp_pistol] = true; 
-    p->ammo[am_clip] = deh_initial_bullets; 
+    p->ammo[am_clip] = deh_initial_bullets; // mana pool starts at 50
 	 
     for (i=0 ; i<NUMAMMO ; i++) 
 	p->maxammo[i] = maxammo[i]; 
@@ -1353,7 +1514,17 @@ void G_DoReborn (int playernum)
 void G_ScreenShot (void) 
 { 
     gameaction = ga_screenshot; 
-} 
+}
+
+// Named screenshot (SURVEY frame dumps): the next ga_screenshot
+// tick writes exactly this file instead of a timestamped default.
+// The pending name is consumed by the ga_screenshot case above.
+void G_ScreenShotFile (const char *filename)
+{
+    M_StringCopy(screenshot_file, filename, sizeof(screenshot_file));
+    screenshot_file_set = true;
+    gameaction = ga_screenshot;
+}
  
 
 
@@ -1408,6 +1579,18 @@ void G_SecretExitLevel (void)
 void G_DoCompleted (void) 
 { 
     int             i; 
+
+    // Phase 8: atomic profile save on level exit. Never from a demo
+    // or a netgame (2026-10-22): the state being saved is the
+    // demo's / another session's, not the player's.
+    if (!demoplayback && !netdemo && !netgame)
+        T_ProfileSave();
+
+    // Auto-save Diablo progress on level completion.
+    {
+        extern void D_AutoSaveGame(void);
+        D_AutoSaveGame();
+    }
 	 
     gameaction = ga_nothing; 
  
@@ -1608,7 +1791,23 @@ void G_WorldDone (void)
 void G_DoWorldDone (void) 
 {        
     gamestate = GS_LEVEL; 
-    gamemap = wminfo.next+1; 
+    // NG+ loop: after beating the game, warp back to MAP01 with
+    // stronger enemies instead of advancing to the next map.
+    if (d_loop_warp)
+    {
+        d_loop_warp = false;
+        gamemap = 1;
+        gameepisode = 1;
+        // Announce the new loop to the player.
+        {
+            static char loopmsg[64];
+            M_snprintf(loopmsg, sizeof(loopmsg),
+                       "LOOP %d - enemies grow stronger!", d_loop + 1);
+            players[consoleplayer].message = loopmsg;
+        }
+    }
+    else
+        gamemap = wminfo.next+1; 
     G_DoLoadLevel (); 
     gameaction = ga_nothing; 
     viewactive = true; 
@@ -1629,11 +1828,19 @@ void G_LoadGame (char* name)
     gameaction = ga_loadgame; 
 } 
 
+boolean g_loading_savegame = false; // true while G_DoLoadGame runs (skip map loot spawn)
+
 void G_DoLoadGame (void) 
 { 
     int savedleveltime;
+    // Consumed here so the request belongs to exactly this load even
+    // if the load fails below (a failed load leaves the world
+    // unchanged, so no restart happens and nothing leaks to a later
+    // load). Only the FIFO driver LOAD command requests a restart.
+    int restart_capture = D_ReplayTakeRestartRequest();
 	 
     gameaction = ga_nothing; 
+    g_loading_savegame = true;
 	 
     save_stream = M_fopen(savename, "rb");
 
@@ -1647,6 +1854,7 @@ void G_DoLoadGame (void)
     if (!P_ReadSaveGameHeader())
     {
         fclose(save_stream);
+        g_loading_savegame = false;
         return;
     }
 
@@ -1663,8 +1871,19 @@ void G_DoLoadGame (void)
     P_UnArchiveThinkers (); 
     P_UnArchiveSpecials (); 
  
-    if (!P_ReadSaveGameEOF())
-	I_Error ("Bad savegame");
+    // Diablo equipment (mod): old saves have no Diablo section; the EOF
+    // marker is consumed by P_UnArchiveDiablo in that case.
+    if (P_UnArchiveDiablo())
+    {
+        // Turn-based decision state (mod): old saves end after the
+        // Diablo section; P_UnArchiveTurn consumes the EOF marker and
+        // returns false in that case.
+        if (P_UnArchiveTurn())
+        {
+            if (!P_ReadSaveGameEOF())
+                I_Error ("Bad savegame");
+        }
+    }
 
     fclose(save_stream);
     
@@ -1672,7 +1891,17 @@ void G_DoLoadGame (void)
 	R_ExecuteSetViewSize ();
     
     // draw the pattern into the back screen
-    R_FillBackScreen ();   
+    R_FillBackScreen ();
+
+    T_OnLoad ();  // turn mode: land in PLANNING
+    g_loading_savegame = false;
+
+    // A driver-command LOAD restarts continuous capture: the
+    // in-progress segment is dropped so the next segment starts clean
+    // at the loaded world. Menu/-loadgame loads don't restart — their
+    // UI shows the load, so the cut isn't abrupt.
+    if (restart_capture)
+        D_ReplayRestartCapture();
 } 
  
 
@@ -1729,6 +1958,13 @@ void G_DoSaveGame (void)
     P_ArchiveThinkers ();
     P_ArchiveSpecials ();
 
+    // Diablo equipment (mod).
+    P_ArchiveDiablo();
+
+    // Turn-based decision state (mod). Loading tolerates the
+    // missing block via the EOF-marker fallback in P_UnArchiveTurn.
+    P_ArchiveTurn();
+
     P_WriteSaveGameEOF();
 
     // Enforce the same savegame size limit as in Vanilla Doom,
@@ -1766,6 +2002,15 @@ void G_DoSaveGame (void)
 
     // draw the pattern into the back screen
     R_FillBackScreen ();
+}
+
+// Turn-mode test harness: synchronous save to a slot (the menu path is
+// deferred through gameaction; scripts need it immediate).
+void G_DoSaveGameSlot(int slot, const char *desc)
+{
+    savegameslot = slot;
+    M_StringCopy(savedescription, desc ? desc : "", sizeof(savedescription));
+    G_DoSaveGame();
 }
  
 
@@ -1912,7 +2157,11 @@ G_InitNew
 
     // force players to be initialized upon first level load
     for (i=0 ; i<MAXPLAYERS ; i++)
+    {
 	players[i].playerstate = PST_REBORN;
+	// Diablo equipment (mod): new game wipes gear.
+	D_ResetPlayer(&players[i]);
+    }
 
     usergame = true;                // will be set false if a demo
     paused = false;

@@ -11,7 +11,14 @@ add_library(doom STATIC
             deh_thing.c
             deh_weapon.c
                             d_englsh.h
-            d_items.c       d_items.h
+            ../diablo/d_diablo.c      ../diablo/d_diablo.h
+            ../diablo/d_diablo_ui.c   ../diablo/d_diablo_ui.h
+            ../diablo/d_diablo_icons.c ../diablo/d_diablo_icons.h
+            ../diablo/d_pistol_sprite.c ../diablo/d_pistol_sprite.h
+            ../diablo/d_ssg_sprite.c ../diablo/d_ssg_sprite.h
+            ../diablo/d_progress.c    ../diablo/d_progress.h
+            ../diablo/d_replay.c      ../diablo/d_replay.h
+            ../diablo/d_items.c       ../diablo/d_items.h
             d_main.c        d_main.h
             d_net.c
                             doomdata.h
@@ -65,9 +72,55 @@ add_library(doom STATIC
             statdump.c      statdump.h
             st_lib.c        st_lib.h
             st_stuff.c      st_stuff.h
+            ../diablo/t_action.c
+            ../diablo/t_combat.c      ../diablo/t_combat.h
+            ../diablo/t_input.c
+            ../diablo/t_turn.c        ../diablo/t_turn.h
             wi_stuff.c      wi_stuff.h)
 
-target_include_directories(doom PRIVATE "../" "${CMAKE_CURRENT_BINARY_DIR}/../../")
+target_include_directories(doom PRIVATE "../" "${CMAKE_CURRENT_BINARY_DIR}/../../"
+                           "${CMAKE_CURRENT_SOURCE_DIR}"
+                           "${CMAKE_CURRENT_SOURCE_DIR}/../diablo")
+# x264 for H.264 replay encoding: prefer system via pkg-config, fall back to in-repo third_party/x264.
+# If neither is available, build without replay support (NO_X264).
+find_package(PkgConfig QUIET)
+if(PKG_CONFIG_FOUND)
+    pkg_check_modules(X264 QUIET x264)
+endif()
+set(X264_IN_REPO "${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/x264")
+if(X264_FOUND)
+    target_include_directories(doom PRIVATE ${X264_INCLUDE_DIRS})
+    set(X264_LIBS ${X264_LIBRARIES})
+    message(STATUS "x264: using system library")
+elseif(EXISTS "${X264_IN_REPO}/lib/libx264.a")
+    target_include_directories(doom PRIVATE "${X264_IN_REPO}/include")
+    set(X264_LIBS "${X264_IN_REPO}/lib/libx264.a")
+    message(STATUS "x264: using in-repo third_party/x264")
+else()
+    message(STATUS "x264: not found - building without replay support")
+    target_compile_definitions(doom PRIVATE NO_X264)
+    set(X264_LIBS "")
+endif()
+
+# faac for AAC audio in replays: prefer system via pkg-config, fall back to in-repo third_party/faac.
+# If neither is available, build without AAC audio (NO_FAAC) - video-only replays.
+if(PKG_CONFIG_FOUND)
+    pkg_check_modules(FAAC QUIET faac)
+endif()
+set(FAAC_IN_REPO "${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/faac")
+if(FAAC_FOUND)
+    target_include_directories(doom PRIVATE ${FAAC_INCLUDE_DIRS})
+    set(FAAC_LIBS ${FAAC_LIBRARIES})
+    message(STATUS "faac: using system library")
+elseif(EXISTS "${FAAC_IN_REPO}/lib/libfaac.a")
+    target_include_directories(doom PRIVATE "${FAAC_IN_REPO}/include")
+    set(FAAC_LIBS "${FAAC_IN_REPO}/lib/libfaac.a")
+    message(STATUS "faac: using in-repo third_party/faac")
+else()
+    message(STATUS "faac: not found - building without AAC audio support")
+    target_compile_definitions(doom PRIVATE NO_FAAC)
+    set(FAAC_LIBS "")
+endif()
 
 if (DEFINED EMSCRIPTEN)
     set(SDL_FLAGS "-s USE_SDL=2")
@@ -86,6 +139,6 @@ else()
         list(APPEND SDL_LINK_LIBS SDL2_net::SDL2_net)
     endif()
 endif()
-target_link_libraries(doom ${SDL_LINK_LIBS})
+target_link_libraries(doom ${SDL_LINK_LIBS} ${X264_LIBS} ${FAAC_LIBS})
 set_target_properties(doom PROPERTIES COMPILE_FLAGS "${SDL_FLAGS}")
 set_target_properties(doom PROPERTIES LINK_FLAGS "${SDL_FLAGS}")

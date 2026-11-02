@@ -71,5 +71,9 @@ typedef struct
 
 extern fixed_t bulletslope;
 
+struct mobj_s;
+void P_FrustumSpray(struct mobj_s *originator, angle_t angle);
+boolean P_FrustumSpraying(void);
+
 
 #endif

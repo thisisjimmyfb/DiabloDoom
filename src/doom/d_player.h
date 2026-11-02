@@ -39,6 +39,9 @@
 
 #include "net_defs.h"
 
+// Diablo equipment system (mod): slots, stats, item definitions.
+#include "d_diablo.h"
+
 
 
 
@@ -157,6 +160,31 @@ typedef struct player_s
 
     // True if secret level has been done.
     boolean		didsecret;	
+
+    // Diablo equipment system (mod).  Equipped/backpack entries are
+    // packed item ids ((tier << 8) | index); D_NOITEM (-1) means empty.
+    // diablo_stats caches the summed stats of equipped items.
+    // Backpack items also live on a 2D grid (Phase 2 UI); gx/gy is the
+    // top-left cell of the item's footprint, or -1 when not placed.
+    // NOTE: not yet saved to savegames (Phase 2); gear resets on load.
+    int			diablo_equipped[NUM_ESLOTS];
+    int			diablo_backpack[D_BACKPACK_MAX];
+    int			diablo_bp_gx[D_BACKPACK_MAX];
+    int			diablo_bp_gy[D_BACKPACK_MAX];
+    int			diablo_bp_page[D_BACKPACK_MAX];
+    // Per-instance durability (points) for the durability slots
+    // (helm, armor, boots, gloves, belt); other slots stay 0.
+    // A piece at 0 contributes no Defense. Max is per-item
+    // (D_ItemMaxDurability). Travels with the item everywhere the
+    // packed id travels: backpack, corpse, savegames.
+    int			diablo_equipped_dur[NUM_ESLOTS];
+    int			diablo_backpack_dur[D_BACKPACK_MAX];
+    int			diablo_bp_count;	// total across all pages
+    int			diablo_bp_pages;	// unlocked pages, 1..D_BP_MAX_PAGES
+    int			diablo_bp_cur;	// current UI page, 0..pages-1
+    int			diablo_recent;	// backpack idx of latest pickup
+    int			diablo_stats[NUM_DSTATS];
+    int			diablo_essence;	// salvage currency from junking loot
 
 } player_t;
 

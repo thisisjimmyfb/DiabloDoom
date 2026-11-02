@@ -77,6 +77,7 @@ void P_RemoveThinker (thinker_t* thinker);
 //
 void P_SetupPsprites (player_t* curplayer);
 void P_MovePsprites (player_t* curplayer);
+void P_CalcHeight (player_t* player);
 void P_DropWeapon (player_t* player);
 
 
@@ -84,6 +85,7 @@ void P_DropWeapon (player_t* player);
 // P_USER
 //
 void	P_PlayerThink (player_t* player);
+void	P_Thrust (player_t* player, angle_t angle, fixed_t move);
 
 
 //
@@ -288,6 +290,18 @@ void
 P_TouchSpecialThing
 ( mobj_t*	special,
   mobj_t*	toucher );
+
+void
+P_TouchNearbySpecials
+( mobj_t*	toucher );
+
+boolean
+P_AmmoCacheHasRoom
+( void );
+
+boolean
+P_IsAmmoCache
+( mobj_t*	special );
 
 void
 P_DamageMobj

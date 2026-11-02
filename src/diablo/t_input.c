@@ -1,0 +1,255 @@
+//
+// t_input.c — Turn-based mode: input adapter.
+//
+// Translates raw key events into discrete turn actions. Only directions
+// and (later) actor IDs ever leave this layer — never mouse position,
+// analog magnitude, or crosshair state.
+//
+// Phase 3 keymap (character screen closed):
+//   W or up-arrow .... step forward (1 TP, queued)
+//   S or down-arrow .. step back (1 TP, queued)
+//   A / D ............ strafe left / right (1 TP, queued, no facing change)
+//   left/right arrows  turn view 45 degrees (free, 0 TP, always legal,
+//                      immediate — camera control is never queued)
+//   X .................. swap weapon (2 TP, queued)
+//   SPACE .............. use / interact (2 TP, queued)
+//   T .................. end turn -> drain queue FIFO, then enemy phase
+//   BACKSPACE .......... undo last queued action (free, refunds TP)
+//   Z or . ............. clear the whole queue (free, refunds all TP)
+//   TAB / ] ............ next target (free)
+//   [ .................. previous target (free)
+//   1-9 ................ select target by number (free)
+//   F or ENTER ......... attack: preview -> confirm -> enqueue (4 TP)
+//   ESC ................ cancel targeting (free)
+// Queue model: planning keys ENQUEUE (TP reserved); END TURN executes.
+// C/E/Q/R keep their Diablo inventory meanings and are NOT intercepted.
+
+#include "t_turn.h"
+#include "doomstat.h"
+#include "d_player.h"
+#include "d_diablo_ui.h"
+#include "doomkeys.h"
+
+// Map a key code to a turn action; TA_NONE if unmapped.
+static turnaction_t T_KeyAction(int key)
+{
+    switch (key)
+    {
+      case 'w': case 'W': case KEY_UPARROW:    return TA_MOVE_N;
+      case 's': case 'S': case KEY_DOWNARROW:  return TA_MOVE_S;
+      case 'a': case 'A':                      return TA_MOVE_W;
+      case 'd': case 'D':                      return TA_MOVE_E;
+      case KEY_LEFTARROW:                      return TA_TURN_L;
+      case KEY_RIGHTARROW:                     return TA_TURN_R;
+      case ' ':                                return TA_USE;
+      case 'g': case 'G':                      return TA_COLLECT;
+      case 't': case 'T':                      return TA_END_TURN;
+      case KEY_BACKSPACE:                      return TA_UNDO;
+      case KEY_ENTER:
+        // Enter confirms an attack in CONFIRM state; otherwise ends turn.
+        if (turnctrl.state == TS_CONFIRM)
+            return TA_ATTACK;
+        return TA_END_TURN;
+      case KEY_ESCAPE:                         return TA_CANCEL;
+      case '1': case '2': case '3':
+      case '4': case '5': case '6':
+      case '7': case '8': case '9':             return TA_SELECT_NUM;
+      default:                                 return TA_NONE;
+    }
+}
+
+static boolean T_KeyMapped(int key)
+{
+    return T_KeyAction(key) != TA_NONE;
+}
+
+static void T_ExecuteAction(turnaction_t action)
+{
+    switch (action)
+    {
+      case TA_MOVE_N: T_DoMove(0); break;
+      case TA_MOVE_E: T_DoMove(1); break;
+      case TA_MOVE_S: T_DoMove(2); break;
+      case TA_MOVE_W: T_DoMove(3); break;
+      case TA_TURN_L: T_DoTurn(-1); break;
+      case TA_TURN_R: T_DoTurn(1); break;
+      case TA_USE:    T_DoUse();   break;
+      case TA_COLLECT: T_DoCollect(); break;
+      case TA_END_TURN: T_DoEndTurn(); break;
+      case TA_UNDO: T_DoUndoQueue(); break;
+      case TA_ATTACK: T_DoAttack(); break;
+      case TA_CANCEL: T_DoCancel(); break;
+      default: break;
+    }
+}
+
+// Number-key selection carries its digit outside the action enum.
+static void T_ExecuteNumKey(int key)
+{
+    turnctrl.selected_num = key - '0';
+    T_DoSelectNum(turnctrl.selected_num);
+}
+
+boolean T_Responder(event_t *ev)
+{
+    turnaction_t action;
+
+    if (!T_Ready())
+        return false;
+    if (gamestate != GS_LEVEL)
+        return false;
+    // The character screen owns all input while open (it already ran
+    // ahead of G_Responder in D_ProcessEvents).
+    if (D_UIIsOpen())
+        return false;
+
+    // EXPLORE mode: free real-time movement. WASD/arrows flow to the
+    // normal Doom input path (Chocolate Doom binds WASD by default).
+    // Only turn-specific keys are intercepted; everything else passes.
+    if (T_InExplore())
+    {
+        if (ev->type == ev_mouse || ev->type == ev_joystick)
+            return true; // keyboard-only, as in turn mode
+        if (ev->type != ev_keydown && ev->type != ev_keyup)
+            return false;
+        if (ev->type == ev_keydown)
+        {
+            switch (ev->data1)
+            {
+              case 'g': case 'G':
+                // Same as the COLLECT driver command: the autonomous
+                // per-tick pathfinding walk to loot (T_DoCollect).
+                // This case used to just print "Walk over loot to
+                // pick it up." and swallow the key -- removed
+                // 2026-10-21 at the user's order: keyboard G must behave
+                // exactly like the driver's COLLECT.
+                T_ExecuteAction(TA_COLLECT);
+                return true;
+              case 't': case 'T':
+                // No turn to end outside combat.
+                return true;
+              case ']': case '[':
+                // Target cycling needs combat; ignore in explore.
+                // Tab is NOT swallowed here: it passes through to
+                // the automap, so the player can toggle the map in
+                // explore mode (it hides on combat entry instead).
+                return true;
+              case KEY_RCTRL:
+                // Hold-Ctrl in explore: fall through to the main handler
+                // to start mini-combat targeting.
+                break;
+              default:
+                return false; // movement, C/E/Q pass through
+            }
+            // Ctrl in explore: continue to the main turn handler below.
+            if (ev->data1 != KEY_RCTRL)
+                return false; // key releases pass through
+        }
+        else
+        {
+            // Ctrl release in explore: let the main handler confirm
+            // mini-combat targeting (don't return early).
+            // Other releases pass through.
+            if (!(ev->data1 == KEY_RCTRL && turnctrl.ctrl_targeting))
+                return false;
+        }
+    }
+
+    // No analog input in turn mode: swallow mouse and joystick gameplay
+    // events so no angle/forward motion accumulates into ticcmds.
+    // (Menus and the character screen already had first crack above.)
+    if (ev->type == ev_mouse || ev->type == ev_joystick)
+        return true;
+    if (ev->type != ev_keydown && ev->type != ev_keyup)
+        return false;
+
+    // During pulses the world is resolving: lock gameplay input.
+    // (Menu keys never reach here; M_Responder runs first.)
+    if (T_InPulse())
+        return T_KeyMapped(ev->data1);
+
+    // Stale-key guard: a key held when combat started must be released
+    // before it can act. Clear the stale flag on keyup; swallow keydown
+    // repeats while stale.
+    if (ev->data1 >= 0 && ev->data1 < 256)
+    {
+        if (ev->type == ev_keyup)
+            turnctrl.stale_keys[ev->data1] = false;
+        else if (turnctrl.stale_keys[ev->data1])
+            return true; // swallow stale held-key repeat
+    }
+
+    // Debug: log Ctrl key events.
+    if (ev->data1 == KEY_RCTRL)
+        printf("[TURN] Ctrl %s: state=%d executing=%d targeting=%d\n",
+               ev->type == ev_keydown ? "down" : "up",
+               turnctrl.state, turnctrl.executing, turnctrl.ctrl_targeting);
+
+    if (ev->type == ev_keyup)
+    {
+        // Hold-Ctrl targeting: release confirms the selection.
+        if (ev->data1 == KEY_RCTRL && turnctrl.ctrl_targeting)
+        {
+            T_ConfirmCtrlTarget();
+            return true;
+        }
+        return T_KeyMapped(ev->data1); // swallow key releases of our keys
+    }
+
+    // Hold-Ctrl targeting: press enters targeting mode (don't trigger
+    // the normal TA_ATTACK flow).
+    if (ev->data1 == KEY_RCTRL && T_Active()
+        && !T_InPulse() && !turnctrl.executing)
+    {
+        T_StartCtrlTargeting();
+        return true;
+    }
+
+    // Hold-Ctrl targeting: arrows navigate targets (camera snaps),
+    // instead of turning the view.
+    if (turnctrl.ctrl_targeting && T_Active() && !T_InPulse())
+    {
+        if (ev->data1 == KEY_LEFTARROW || ev->data1 == KEY_UPARROW)
+        {
+            T_CtrlTargetNavigate(-1);
+            return true;
+        }
+        if (ev->data1 == KEY_RIGHTARROW || ev->data1 == KEY_DOWNARROW)
+        {
+            T_CtrlTargetNavigate(1);
+            return true;
+        }
+        // Esc cancels targeting.
+        if (ev->data1 == KEY_ESCAPE)
+        {
+            turnctrl.ctrl_targeting = false;
+            turnctrl.ctrl_held = false;
+            turnctrl.selected_target = -1;
+            // Mini-combat: bail back to explore.
+            if (turnctrl.mini_combat)
+            {
+                turnctrl.mini_combat = false;
+                turnctrl.state = TS_EXPLORE;
+            }
+            else
+            {
+                turnctrl.state = TS_PLANNING;
+            }
+            players[consoleplayer].message = "Targeting cancelled.";
+            return true;
+        }
+    }
+
+    action = T_KeyAction(ev->data1);
+    if (action == TA_NONE)
+        return false;
+
+    // Discrete action. Planning actions enqueue (TP reserved at queue
+    // time); view turns stay immediate; selection/cancellation/undo
+    // stay free.
+    if (action == TA_SELECT_NUM)
+        T_ExecuteNumKey(ev->data1);
+    else
+        T_ExecuteAction(action);
+    return true;
+}

@@ -679,6 +679,16 @@ void R_ExecuteSetViewSize (void)
 	scaledviewwidth = SCREENWIDTH;
 	viewheight = SCREENHEIGHT;
     }
+    else if (setblocks == 9)
+    {
+	// DiabloDoom: full-width viewport with status bar.
+	// Standard Doom leaves 16px borders on each side at 9 blocks;
+	// we want the 3D view to cover the full width (hiding edge UI text)
+	// while keeping the status bar at the bottom.
+	// viewheight fills the space above the 32px status bar (200-32=168).
+	scaledviewwidth = SCREENWIDTH;
+	viewheight = SCREENHEIGHT - 32;
+    }
     else
     {
 	scaledviewwidth = setblocks*32;

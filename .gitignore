@@ -29,6 +29,9 @@ HTIC*.pcx
 HEXEN*.pcx
 STRIFE*.pcx
 
+# Lead gallery reference screenshots (runtime data, not source)
+agent/reference/
+
 # CMake-specific ignores
 /.vs
 /build*
@@ -65,3 +68,20 @@ GTAGS
 # clangd settings
 /.cache/clangd
 compile_commands.json
+
+# WADs
+/wad/
+
+# Avatar live slot: first-time setup copies agent/jolly.wad
+# here; a user's own avatar PWAD lives here and is never committed.
+/avatar/
+
+# x264 build intermediates (prebuilt lib in third_party/x264/lib is checked in)
+third_party/x264/*.o
+third_party/x264/config.*
+third_party/x264/x264
+progress.dat
+progress_auto*.dat
+
+# Farm short-term area memory (scratch, never commit)
+.local/

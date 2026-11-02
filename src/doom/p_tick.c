@@ -145,6 +145,15 @@ void P_Ticker (void)
 	    P_PlayerThink (&players[i]);
 			
     P_RunThinkers ();
+
+    // Pickup by presence: collect specials within reach of where
+    // each living player actually ended this tic's movement
+    // (P_TouchNearbySpecials in p_inter.c).
+    for (i=0 ; i<MAXPLAYERS ; i++)
+	if (playeringame[i] && players[i].mo && players[i].health > 0
+	    && players[i].playerstate == PST_LIVE)
+	    P_TouchNearbySpecials (players[i].mo);
+
     P_UpdateSpecials ();
     P_RespawnSpecials ();
 
