@@ -19,6 +19,8 @@
 //	and call the startup functions.
 //
 
+// _GNU_SOURCE for dladdr() used by the crash handler.
+#define _GNU_SOURCE
 
 #include <ctype.h>
 #include <stdio.h>
@@ -29,6 +31,8 @@
 #include "deh_main.h"
 #include "doomdef.h"
 #include "doomstat.h"
+#include "t_turn.h"
+#include "d_diablo_ui.h"
 
 #include "dstrings.h"
 #include "sounds.h"
@@ -142,6 +146,10 @@ void D_ProcessEvents (void)
 	
     while ((ev = D_PopEvent()) != NULL)
     {
+	// Diablo character screen (mod): when open it owns all input,
+	// ahead of the menu responder.
+	if (D_UIIsOpen() && D_UIResponder(ev))
+	    continue;               // character screen ate the event
 	if (M_Responder (ev))
 	    continue;               // menu ate the event
 	G_Responder (ev);
@@ -179,6 +187,16 @@ boolean D_Display (void)
 	R_ExecuteSetViewSize ();
 	oldgamestate = -1;                      // force background redraw
 	borderdrawcount = 3;
+    }
+
+    // Diablo character screen (mod): the UI draws over the whole screen.
+    // On close, the 3D view repaints itself, but the view border and the
+    // status bar backgrounds do not, so force a full repaint here.
+    if (d_ui_needs_redraw)
+    {
+	borderdrawcount = 3;
+	redrawsbar = true;
+	d_ui_needs_redraw = false;
     }
 
     // save the current screen if about to wipe
@@ -231,6 +249,10 @@ boolean D_Display (void)
 
     if (gamestate == GS_LEVEL && gametic)
 	HU_Drawer ();
+
+    // Diablo character screen (mod): drawn over the frozen game view.
+    if (D_UIIsOpen())
+	D_UIDrawer ();
     
     // clean up border stuff
     if (gamestate != oldgamestate && gamestate != GS_LEVEL)
@@ -269,7 +291,9 @@ boolean D_Display (void)
     oldgamestate = wipegamestate = gamestate;
     
     // draw pause pic
-    if (paused)
+    // Diablo character screen (mod): the UI has its own layout; don't
+    // draw the PAUSE graphic over it.
+    if (paused && !D_UIIsOpen())
     {
 	if (automapactive)
 	    y = 4;
@@ -446,6 +470,10 @@ void D_RunFrame()
         } else {
             // normal update
             I_FinishUpdate ();              // page flip or blit buffer
+            {
+                extern void D_ReplayTick(void);
+                D_ReplayTick();  // capture frame for instant replay buffer
+            }
         }
     }
 }
@@ -474,6 +502,20 @@ void D_DoomLoop (void)
     I_SetGrabMouseCallback(D_GrabMouseCallback);
     I_RegisterWindowIcon(doom_icon_data, doom_icon_w, doom_icon_h);
     I_InitGraphics();
+    {
+        extern void D_ReplayInit(void);
+        extern void D_ReplaySetAutoCapture(int on);
+        D_ReplayInit();
+        if (M_CheckParm("--continuous-capture") > 0)
+        {
+            // Continuous video capture: the replay buffer saves a
+            // timestamped 15-second segment MP4 every 15 seconds for
+            // the whole session (see d_replay.c). The farm launches
+            // with this so a full run's footage survives the run.
+            D_ReplaySetAutoCapture(1);
+            printf("[REPLAY] continuous capture on: a 15s segment every 15s\n");
+        }
+    }
     EnableLoadingDisk();
 
     TryRunTics();
@@ -1287,11 +1329,90 @@ static void G_CheckDemoStatusAtExit (void)
 //
 // D_DoomMain
 //
+#include <signal.h>
+#ifdef __linux__
+#include <dlfcn.h>
+#include <execinfo.h>
+#include <unistd.h>
+#endif
+
+// Crash handler: print a backtrace on segfault, then re-raise.
+static void D_CrashHandler(int sig)
+{
+    fprintf(stderr, "\n[FATAL] Caught signal %d (%s)\n", sig,
+            sig == SIGSEGV ? "SIGSEGV" :
+            sig == SIGABRT ? "SIGABRT" :
+            sig == SIGFPE ? "SIGFPE" : "unknown");
+#ifdef __linux__
+    {
+        void *frames[32];
+        int n = backtrace(frames, 32);
+        int i;
+        // Raw trace first, as before.
+        backtrace_symbols_fd(frames, n, STDERR_FILENO);
+        // Symbolized trace via addr2line (needs -g; static functions
+        // need debug info since -rdynamic only exports dynamic symbols).
+        fprintf(stderr, "\n[FATAL] Symbolized backtrace:\n");
+        for (i = 0; i < n; ++i)
+        {
+            Dl_info info;
+            char addrbuf[32];
+            char cmd[512];
+            FILE *p;
+            char line[256];
+            // Resolve the address to the containing object + offset.
+            if (dladdr(frames[i], &info) && info.dli_fname)
+            {
+                unsigned long offset =
+                    (unsigned long)frames[i] -
+                    (unsigned long)info.dli_fbase;
+                snprintf(addrbuf, sizeof(addrbuf), "%lx", offset);
+                snprintf(cmd, sizeof(cmd), "addr2line -f -C -e '%s' %s 2>/dev/null",
+                         info.dli_fname, addrbuf);
+                p = popen(cmd, "r");
+                if (p)
+                {
+                    char func[128] = "??";
+                    char srcloc[128] = "??:?";
+                    if (fgets(line, sizeof(line), p))
+                    {
+                        line[strcspn(line, "\n")] = '\0';
+                        if (line[0])
+                            snprintf(func, sizeof(func), "%s", line);
+                    }
+                    if (fgets(line, sizeof(line), p))
+                    {
+                        line[strcspn(line, "\n")] = '\0';
+                        if (line[0])
+                            snprintf(srcloc, sizeof(srcloc), "%s", line);
+                    }
+                    pclose(p);
+                    fprintf(stderr, "  %s at %s\n", func, srcloc);
+                    continue;
+                }
+            }
+            fprintf(stderr, "  ?? at ??:?\n");
+        }
+    }
+#else
+    fprintf(stderr, "[FATAL] backtrace not available on this platform\n");
+#endif
+    fflush(stderr);
+    // Restore default and re-raise so the OS dumps core as usual.
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
 void D_DoomMain (void)
 {
     int p;
     char file[256];
     char demolumpname[9];
+
+    // Install crash handler for segfaults/aborts.
+    signal(SIGSEGV, D_CrashHandler);
+    signal(SIGABRT, D_CrashHandler);
+    signal(SIGFPE, D_CrashHandler);
 
     I_AtExit(D_Endoom, false);
 
@@ -1384,6 +1505,9 @@ void D_DoomMain (void)
     //
 
     fastparm = M_CheckParm ("-fast");
+
+    // This fork is turn-based by default: discrete Tempo turns,
+    // numbered targets, no aiming. Single-player only.
 
     //!
     // @vanilla
@@ -1770,6 +1894,12 @@ void D_DoomMain (void)
     I_InitJoystick();
     I_InitSound(doom);
     I_InitMusic();
+    // Hook SDL_mixer post-mix for replay audio capture (Doom only).
+    {
+        extern void D_ReplayAudioHook(void *udata, uint8_t *stream, int len);
+        extern void Mix_SetPostMix(void (*mix_func)(void *udata, uint8_t *stream, int len), void *arg);
+        Mix_SetPostMix(D_ReplayAudioHook, NULL);
+    }
 
     printf ("NET_Init: Init network subsystem.\n");
     NET_Init ();
@@ -1796,7 +1926,11 @@ void D_DoomMain (void)
 
     if (p)
     {
-	startskill = myargv[p+1][0]-'1';
+	// 1=Normal->sk_medium, 2=Nightmare->sk_hard, 3=Hell->sk_nightmare.
+	int s = myargv[p+1][0]-'1';
+	if (s < 0) s = 0;
+	if (s > 2) s = 2;
+	startskill = (s == 0) ? sk_medium : (s == 1) ? sk_hard : sk_nightmare;
 	autostart = true;
     }
 
@@ -1996,6 +2130,24 @@ void D_DoomMain (void)
 	else
 	    D_StartTitle ();                // start up intro loop
     }
+
+    // VM progress persistence: mmap the progress file; auto-load if valid.
+    // On Muse VMs only; skipped on local machines. If a save was loaded,
+    // gameaction is ga_loadgame and the loop will handle it, so we skip
+    // the normal new-game/title startup.
+    // NOTE: Do NOT call G_InitNew/D_StartTitle here — the block above already
+    // handled game startup (autostart/warp or title). Calling G_InitNew twice
+    // hangs the game. D_ProgressInit only manages the progress file.
+    {
+        extern boolean D_ProgressInit(void);
+        boolean resumed = D_ProgressInit();
+        if (resumed)
+        {
+            printf("[PROGRESS] resuming from saved progress, skipping title\n");
+        }
+    }
+
+    T_Init ();  // turn-based controller; always active in this fork
 
     D_DoomLoop ();  // never returns
 }

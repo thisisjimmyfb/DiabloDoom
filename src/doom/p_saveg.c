@@ -25,7 +25,12 @@
 #include "i_system.h"
 #include "z_zone.h"
 #include "p_local.h"
+
+// Diablo equipment backend (mod).
+#include "d_diablo.h"
 #include "p_saveg.h"
+#include "t_turn.h"
+#include "t_combat.h"
 
 // State.
 #include "doomstat.h"
@@ -413,6 +418,49 @@ static void saveg_read_mobj_t(mobj_t *str)
 
     // struct mobj_s* tracer;
     str->tracer = saveg_readp();
+
+    // Diablo corpse system (mod): player corpse inventory
+    str->is_player_corpse = saveg_read32();
+    {
+        int i;
+        for (i = 0; i < 10; i++)
+            str->corpse_equipped[i] = saveg_read32();
+        for (i = 0; i < 40; i++) {
+            str->corpse_backpack[i] = saveg_read32();
+            str->corpse_bp_gx[i] = saveg_read32();
+            str->corpse_bp_gy[i] = saveg_read32();
+        }
+        str->corpse_bp_count = saveg_read32();
+        str->corpse_essence = saveg_read32();
+    }
+    // Durability is not stored in the mobj stream (the player's own
+    // pieces ride in the trailing Diablo block); a corpse sitting in
+    // a loaded world comes back at full durability.
+    {
+        int i;
+        for (i = 0; i < 10; i++)
+        {
+            int eid = str->corpse_equipped[i];
+            str->corpse_equipped_dur[i] =
+                (eid != D_NOITEM
+                 && D_ValidItem(D_ITEMTIER(eid), D_ITEMIDX(eid)))
+                ? D_ItemMaxDurability(D_GetItemDef(D_ITEMTIER(eid),
+                                                   D_ITEMIDX(eid)))
+                : 0;
+        }
+        for (i = 0; i < 40; i++)
+        {
+            int eid = str->corpse_backpack[i];
+            str->corpse_backpack_dur[i] =
+                (eid != D_NOITEM
+                 && D_ValidItem(D_ITEMTIER(eid), D_ITEMIDX(eid)))
+                ? D_ItemMaxDurability(D_GetItemDef(D_ITEMTIER(eid),
+                                                   D_ITEMIDX(eid)))
+                : 0;
+        }
+    }
+    // Diablo loot id (mod)
+    str->diablo_loot_id = saveg_read32();
 }
 
 static void saveg_write_mobj_t(mobj_t *str)
@@ -528,6 +576,23 @@ static void saveg_write_mobj_t(mobj_t *str)
 
     // struct mobj_s* tracer;
     saveg_writep(str->tracer);
+
+    // Diablo corpse system (mod): player corpse inventory
+    saveg_write32(str->is_player_corpse);
+    {
+        int i;
+        for (i = 0; i < 10; i++)
+            saveg_write32(str->corpse_equipped[i]);
+        for (i = 0; i < 40; i++) {
+            saveg_write32(str->corpse_backpack[i]);
+            saveg_write32(str->corpse_bp_gx[i]);
+            saveg_write32(str->corpse_bp_gy[i]);
+        }
+        saveg_write32(str->corpse_bp_count);
+        saveg_write32(str->corpse_essence);
+    }
+    // Diablo loot id (mod)
+    saveg_write32(str->diablo_loot_id);
 }
 
 
@@ -1467,6 +1532,9 @@ void P_UnArchivePlayers (void)
 
         saveg_read_player_t(&players[i]);
 	
+	// Diablo equipment (mod): not yet saved; reset on load (Phase 2).
+	D_ResetPlayer(&players[i]);
+	
 	// will be set when unarc thinker
 	players[i].mo = NULL;	
 	players[i].message = NULL;
@@ -1656,6 +1724,27 @@ void P_UnArchiveThinkers (void)
 	    mobj->info = &mobjinfo[mobj->type];
 	    mobj->floorz = mobj->subsector->sector->floorheight;
 	    mobj->ceilingz = mobj->subsector->sector->ceilingheight;
+	    // Save-load ledge fix: the midpoint sector's floor is not
+	    // necessarily the floor the player was standing on -- if the
+	    // player's bounding box contacts a higher ledge, the runtime
+	    // floor is the highest contacted floor, and restoring the
+	    // midpoint floor drops the player off the ledge and wedges
+	    // them below it (DoomWiki: "Player stuck on ledge after
+	    // restoring savefile"). Re-run the engine's own bounding-box
+	    // floor test so the loaded floor matches the runtime rule.
+	    // Player only; other things keep vanilla load behavior.
+	    // (P_CheckPosition's return value is ignored: a saved
+	    // position was valid when saved. Its thing scan may miss
+	    // not-yet-loaded mobjs, but only the line scan feeds
+	    // tmfloorz/tmceilingz.)
+	    if (mobj->player)
+	    {
+		P_CheckPosition (mobj, mobj->x, mobj->y);
+		mobj->floorz = tmfloorz;
+		mobj->ceilingz = tmceilingz;
+		if (mobj->z < tmfloorz)
+		    mobj->z = tmfloorz;
+	    }
 	    mobj->thinker.function.acp1 = (actionf_p1)P_MobjThinker;
 	    P_AddThinker (&mobj->thinker);
 	    break;
@@ -1813,6 +1902,14 @@ void P_UnArchiveSpecials (void)
 	    saveg_read_pad();
 	    ceiling = Z_Malloc (sizeof(*ceiling), PU_LEVEL, NULL);
             saveg_read_ceiling_t(ceiling);
+	    // Defensive: corrupted save may have out-of-bounds sector index.
+	    // Skip instead of crashing.
+	    if (ceiling->sector < sectors || ceiling->sector >= &sectors[numsectors])
+	    {
+		printf("[SAVE] warning: ceiling with invalid sector skipped\n");
+		Z_Free(ceiling);
+		break;
+	    }
 	    ceiling->sector->specialdata = ceiling;
 
 	    if (ceiling->thinker.function.acp1)
@@ -1826,6 +1923,12 @@ void P_UnArchiveSpecials (void)
 	    saveg_read_pad();
 	    door = Z_Malloc (sizeof(*door), PU_LEVEL, NULL);
             saveg_read_vldoor_t(door);
+	    if (door->sector < sectors || door->sector >= &sectors[numsectors])
+	    {
+		printf("[SAVE] warning: door with invalid sector skipped\n");
+		Z_Free(door);
+		break;
+	    }
 	    door->sector->specialdata = door;
 	    door->thinker.function.acp1 = (actionf_p1)T_VerticalDoor;
 	    P_AddThinker (&door->thinker);
@@ -1835,6 +1938,12 @@ void P_UnArchiveSpecials (void)
 	    saveg_read_pad();
 	    floor = Z_Malloc (sizeof(*floor), PU_LEVEL, NULL);
             saveg_read_floormove_t(floor);
+	    if (floor->sector < sectors || floor->sector >= &sectors[numsectors])
+	    {
+		printf("[SAVE] warning: floor with invalid sector skipped\n");
+		Z_Free(floor);
+		break;
+	    }
 	    floor->sector->specialdata = floor;
 	    floor->thinker.function.acp1 = (actionf_p1)T_MoveFloor;
 	    P_AddThinker (&floor->thinker);
@@ -1844,6 +1953,12 @@ void P_UnArchiveSpecials (void)
 	    saveg_read_pad();
 	    plat = Z_Malloc (sizeof(*plat), PU_LEVEL, NULL);
             saveg_read_plat_t(plat);
+	    if (plat->sector < sectors || plat->sector >= &sectors[numsectors])
+	    {
+		printf("[SAVE] warning: plat with invalid sector skipped\n");
+		Z_Free(plat);
+		break;
+	    }
 	    plat->sector->specialdata = plat;
 
 	    if (plat->thinker.function.acp1)
@@ -1884,5 +1999,367 @@ void P_UnArchiveSpecials (void)
 	
     }
 
+}
+
+//
+// Diablo equipment persistence (mod).
+//
+// The Diablo inventory (equipment, backpack, grid positions) is saved as a
+// separate section after the vanilla data, guarded by a magic number.  Old
+// saves without the section are detected by the EOF marker (0x1d) appearing
+// where the magic would be; they load with empty equipment via the
+// D_ResetPlayer call in P_UnArchivePlayers.
+//
+
+#define DIABLO_SAVE_MAGIC 0x44494142  // 'DIAB' (first byte 0x44 != 0x1d)
+#define DIABLO_SAVE_MAGIC2 0x44494232 // 'DIB2': versioned item database
+#define DIABLO_SAVE_MAGIC3 0x44494233 // 'DIB3': + per-item durability
+#define DIABLO_SAVE_MAGIC4 0x44494234 // 'DIB4': + backpack pages
+#define DIABLO_SAVE_MAGIC5 0x44494235 // 'DIB5': + 10x7 backpack grid
+
+// Item-database version. Bumped when the item tables are rewritten (the
+// gun rework replaced melee weapons with gun bases and reordered magic),
+// so old saves never silently reinterpret shifted item IDs. Version 3
+// (DIB3) adds per-item durability; DIB2 saves still load, with every
+// piece defaulted to full durability. Version 4 (DIB4) adds backpack
+// pages (1 by default, up to 4); DIB2/DIB3 saves still load, with
+// 1 page and every item on page 1. Version 5 (DIB5) grows the page
+// grid from 10x4 (40 cells) to 10x7 (70 cells); DIB4 saves still load
+// (160 entries), DIB2/DIB3 saves still load (40 entries).
+#define DIABLO_SAVE_VERSION 5
+
+// Entry counts for superseded save formats. These must NOT follow
+// the current D_BACKPACK_SIZE/D_BACKPACK_MAX, which grow with the grid.
+#define DIB4_BACKPACK_MAX 160  // 40 cells x 4 pages
+#define OLD_BACKPACK_SIZE 40   // pre-pages, one 10x4 page
+
+void P_ArchiveDiablo(void)
+{
+    int i, j;
+
+    saveg_write32(DIABLO_SAVE_MAGIC5);
+    saveg_write32(DIABLO_SAVE_VERSION);
+
+    for (i = 0; i < MAXPLAYERS; i++)
+    {
+        if (!playeringame[i])
+            continue;
+
+        for (j = 0; j < NUM_ESLOTS; j++)
+            saveg_write32(players[i].diablo_equipped[j]);
+        for (j = 0; j < NUM_ESLOTS; j++)
+            saveg_write32(players[i].diablo_equipped_dur[j]);
+
+        saveg_write32(players[i].diablo_bp_count);
+        saveg_write32(players[i].diablo_bp_pages);
+        saveg_write32(players[i].diablo_bp_cur);
+        for (j = 0; j < D_BACKPACK_MAX; j++)
+        {
+            saveg_write32(players[i].diablo_backpack[j]);
+            saveg_write32(players[i].diablo_bp_gx[j]);
+            saveg_write32(players[i].diablo_bp_gy[j]);
+            saveg_write32(players[i].diablo_backpack_dur[j]);
+            saveg_write32(players[i].diablo_bp_page[j]);
+        }
+        saveg_write32(players[i].diablo_recent);
+        // diablo_stats[] is derived; recalculated on load.
+    }
+}
+
+// Returns true when Diablo data was present and loaded, false for old
+// saves (which keep the empty equipment from D_ResetPlayer).  In the
+// false case the savegame EOF marker has already been consumed.
+boolean P_UnArchiveDiablo(void)
+{
+    int c, magic, i, j, id;
+    boolean with_dur;
+
+    c = saveg_read8();
+    if (c == SAVEGAME_EOF)
+        return false;
+
+    magic = c | (saveg_read8() << 8) | (saveg_read8() << 16)
+              | (saveg_read8() << 24);
+    if (magic == DIABLO_SAVE_MAGIC)
+    {
+        // Pre-gun-rework item database: consume the section so the
+        // stream stays aligned, then drop the equipment. The old item
+        // IDs no longer mean the same items, so keeping them would
+        // silently hand the player wrong gear. D_ResetPlayer (already
+        // run by P_UnArchivePlayers) left everything empty.
+        for (i = 0; i < MAXPLAYERS; i++)
+        {
+            if (!playeringame[i])
+                continue;
+            for (j = 0; j < NUM_ESLOTS; j++)
+                saveg_read32(); // equipped
+            saveg_read32(); // backpack count
+            for (j = 0; j < OLD_BACKPACK_SIZE; j++)
+            {
+                saveg_read32(); // item
+                saveg_read32(); // gx
+                saveg_read32(); // gy
+            }
+            saveg_read32(); // recent
+        }
+        printf("P_UnArchiveDiablo: old item database version; "
+               "equipment cleared.\n");
+        return true;
+    }
+    if (magic != DIABLO_SAVE_MAGIC2 && magic != DIABLO_SAVE_MAGIC3
+        && magic != DIABLO_SAVE_MAGIC4 && magic != DIABLO_SAVE_MAGIC5)
+        I_Error("P_UnArchiveDiablo: bad magic 0x%x", magic);
+    with_dur = (magic == DIABLO_SAVE_MAGIC3 || magic == DIABLO_SAVE_MAGIC4
+                || magic == DIABLO_SAVE_MAGIC5);
+    {
+        int ver = saveg_read32();
+        int want = (magic == DIABLO_SAVE_MAGIC5) ? DIABLO_SAVE_VERSION
+                   : (magic == DIABLO_SAVE_MAGIC4) ? 4
+                   : (with_dur ? 3 : 2);
+        if (ver != want)
+            I_Error("P_UnArchiveDiablo: unsupported item database version");
+    }
+
+    for (i = 0; i < MAXPLAYERS; i++)
+    {
+        if (!playeringame[i])
+            continue;
+
+        // P_UnArchivePlayers already called D_ResetPlayer.
+        for (j = 0; j < NUM_ESLOTS; j++)
+        {
+            id = saveg_read32();
+            if (id != D_NOITEM && !D_ValidItem(D_ITEMTIER(id), D_ITEMIDX(id)))
+                id = D_NOITEM;
+            players[i].diablo_equipped[j] = id;
+        }
+        if (with_dur)
+        {
+            for (j = 0; j < NUM_ESLOTS; j++)
+            {
+                int dur = saveg_read32();
+                players[i].diablo_equipped_dur[j] = dur < 0 ? 0 : dur;
+            }
+        }
+
+        players[i].diablo_bp_count = saveg_read32();
+        if (players[i].diablo_bp_count < 0)
+            players[i].diablo_bp_count = 0;
+        if (magic == DIABLO_SAVE_MAGIC4 || magic == DIABLO_SAVE_MAGIC5)
+        {
+            players[i].diablo_bp_pages = saveg_read32();
+            players[i].diablo_bp_cur = saveg_read32();
+            if (players[i].diablo_bp_pages < 1)
+                players[i].diablo_bp_pages = 1;
+            if (players[i].diablo_bp_pages > D_BP_MAX_PAGES)
+                players[i].diablo_bp_pages = D_BP_MAX_PAGES;
+            if (players[i].diablo_bp_cur < 0
+             || players[i].diablo_bp_cur >= players[i].diablo_bp_pages)
+                players[i].diablo_bp_cur = 0;
+            if (players[i].diablo_bp_count
+                > ((magic == DIABLO_SAVE_MAGIC5) ? D_BACKPACK_MAX
+                                                : DIB4_BACKPACK_MAX))
+                players[i].diablo_bp_count =
+                    (magic == DIABLO_SAVE_MAGIC5) ? D_BACKPACK_MAX
+                                                 : DIB4_BACKPACK_MAX;
+        }
+        else
+        {
+            /* DIB2/DIB3: one page, every item on page 1. */
+            players[i].diablo_bp_pages = 1;
+            players[i].diablo_bp_cur = 0;
+            if (players[i].diablo_bp_count > OLD_BACKPACK_SIZE)
+                players[i].diablo_bp_count = OLD_BACKPACK_SIZE;
+        }
+
+        for (j = 0; j < ((magic == DIABLO_SAVE_MAGIC5) ? D_BACKPACK_MAX
+                         : (magic == DIABLO_SAVE_MAGIC4) ? DIB4_BACKPACK_MAX
+                         : OLD_BACKPACK_SIZE); j++)
+        {
+            int dur;
+            id = saveg_read32();
+            players[i].diablo_backpack[j] = id;
+            players[i].diablo_bp_gx[j] = saveg_read32();
+            players[i].diablo_bp_gy[j] = saveg_read32();
+            dur = with_dur ? saveg_read32() : 0;
+            players[i].diablo_backpack_dur[j] = dur < 0 ? 0 : dur;
+            players[i].diablo_bp_page[j] =
+                (magic == DIABLO_SAVE_MAGIC4 || magic == DIABLO_SAVE_MAGIC5)
+                ? saveg_read32() : 0;
+            if (players[i].diablo_bp_page[j] < 0
+             || players[i].diablo_bp_page[j] >= D_BP_MAX_PAGES)
+                players[i].diablo_bp_page[j] = 0;
+            // Invalidate out-of-range entries.
+            if (j >= players[i].diablo_bp_count
+             || (id != D_NOITEM && !D_ValidItem(D_ITEMTIER(id), D_ITEMIDX(id))))
+            {
+                players[i].diablo_backpack[j] = D_NOITEM;
+                players[i].diablo_bp_gx[j] = -1;
+                players[i].diablo_bp_gy[j] = -1;
+                players[i].diablo_backpack_dur[j] = 0;
+                players[i].diablo_bp_page[j] = 0;
+            }
+        }
+
+        players[i].diablo_recent = saveg_read32();
+        if (players[i].diablo_recent < 0
+         || players[i].diablo_recent >= players[i].diablo_bp_count)
+            players[i].diablo_recent = -1;
+
+        if (!with_dur)
+        {
+            // Pre-durability save: every piece is at full durability.
+            for (j = 0; j < NUM_ESLOTS; j++)
+            {
+                int eid = players[i].diablo_equipped[j];
+                players[i].diablo_equipped_dur[j] =
+                    (eid != D_NOITEM
+                     && D_ValidItem(D_ITEMTIER(eid), D_ITEMIDX(eid)))
+                    ? D_ItemMaxDurability(D_GetItemDef(D_ITEMTIER(eid),
+                                                       D_ITEMIDX(eid)))
+                    : 0;
+            }
+            for (j = 0; j < OLD_BACKPACK_SIZE; j++)
+            {
+                int eid = players[i].diablo_backpack[j];
+                players[i].diablo_backpack_dur[j] =
+                    (eid != D_NOITEM
+                     && D_ValidItem(D_ITEMTIER(eid), D_ITEMIDX(eid)))
+                    ? D_ItemMaxDurability(D_GetItemDef(D_ITEMTIER(eid),
+                                                       D_ITEMIDX(eid)))
+                    : 0;
+            }
+        }
+
+        D_RecalcStats((struct player_s *)&players[i]);
+
+        // Footprints come from the def tables, not the save: heal
+        // any placement a footprint change has invalidated.
+        D_RepairBackpackLayout((struct player_s *)&players[i]);
+    }
+
+    return true;
+}
+
+// ------------------------------------------------------------------
+// Turn-based decision state (mod). Trailing block after the Diablo
+// section; old saves without it load fine (P_UnArchiveTurn consumes the
+// EOF marker and returns false). TP is the phase-2 decision state;
+// heat/charge/cooldowns ride along for phase 5+. Reserved slots keep
+// the layout stable (hunker/overwatch were removed, and the round
+// slot is reserved since rounds are no longer tracked).
+// ------------------------------------------------------------------
+#define TURN_SAVE_MAGIC 0x5455524E  // 'TURN' (first byte 0x54 != 0x1d)
+#define TURN_SAVE_MAGIC2 0x54555232 // 'TUR2': + gun cadence state
+#define TURN_SAVE_MAGIC3 0x54555233 // 'TUR3': + per-weapon ammo magazines
+
+void P_ArchiveTurn(void)
+{
+    int i, w;
+    int cool[NUMWEAPONS], heat[NUMWEAPONS];
+    int charges[NUMWEAPONS], shots[NUMWEAPONS], ammo[NUMWEAPONS];
+
+    saveg_write32(TURN_SAVE_MAGIC3);
+    saveg_write32(0); // reserved (was round; no round is tracked)
+    saveg_write32(turnctrl.tp);
+    saveg_write32(turnctrl.tp_max);
+    saveg_write32(turnctrl.heat);
+    saveg_write32(turnctrl.charge_tp);
+    saveg_write32(0); // reserved (was hunkered)
+    saveg_write32(0); // reserved (was overwatch_tp)
+    for (i = 0; i < 8; i++)
+        saveg_write32(turnctrl.cooldowns[i]);
+    saveg_write32(0); // reserved (was headshot_mod)
+    // Gun cadence: per-weapon cooldowns, heat, charges, Lucky counters,
+    // ammo magazines.
+    T_KitSaveCadence(cool, heat, charges, shots, ammo);
+    for (w = 0; w < NUMWEAPONS; w++)
+    {
+        saveg_write32(cool[w]);
+        saveg_write32(heat[w]);
+        saveg_write32(charges[w]);
+        saveg_write32(shots[w]);
+        saveg_write32(ammo[w]);
+    }
+}
+
+boolean P_UnArchiveTurn(void)
+{
+    int c, magic, i, w;
+    int cool[NUMWEAPONS], heat[NUMWEAPONS];
+    int charges[NUMWEAPONS], shots[NUMWEAPONS], ammo[NUMWEAPONS];
+
+    c = saveg_read8();
+    if (c == SAVEGAME_EOF)
+        return false;
+
+    magic = c | (saveg_read8() << 8) | (saveg_read8() << 16)
+              | (saveg_read8() << 24);
+    if (magic != TURN_SAVE_MAGIC && magic != TURN_SAVE_MAGIC2
+        && magic != TURN_SAVE_MAGIC3)
+        I_Error("P_UnArchiveTurn: bad magic 0x%x", magic);
+
+    saveg_read32(); // reserved (was round)
+    turnctrl.tp = saveg_read32();
+    turnctrl.tp_max = saveg_read32();
+    // Clamp garbage rather than trusting the file.
+    if (turnctrl.tp_max < 1)
+        turnctrl.tp_max = 10;
+    if (turnctrl.tp < 0)
+        turnctrl.tp = 0;
+    if (turnctrl.tp > turnctrl.tp_max)
+        turnctrl.tp = turnctrl.tp_max;
+
+    turnctrl.heat = saveg_read32();
+    turnctrl.charge_tp = saveg_read32();
+    saveg_read32(); // reserved (was hunkered)
+    saveg_read32(); // reserved (was overwatch_tp)
+    for (i = 0; i < 8; i++)
+        turnctrl.cooldowns[i] = saveg_read32();
+    saveg_read32(); // reserved (was headshot_mod)
+
+    if (magic == TURN_SAVE_MAGIC3)
+    {
+        // Gun cadence state incl. ammo magazines
+        // (clamped inside T_KitLoadCadence).
+        for (w = 0; w < NUMWEAPONS; w++)
+        {
+            cool[w] = saveg_read32();
+            heat[w] = saveg_read32();
+            charges[w] = saveg_read32();
+            shots[w] = saveg_read32();
+            ammo[w] = saveg_read32();
+        }
+        T_KitLoadCadence(cool, heat, charges, shots, ammo);
+    }
+    else if (magic == TURN_SAVE_MAGIC2)
+    {
+        // Gun cadence state without magazines (clamped inside
+        // T_KitLoadCadence); magazines start full.
+        for (w = 0; w < NUMWEAPONS; w++)
+        {
+            cool[w] = saveg_read32();
+            heat[w] = saveg_read32();
+            charges[w] = saveg_read32();
+            shots[w] = saveg_read32();
+            ammo[w] = T_KitMaxAmmo((weapontype_t)w);
+        }
+        T_KitLoadCadence(cool, heat, charges, shots, ammo);
+    }
+    else
+    {
+        // Old turn block: no cadence was saved; start fresh.
+        T_KitResetCadence();
+    }
+
+    // Land in a plannable state; G_DoLoadGame calls T_OnLoad next.
+    // The queue is transient planning state (never saved).
+    turnctrl.state = TS_PLANNING;
+    turnctrl.pulse_left = 0;
+    turnctrl.queue_len = 0;
+    turnctrl.queue_tp = 0;
+    turnctrl.executing = false;
+
+    return true;
 }
 

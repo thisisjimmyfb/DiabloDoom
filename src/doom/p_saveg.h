@@ -58,6 +58,11 @@ void P_UnArchiveThinkers (void);
 void P_ArchiveSpecials (void);
 void P_UnArchiveSpecials (void);
 
+// Diablo equipment persistence (mod).  P_UnArchiveDiablo returns true
+// when Diablo data was present; false for old saves (EOF consumed).
+void P_ArchiveDiablo(void);
+boolean P_UnArchiveDiablo(void);
+
 extern FILE *save_stream;
 extern boolean savegame_error;
 

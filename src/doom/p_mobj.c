@@ -23,11 +23,16 @@
 #include "m_random.h"
 
 #include "doomdef.h"
+#include "t_turn.h"
+#include "t_combat.h"
 #include "p_local.h"
+#include "p_inter.h"
+#include "d_diablo.h"
 #include "sounds.h"
 
 #include "st_stuff.h"
 #include "hu_stuff.h"
+#include "d_diablo.h"
 
 #include "s_sound.h"
 
@@ -35,6 +40,23 @@
 
 
 void G_PlayerReborn (int player);
+// Readable ammo-pickup name for loot-spawn logging.
+static const char *P_AmmoName(mobjtype_t type)
+{
+    switch (type)
+    {
+        case MT_CLIP:   return "clip";
+        case MT_MISC17: return "bullet box";
+        case MT_MISC18: return "rocket";
+        case MT_MISC19: return "rocket box";
+        case MT_MISC20: return "cell";
+        case MT_MISC21: return "cell pack";
+        case MT_MISC22: return "shells";
+        case MT_MISC23: return "shell box";
+        default:        return "ammo";
+    }
+}
+
 void P_SpawnMapThing (mapthing_t*	mthing);
 
 
@@ -452,6 +474,12 @@ P_NightmareRespawn (mobj_t* mobj)
 //
 void P_MobjThinker (mobj_t* mobj)
 {
+    // Explore mode: enemies are frozen solid. The player, barrels, and
+    // other inert objects tick normally.
+    if (T_InExplore() && mobj->player == NULL
+     && (mobj->flags & MF_COUNTKILL))
+        return;
+
     // momentum movement
     if (mobj->momx
 	|| mobj->momy
@@ -536,7 +564,13 @@ P_SpawnMobj
     mobj->radius = info->radius;
     mobj->height = info->height;
     mobj->flags = info->flags;
-    mobj->health = info->spawnhealth;
+    // Diablo turn-mode: not a player-fired projectile by default.
+    mobj->diablo_weapon = -1;
+    // NG+ loop: enemies get tougher each loop.
+    if (info->spawnhealth > 0 && (info->flags & MF_COUNTKILL))
+        mobj->health = info->spawnhealth * D_LoopHpMult() / 100;
+    else
+        mobj->health = info->spawnhealth;
 
     if (gameskill != sk_nightmare)
 	mobj->reactiontime = info->reactiontime;
@@ -583,6 +617,12 @@ int		iquetail;
 
 void P_RemoveMobj (mobj_t* mobj)
 {
+    // Invalidate any queued turn-based attack targets pointing to this mobj
+    // to prevent dangling-pointer SIGSEGV.
+    {
+        extern void T_InvalidateTarget(mobj_t *mo);
+        T_InvalidateTarget(mobj);
+    }
     if ((mobj->flags & MF_SPECIAL)
 	&& !(mobj->flags & MF_DROPPED)
 	&& (mobj->type != MT_INV)
@@ -834,7 +874,36 @@ void P_SpawnMapThing (mapthing_t* mthing)
     {
 	return;
     }
-    
+
+    // Diablo loot: map-placed ammo pickups become a random item drop.
+    // Magazines replenish on their own, so ammo pickups are redundant.
+    // Skip during savegame load: the unarchive restores the saved loot;
+    // spawning new loot here would duplicate it every load/save cycle.
+    extern boolean g_loading_savegame;
+    if (!g_loading_savegame &&
+        (i == MT_CLIP || i == MT_MISC17 || i == MT_MISC18 ||
+        i == MT_MISC19 || i == MT_MISC20 || i == MT_MISC21 ||
+        i == MT_MISC22 || i == MT_MISC23))
+    {
+        int item_id = P_RollDiabloItemDrop(D_LoopMagicFind());
+        if (item_id >= 0)
+        {
+            // Log what spawned and what it replaced: distinguishes
+            // map-spawn loot from enemy drops in the log.
+            const diablo_itemdef_t *def =
+                D_GetItemDef(D_ITEMTIER(item_id), D_ITEMIDX(item_id));
+            char namebuf[96];
+            D_ItemDisplayName(def, namebuf, sizeof(namebuf));
+            printf("[LOOT] map-spawn \"%s\" tier=%d idx=%d at (%d,%d) (was %s)\n",
+                   namebuf,
+                   D_ITEMTIER(item_id), D_ITEMIDX(item_id),
+                   mthing->x, mthing->y, P_AmmoName(i));
+            P_SpawnDiabloLootAt(mthing->x << FRACBITS, mthing->y << FRACBITS,
+                                item_id);
+        }
+        return;
+    }
+
     // spawn it
     x = mthing->x << FRACBITS;
     y = mthing->y << FRACBITS;
@@ -1066,6 +1135,17 @@ P_SpawnPlayerMissile
     th->momy = FixedMul( th->info->speed,
 			 finesine[an>>ANGLETOFINESHIFT]);
     th->momz = FixedMul( th->info->speed, slope);
+
+    // Diablo turn-mode: if the player fired this in turn mode, tag it
+    // with the weapon for Diablo damage calculation on impact.
+    // (d_diablo_damage_cb is set by T_ExecAttack before T_NativeFire.)
+    if (source && source->player && d_diablo_damage_cb)
+    {
+        extern int d_diablo_hitscan_weapon;
+        // For projectiles, use the player's current weapon.
+        // (d_diablo_hitscan_weapon is for hitscan only.)
+        th->diablo_weapon = source->player->readyweapon;
+    }
 
     P_CheckMissileSpawn (th);
 }

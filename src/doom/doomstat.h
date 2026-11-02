@@ -232,6 +232,9 @@ extern  boolean         playerstartsingame[MAXPLAYERS];
 // Parameters for world map / intermission.
 extern  wbstartstruct_t		wminfo;	
 
+// NG+ loop: when true, G_DoWorldDone warps to MAP01.
+extern boolean d_loop_warp;
+
 
 
 

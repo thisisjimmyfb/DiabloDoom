@@ -1,0 +1,327 @@
+//
+// t_turn.h — Turn-based (XCOM) mode: central turn controller.
+//
+// One rules layer owns time, input, and resolution. Do NOT scatter
+// turn-mode conditionals through every weapon and monster; route
+// turn-mode behavior through this controller and the gameplay bridge.
+//
+// State machine: PLANNING -> TARGETING -> CONFIRM -> (queue) ->
+// END TURN -> drain FIFO (PULSE per entry) -> REACTION -> ROUND_END.
+// Targeting and confirmation are reversible; TP is reserved when an
+// action is enqueued and refunded on undo/clear/skip.
+//
+// Core invariant: no turn-mode action reads mouse position, analog
+// magnitude, crosshair overlap, or a manually chosen world coordinate.
+
+#ifndef __T_TURN__
+#define __T_TURN__
+
+#include "doomdef.h"
+#include "d_event.h"
+#include "tables.h" // angle_t for the queued-action snapshot
+// Forward declare mobj_t for profile kill counter.
+struct mobj_s;
+typedef struct mobj_s mobj_t;
+
+// Turn controller phases.
+//
+// Queue model: PLANNING enqueues actions (TP reserved immediately);
+// END TURN drains the queue FIFO (each entry runs its own pulse),
+// then the enemy phase runs, then enemy-phase bookkeeping.
+// TARGETING/CONFIRM build an attack for the queue; they never execute.
+typedef enum
+{
+    TS_OFF,        // turn mode not active (real-time path)
+    TS_EXPLORE,    // free real-time movement; turn system idle, enemies frozen
+    TS_PLANNING,   // world frozen; player queues discrete actions
+    TS_TARGETING,  // a target is selected; preview shown
+    TS_CONFIRM,    // attack previewed, awaiting enqueue
+    TS_PULSE,      // bounded simulation pulse resolving (input locked)
+    TS_REACTION,   // enemy phase: monsters act, input locked
+    TS_ROUND_END,  // cooldowns tick, round increments
+} turnstate_t;
+
+// Discrete turn-mode actions (input adapter output).
+typedef enum
+{
+    TA_NONE,
+    TA_MOVE_N, TA_MOVE_S, TA_MOVE_E, TA_MOVE_W,  // facing-relative steps
+    TA_TURN_L, TA_TURN_R,  // free view turn (arrow keys), 0 TP
+    TA_SELECT_NUM,
+    TA_ATTACK,
+    TA_ABILITY,        // weapon kit ability (phase 5)
+    TA_USE,
+    TA_POTION,
+    TA_COLLECT,        // auto-path to nearest loot and pick it up
+    TA_END_TURN,
+    TA_CANCEL,
+    TA_UNDO,           // undo last queued action (Backspace)
+    TA_CLEAR_QUEUE,    // clear the whole queue (Z)
+} turnaction_t;
+
+// Queued action entry: planning snapshots everything the entry needs,
+// so the queue reads concretely ("STEP EAST") and execution is FIFO.
+#define T_QUEUE_MAX 16
+typedef struct
+{
+    turnaction_t action;   // TA_MOVE_*, TA_ATTACK, TA_USE
+    int cost;              // TP reserved at enqueue time
+    angle_t moveangle;     // TA_MOVE_*: world-space step angle snapshot
+    mobj_t *target;        // TA_ATTACK: actor snapshot (validated live)
+    char target_name[16];  // TA_ATTACK: display-name snapshot
+} t_queueentry_t;
+
+// Central controller state. Owned by t_turn.c; read via accessors.
+typedef struct
+{
+    turnstate_t state;
+    // (round counter removed 2026-10-29: no round number is tracked.)
+    int tp;                 // tempo points remaining this turn
+    int tp_max;             // 10
+    int selected_target;    // index into target list, -1 = none
+    int selected_num;       // display number chosen via number keys
+    // Queued-action model: PLANNING enqueues, END TURN drains FIFO.
+    t_queueentry_t queue[T_QUEUE_MAX]; // ordered actions
+    int queue_len;          // entries currently queued
+    int queue_tp;           // TP reserved by queued actions
+    boolean executing;      // draining the queue (input locked)
+    int heat;               // chaingun heat 0-100 (phase 5)
+    int cooldowns[8];       // per-weapon-kit cooldowns in rounds (phase 5)
+    int charge_tp;          // plasma charge banked in TP (phase 5)
+    // Pulse runner state (phase 1).
+    int pulse_left;         // sim tics remaining in the current pulse
+    boolean pulse_freeze;   // freeze live monsters during this pulse
+    boolean pulse_fast;     // run 4 sim tics per real tic
+    boolean pulse_enemy;    // this pulse is the enemy phase
+    boolean sync;           // run pulses synchronously (script harness)
+    boolean firing;         // hold BT_ATTACK during the current pulse
+    // Smooth combat movement: T_ExecMove stores the destination (where the
+    // planning preview lands); T_PulseOneTic moves toward it each tick and
+    // finishes when within epsilon, giving a natural ease-out. move_tics is
+    // a failsafe cap so a blocked path can't stall the pulse forever.
+    fixed_t move_tx;        // target x (destination)
+    fixed_t move_ty;        // target y (destination)
+    int move_tics;          // failsafe tics remaining
+    // Keys held when combat started: ignore their keydown repeats until
+    // released. Prevents a held W (explore movement) from queueing a
+    // full turn of steps the moment combat triggers.
+    boolean stale_keys[256];
+    // First-person replay: after END TURN, the camera teleports back to
+    // the turn start and replays the queue at 3 tics per action.
+    int replay_tic;         // tics since replay started
+    fixed_t replay_start_x; // player x at turn start
+    fixed_t replay_start_y; // player y at turn start
+    angle_t replay_start_angle; // player angle at turn start
+    // Preview: during planning, the camera follows queued moves so the
+    // player sees where the queue goes. Turn start is the anchor.
+    fixed_t turn_start_x;
+    fixed_t turn_start_y;
+    fixed_t turn_start_z;
+    angle_t turn_start_angle;
+    // Hold-Ctrl targeting: hold Ctrl to enter targeting mode, arrows
+    // navigate, release Ctrl to confirm. Camera snaps to each target.
+    boolean ctrl_held;
+    boolean ctrl_targeting;
+    // Mini-combat: hold-Ctrl in explore mode enters a single-turn combat
+    // for barrels/props. No enemy phase if no AI enemies.
+    boolean mini_combat;
+    // Continuous-weapon target lock: chainsaw/chaingun/plasma lock onto
+    // a target and keep firing until it dies or the player switches
+    // targets. Movement does not break the lock.
+    mobj_t *locked_target;
+    boolean cont_fire_active; // continuous weapon locked on and firing
+    int cont_fire_tics;       // tics until the next continuous-fire shot
+} turnctrl_t;
+
+extern turnctrl_t turnctrl;
+
+// ------------------------------------------------------------------
+// Target service (phase 3): visible-enemy enumeration with stable
+// numbers. The list is rebuilt on demand; numbers are 1-based and
+// stable while the world is frozen (thinker order = spawn order).
+// ------------------------------------------------------------------
+#define T_MAXTARGETS 32
+
+// Rebuild the target list from live, visible enemies.
+void T_RefreshTargets(void);
+// Number of current targets (0 = none).
+int T_NumTargets(void);
+// True if the mobj is a real combatant (has melee/missile attack).
+// Shootable props with no attack (barrels) return false.
+boolean T_IsCombatant(struct mobj_s *mo);
+// Number of current targets that are real combatants (excludes barrels).
+int T_NumCombatants(void);
+mobj_t *T_SelectedMobj(void);
+// Target mobj by 0-based index, or NULL.
+struct mobj_s *T_TargetMobj(int idx);
+// Validate the selection after the world changed (death, etc.).
+void T_ValidateSelection(void);
+
+// Target selection (free, reversible).
+void T_DoSelectNext(void);
+void T_StartCtrlTargeting(void);
+void T_CtrlTargetNavigate(int dir);
+void T_ConfirmCtrlTarget(void);
+void T_DoSelectPrev(void);
+void T_DoSelectNum(int num);
+void T_DoCancel(void);
+// Attack: TARGETING -> CONFIRM -> auto-face + pulse.
+void T_DoAttack(void);
+
+// True once T_Init ran and the mode guards passed.
+boolean T_Ready(void);
+
+// Fully active: flag on, init done, in-level, single-player.
+boolean T_Active(void);
+
+// Called once at startup from D_DoomMain after parms are parsed.
+void T_Init(void);
+
+// Called on new game and level load in turn mode: full reset.
+void T_NewGame(void);
+
+// Called after loading a savegame: reset the state machine only
+// (TP is the player's ongoing progress).
+void T_OnLoad(void);
+// Test harness: re-assert the in-script context after LOAD (which runs
+// G_DoLoadLevel -> T_NewGame and would otherwise clear it).
+void T_ScriptLoadFixup(void);
+// Per-tic hook called from G_Ticker instead of P_Ticker.
+void T_Ticker(void);
+
+// Explore/combat mode split: free real-time movement while exploring,
+// turn-based combat when an enemy AI acquires the player as its target.
+boolean T_InExplore(void);   // true while in TS_EXPLORE
+void T_EnterExplore(void);   // leave combat -> free movement
+void T_EnterCombat(mobj_t *spotter); // an enemy acquired the player
+// One explore-mode tick: world sim + throttled detection (test hooks).
+void T_ExploreTick(void);
+
+// Input adapter (t_input.c): translate a key event into a turn action
+// while planning/targeting. Returns true if the event was consumed.
+boolean T_Responder(event_t *ev);
+
+// Pulse control.
+void T_BeginPulse(int tics, boolean freeze_monsters, boolean fast);
+boolean T_InPulse(void);
+// True while a target selection is open (TARGETING/CONFIRM): the menu
+// lets ESC fall through to the turn responder (cancel) in that case.
+boolean T_InSelection(void);
+
+// Turn-mode actions (t_action.c). Phase 1: move/use/end.
+// Phase 2: TP costs, legal-action checks.
+// Queue model: T_DoMove/T_DoUse/T_DoAttack ENQUEUE
+// (TP reserved); T_DoEndTurn drains the queue FIFO, then the enemy
+// phase runs. T_DoTurn stays immediate (free view control).
+void T_DoMove(int dir);   // 0=N(fwd) 1=E(right) 2=S(back) 3=W(left)
+void T_DoTurn(int dir);   // -1=left, +1=right; free 45-degree view turn
+void T_DoUse(void);
+boolean T_DoCollect(void);   // G: filter reachable loot, hand destinations to the GOTO walker; false = none reachable, caller ignores it
+void T_CollectTick(void);   // monitor the collect walk (explore mode)
+void T_CollectCancel(void);
+boolean T_CollectActive(void);
+// How the most recent GOTO walk ended. GOTO_RES_NONE while a walk is
+// running (or before any walk). Lets a caller that handed GOTO a
+// destination (COLLECT) react: advance to its next destination, etc.
+#define GOTO_RES_NONE      0
+#define GOTO_RES_ARRIVED   1
+#define GOTO_RES_BLOCKED   2
+#define GOTO_RES_NOPATH    3
+#define GOTO_RES_CANCELLED 4
+boolean T_GotoStart(fixed_t tx, fixed_t ty); // pathfind and walk to (x,y); false = no path
+int T_GotoResult(void);
+boolean T_GotoActive(void);
+void T_GotoCancel(void);
+void T_GotoTick(void);      // step along the GOTO path (explore mode)
+void T_WalkStart(void);     // WALK: persistent forward movement
+void T_WalkStartStep(int degrees); // WALK <angle>: relative turn (-90..+90), step forward
+void T_WalkCancel(void);
+void T_WalkTick(void);      // keep walking until enemy/loot/blocked (explore)
+void T_TrackTick(void);     // mark current sector visited (every tick)
+int T_VisitedCount(void);   // sectors visited on this level so far
+struct player_s;
+boolean T_LootAvailable(void); // true if any loot drop or player corpse is reachable (COLLECT's path rule)
+int T_GetLootList(mobj_t **list, int max); // fill with live loot mobjs, returns count
+void T_DoEndTurn(void);
+void T_DoUndoQueue(void);  // Backspace: undo last queued action, refund TP
+void T_DoClearQueue(void); // Z: clear the whole queue, refund all TP
+void T_ExecuteNext(void);  // run the next queued entry (queue drain)
+boolean T_ExecuteOne(void); // run a single queued entry (3-tick replay)
+void T_QueueEntryName(const t_queueentry_t *e, char *buf, size_t buflen);
+void T_InvalidateTarget(mobj_t *mo);
+const char *T_TargetName(mobj_t *mo);
+
+// Phase 2: Tempo economy.
+int T_CostFor(turnaction_t action);   // TP cost; selection/cancel = 0
+boolean T_CanAfford(turnaction_t action);
+int T_AttackCost(void);              // derived from attack speed (ph4/5)
+boolean T_IsContinuousWeapon(weapontype_t weapon); // chainsaw/chaingun/plasma
+void T_SetupContinuousFire(mobj_t *target); // arm continuous fire on a target
+void T_TickContinuousFire(void);            // per-tic continuous fire
+void T_ClearContinuousFire(void);           // break the continuous-fire lock
+// HUD: mode indicator + contextual help (called from HU_Drawer).
+void T_DrawHUD(void);
+// True while the turn-combat HUD is on: turn mode armed, level, and
+// not in explore/off. Status messages are mutually exclusive with
+// this — HU_Drawer hides them while it is true, so the combat header
+// and footer (same font, same red) never collide with a message.
+boolean T_InCombat(void);
+
+// Test harnesses (SPEC: fixed-seed arena, action replay, state dump).
+void T_DumpState(const char *why);
+void T_SpawnArena(void);
+void T_RunScript(const char *path);
+
+// Save/load: turn decision state (TP, phase-5 fields; the round
+// slot is kept as reserved 0 for layout stability). Written as
+// a trailing block by G_DoSaveGame; restored by G_DoLoadGame. Old saves
+// without the block load fine (defaults kept). Implemented in p_saveg.c.
+void P_ArchiveTurn(void);
+boolean P_UnArchiveTurn(void);
+
+// ------------------------------------------------------------------
+// Phase 8: versioned standalone turn-based profile.
+// Separate from level savegames; persists XP, levels, stat points,
+// lifetime counters, and the hero name across sessions.
+// Stored atomically (write temp + rename) on level exit and quit.
+// Loaded at startup.
+// ------------------------------------------------------------------
+#define T_PROFILE_VERSION 3
+#define T_PROFILE_NAME_LEN 32
+
+typedef struct
+{
+    int version;                            // T_PROFILE_VERSION
+    char name[T_PROFILE_NAME_LEN];          // hero name (NUL-terminated)
+    int xp;                                 // accumulated experience
+    int level;                              // current level (starts at 1)
+    int stat_points;                        // unspent attribute points
+    int lifetime_kills;                     // enemies killed (turn mode)
+    int lifetime_damage;                    // damage dealt (turn mode)
+    int lifetime_rounds;                    // reserved (was rounds played; no longer counted)
+} t_profile_t;
+
+extern t_profile_t t_profile;
+
+// Profile lifecycle.
+void T_ProfileInit(void);                   // defaults (call at startup)
+void T_ProfileLoad(void);                   // load from disk (if exists)
+void T_ProfileSave(void);                   // atomic save to disk
+const char *T_ProfilePath(void);            // filesystem path
+
+// XP and levels.
+void T_GainXP(int amount);                  // add XP, handle level-ups
+void T_AddStatPoint(const char *stat);      // spend 1 point on str/dex/vit/ene
+
+// Lifetime counters (call from combat code).
+void T_CountKill(mobj_t *target);
+void T_CountDamage(int dmg);
+
+// Kill banner: latched on the first kill of an attack, drawn big over the
+// game view for ~2.5s so the kill moment is screenshot-able.
+void T_KillBanner(const char *title, const char *sub);
+
+// Floating combat text (e.g. "MISS" above an enemy).
+void T_SpawnFloatText(mobj_t *mo, const char *text);
+
+#endif

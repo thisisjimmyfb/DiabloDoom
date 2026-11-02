@@ -276,6 +276,30 @@ typedef struct mobj_s
 
     // Thing being chased/attacked for tracers.
     struct mobj_s*	tracer;	
+
+    // Diablo loot system (mod): packed item id ((tier << 8) | index)
+    // for MT_LOOT_* drops; D_NOITEM (-1) if not a specific item.
+    int			diablo_loot_id;
+
+    // Diablo turn-mode (mod): weapon type (wp_*) that fired this projectile,
+    // for Diablo damage calculation on impact. -1 if not a player-fired
+    // turn-mode projectile.
+    int			diablo_weapon;
+
+    // Diablo corpse system (mod): when a player dies, their inventory
+    // is stored on the corpse mobj. Touching the corpse restores it.
+    // Sizes match player_t diablo_* fields (see d_diablo.h).
+    boolean		is_player_corpse;
+    int			corpse_equipped[10];  // NUM_ESLOTS
+    int			corpse_backpack[280];  // D_BACKPACK_MAX (70 x 4 pages)
+    int			corpse_equipped_dur[10];
+    int			corpse_backpack_dur[280];
+    int			corpse_bp_gx[280];
+    int			corpse_bp_gy[280];
+    int			corpse_bp_page[280];
+    int			corpse_bp_count;
+    int			corpse_bp_pages;  // unlocked pages at death
+    int			corpse_essence;
     
 } mobj_t;
 

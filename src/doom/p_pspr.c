@@ -26,6 +26,7 @@
 #include "m_random.h"
 #include "p_local.h"
 #include "s_sound.h"
+#include "w_wad.h"
 
 // State.
 #include "doomstat.h"
@@ -34,6 +35,9 @@
 #include "sounds.h"
 
 #include "p_pspr.h"
+#include "d_diablo.h"
+#include "t_turn.h"
+#include "t_combat.h"
 
 #define LOWERSPEED		FRACUNIT*6
 #define RAISESPEED		FRACUNIT*6
@@ -169,65 +173,12 @@ boolean P_CheckAmmo (player_t* player)
     if (ammo == am_noammo || player->ammo[ammo] >= count)
 	return true;
 		
-    // Out of ammo, pick a weapon to change to.
-    // Preferences are set here.
-    do
-    {
-	if (player->weaponowned[wp_plasma]
-	    && player->ammo[am_cell]
-	    && (gamemode != shareware) )
-	{
-	    player->pendingweapon = wp_plasma;
-	}
-	else if (player->weaponowned[wp_supershotgun] 
-		 && player->ammo[am_shell]>2
-		 && (gamemode == commercial) )
-	{
-	    player->pendingweapon = wp_supershotgun;
-	}
-	else if (player->weaponowned[wp_chaingun]
-		 && player->ammo[am_clip])
-	{
-	    player->pendingweapon = wp_chaingun;
-	}
-	else if (player->weaponowned[wp_shotgun]
-		 && player->ammo[am_shell])
-	{
-	    player->pendingweapon = wp_shotgun;
-	}
-	else if (player->ammo[am_clip])
-	{
-	    player->pendingweapon = wp_pistol;
-	}
-	else if (player->weaponowned[wp_chainsaw])
-	{
-	    player->pendingweapon = wp_chainsaw;
-	}
-	else if (player->weaponowned[wp_missile]
-		 && player->ammo[am_misl])
-	{
-	    player->pendingweapon = wp_missile;
-	}
-	else if (player->weaponowned[wp_bfg]
-		 && player->ammo[am_cell]>40
-		 && (gamemode != shareware) )
-	{
-	    player->pendingweapon = wp_bfg;
-	}
-	else
-	{
-	    // If everything fails.
-	    player->pendingweapon = wp_fist;
-	}
-	
-    } while (player->pendingweapon == wp_nochange);
-
-    // Now set appropriate weapon overlay.
-    P_SetPsprite (player,
-		  ps_weapon,
-		  weaponinfo[player->readyweapon].downstate);
-
-    return false;	
+    // Out of ammo: DO NOT auto-switch weapons. The Diablo inventory
+    // system controls the equipped weapon; vanilla auto-switch would
+    // bypass the Diablo equip path and change the viewmodel silently.
+    // Just return false (don't fire); the Diablo ammo system (T_KitCanFire)
+    // enforces the real ammo limit and shows NO AMMO in the HUD.
+    return false;
 }
 
 
@@ -237,10 +188,33 @@ boolean P_CheckAmmo (player_t* player)
 void P_FireWeapon (player_t* player)
 {
     statenum_t	newstate;
-	
-    if (!P_CheckAmmo (player))
-	return;
-	
+
+    if (T_Active())
+    {
+        // Diablo mode, real-time fire: the magazine is the only ammo
+        // economy. This is the one choke point every real-time shot
+        // passes through (initial press and each refire cycle; turn
+        // mode never calls it — it fires via T_NativeFire), so gate
+        // and spend here, exactly as the turn executor does. Native
+        // fire never gates on vanilla ammo in Diablo mode (see
+        // A_FireCGun), so no vanilla pool top-up is needed anywhere.
+        const t_kitdef_t *kit = T_KitForWeapon(player->readyweapon);
+        if (kit->ammo_cost > 0 && !T_KitCanFire(player->readyweapon))
+        {
+            const char *reason = T_KitDenyReason(player->readyweapon);
+            if (reason != NULL)
+                player->message = reason;
+            return;
+        }
+        if (kit->ammo_cost > 0)
+        {
+            T_KitSpendAmmo(player->readyweapon);
+            T_KitOnFire(player);
+        }
+    }
+    else if (!P_CheckAmmo (player))
+        return;
+
     P_SetMobjState (player->mo, S_PLAY_ATK1);
     newstate = weaponinfo[player->readyweapon].atkstate;
     P_SetPsprite (player, ps_weapon, newstate);
@@ -711,7 +685,11 @@ A_FireShotgun2
     int		damage;
 		
 	
-    S_StartSound (player->mo, sfx_dshtgn);
+    // Fallback: if the WAD lacks the SSG sound (Doom 1), use shotgun sound.
+    if (W_CheckNumForName("DSDBOPN") < 0 && W_CheckNumForName("DSDSHTGN") < 0)
+        S_StartSound (player->mo, sfx_shotgn);
+    else
+        S_StartSound (player->mo, sfx_dshtgn);
     P_SetMobjState (player->mo, S_PLAY_ATK2);
 
     DecreaseAmmo(player, weaponinfo[player->readyweapon].ammo, 2);
@@ -745,7 +723,8 @@ A_FireCGun
 {
     S_StartSound (player->mo, sfx_pistol);
 
-    if (!player->ammo[weaponinfo[player->readyweapon].ammo])
+    if (!player->ammo[weaponinfo[player->readyweapon].ammo]
+        && !T_Active())
 	return;
 		
     P_SetMobjState (player->mo, S_PLAY_ATK2);
@@ -784,24 +763,34 @@ void A_Light2 (player_t *player, pspdef_t *psp)
 
 
 //
-// A_BFGSpray
-// Spawn a BFG explosion on every monster in view
+// P_FrustumSpray
+// The BFG cone effect, separated from the BFG: fire 40 tracers over
+// a 90-degree cone around the originator's facing angle, damaging
+// every monster in view. Damage is the vanilla spray damage
+// (15 rolls of 1-8 per tracer), not Diablo AD/AP: spray tracers
+// carry no weapon id, so the Diablo damage callback does not apply
+// to them. Guarded against re-entry: spray damage itself must not
+// trigger another spray (see the P_DamageMobj frustum hook).
 //
-void A_BFGSpray (mobj_t* mo) 
+static boolean frustum_spraying = false;
+
+void P_FrustumSpray (mobj_t *originator, angle_t angle)
 {
     int			i;
     int			j;
     int			damage;
     angle_t		an;
-	
+
+    if (!originator || frustum_spraying)
+        return;
+    frustum_spraying = true;
+
     // offset angles from its attack angle
     for (i=0 ; i<40 ; i++)
     {
-	an = mo->angle - ANG90/2 + ANG90/40*i;
+	an = angle - ANG90/2 + ANG90/40*i;
 
-	// mo->target is the originator (player)
-	//  of the missile
-	P_AimLineAttack (mo->target, an, 16*64*FRACUNIT);
+	P_AimLineAttack (originator, an, 16*64*FRACUNIT);
 
 	if (!linetarget)
 	    continue;
@@ -810,13 +799,41 @@ void A_BFGSpray (mobj_t* mo)
 		     linetarget->y,
 		     linetarget->z + (linetarget->height>>2),
 		     MT_EXTRABFG);
-	
+
 	damage = 0;
 	for (j=0;j<15;j++)
 	    damage += (P_Random()&7) + 1;
 
-	P_DamageMobj (linetarget, mo->target,mo->target, damage);
+	P_DamageMobj (linetarget, originator, originator, damage);
     }
+
+    frustum_spraying = false;
+}
+
+boolean P_FrustumSpraying(void)
+{
+    return frustum_spraying;
+}
+
+//
+// A_BFGSpray
+// Spawn a BFG explosion on every monster in view -- but only when
+// the firing player has the frustum modifier on ANY equipped slot.
+// Without it, the BFG ball still deals its direct hit; the cone
+// effect is the modifier's, not the weapon's.
+//
+void A_BFGSpray (mobj_t* mo)
+{
+    player_t *player;
+
+    if (!mo || !mo->target)
+        return;
+    player = mo->target->player;
+    if (!player)
+        return;
+    if (!(D_ActiveMechs(player) & MECH_FRUSTUM))
+        return;
+    P_FrustumSpray(mo->target, mo->angle);
 }
 
 

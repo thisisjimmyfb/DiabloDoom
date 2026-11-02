@@ -101,6 +101,10 @@ int vanilla_keyboard_mapping = true;
 float mouse_acceleration = 2.0;
 int mouse_threshold = 10;
 
+// Diablo UI (mod): set by the Doom character screen for 1:1 cursor
+// movement. Defined here so the other games still link.
+boolean d_ui_accel_disabled = false;
+
 // Translates the SDL key to a value of the type found in doomkeys.h
 static int TranslateKey(SDL_Keysym *sym)
 {
@@ -417,6 +421,11 @@ void I_HandleMouseEvent(SDL_Event *sdlevent)
 
 static int AccelerateMouse(int val)
 {
+    // Diablo UI (mod): when the character screen is open, disable
+    // acceleration for precise 1:1 cursor movement.
+    if (d_ui_accel_disabled)
+        return val;
+
     if (val < 0)
         return -AccelerateMouse(-val);
 

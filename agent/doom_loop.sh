@@ -1,0 +1,835 @@
+#!/bin/bash
+# DiabloDoom farm: Ralph-style vision-driven loop.
+#
+# On launch:
+#   1. git pull --rebase from GitHub; if new changes, rebuild the game.
+#   2. Launch the game.
+#   3. Loop until timeout or game ends:
+#      - Capture replay video via REPLAY driver command (15s H.264 + AAC)
+#      - Feed replay video + PROMPT.md + game log to vision LLM
+#      - Vision LLM decides action(s); send via FIFO
+#      - Repeat
+#
+# The vision LLM integration is via the VISION_CMD env var: a command that
+# takes (replay_path, prompt_path, log_path) and outputs the driver
+# command(s) to send (e.g. "WALK\n", "ATTACK\n", "COLLECT\n").
+# Default: a subagent worker (see PROMPT.md) provides vision.
+#
+# Sub-agent mode: --subagent {setup|observe|act} [--file path].
+# The workflow (scripts/workflows/diablo-doom-loop.js) drives the loop:
+# the script only captures (observe) or sends (act) — it never decides.
+# Subagent mode never pulls, rebuilds, or kills the game.
+#
+# Override paths via environment variables.
+
+set -e
+
+# ==================== CONFIG ====================
+REPO="${REPO:-$HOME/workspace/DiabloDoom}"
+GAME="${GAME:-$REPO/build/src/chocolate-doom}"
+DOOM_WAD="${DOOM_WAD:-$HOME/workspace/doom/freedoom1.wad}"
+LOG="${LOG:-$HOME/workspace/doom_hourly.log}"
+GAME_LOG="${GAME_LOG:-/tmp/doom_hourly.log}"
+SCREEN_DIR="${SCREEN_DIR:-$HOME/workspace/screenshots}"
+# Screenshots: /tmp on Muse VMs (ephemeral), $HOME/doomshots on local machines.
+if [[ "${JARVIS_FQDN:-}" == *"metaaivm.com"* ]]; then
+    SHOTDIR="${SHOTDIR:-/tmp/doomshots}"
+else
+    SHOTDIR="${SHOTDIR:-$HOME/doomshots}"
+fi
+# Avatar face: the game launches with the user's avatar PWAD.
+# On a Muse VM the slot is ~/workspace/DiabloDoom/avatar/user.wad
+# (seeded from the default Jolly face if empty; an existing user.wad
+# is never overwritten). Elsewhere it is the committed default,
+# $REPO/agent/jolly.wad, directly. Overridable via AVATAR_WAD, like
+# the script's other paths.
+if [[ "${JARVIS_FQDN:-}" == *"metaaivm.com"* ]]; then
+    AVATAR_WAD="${AVATAR_WAD:-$HOME/workspace/DiabloDoom/avatar/user.wad}"
+else
+    AVATAR_WAD="${AVATAR_WAD:-$REPO/agent/jolly.wad}"
+fi
+CMDFILE="${CMDFILE:-/tmp/doom_cmd.txt}"
+# Autosave location: chocolate-doom stores per-IWAD saves under
+# savegames/<wad-basename>/; a legacy flat doomsav0.dsg may also exist.
+AUTOSAVE_DIR="$HOME/.local/share/chocolate-doom/savegames/$(basename "${DOOM_WAD:-$HOME/workspace/doom/freedoom1.wad}")"
+autosave_exists() {
+    [ -f "$AUTOSAVE_DIR/doomsav0.dsg" ] || [ -f "$HOME/.local/share/chocolate-doom/doomsav0.dsg" ]
+}
+SETUP_LOCK="${SETUP_LOCK:-/tmp/doom_setup.lock}"
+PROMPT="${PROMPT:-$REPO/agent/PROMPT.md}"
+FARM_SECONDS="${FARM_SECONDS:-300}"
+
+# Subagent mode: --subagent {setup|observe|act} [--file path]
+# The workflow (scripts/workflows/diablo-doom-loop.js) orchestrates:
+#   setup   - ensure game running (launch only if needed), LOAD/SAVE slot 1
+#   observe - REPLAY capture + log tail -> JSON {replay_path, log_tail, kills}
+#   act     - write driver commands from --file to the game FIFO -> JSON {ok}
+# Subagent mode never pulls, rebuilds, or kills the game.
+SUBAGENT=false
+SUBCMD=""
+ACT_FILE=""
+PREV=""
+for arg in "$@"; do
+    if [ "$PREV" = "-s" ]; then START_MS="$arg"; PREV=""; continue; fi
+    if [ "$PREV" = "-l" ]; then LIMIT_S="$arg"; PREV=""; continue; fi
+    case "$arg" in
+        --subagent) SUBAGENT=true ;;
+        setup|observe|act) SUBCMD="$arg" ;;
+        --file=*) ACT_FILE="${arg#--file=}" ;;
+        --start-ms=*) START_MS="${arg#--start-ms=}" ;;
+        --limit-s=*) LIMIT_S="${arg#--limit-s=}" ;;
+        -s) PREV="-s" ;;
+        -s=*) START_MS="${arg#-s=}" ;;
+        -l) PREV="-l" ;;
+        -l=*) LIMIT_S="${arg#-l=}" ;;
+    esac
+done
+WARP="${WARP:-1 1}"
+GAME_WIDTH="${GAME_WIDTH:-960}"
+GAME_HEIGHT="${GAME_HEIGHT:-600}"
+# Vision command: takes screenshot, prompt, log; outputs driver commands.
+# If unset, the loop pauses for manual/external vision input.
+VISION_CMD="${VISION_CMD:-}"
+# ================== END CONFIG ==================
+
+# ---- Stage timing log (2026-10-20) ----
+# Every loop stage (setup / observe / vision / act) writes timestamped
+# lines to $LOG so per-stage durations can be read off afterwards:
+#   [STAGE] <stage> start|mark|end ... ms=<elapsed>
+# The vision stage runs inside the worker agent (between observe and
+# act), so the script measures it as the gap: act.start - observe.end.
+# Inter-call state (last stage end, epoch ms) lives in a small file.
+STAGE_STATE="${STAGE_STATE:-/tmp/doom_loop_stage.env}"
+stage_log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S.%3N')] [STAGE] $*" >> "$LOG"
+}
+now_ms() { date +%s%3N; }
+stage_state_set() { # key value
+    local tmp="${STAGE_STATE}.tmp.$$"
+    grep -v "^$1=" "$STAGE_STATE" 2>/dev/null > "$tmp" || true
+    echo "$1=$2" >> "$tmp"
+    mv "$tmp" "$STAGE_STATE"
+}
+stage_state_get() { # key -> value or empty
+    grep "^$1=" "$STAGE_STATE" 2>/dev/null | tail -1 | cut -d= -f2
+}
+
+pull_and_rebuild() {
+    cd "$REPO"
+    local before after last_built
+    last_built=$(cat "$REPO/build/.built_head" 2>/dev/null || echo "none")
+    before=$(git rev-parse HEAD)
+    echo "[$(date)] Pulling from GitHub..." >> "$LOG"
+    if git pull --rebase 2>> "$LOG"; then
+        after=$(git rev-parse HEAD)
+        # Rebuild if the pull moved HEAD, OR if local commits (pushed from this
+        # VM) left the binary behind — pull never moves HEAD for those.
+        if [ "$before" != "$after" ] || [ "$after" != "$last_built" ]; then
+            echo "[$(date)] Binary stale (built=$last_built, HEAD=$after), rebuilding..." >> "$LOG"
+            cp "$GAME" ~/workspace/chocolate-doom.farm-backup 2>/dev/null || true
+            # Install vendored dev headers (third_party/dev-debs) if the system
+            # lost them (VM recycle wipes /usr). SDL2 itself falls back to
+            # third_party/ via CMakeLists.txt; FluidSynth/SampleRate need debs.
+            if [ ! -f /usr/include/fluidsynth.h ]; then
+                sudo dpkg -i "$REPO/third_party/dev-debs/"*.deb >> "$LOG" 2>&1 || true
+            fi
+            cd "$REPO/build"
+            # Re-run cmake (link.txt goes stale across VM recycles).
+            cmake . >> "$LOG" 2>&1 || echo "cmake failed" >> "$LOG"
+            if make -j2 chocolate-doom >> "$LOG" 2>&1; then
+                echo "[$(date)] Rebuild successful" >> "$LOG"
+                echo "$after" > "$REPO/build/.built_head"
+                cp "$GAME" ~/workspace/chocolate-doom.farm-backup
+            else
+                echo "[$(date)] Rebuild FAILED, restoring backup" >> "$LOG"
+                cp ~/workspace/chocolate-doom.farm-backup "$GAME" 2>/dev/null || true
+            fi
+            cd "$REPO"
+        else
+            echo "[$(date)] Binary already current ($after)" >> "$LOG"
+        fi
+    else
+        echo "[$(date)] git pull failed, continuing with existing binary" >> "$LOG"
+    fi
+}
+
+
+mkdir -p "$SCREEN_DIR" "$SHOTDIR"
+echo "[$(date)] Starting DiabloDoom Ralph loop" >> "$LOG"
+
+# 1. Pull latest from GitHub; rebuild if changed.
+# Skipped entirely in --subagent mode (never pull, never rebuild).
+if [ "$SUBAGENT" != true ]; then
+    pull_and_rebuild
+fi # end: skip pull/rebuild in --subagent mode (except setup, see below)
+
+# Pull from GitHub; rebuild the binary if anything changed.
+# Backs up the live binary first (a failed link step can destroy it).
+# 2. Check binary exists.
+if [ ! -f "$GAME" ]; then
+    echo "Game binary missing at $GAME" >> "$LOG"
+    exit 1
+fi
+
+# Seed the avatar slot from the default Jolly face if the user never
+# customized it. An existing user.wad is left alone, always.
+ensure_avatar_wad() {
+    if [ -z "${AVATAR_WAD:-}" ] || [ -f "$AVATAR_WAD" ]; then
+        return 0
+    fi
+    mkdir -p "$(dirname "$AVATAR_WAD")" 2>/dev/null || true
+    if [ -f "$REPO/agent/jolly.wad" ] && cp "$REPO/agent/jolly.wad" "$AVATAR_WAD"; then
+        echo "[$(date)] Avatar slot empty, copied default jolly.wad to $AVATAR_WAD" >> "$LOG"
+    else
+        echo "[$(date)] Avatar slot empty and default jolly.wad unavailable, launching without avatar" >> "$LOG"
+        AVATAR_WAD=""
+    fi
+}
+
+launch_game() {
+    cd "$SHOTDIR"
+    # Clear stale FIFO (game recreates it; avoids worker-written regular file race).
+    rm -f "$CMDFILE"
+    # Close the setup-lock fd in the game child so the lock releases when
+    # this script exits (not when the game dies).
+    # stdbuf -oL -eL: force line buffering so the game log is LIVE during
+    # play. stdout to a file is fully buffered by default; without this the
+    # log only lands in 4-8KB blocks and at exit, blinding the agent mid-run.
+    ensure_avatar_wad
+    local avatar_args=()
+    if [ -n "${AVATAR_WAD:-}" ] && [ -f "$AVATAR_WAD" ]; then
+        avatar_args=(-file "$AVATAR_WAD")
+    fi
+    SDL_VIDEODRIVER=${SDL_VIDEODRIVER:-dummy} SDL_AUDIODRIVER=${SDL_AUDIODRIVER:-dummy} nohup stdbuf -oL -eL "$GAME" -iwad "$DOOM_WAD" \
+        "${avatar_args[@]}" \
+        -width "$GAME_WIDTH" -height "$GAME_HEIGHT" -warp $WARP \
+        --continuous-capture 9>&- > "$GAME_LOG" 2>&1 &
+    disown
+    sleep 15
+}
+
+# Ask any running game to save + shut itself down via the QUIT
+# driver command (the save lands and the buffered log is flushed --
+# a SIGKILL throws both away). SIGKILL remains only as the fallback
+# for a game too wedged to read its FIFO. Returns non-zero if a game
+# is still alive at the end.
+stop_all_games() {
+    if ! pgrep -f "chocolate-doo[m]" > /dev/null; then
+        return 0
+    fi
+    if [ -p "$CMDFILE" ]; then
+        timeout 3 bash -c 'printf "QUIT\n" >> "$1"' _ "$CMDFILE" 2>/dev/null || true
+        local waits=0
+        while pgrep -f "chocolate-doo[m]" > /dev/null && [ $waits -lt 25 ]; do
+            sleep 1
+            waits=$((waits+1))
+        done
+    fi
+    if pgrep -f "chocolate-doo[m]" > /dev/null; then
+        pkill -9 -f "chocolate-doo[m]" 2>/dev/null || true
+        local waits=0
+        while pgrep -f "chocolate-doo[m]" > /dev/null && [ $waits -lt 10 ]; do
+            sleep 1
+            waits=$((waits+1))
+        done
+    fi
+    ! pgrep -f "chocolate-doo[m]" > /dev/null
+}
+
+# 3. Stop any old game, start fresh (KEEP progress.dat for continuous progress).
+# Full-loop mode only: --subagent dispatches below and must NOT stop here.
+if [ "$SUBAGENT" != true ]; then
+stop_all_games || true
+launch_game
+fi
+
+# 4. Ralph loop: screenshot -> vision -> act -> repeat.
+END_TIME=$(($(date +%s) + FARM_SECONDS))
+ITER=0
+
+send_cmd() {
+    # Append, never overwrite: commands the game hasn't consumed yet
+    # must survive this write (before the game creates the FIFO the
+    # path can be a plain file, where ">" would erase queued input).
+    # The game reads the FIFO every tick (35 Hz), so a healthy write
+    # drains immediately; a block means no reader right now. Retry
+    # for a while (the game may be mid-relaunch) instead of dropping
+    # the command -- only give up after ~30s of attempts.
+    # Line protocol: every write must end with a newline; add one if
+    # the caller forgot (payloads use printf %b escapes, so the check
+    # is for a literal trailing "\n").
+    local payload="$1"
+    case "$payload" in
+        *'\n') ;;
+        *) payload="$payload\\n" ;;
+    esac
+    local attempt
+    for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+        if timeout 2 bash -c 'printf "%b" "$1" >> "$2"' _ "$payload" "$CMDFILE"; then
+            sleep 2
+            return 0
+        fi
+        echo "[$(date)] send_cmd attempt $attempt blocked (FIFO not draining), retrying: $1" >> "$LOG"
+        sleep 1
+    done
+    echo "[$(date)] send_cmd FAILED after 15 attempts, command NOT delivered: $1" >> "$LOG"
+    return 1
+}
+
+# Wait until the game is actually draining the command FIFO (up to ~60s).
+# Checks the path is a FIFO AND a live game process holds that exact inode
+# open — this also detects the deleted-inode ghost (path inode won't match).
+wait_for_fifo() {
+    local timeout_s=${1:-60}
+    local tries=0
+    while [ $tries -lt $timeout_s ]; do
+        if [ -p "$CMDFILE" ]; then
+            local ino=$(stat -c %i "$CMDFILE" 2>/dev/null)
+            if [ -n "$ino" ]; then
+                for pid in $(pgrep -f "chocolate-doo[m]" 2>/dev/null); do
+                    # Named-FIFO fds show as "-> /tmp/doom_cmd.txt", not
+                    # "pipe:[ino]" (that pattern only matches anonymous
+                    # pipes), so compare each fd's target inode instead.
+                    for fd in /proc/$pid/fd/*; do
+                        if [ "$(stat -L -c %i "$fd" 2>/dev/null)" = "$ino" ]; then
+                            return 0
+                        fi
+                    done
+                done
+            fi
+        fi
+        sleep 1
+        tries=$((tries+1))
+    done
+    return 1
+}
+
+# Load autosave slot 1 if it exists (resume where the last cycle left off).
+# Doom savegame slot 0 + progress_auto1.dat.
+# Full-loop mode only: --subagent dispatches below and must NOT send here.
+if [ "$SUBAGENT" != true ]; then
+if autosave_exists; then
+    echo "[$(date)] Autosave found, loading slot 0" >> "$LOG"
+    send_cmd "LOAD 0\n"
+    sleep 5
+else
+    echo "[$(date)] No autosave found, starting new game with autosave slot 1" >> "$LOG"
+    # Initialize autosave slot 1 immediately.
+    send_cmd "SAVE 0\n"
+    sleep 5
+fi
+fi
+
+take_screenshot() {
+    local ts=$(date +%Y%m%d_%H%M%S)
+    local out="$SCREEN_DIR/doom_ralph_${ts}_${ITER}.png"
+    local before=$(ls -t "$SHOTDIR"/DOOM*.png "$SHOTDIR"/doomshots/*.png 2>/dev/null | head -1)
+    send_cmd "SCREENSHOT\n"
+    # Screenshots render at dispatch (~1 frame); poll briefly for the
+    # new file instead of the old fixed 4s sleep.
+    local newest=""
+    for i in $(seq 1 8); do
+        sleep 0.5
+        newest=$(ls -t "$SHOTDIR"/DOOM*.png "$SHOTDIR"/doomshots/*.png 2>/dev/null | head -1)
+        if [ -n "$newest" ] && [ "$newest" != "$before" ]; then
+            break
+        fi
+        newest=""
+    done
+    if [ -n "$newest" ]; then
+        # Upscale 3x nearest-neighbor to match display size.
+        python3 - "$newest" "$out" >> "$LOG" 2>&1 <<'PYEOF' || echo "screenshot failed" >> "$LOG"
+import sys
+from PIL import Image
+src, dst = sys.argv[1], sys.argv[2]
+Image.open(src).convert("RGB").resize((960, 600), Image.NEAREST).save(dst)
+print("SHOT-OK", dst)
+PYEOF
+        rm -f "$SHOTDIR"/DOOM*.png
+        echo "$out"
+    else
+        echo ""
+    fi
+}
+
+capture_replay() {
+    local ts=$(date +%Y%m%d_%H%M%S)
+    local out="$SCREEN_DIR/doom_ralph_${ts}_${ITER}.mp4"
+    local before=$(ls -t "$SHOTDIR"/*.mp4 2>/dev/null | head -1)
+    local newest=""
+    send_cmd "REPLAY\n"
+    # Async encode lands in ~2-9s; poll (exit on arrival) instead of
+    # the fixed 18s sleep from the synchronous-encode era.
+    for i in $(seq 1 12); do
+        sleep 1
+        newest=$(ls -t "$SHOTDIR"/*.mp4 2>/dev/null | head -1)
+        if [ -n "$newest" ] && [ "$newest" != "$before" ]; then
+            break
+        fi
+        newest=""
+    done
+    if [ -n "$newest" ]; then
+        mv "$newest" "$out"
+        echo "$out"
+    else
+        echo ""
+    fi
+}
+
+# ---------------- subagent subcommands ----------------
+# Restore stub shared libraries wiped by VM recycles. The farm's vendored
+# audio libs (fluidsynth, SDL_mixer) need libinstpatch, libopusfile, and
+# libpipewire, which don't survive in /usr. Regenerate functional stubs
+# from the vendored libs' undefined symbols (the game never calls these).
+restore_stub_libs() {
+    local bindir="$HOME/workspace/DiabloDoom/build/src"
+    local vendored="$HOME/workspace/DiabloDoom/third_party/runtime-libs"
+    local needed=0
+
+    # Check if binary loads cleanly
+    if ! ldd "$bindir/chocolate-doom" 2>/dev/null | grep -q "not found"; then
+        # Also verify no symbol lookup errors on the vendored libs
+        if "$bindir/chocolate-doom" --help 2>&1 | grep -q "symbol lookup error"; then
+            needed=1
+        fi
+    else
+        needed=1
+    fi
+    [ "$needed" -eq 0 ] && return 0
+
+    # Generate libinstpatch stub (fluidsynth needs ipatch_* + pw_* symbols)
+    if [ -f "$vendored/libfluidsynth.so.3" ]; then
+        nm -D "$vendored/libfluidsynth.so.3" 2>/dev/null | grep " U " | \
+            grep -E "ipatch|pw_" | awk '{print $2}' > /tmp/inst_syms.txt
+        if [ -s /tmp/inst_syms.txt ]; then
+            python3 -c "
+import sys
+with open('/tmp/inst_syms.txt') as f:
+    syms = [l.strip() for l in f if l.strip()]
+with open('/tmp/stub_inst.c', 'w') as out:
+    for s in syms:
+        out.write(f'void* {s}(void) {{ return 0; }}\n')
+"
+            gcc -shared -fPIC -o /usr/lib/x86_64-linux-gnu/libinstpatch-1.0.so.2 \
+                /tmp/stub_inst.c 2>/dev/null || \
+            sudo gcc -shared -fPIC -o /usr/lib/x86_64-linux-gnu/libinstpatch-1.0.so.2 \
+                /tmp/stub_inst.c 2>/dev/null || true
+        fi
+    fi
+
+    # Generate libopusfile stub (SDL_mixer needs op_* symbols)
+    if [ -f "$vendored/libSDL2_mixer-2.0.so.0" ]; then
+        nm -D "$vendored/libSDL2_mixer-2.0.so.0" 2>/dev/null | grep " U " | \
+            grep "op_" | awk '{print $2}' > /tmp/opus_syms.txt
+        if [ -s /tmp/opus_syms.txt ]; then
+            python3 -c "
+with open('/tmp/opus_syms.txt') as f:
+    syms = [l.strip() for l in f if l.strip()]
+with open('/tmp/stub_opus.c', 'w') as out:
+    for s in syms:
+        out.write(f'void* {s}(void) {{ return 0; }}\n')
+"
+            gcc -shared -fPIC -o /usr/lib/x86_64-linux-gnu/libopusfile.so.0 \
+                /tmp/stub_opus.c 2>/dev/null || \
+            sudo gcc -shared -fPIC -o /usr/lib/x86_64-linux-gnu/libopusfile.so.0 \
+                /tmp/stub_opus.c 2>/dev/null || true
+        fi
+    fi
+
+    # Empty libpipewire stub (fluidsynth links it, never used)
+    echo '// empty' > /tmp/stub_pw.c
+    gcc -shared -fPIC -o /usr/lib/x86_64-linux-gnu/libpipewire-0.3.so.0 \
+        /tmp/stub_pw.c 2>/dev/null || \
+    sudo gcc -shared -fPIC -o /usr/lib/x86_64-linux-gnu/libpipewire-0.3.so.0 \
+        /tmp/stub_pw.c 2>/dev/null || true
+
+    # Reinstall libmodplug from saved deb if missing
+    if ! ldconfig -p 2>/dev/null | grep -q "libmodplug.so.1"; then
+        sudo dpkg -i --force-all "$HOME/workspace/doom/modplug.deb" 2>/dev/null || true
+    fi
+
+    sudo ldconfig 2>/dev/null || true
+}
+
+# setup: ensure the game is running (launch only if needed), then
+# LOAD 0 if autosave slot 1 exists, else SAVE 0 to initialize it.
+# ensure_notebook_level: automate the "New level = cleared notebook"
+# prompt rule without asking the agent to do it. Called from
+# subagent_setup after any stale game is stopped (so the save on
+# disk is final) and before launch_game. The agent reads the notebook
+# only after setup returns, so a swap here is always in time.
+# Level signal: the savegame the run will LOAD (header: description
+# 24 bytes + version 16 bytes, then gameskill/gameepisode/gamemap at
+# offsets 40/41/42 -- see src/doom/p_saveg.c), falling back to WARP
+# ("episode map") when no save exists. Never blocks setup on failure:
+# returns 1 with a warning and the prompt rule remains the backstop.
+ensure_notebook_level() {
+    local template="$REPO/agent/MEMORY_TEMPLATE.md"
+    local notebook="${NOTEBOOK:-$HOME/workspace/MEMORY.md}"
+    local save_file="" level="" current="" ep="" mp="" warp_ep="" warp_map=""
+    local autosave_dir="$HOME/.local/share/chocolate-doom/savegames/$(basename "${DOOM_WAD:-$HOME/workspace/doom/freedoom1.wad}")"
+    if [ -f "$autosave_dir/doomsav0.dsg" ]; then
+        save_file="$autosave_dir/doomsav0.dsg"
+    elif [ -f "$HOME/.local/share/chocolate-doom/doomsav0.dsg" ]; then
+        save_file="$HOME/.local/share/chocolate-doom/doomsav0.dsg"
+    fi
+    if [ -n "$save_file" ] && [ "$(stat -c %s "$save_file" 2>/dev/null || echo 0)" -ge 43 ]; then
+        ep="$(od -An -tu1 -j41 -N1 "$save_file" 2>/dev/null | tr -d ' ')"
+        mp="$(od -An -tu1 -j42 -N1 "$save_file" 2>/dev/null | tr -d ' ')"
+        if [ -n "$ep" ] && [ -n "$mp" ] && [ "$ep" -ge 1 ] 2>/dev/null && [ "$ep" -le 9 ] 2>/dev/null \
+           && [ "$mp" -ge 1 ] 2>/dev/null && [ "$mp" -le 99 ] 2>/dev/null; then
+            level="E${ep}M${mp}"
+        fi
+    fi
+    if [ -z "$level" ]; then
+        read -r warp_ep warp_map <<< "${WARP:-1 1}"
+        if [ -n "$warp_ep" ] && [ -n "$warp_map" ] \
+           && [ "$warp_ep" -ge 1 ] 2>/dev/null && [ "$warp_ep" -le 9 ] 2>/dev/null \
+           && [ "$warp_map" -ge 1 ] 2>/dev/null && [ "$warp_map" -le 99 ] 2>/dev/null; then
+            level="E${warp_ep}M${warp_map}"
+        fi
+    fi
+    if [ -z "$level" ]; then
+        stage_log "setup mark notebook WARNING could-not-determine-level untouched"
+        return 1
+    fi
+    if [ ! -f "$notebook" ]; then
+        if ! cp "$template" "$notebook"; then
+            stage_log "setup mark notebook WARNING template-copy-failed untouched"
+            return 1
+        fi
+        sed -i "s|^Level: .*|Level: $level|" "$notebook"
+        stage_log "setup mark notebook created-for-$level"
+        return 0
+    fi
+    current="$(grep -m1 '^Level:' "$notebook" | sed 's/^Level:[[:space:]]*//;s/[[:space:]]*$//')"
+    if [ -z "$current" ]; then
+        stage_log "setup mark notebook WARNING no-Level-line untouched"
+        return 1
+    fi
+    if [ "$current" = "$level" ]; then
+        stage_log "setup mark notebook already-$level untouched"
+        return 0
+    fi
+    if ! cp "$template" "$notebook"; then
+        stage_log "setup mark notebook WARNING template-copy-failed untouched"
+        return 1
+    fi
+    sed -i "s|^Level: .*|Level: $level|" "$notebook"
+    stage_log "setup mark notebook swapped $current->$level"
+    return 0
+}
+
+subagent_setup() {
+    local game_count launched save_status
+    local t_setup_start=$(now_ms)
+    stage_log "setup start"
+    # Restore stub libs wiped by VM recycles before anything else.
+    restore_stub_libs
+    stage_log "setup mark libs-restored ms=$(( $(now_ms) - t_setup_start ))"
+    # Singleton: only one setup/launch at a time. A second concurrent setup
+    # would interleave pkill/rm/launch and create FIFO ghosts + duplicate
+    # games. Non-blocking: fail fast so the caller can retry or stand down.
+    exec 9>"$SETUP_LOCK"
+    if ! flock -n 9; then
+        echo '{"ok": false, "error": "another setup is already in progress"}'
+        exit 1
+    fi
+    # Pull latest and rebuild if anything changed, so the fresh game
+    # always runs the newest binary.
+    pull_and_rebuild
+    stage_log "setup mark pull-rebuild-done ms=$(( $(now_ms) - t_setup_start ))"
+    game_count=$(pgrep -c -f "chocolate-doo[m]" 2>/dev/null || true); game_count=${game_count:-0}
+    if [ "$game_count" -gt 0 ]; then
+        # A game is already running (possibly stale: stuck pre-GS_LEVEL or
+        # holding a deleted FIFO). Ask it to save + quit itself via the
+        # QUIT driver command (stop_all_games falls back to SIGKILL only
+        # if the game ignores QUIT). Poll until actually dead before
+        # touching the FIFO.
+        if ! stop_all_games; then
+            echo '{"ok": false, "error": "could not kill existing game"}'
+            exit 1
+        fi
+    fi
+    # Automate the new-level notebook swap (no agent judgment needed):
+    # the save on disk names the level this run will LOAD; if the
+    # notebook names another level, replace it from the template.
+    # Failure never blocks setup -- the prompt rule is the backstop.
+    ensure_notebook_level || true
+    launch_game
+    launched=1
+    stage_log "setup mark game-launched ms=$(( $(now_ms) - t_setup_start ))"
+    # Don't touch the FIFO until the game is confirmed draining it.
+    if ! wait_for_fifo 60; then
+        stage_log "setup end ok=false error=fifo-never-live ms=$(( $(now_ms) - t_setup_start ))"
+        echo '{"ok": false, "error": "game launched but FIFO never became live (stuck boot or ghost)"}'
+        exit 1
+    fi
+    stage_log "setup mark fifo-live ms=$(( $(now_ms) - t_setup_start ))"
+    save_status="fresh"
+    if autosave_exists; then
+        send_cmd "LOAD 0\n"
+        sleep 5
+        save_status="loaded"
+    else
+        send_cmd "SAVE 0\n"
+        sleep 5
+        save_status="initialized"
+    fi
+    cycle_start_ms=$(now_ms)
+    LAUNCHED="$launched" KILLED="$game_count" SAVE_STATUS="$save_status" CYCLE_START_MS="$cycle_start_ms" python3 - <<'PYEOF'
+import json, os
+print(json.dumps({
+    "ok": True,
+    "launched": os.environ.get("LAUNCHED") == "1",
+    "killed": int(os.environ.get("KILLED", 0) or 0),
+    "save": os.environ.get("SAVE_STATUS", ""),
+    "s": int(os.environ.get("CYCLE_START_MS", 0) or 0),
+    "notes": "setup complete"
+}))
+PYEOF
+    stage_log "setup end ok=true save=$save_status ms=$(( $(now_ms) - t_setup_start ))"
+}
+
+# observe: REPLAY capture + recent log tail -> JSON.
+subagent_observe() {
+    local game_count ts out newest replay_path screenshot_path log_tail kills
+    local t_obs_start=$(now_ms)
+    local last_act_end=$(stage_state_get LAST_ACT_END_MS)
+    if [ -n "$last_act_end" ]; then
+        stage_log "observe start since_act_ms=$(( t_obs_start - last_act_end )) (game resolving + idle)"
+    else
+        stage_log "observe start"
+    fi
+    game_count=$(pgrep -c -f "chocolate-doo[m]" 2>/dev/null || true); game_count=${game_count:-0}
+    if [ "$game_count" -eq 0 ]; then
+        stage_log "observe end ok=false error=game-not-running ms=$(( $(now_ms) - t_obs_start ))"
+        echo '{"error": "game not running", "game_count": 0}'
+        exit 1
+    fi
+    ts=$(date +%Y%m%d_%H%M%S)
+    out="$SCREEN_DIR/doom_ralph_${ts}_obs.mp4"
+    # CAPTURE saves the 15s replay video first, then a screenshot.
+    # Poll for both new files instead of sleeping a fixed time.
+    before_mp4=$(ls -t "$SHOTDIR"/*.mp4 2>/dev/null | head -1)
+    before_png=$(ls -t "$SHOTDIR"/*.png "$SHOTDIR"/doomshots/*.png 2>/dev/null | head -1)
+    send_cmd "CAPTURE\n"
+    stage_log "observe mark capture-sent ms=$(( $(now_ms) - t_obs_start ))"
+    newest=""
+    # Async encode: the file lands when the encoder thread finishes
+    # (~2-9s measured); poll exits on arrival, cap is failure-only.
+    for i in $(seq 1 12); do
+        sleep 1
+        newest=$(ls -t "$SHOTDIR"/*.mp4 2>/dev/null | head -1)
+        if [ -n "$newest" ] && [ "$newest" != "$before_mp4" ]; then
+            break
+        fi
+        newest=""
+    done
+    replay_path=""
+    if [ -n "$newest" ]; then
+        mv "$newest" "$out"
+        replay_path="$out"
+    fi
+    stage_log "observe mark mp4-ready found=$([ -n "$replay_path" ] && echo 1 || echo 0) ms=$(( $(now_ms) - t_obs_start ))"
+    # Screenshot lands after the video; poll for the new PNG.
+    # (Taken at dispatch now that the encode is async: ~1s typical.)
+    screenshot_path=""
+    for i in $(seq 1 4); do
+        sleep 1
+        newest_png=$(ls -t "$SHOTDIR"/*.png "$SHOTDIR"/doomshots/*.png 2>/dev/null | head -1)
+        if [ -n "$newest_png" ] && [ "$newest_png" != "$before_png" ]; then
+            screenshot_path="$newest_png"
+            break
+        fi
+    done
+    log_tail=$(tail -50 "$GAME_LOG" 2>/dev/null)
+    kills=$(grep -ac "exec-attack-kill" "$GAME_LOG" 2>/dev/null || true); kills=${kills:-0}
+    stage_log "observe mark png-ready found=$([ -n "$screenshot_path" ] && echo 1 || echo 0) ms=$(( $(now_ms) - t_obs_start ))"
+    REPLAY_PATH="$replay_path" SCREENSHOT_PATH="$screenshot_path" LOG_TAIL="$log_tail" KILLS="$kills" python3 - <<'PYEOF'
+import json, os
+print(json.dumps({
+    "replay_path": os.environ.get("REPLAY_PATH", ""),
+    "screenshot_path": os.environ.get("SCREENSHOT_PATH", ""),
+    "log_tail": os.environ.get("LOG_TAIL", ""),
+    "kills": int(os.environ.get("KILLS", 0) or 0),
+}))
+PYEOF
+    local t_obs_end=$(now_ms)
+    stage_state_set LAST_OBSERVE_END_MS "$t_obs_end"
+    stage_log "observe end ok=true ms=$(( t_obs_end - t_obs_start ))"
+}
+
+# act: write driver commands from --file to the game FIFO -> JSON.
+subagent_act() {
+    local t_act_start=$(now_ms)
+    local last_obs_end=$(stage_state_get LAST_OBSERVE_END_MS)
+    if [ -n "$last_obs_end" ]; then
+        # The gap between observe ending and act starting IS the
+        # vision stage: worker watching the replay + deciding.
+        stage_log "vision end ms=$(( t_act_start - last_obs_end )) (observe->act gap)"
+    fi
+    stage_log "act start"
+    if [ -z "$ACT_FILE" ] || [ ! -f "$ACT_FILE" ]; then
+        stage_log "act end ok=false error=no-command-file ms=$(( $(now_ms) - t_act_start ))"
+        echo '{"ok": false, "error": "no command file"}'
+        exit 1
+    fi
+    if ! pgrep -f "chocolate-doo[m]" > /dev/null; then
+        stage_log "act end ok=false error=game-not-running ms=$(( $(now_ms) - t_act_start ))"
+        echo '{"ok": false, "error": "game not running"}'
+        exit 1
+    fi
+    # Run-end auto-QUIT: enforced here, never mentioned to the agent.
+    # If the caller passed --start-ms, end the run (final screenshot,
+    # then QUIT) instead of the file's commands once the limit is
+    # exceeded. The agent never sends QUIT itself.
+    local quit_auto=0
+    if [ -n "${START_MS:-}" ]; then
+        # Default 1200, capped at 1200 even if the caller passes more.
+        local eff_limit_s=${LIMIT_S:-1200}
+        if [ "$eff_limit_s" -gt 1200 ]; then eff_limit_s=1200; fi
+        local elapsed_ms=$(( $(now_ms) - START_MS ))
+        if [ "$elapsed_ms" -gt $(( eff_limit_s * 1000 )) ]; then
+            quit_auto=1
+            stage_log "act mark time-limit reached elapsed_ms=$elapsed_ms limit_s=$eff_limit_s, sending SCREENSHOT+QUIT instead of file commands"
+            local quit_file="/tmp/doom_quit.$$.txt"
+            printf 'SCREENSHOT\nQUIT\n' > "$quit_file"
+            ACT_FILE="$quit_file"
+        fi
+    fi
+    # Log what's being sent (single line: commands separated by spaces).
+    stage_log "act mark cmds: $(tr '\n' ' ' < "$ACT_FILE")"
+    # Append (never overwrite unconsumed commands). The game drains
+    # the FIFO every tick, so a block means no reader right now (e.g.
+    # mid-relaunch): retry briefly so a transient gap delays the
+    # commands instead of dropping them.
+    # Line protocol: the written stream must end with a newline; if
+    # the command file's last line lacks one, add it on the way in.
+    local act_attempt act_written=0
+    for act_attempt in 1 2 3 4 5; do
+        # NOTE (2026-10-21): the old form `{ cat ...; [ -n "$(tail -c 1 ...)" ] && printf "\n"; }`
+        # misreported success as failure: $(...) strips trailing newlines, so a
+        # file ending in \n made the test false and the group exit 1 -- every
+        # attempt "failed" and the commands were written up to 5 times.
+        # Fixed: $(tail -c 1 | tr -d "\n") is empty iff the file ends with \n.
+        if timeout 2 bash -c 'cat "$1" >> "$2" && { [ -z "$(tail -c 1 "$1" | tr -d "\n")" ] || printf "\n" >> "$2"; }' _ "$ACT_FILE" "$CMDFILE"; then
+            act_written=1
+            break
+        fi
+        stage_log "act mark write-blocked attempt=$act_attempt, retrying"
+        sleep 1
+    done
+    if [ "$act_written" != 1 ]; then
+        stage_log "act end ok=false error=fifo-write-blocked ms=$(( $(now_ms) - t_act_start ))"
+        echo '{"ok": false, "error": "FIFO write blocked (not draining)"}'
+        exit 1
+    fi
+    sleep 2
+    local t_act_end=$(now_ms)
+    stage_state_set LAST_ACT_END_MS "$t_act_end"
+    stage_log "act end ok=true ms=$(( t_act_end - t_act_start )) quit_auto=$quit_auto"
+    if [ "$quit_auto" = 1 ]; then
+        rm -f "$quit_file"
+        echo '{"ok": true, "quit": true, "reason": "time limit reached"}'
+    else
+        echo '{"ok": true}'
+    fi
+}
+
+if [ "$SUBAGENT" = true ]; then
+    case "$SUBCMD" in
+        setup) subagent_setup ;;
+        observe) subagent_observe ;;
+        act) subagent_act ;;
+        *)
+            echo "usage: $0 --subagent {setup|observe|act} [--file path]" >&2
+            exit 1
+            ;;
+    esac
+    exit 0
+fi
+
+# Full-loop mode owns the game for its run: take the setup lock (blocking)
+# so a concurrent --subagent setup fails fast instead of racing our launch.
+exec 9>"$SETUP_LOCK"
+flock 9
+
+while [ $(date +%s) -lt $END_TIME ]; do
+    ITER=$((ITER + 1))
+    echo "[$(date)] --- Iteration $ITER ---" >> "$LOG"
+    ITER_START_MS=$(now_ms)
+    stage_log "loop iteration=$ITER start"
+
+    # Check game alive.
+    if ! pgrep -f "chocolate-doo[m]" > /dev/null; then
+        echo "Game died, restarting..." >> "$LOG"
+        launch_game
+        continue
+    fi
+
+    # Check for BFG (goal reached).
+    if grep -ai "bfg" "$GAME_LOG" 2>/dev/null | grep -ai "pickup\|got\|acquired" | grep -q .; then
+        echo "BFG FOUND! Ending loop." >> "$LOG"
+        break
+    fi
+
+    # Capture replay video for vision.
+    stage_log "loop iteration=$ITER observe start"
+    REPLAY=$(capture_replay)
+    stage_log "loop iteration=$ITER observe end ms=$(( $(now_ms) - ITER_START_MS ))"
+    if [ -z "$REPLAY" ]; then
+        echo "Replay capture failed, skipping iteration" >> "$LOG"
+        sleep 5
+        continue
+    fi
+
+    # Get recent log context (last 50 lines).
+    LOGCTX=$(tail -50 "$GAME_LOG" 2>/dev/null)
+
+    # Vision LLM decides action.
+    stage_log "loop iteration=$ITER vision start"
+    if [ -n "$VISION_CMD" ]; then
+        # VISION_CMD takes: replay_path prompt_path log_context
+        # Outputs: driver command(s) to send (e.g. "WALK\nATTACK\n")
+        ACTION=$($VISION_CMD "$REPLAY" "$PROMPT" "$LOGCTX" 2>> "$LOG")
+        stage_log "loop iteration=$ITER vision end"
+        stage_log "loop iteration=$ITER act start"
+        if [ -n "$ACTION" ]; then
+            echo "[$(date)] Vision action: $(echo "$ACTION" | tr '\n' ' ')" >> "$LOG"
+            send_cmd "$ACTION"
+        else
+            echo "[$(date)] Vision returned empty, defaulting to WALK" >> "$LOG"
+            send_cmd "WALK\n"
+        fi
+        stage_log "loop iteration=$ITER act end total_ms=$(( $(now_ms) - ITER_START_MS ))"
+    else
+        # No vision command configured: save replay + context for
+        # external vision agent (e.g. cron worker subagent reads PROMPT.md).
+        # Default to a safe exploratory action.
+        echo "[$(date)] No VISION_CMD; replay $REPLAY awaiting external vision" >> "$LOG"
+        # Write state file for external agent pickup.
+        cat > /tmp/doom_ralph_state.json <<EOF
+{
+    "iteration": $ITER,
+    "replay": "$REPLAY",
+    "prompt": "$PROMPT",
+    "log_tail": $(echo "$LOGCTX" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))"),
+    "timestamp": "$(date -Iseconds)"
+}
+EOF
+        # Default action while waiting: cautious explore.
+        send_cmd "WALK\n"
+        sleep 3
+    fi
+
+    # Brief pause between iterations (vision needs time to process).
+    sleep 5
+done
+
+KILLS=$(grep -ac "exec-attack-kill" "$GAME_LOG" 2>/dev/null || true)
+echo "[$(date)] Ralph loop complete: $ITER iterations, $KILLS kills" >> "$LOG"
+
+# Rotate screenshots: keep newest 500.
+ls -t "$SCREEN_DIR"/doom_ralph_*.png 2>/dev/null | tail -n +501 | xargs -r rm -f
+ls -t "$SCREEN_DIR"/doom_ralph_*.mp4 2>/dev/null | tail -n +101 | xargs -r rm -f

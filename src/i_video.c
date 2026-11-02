@@ -93,7 +93,7 @@ int usemouse = 1;
 
 // Save screenshots in PNG format.
 
-int png_screenshots = 0;
+int png_screenshots = 1;
 
 // SDL video driver name
 
@@ -677,11 +677,11 @@ static void CreateUpscaledTexture(boolean force)
     h_upscale_old = h_upscale;
     w_upscale_old = w_upscale;
 
-    // Set the scaling quality for rendering the upscaled texture to "linear",
-    // which looks much softer and smoother than "nearest" but does a better
-    // job at downscaling from the upscaled texture to screen.
+    // Set the scaling quality for rendering the upscaled texture to "nearest",
+    // which keeps the pixels crisp and readable (HUD text especially).
+    // "linear" looks softer but smears the low-res pixel font.
 
-    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
 
     new_texture = SDL_CreateTexture(renderer,
                                 SDL_PIXELFORMAT_ARGB8888,
@@ -712,6 +712,23 @@ void I_FinishUpdate (void)
 
     if (noblit)
         return;
+
+    // Diagnostic guard: if the SDL texture is invalid (NULL or destroyed),
+    // log instead of segfaulting in SDL_LockTexture. This catches video
+    // state corruption (e.g. from inventory UI heap corruption) and turns
+    // it into a diagnosable log line rather than a crash.
+    if (texture == NULL || renderer == NULL)
+    {
+        static int null_tex_warned = 0;
+        if (!null_tex_warned)
+        {
+            fprintf(stderr, "[DIAG] I_FinishUpdate: texture=%p renderer=%p "
+                            "(skipping frame; video state invalid)\n",
+                    (void *)texture, (void *)renderer);
+            null_tex_warned = 1;
+        }
+        return;
+    }
 
     if (need_resize)
     {

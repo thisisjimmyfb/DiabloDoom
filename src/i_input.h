@@ -29,6 +29,7 @@
 
 extern float mouse_acceleration;
 extern int mouse_threshold;
+extern boolean d_ui_accel_disabled;
 
 void I_BindInputVariables(void);
 void I_ReadMouse(void);

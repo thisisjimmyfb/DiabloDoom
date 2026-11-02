@@ -38,6 +38,8 @@
 #include "g_game.h"
 
 #include "st_stuff.h"
+#include "t_turn.h"
+#include "t_combat.h"
 #include "st_lib.h"
 #include "r_local.h"
 
@@ -48,6 +50,13 @@
 #include "m_cheat.h"
 
 #include "s_sound.h"
+
+// DiabloDoom: equipped-weapon status panel.
+#include "hu_stuff.h"
+#include "i_swap.h"
+#include "d_diablo.h"
+#include "d_diablo_icons.h"
+#include "d_pistol_sprite.h"
 
 // Needs access to LFB.
 #include "v_video.h"
@@ -128,7 +137,7 @@
 
 // HEALTH number pos.
 #define ST_HEALTHWIDTH		3	
-#define ST_HEALTHX			90
+#define ST_HEALTHX			103
 #define ST_HEALTHY			171
 
 // Weapon pos.
@@ -146,7 +155,7 @@
 
 // ARMOR number pos.
 #define ST_ARMORWIDTH		3
-#define ST_ARMORX			221
+#define ST_ARMORX			234
 #define ST_ARMORY			171
 
 // Key icon positions.
@@ -265,7 +274,7 @@ static st_number_t	w_ready;
 static st_number_t	w_frags;
 
 // health widget
-static st_percent_t	w_health;
+static st_number_t	w_health;
 
 // arms background
 static st_binicon_t	w_armsbg; 
@@ -281,7 +290,12 @@ static st_multicon_t	w_faces;
 static st_multicon_t	w_keyboxes[3];
 
 // armor widget
-static st_percent_t	w_armor;
+static st_number_t	w_armor;
+
+// DiabloDoom: the ARMOR readout shows the total remaining durability of
+// the equipped defense pieces (D_EquippedDurabilitySum), refreshed in
+// ST_updateWidgets; vanilla armorpoints are no longer displayed.
+static int		st_armordur;
 
 // ammo widgets
 static st_number_t	w_ammo[4];
@@ -841,6 +855,9 @@ void ST_updateWidgets(void)
 	    keyboxes[i] = i+3;
     }
 
+    // DiabloDoom: ARMOR widget value = equipped defense durability sum
+    st_armordur = D_EquippedDurabilitySum(plyr);
+
     // refresh everything if this is him coming back to life
     ST_updateFaceWidget();
 
@@ -944,6 +961,390 @@ void ST_doPaletteStuff(void)
 
 }
 
+// ---------------------------------------------------------------------------
+// DiabloDoom weapon panel: replaces the classic 2-7 arms display with the
+// weapon equipped in the Diablo inventory (icon + aggregated damage range).
+// ---------------------------------------------------------------------------
+
+static int STWepTextWidth(const char *s)
+{
+    int w = 0;
+    for (; *s; s++)
+    {
+        int c = *s;
+        if (c >= 'a' && c <= 'z')
+            c = c - 'a' + 'A';
+        c -= HU_FONTSTART;
+        if (c < 0 || c >= HU_FONTSIZE || hu_font[c] == NULL)
+            w += 4;
+        else
+            w += SHORT(hu_font[c]->width) + 1;
+    }
+    return w;
+}
+
+static void STWepDrawText(int x, int y, const char *s)
+{
+    int cx = x;
+    for (; *s; s++)
+    {
+        int c = *s;
+        int w, h;
+        if (c >= 'a' && c <= 'z')
+            c = c - 'a' + 'A';
+        c -= HU_FONTSTART;
+        if (c < 0 || c >= HU_FONTSIZE || hu_font[c] == NULL)
+        {
+            cx += 4;
+            continue;
+        }
+        w = SHORT(hu_font[c]->width);
+        h = SHORT(hu_font[c]->height);
+        if (cx < 0 || y < 0 || cx + w > SCREENWIDTH || y + h > SCREENHEIGHT)
+        {
+            if (cx + w > SCREENWIDTH)
+                break;
+            cx += w + 1;
+            continue;
+        }
+        V_DrawPatch(cx, y, hu_font[c]);
+        cx += w + 1;
+    }
+}
+
+// Blit a raw 32x32 item icon scaled into a box at (x,y).
+// One pixel of a WAD patch at source (sx,sy), or -1 when transparent.
+static int STWepPatchPixel(patch_t *patch, int sx, int sy)
+{
+    column_t *column;
+    byte *post;
+
+    column = (column_t *)((byte *)patch + LONG(patch->columnofs[sx]));
+    for (post = (byte *)column; *post != 0xff; post += post[1] + 4)
+    {
+        if (sy >= post[0] && sy < post[0] + post[1])
+            return post[3 + (sy - post[0])];
+    }
+    return -1;
+}
+
+// Draw a WAD patch inside the square box, aspect preserved and
+// centered; transparent pixels leave the arms background beneath.
+// The weapon art is STRETCHED to fill the whole panel next to the
+// face (2026-10-22): the pickup sprites are wide and short,
+// so the old aspect-preserving fit into a 20x20 box shrank them to
+// a sliver.  Independent x/y scaling -- the panel is the canvas.
+static void STWepDrawPatch(int x, int y, int w, int h, patch_t *patch)
+{
+    int pw = SHORT(patch->width);
+    int ph = SHORT(patch->height);
+    int dx, dy;
+    pixel_t *dest;
+
+    if (pw < 1 || ph < 1)
+        return;
+    for (dy = 0; dy < h; ++dy)
+    {
+        int sy = dy * ph / h;
+        int yy = y + dy;
+        if (yy < 0 || yy >= SCREENHEIGHT)
+            continue;
+        dest = I_VideoBuffer + SCREENWIDTH * yy + x;
+        for (dx = 0; dx < w; ++dx)
+        {
+            int px;
+            if (x + dx < 0 || x + dx >= SCREENWIDTH)
+            {
+                dest++;
+                continue;
+            }
+            px = STWepPatchPixel(patch, dx * pw / w, sy);
+            if (px >= 0)
+                *dest = (pixel_t)px;
+            dest++;
+        }
+    }
+}
+
+static void STWepDrawIcon(int x, int y, int w, int h,
+                           const unsigned char *icon)
+{
+    int dx, dy, sx, sy;
+    pixel_t *dest;
+    for (dy = 0; dy < h; ++dy)
+    {
+        if (y + dy < 0 || y + dy >= SCREENHEIGHT)
+            continue;
+        sy = dy * d_icon_size / h;
+        dest = I_VideoBuffer + SCREENWIDTH * (y + dy) + x;
+        for (dx = 0; dx < w; ++dx)
+        {
+            if (x + dx < 0 || x + dx >= SCREENWIDTH)
+            {
+                dest++;
+                continue;
+            }
+            sx = dx * d_icon_size / w;
+            *dest++ = (pixel_t)icon[sy * d_icon_size + sx];
+        }
+    }
+}
+
+
+#define ST_WEPX0 104
+#define ST_WEPX1 141
+#define ST_WEPCX ((ST_WEPX0 + ST_WEPX1) / 2)
+// The weapon panel the art fills: vanilla's arms edge (STARMS is
+// 38 wide, 104-141), so it never overlaps the face, and the bar
+// height above the damage text.
+#define ST_WEPW (ST_WEPX1 - ST_WEPX0 + 1)
+#define ST_WEPY 169
+#define ST_WEPH 21
+
+// Turn-based text drawer (same as T_DrawText: hu_font covers '!'..'_').
+// Skips missing glyphs (e.g. 'L' is absent from the HU font).
+static void ST_TurnDrawText(int x, int y, const char *s)
+{
+    while (*s)
+    {
+        unsigned char c = (unsigned char)*s++;
+        patch_t *p;
+        int w, h;
+        if (c == ' ')
+        {
+            x += 5;
+            continue;
+        }
+        if (c < '!' || c > '_')
+            continue;
+        p = hu_font[c - '!'];
+        if (p == NULL)
+        {
+            x += 4;
+            continue;
+        }
+        w = SHORT(p->width);
+        h = SHORT(p->height);
+        if (x < 0)
+            x = 0;
+        if (x + w <= 320 && y >= 0 && y + h <= 200)
+            V_DrawPatch(x, y, p);
+        x += w + 1;
+    }
+}
+
+// Turn-based kit status (Phase 5): replaces the right-side AMMO counts
+// with a persistent AD/AP stat block and a contextual cooldown line.
+// Text labels (AD/AP/CD) instead of icons for clarity.
+// Cache of loot mobj pointers we've already logged "[LOOT] available" for,
+// so we don't spam the log about the same drops.
+#define LOOT_LOG_CACHE 32
+static int loot_logged_ids[LOOT_LOG_CACHE];
+static int loot_logged_count = 0;
+static void ST_drawTurnKits(void)
+{
+    t_combatstats_t st;
+    char dmglab[8], dmgval[16], asval[8], cdval[8], mechlab[8], mechval[16];
+    const t_kitdef_t *kit;
+    int cd, dmg_min, dmg_max;
+    // Panel geometry: labels left-aligned, values right-aligned.
+    const int labx = 254, valright = 316;
+
+    if (!T_Active())
+        return;
+    T_DeriveStats(plyr, &st);
+    // Show the same damage the attack preview computes: kit base stacked
+    // on, then AD%/AP% (T_DamageRange mirrors the damage callback).
+    T_DamageRange(plyr, NULL, &st, &dmg_min, &dmg_max);
+    kit = T_KitForWeapon(plyr->readyweapon);
+    cd = T_KitCooldown(plyr->readyweapon);
+
+    // Damage: AD range for AD guns, AP value for AP guns (not both).
+    if (kit->ap_weapon)
+    {
+        snprintf(dmglab, sizeof(dmglab), "AP");
+        snprintf(dmgval, sizeof(dmgval), "%d", T_ApplyApPct(plyr, st.ap));
+    }
+    else
+    {
+        snprintf(dmglab, sizeof(dmglab), "AD");
+        snprintf(dmgval, sizeof(dmgval), "%d-%d", dmg_min, dmg_max);
+    }
+    // AS and CD are always both shown, for AP and AD guns alike
+    // (2026-10-22): both attributes affect every gun -- attack
+    // speed paces the fire interval, cooldown drives the ammo
+    // replenish rate -- so neither is hidden behind the other's row.
+    // They share one row: AS on the left half, CD on the right.
+    snprintf(asval, sizeof(asval), "%d", kit->tp_cost);
+    snprintf(cdval, sizeof(cdval), "%d", cd);
+    // Weapon-specific gate attribute: charges for rocket. Plasma
+    // has no panel entry -- its resource is the standard AMMO
+    // readout, like every other magazine (2026-10-22: heat
+    // capacity is not an attribute).
+    if (kit->max_charges > 0)
+    {
+        snprintf(mechlab, sizeof(mechlab), "CHG");
+        snprintf(mechval, sizeof(mechval), "%d/%d",
+                 T_KitCharges(plyr->readyweapon), kit->max_charges);
+    }
+    else
+        mechlab[0] = '\0';
+
+    // Clear the right-side ammo count area (incl. BULL/SHELL/RCKT/CELL
+    // labels), then draw the stat block. Keep the panel narrow (x=250+)
+    // so it doesn't clip the armor% widget at x=221.
+    // Labels left-aligned, values right-aligned for a clean stat sheet.
+    V_DrawFilledBox(250, 170, 70, 30, 0);
+    ST_TurnDrawText(labx, 171, dmglab);
+    ST_TurnDrawText(valright - STWepTextWidth(dmgval), 171, dmgval);
+    ST_TurnDrawText(labx, 180, "AS");
+    ST_TurnDrawText(283 - STWepTextWidth(asval), 180, asval);
+    ST_TurnDrawText(289, 180, "CD");
+    ST_TurnDrawText(valright - STWepTextWidth(cdval), 180, cdval);
+    if (mechlab[0])
+    {
+        ST_TurnDrawText(labx, 189, mechlab);
+        ST_TurnDrawText(valright - STWepTextWidth(mechval), 189, mechval);
+    }
+}
+
+// Loot alert: while drops are on the map, keep "Loot nearby, press
+// G to loot" in
+// front of the player through the vanilla message system -- the same
+// pipeline as "Explore: WASD to move." (set plyr->message, HU_Drawer
+// shows it). A message lives 4 seconds (HU_MSGTIMEOUT), so re-issue
+// it a little sooner than that for as long as loot remains, and
+// immediately when new loot appears. The message widget is one line
+// tall, so re-issuing replaces the line instead of stacking.
+//
+// This used to hand-draw a box + text from this status-bar function
+// at y=160..170, which never reached the screen: D_Display renders
+// the 3D view AFTER the status bar, and rows above the bar's own
+// strip (y<168 with the bar on) belong to the view, so the world
+// painted over the prompt every frame. Root-caused 2026-10-21:
+// The user saw the old debug log lines but no prompt in the HUD.
+//
+// Explore mode only (per design: COLLECT works in explore).
+// Also logs to stdout for new loot (by item id, cached) so agents
+// watching the log can react (issue COLLECT) even without a HUD.
+static void ST_updateLootAlert(void)
+{
+    static int last_prompt_tic = -1000;
+    // Dead player (2026-10-23): the system message is
+    // the respawn prompt. The corpse under the camera holds
+    // the player's gear and counts as loot, so without this
+    // branch the loot prompt stomps "Press any key to
+    // respawn" within seconds. Re-issued on the loot
+    // prompt's cadence; the loot prompt returns on respawn.
+    if (plyr->playerstate == PST_DEAD)
+    {
+        if (gametic - last_prompt_tic >= 3 * TICRATE)
+        {
+            plyr->message = "Press any key to respawn";
+            last_prompt_tic = gametic;
+        }
+        return;
+    }
+    boolean avail = T_LootAvailable();
+    if (avail)
+    {
+        mobj_t *loot_list[LOOT_LOG_CACHE];
+        int n, i, j;
+        boolean new_loot = false;
+        n = T_GetLootList(loot_list, LOOT_LOG_CACHE);
+        for (i = 0; i < n; i++)
+        {
+            boolean seen = false;
+            for (j = 0; j < loot_logged_count; j++)
+            {
+                if (loot_logged_ids[j] == loot_list[i]->diablo_loot_id)
+                {
+                    seen = true;
+                    break;
+                }
+            }
+            if (!seen)
+            {
+                new_loot = true;
+                if (loot_logged_count < LOOT_LOG_CACHE)
+                    loot_logged_ids[loot_logged_count++] = loot_list[i]->diablo_loot_id;
+            }
+        }
+        if (new_loot)
+            printf("[LOOT] available on map - press G to loot\n");
+        if (new_loot || gametic - last_prompt_tic >= 3 * TICRATE)
+        {
+            // A full pack can't take the loot; say so instead of
+            // inviting a COLLECT that can only refuse it.
+            plyr->message = D_BackpackFull(plyr)
+                ? "Loot nearby, but backpack full"
+                : "Loot nearby, press G to loot";
+            last_prompt_tic = gametic;
+        }
+    }
+    else
+    {
+        // No loot: clear the cache so next drops log again.
+        loot_logged_count = 0;
+    }
+}
+
+static void ST_drawDiabloWeapon(void)
+{
+    int id = plyr->diablo_equipped[ESLOT_WEAPON];
+    const diablo_itemdef_t *def;
+    int icon_idx, dmg_min, dmg_max;
+    char dmgbuf[16];
+
+    // Erase: redraw the classic arms background, then paint on top.
+    // Wad-agnostic: STARMS width varies by IWAD (Freedoom 38, Ultimate 40),
+    // and V_DrawPatch draws at native width, which let a wider STARMS
+    // overflow the panel into the face box (143) every frame. Scale the
+    // loaded STARMS art into the panel box (ST_WEPW x ST_HEIGHT) instead,
+    // so the panel ends at ST_WEPX1 (141) for any IWAD.
+    STWepDrawPatch(ST_ARMSBGX, ST_ARMSBGY, ST_WEPW, ST_HEIGHT, armsbg);
+
+    def = (id != D_NOITEM) ? D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id)) : NULL;
+    if (def == NULL)
+    {
+        // No Diablo weapon equipped: show the built-in pistol sprite
+        // (the game defaults to pistol when unarmed; see
+        // D_SyncDoomWeapon).  A real patch through the patch path --
+        // not the Doom view-model sprite, not the opaque icon.
+        STWepDrawPatch(ST_WEPX0, ST_WEPY, ST_WEPW, ST_WEPH,
+                       D_PistolSprite());
+        return;
+    }
+
+    // Guns prefer the WAD's own pickup sprite when the loaded IWAD
+    // carries one (same rule as the inventory screen); failing
+    // that, the built-in patch (pistol); the built-in icon is the
+    // last resort.
+    {
+        const char *sprname = D_ItemWadSpriteName(def);
+        patch_t *patch = NULL;
+        if (sprname && W_CheckNumForName(sprname) >= 0)
+            patch = W_CacheLumpName(sprname, PU_CACHE);
+        if (!patch)
+            patch = D_ItemBuiltinPatch(def);
+        if (patch)
+            STWepDrawPatch(ST_WEPX0, ST_WEPY, ST_WEPW, ST_WEPH, patch);
+        else
+        {
+            icon_idx = D_GetItemIconIdx(D_ITEMTIER(id), D_ITEMIDX(id));
+            if (icon_idx >= 0 && icon_idx < d_num_item_icons
+                && d_item_icons[icon_idx] != NULL)
+                STWepDrawIcon(ST_WEPX0, ST_WEPY, ST_WEPW, ST_WEPH,
+                              d_item_icons[icon_idx]);
+        }
+    }
+
+    dmg_min = D_Stat((struct player_s *)plyr, DSTAT_DMG_MIN);
+    dmg_max = D_Stat((struct player_s *)plyr, DSTAT_DMG_MAX);
+    snprintf(dmgbuf, sizeof(dmgbuf), "%d-%d", dmg_min, dmg_max);
+    STWepDrawText(ST_WEPCX - STWepTextWidth(dmgbuf) / 2, 191, dmgbuf);
+}
+
 void ST_drawWidgets(boolean refresh)
 {
     int		i;
@@ -954,21 +1355,74 @@ void ST_drawWidgets(boolean refresh)
     // used by w_frags widget
     st_fragson = deathmatch && st_statusbaron; 
 
-    STlib_updateNum(&w_ready, refresh);
-
-    for (i=0;i<4;i++)
+    if (T_Active())
     {
-	STlib_updateNum(&w_ammo[i], refresh);
-	STlib_updateNum(&w_maxammo[i], refresh);
+        // Turn mode: left AMMO area shows the ready weapon's magazine
+        // counter (classic Doom big-number style) -- plasma's
+        // included: its inverted counter counts up as it fires.
+        // Right-side ammo counts become the kit status panel.
+        const t_kitdef_t *turnkit = T_KitForWeapon(plyr->readyweapon);
+        static int st_turn_ammo;
+        // Preview: during planning, subtract ammo that queued attacks will
+        // consume, so the player can see when further attacks would be no-ops.
+        // The actual deduction happens on execute; this is display-only.
+        int queued_attacks = 0;
+        if (!turnctrl.executing)
+        {
+            int i;
+            for (i = 0; i < turnctrl.queue_len; i++)
+            {
+                if (turnctrl.queue[i].action == TA_ATTACK)
+                    queued_attacks++;
+            }
+        }
+        if (turnkit->ammo_inverted)
+        {
+            // Inverted magazine (plasma): queued attacks ADD to the
+            // counter, clamped at capacity.
+            int ammo_after = T_KitAmmo(plyr->readyweapon)
+                           + queued_attacks * turnkit->ammo_cost;
+            if (ammo_after > T_KitMaxAmmo(plyr->readyweapon))
+                ammo_after = T_KitMaxAmmo(plyr->readyweapon);
+            st_turn_ammo = ammo_after;
+        }
+        else
+        {
+            int ammo_after = T_KitAmmo(plyr->readyweapon)
+                           - queued_attacks * turnkit->ammo_cost;
+            if (ammo_after < 0)
+                ammo_after = 0;
+            st_turn_ammo = ammo_after;
+        }
+        w_ready.num = &st_turn_ammo;
+        STlib_updateNum(&w_ready, refresh);
+        ST_drawTurnKits();
+    }
+    else
+    {
+        STlib_updateNum(&w_ready, refresh);
+
+        for (i=0;i<4;i++)
+        {
+            STlib_updateNum(&w_ammo[i], refresh);
+            STlib_updateNum(&w_maxammo[i], refresh);
+        }
     }
 
-    STlib_updatePercent(&w_health, refresh);
-    STlib_updatePercent(&w_armor, refresh);
+    // Loot prompt: shown in explore mode (turn-based) or vanilla mode.
+    // Was previously only in the non-turn branch, so it never appeared
+    // during turn-based explore.
+    if (T_InExplore() || !T_Active())
+        ST_updateLootAlert();
 
-    STlib_updateBinIcon(&w_armsbg, refresh);
+    STlib_updateNum(&w_health, refresh);
+    STlib_updateNum(&w_armor, refresh);
 
-    for (i=0;i<6;i++)
-	STlib_updateMultIcon(&w_arms[i], refresh);
+    // DiabloDoom: the classic 2-7 arms are replaced by the equipped
+    // Diablo weapon (icon + damage).  st_armson keeps the old condition
+    // (status bar on, not deathmatch).
+    if (st_armson)
+        ST_drawDiabloWeapon();
 
     STlib_updateMultIcon(&w_faces, refresh);
 
@@ -1177,8 +1631,6 @@ void ST_initData(void)
 void ST_createWidgets(void)
 {
 
-    int i;
-
     // ready weapon ammo
     STlib_initNum(&w_ready,
 		  ST_AMMOX,
@@ -1191,33 +1643,18 @@ void ST_createWidgets(void)
     // the last weapon type
     w_ready.data = plyr->readyweapon; 
 
-    // health percentage
-    STlib_initPercent(&w_health,
+    // health number (no percent sign: health is an HP count, not a percent)
+    STlib_initNum(&w_health,
 		      ST_HEALTHX,
 		      ST_HEALTHY,
 		      tallnum,
 		      &plyr->health,
 		      &st_statusbaron,
-		      tallpercent);
+		      ST_HEALTHWIDTH);
 
-    // arms background
-    STlib_initBinIcon(&w_armsbg,
-		      ST_ARMSBGX,
-		      ST_ARMSBGY,
-		      armsbg,
-		      &st_notdeathmatch,
-		      &st_statusbaron);
-
-    // weapons owned
-    for(i=0;i<6;i++)
-    {
-        STlib_initMultIcon(&w_arms[i],
-                           ST_ARMSX+(i%3)*ST_ARMSXSPACE,
-                           ST_ARMSY+(i/3)*ST_ARMSYSPACE,
-                           arms[i],
-                           &plyr->weaponowned[i+1],
-                           &st_armson);
-    }
+    // DiabloDoom: the classic arms-background and weapon-ownership
+    // widgets are retired; ST_drawDiabloWeapon paints the equipped
+    // Diablo weapon over the arms background instead.
 
     // frags sum
     STlib_initNum(&w_frags,
@@ -1236,13 +1673,14 @@ void ST_createWidgets(void)
 		       &st_faceindex,
 		       &st_statusbaron);
 
-    // armor percentage - should be colored later
-    STlib_initPercent(&w_armor,
+    // armor readout - DiabloDoom: total remaining durability of the
+    // equipped defense pieces (see st_armordur), not vanilla armorpoints
+    STlib_initNum(&w_armor,
 		      ST_ARMORX,
 		      ST_ARMORY,
 		      tallnum,
-		      &plyr->armorpoints,
-		      &st_statusbaron, tallpercent);
+		      &st_armordur,
+		      &st_statusbaron, ST_ARMORWIDTH);
 
     // keyboxes 0-2
     STlib_initMultIcon(&w_keyboxes[0],

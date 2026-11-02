@@ -25,6 +25,7 @@
 #include "doomdef.h"
 #include "doomkeys.h"
 #include "dstrings.h"
+#include "t_turn.h"
 
 #include "d_main.h"
 #include "deh_main.h"
@@ -51,6 +52,7 @@
 #include "m_controls.h"
 #include "p_saveg.h"
 #include "p_setup.h"
+#include "d_progress.h"
 
 #include "s_sound.h"
 
@@ -290,21 +292,17 @@ menu_t  EpiDef =
 //
 enum
 {
-    killthings,
-    toorough,
-    hurtme,
-    violence,
-    nightmare,
+    diff_normal,    // -> sk_medium
+    diff_nightmare, // -> sk_hard
+    diff_hell,      // -> sk_nightmare
     newg_end
 } newgame_e;
 
 menuitem_t NewGameMenu[]=
 {
-    {1,"M_JKILL",	M_ChooseSkill, 'i'},
-    {1,"M_ROUGH",	M_ChooseSkill, 'h'},
-    {1,"M_HURT",	M_ChooseSkill, 'h'},
-    {1,"M_ULTRA",	M_ChooseSkill, 'u'},
-    {1,"M_NMARE",	M_ChooseSkill, 'n'}
+    {1,"",	M_ChooseSkill, 'n'},
+    {1,"",	M_ChooseSkill, 'i'},
+    {1,"",	M_ChooseSkill, 'h'}
 };
 
 menu_t  NewDef =
@@ -314,7 +312,7 @@ menu_t  NewDef =
     NewGameMenu,	// menuitem_t ->
     M_DrawNewGame,	// drawing routine ->
     48,63,              // x,y
-    hurtme		// lastOn
+    diff_normal		// lastOn
 };
 
 
@@ -437,9 +435,9 @@ menu_t  SoundDef =
 //
 enum
 {
-    load1,
-    load2,
-    load3,
+    load_auto1,
+    load_auto2,
+    load_auto3,
     load4,
     load5,
     load6,
@@ -448,6 +446,7 @@ enum
 
 menuitem_t LoadMenu[]=
 {
+    // Auto-save slots first (1-3), then manual slots (4-6).
     {1,"", M_LoadSelect,'1'},
     {1,"", M_LoadSelect,'2'},
     {1,"", M_LoadSelect,'3'},
@@ -471,9 +470,7 @@ menu_t  LoadDef =
 //
 menuitem_t SaveMenu[]=
 {
-    {1,"", M_SaveSelect,'1'},
-    {1,"", M_SaveSelect,'2'},
-    {1,"", M_SaveSelect,'3'},
+    // Manual slots only (4-6). Auto slots (1-3) are not manually saveable.
     {1,"", M_SaveSelect,'4'},
     {1,"", M_SaveSelect,'5'},
     {1,"", M_SaveSelect,'6'}
@@ -481,7 +478,7 @@ menuitem_t SaveMenu[]=
 
 menu_t  SaveDef =
 {
-    load_end,
+    3,
     &MainDef,
     SaveMenu,
     M_DrawSave,
@@ -503,6 +500,80 @@ void M_ReadSaveStrings(void)
     for (i = 0;i < load_end;i++)
     {
         int retval;
+        // Auto-save slots (0-2): read description from progress_autoN.dat.
+        // These are menu positions 0-2 (display 1-3).
+        if (i >= 0 && i <= 2)
+        {
+            char auto_path[512];
+            char tmp[64];
+            FILE *af;
+            unsigned char hdr[64];
+            int map = 0;
+            int episode = 0;
+            M_snprintf(tmp, sizeof(tmp), "progress_auto%d.dat", i + 1);
+            {
+                // Auto-saves: ~/workspace/chocolate-doom/savegames/doom.wad/
+                // on VM, savegames dir on local.
+                extern boolean D_OnMuseVM(void);
+                if (D_OnMuseVM())
+                {
+                    const char *home = getenv("HOME");
+                    if (home)
+                        M_snprintf(auto_path, sizeof(auto_path),
+                                   "%s/workspace/chocolate-doom/savegames/doom.wad/%s",
+                                   home, tmp);
+                    else
+                        M_snprintf(auto_path, sizeof(auto_path),
+                                   "./%s", tmp);
+                }
+                else
+                {
+                    char save_path[512];
+                    extern char *P_SaveGameFile(int slot);
+                    M_StringCopy(save_path, P_SaveGameFile(0),
+                                 sizeof(save_path));
+                    char *last_slash = strrchr(save_path, '/');
+                    if (last_slash)
+                    {
+                        *last_slash = '\0';
+                        M_snprintf(auto_path, sizeof(auto_path),
+                                   "%s/%s", save_path, tmp);
+                    }
+                    else
+                        M_snprintf(auto_path, sizeof(auto_path),
+                                   "./%s", tmp);
+                }
+            }
+            af = M_fopen(auto_path, "rb");
+            if (af == NULL)
+            {
+                M_StringCopy(savegamestrings[i], EMPTYSTRING, SAVESTRINGSIZE);
+                LoadMenu[i].status = 0;
+                continue;
+            }
+            // Read the header to get the level (reserved[0]=map at 40,
+            // reserved[1]=episode at 41).
+            if (fread(hdr, 1, sizeof(hdr), af) == sizeof(hdr))
+            {
+                map = (int)hdr[40];
+                episode = (int)hdr[41];
+            }
+            fclose(af);
+            if (map >= 1 && map <= 32)
+            {
+                if (episode >= 1 && episode <= 4)
+                    M_snprintf(savegamestrings[i], SAVESTRINGSIZE,
+                               "AUTO %d - E%dM%d", i + 1, episode, map);
+                else
+                    M_snprintf(savegamestrings[i], SAVESTRINGSIZE,
+                               "AUTO %d - MAP%02d", i + 1, map);
+            }
+            else
+                M_snprintf(savegamestrings[i], SAVESTRINGSIZE,
+                           "AUTO %d", i + 1);
+            LoadMenu[i].status = 1;
+            continue;
+        }
         M_StringCopy(name, P_SaveGameFile(i), sizeof(name));
 
 	handle = M_fopen(name, "rb");
@@ -532,7 +603,8 @@ void M_DrawLoad(void)
     for (i = 0;i < load_end; i++)
     {
 	M_DrawSaveLoadBorder(LoadDef.x,LoadDef.y+LINEHEIGHT*i);
-	M_WriteText(LoadDef.x,LoadDef.y+LINEHEIGHT*i,savegamestrings[i]);
+	M_WriteText(LoadDef.x,LoadDef.y+LINEHEIGHT*i,
+                    savegamestrings[i]);
     }
 }
 
@@ -567,8 +639,20 @@ void M_DrawSaveLoadBorder(int x,int y)
 void M_LoadSelect(int choice)
 {
     char    name[256];
+    // Menu layout: auto slots 1-3 (Doom 0-2), manual slots 4-6 (Doom 3-5).
+    // Menu position maps directly to Doom slot.
+    int slot = choice;
+
+    // Auto-save slots (1-3): load Diablo progress + Doom savegame.
+    if (slot >= 0 && slot <= 2)
+    {
+        extern void D_ProgressLoadAutoSlot(int auto_slot);
+        D_ProgressLoadAutoSlot(slot + 1);
+        M_ClearMenus ();
+        return;
+    }
 	
-    M_StringCopy(name, P_SaveGameFile(choice), sizeof(name));
+    M_StringCopy(name, P_SaveGameFile(slot), sizeof(name));
 
     G_LoadGame (name);
     M_ClearMenus ();
@@ -598,7 +682,7 @@ void M_DrawSave(void)
     int             i;
 	
     V_DrawPatchDirect(72, 28, W_CacheLumpName(DEH_String("M_SAVEG"), PU_CACHE));
-    for (i = 0;i < load_end; i++)
+    for (i = 0;i < 6; i++)
     {
 	M_DrawSaveLoadBorder(LoadDef.x,LoadDef.y+LINEHEIGHT*i);
 	M_WriteText(LoadDef.x,LoadDef.y+LINEHEIGHT*i,savegamestrings[i]);
@@ -661,6 +745,13 @@ static void SetDefaultSaveName(int slot)
 void M_SaveSelect(int choice)
 {
     int x, y;
+
+    // Save menu has 3 manual slots (display 4-6, Doom slots 3-5).
+    if (choice < 0 || choice >= 3)
+        return;
+
+    // Map menu choice (0-2) to Doom slot (3-5).
+    choice += 3;
 
     // we are going to be intercepting all chars
     saveStringEnter = 1;
@@ -883,10 +974,71 @@ void M_DrawMainMenu(void)
 //
 // M_NewGame
 //
+
+// Save slot selection for auto-progress (DiabloDoom).
+// The player must choose a slot when starting a new game; the auto-progress
+// system will save to progress_slotN.dat for the chosen slot.
+static void M_DrawSaveSlot(void);
+static void M_ChooseSlot(int choice);
+
+enum
+{
+    slot_1,
+    slot_2,
+    slot_3,
+    slot_end
+} slots_e;
+
+menuitem_t SaveSlotMenu[] =
+{
+    {1, "", M_ChooseSlot, '1'},
+    {1, "", M_ChooseSlot, '2'},
+    {1, "", M_ChooseSlot, '3'},
+};
+
+menu_t SaveSlotDef =
+{
+    slot_end,           // # of menu items
+    &MainDef,           // previous menu
+    SaveSlotMenu,       // menuitem_t ->
+    M_DrawSaveSlot,     // drawing routine ->
+    48, 63,             // x, y
+    slot_1              // lastOn
+};
+
+static void M_DrawSaveSlot(void)
+{
+    M_WriteText(48, 38, "CHOOSE SAVE SLOT");
+    M_WriteText(48, 63, "SLOT 1");
+    M_WriteText(48, 63 + 16, "SLOT 2");
+    M_WriteText(48, 63 + 32, "SLOT 3");
+    M_WriteText(48, 63 + 56, "Auto-progress saves to");
+    M_WriteText(48, 63 + 64, "the selected slot.");
+}
+
+static void M_ChooseSlot(int choice)
+{
+    int slot = choice + 1; // slots are 1-based for the user
+
+    // Initialize progress persistence for the chosen slot.
+    // This will load an existing save if one exists for this slot.
+    D_ProgressInitSlot(slot);
+
+    // Proceed to episode/skill selection as before.
+    if (gamemode == commercial || gameversion == exe_chex)
+        M_SetupNextMenu(&NewDef);
+    else
+        M_SetupNextMenu(&EpiDef);
+}
+
 void M_DrawNewGame(void)
 {
     V_DrawPatchDirect(96, 14, W_CacheLumpName(DEH_String("M_NEWG"), PU_CACHE));
     V_DrawPatchDirect(54, 38, W_CacheLumpName(DEH_String("M_SKILL"), PU_CACHE));
+    // Diablo-style difficulties: text labels (menu items have empty names).
+    M_WriteText(48, 63, "NORMAL");
+    M_WriteText(48, 63 + 16, "NIGHTMARE");
+    M_WriteText(48, 63 + 32, "HELL");
 }
 
 void M_NewGame(int choice)
@@ -896,13 +1048,9 @@ void M_NewGame(int choice)
 	M_StartMessage(DEH_String(NEWGAME),NULL,false);
 	return;
     }
-	
-    // Chex Quest disabled the episode select screen, as did Doom II.
 
-    if (gamemode == commercial || gameversion == exe_chex)
-	M_SetupNextMenu(&NewDef);
-    else
-	M_SetupNextMenu(&EpiDef);
+    // DiabloDoom: choose a save slot for auto-progress before starting.
+    M_SetupNextMenu(&SaveSlotDef);
 }
 
 
@@ -921,19 +1069,29 @@ void M_VerifyNightmare(int key)
     if (key != key_menu_confirm)
 	return;
 		
-    G_DeferedInitNew(nightmare,epi+1,1);
+    G_DeferedInitNew(sk_nightmare,epi+1,1);
     M_ClearMenus ();
 }
 
 void M_ChooseSkill(int choice)
 {
-    if (choice == nightmare)
+    skill_t skill;
+
+    // Map the 3 Diablo-style difficulties to internal skill levels.
+    if (choice == diff_normal)
+        skill = sk_medium;
+    else if (choice == diff_nightmare)
+        skill = sk_hard;
+    else // diff_hell
+        skill = sk_nightmare;
+
+    if (skill == sk_nightmare)
     {
 	M_StartMessage(DEH_String(NIGHTMARE),M_VerifyNightmare,true);
 	return;
     }
 	
-    G_DeferedInitNew(choice,epi+1,1);
+    G_DeferedInitNew(skill,epi+1,1);
     M_ClearMenus ();
 }
 
@@ -1376,10 +1534,61 @@ boolean M_Responder (event_t* ev)
         return false;
     }
 
+    // Screenshot key hold detection: tap = screenshot, hold 2+ sec = replay video.
+    // Intercepted here so we see both keydown and keyup.
+    // Accepts either the configured key or raw F12 (fallback if config is stale).
+    {
+        static int screenshot_hold_start = 0;
+        static boolean screenshot_holding = false;
+        extern int D_ReplaySaveMP4(const char *filename);
+        extern int D_ReplayFrameCount(void);
+        boolean is_screenshot_key = (key_menu_screenshot != 0 && ev->data1 == key_menu_screenshot);
+
+        if (ev->type == ev_keydown && is_screenshot_key)
+        {
+            if (!screenshot_holding)
+            {
+                screenshot_holding = true;
+                screenshot_hold_start = I_GetTime();
+            }
+            return true;
+        }
+        if (ev->type == ev_keyup && is_screenshot_key)
+        {
+            if (screenshot_holding)
+            {
+                int held_tics = I_GetTime() - screenshot_hold_start;
+                screenshot_holding = false;
+                if (held_tics >= 35)  // 1 second at 35 tics/sec
+                {
+                    char filename[256];
+                    printf("[REPLAY] hold capture: %d frames (%d tics held)...\n",
+                           D_ReplayFrameCount(), held_tics);
+                    {
+                        extern int D_ReplaySaveMP4(const char *filename);
+                        extern void D_ReplayNextFilename(char *buf, size_t bufsz);
+                        D_ReplayNextFilename(filename, sizeof(filename));
+                        if (D_ReplaySaveMP4(filename) == 0)
+                        {
+                            // Show the saved filename in the HUD message
+                            static char msg[300];
+                            snprintf(msg, sizeof(msg), "Video: %s", filename);
+                            players[consoleplayer].message = msg;
+                        }
+                    }
+                }
+                else
+                {
+                    G_ScreenShot();
+                }
+            }
+            return true;
+        }
+    }
+
     // "close" button pressed on window?
     if (ev->type == ev_quit)
-    {
-        // First click on close button = bring up quit confirm message.
+    {        // First click on close button = bring up quit confirm message.
         // Second click on close button = confirm quit
 
         if (menuactive && messageToPrint && messageRoutine == M_QuitResponse)
@@ -1751,6 +1960,11 @@ boolean M_Responder (event_t* ev)
     // Pop-up menu?
     if (!menuactive)
     {
+	// Turn-based mode: while a target selection is open, ESC backs out
+	// of the selection (the turn responder below cancels) instead of
+	// opening the menu — otherwise the player is trapped in targeting.
+	if (key == key_menu_activate && T_InSelection())
+	    return false;
 	if (key == key_menu_activate)
 	{
 	    M_StartControlPanel ();
