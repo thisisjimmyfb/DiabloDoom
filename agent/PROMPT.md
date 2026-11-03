@@ -2,6 +2,40 @@
 
 This is the public strategy guide for teaching our AI agent to play DiabloDoom — a turn-based Diablo-style mod of Doom. If you have ideas for better tactics, we want to hear them!
 
+## Exploration Strategy
+
+When in EXPLORE mode (not in combat), priority order:
+
+1. **Loot prompt visible** ("Loot nearby, press G to loot") → Collect IMMEDIATELY. (If it reads "Loot nearby, but backpack full", skip ground loot — nothing fits — but still COLLECT a corpse if one is the target.) This is the top priority. The prompt appears for Diablo loot drops AND player corpses.
+
+   **COLLECT rule: send COLLECT only when the game shows "Loot nearby".** The message in your current screenshot/replay frames (or the `[LOOT] available on map - press G to loot` line in the log for the current position) is the one and only trigger. Never send COLLECT speculatively — not as a probe, not because loot exists somewhere on the map. No "Loot nearby" shown means no COLLECT: keep exploring instead. The prompt is reachability-gated by the same rule COLLECT uses and only fires for loot within 512 units, so when it shows, the loot is genuinely collectable; when it doesn't, a COLLECT attempt only confirms that nothing is collectable.
+
+2. **After picking up loot** → Check inventory, equip upgrades immediately:
+   - **Match the gun to your stats — the first rule of gearing.** Every gun is AD or AP (its magazine type is its damage type). An AD gun scales with AD stats; an AP gun with AP stats. Run an AD gun when your gear stacks AD, an AP gun when it stacks AP — and when you change gun types, re-check the rest of your gear so its flat and % bonuses follow the gun. A mismatched gun wastes every damage-% roll on your other pieces.
+   - **Weapon stats, in priority order: crit chance, crit damage, damage %, attack speed.** When choosing between weapons, prefer the one whose rolls carry crit chance / crit damage / damage % (of Slaying for AD, of the Magus for AP) / attack speed (haste). Matched flat damage (Soldier's on an AD gun, Wizard's on an AP gun) comes after those four; utility rolls last. Leech's place depends on your total — see the next rule.
+   - **Life leech exception: while your TOTAL life leech is under 10%, leech rolls rank with the priority four.** A weapon or ring whose leech gets your total to 10% beats a marginally better crit roll without leech — sustain first. Once your total leech is 10% or more, leech is just less important — it no longer ranks with the priority four, but it still counts in a piece's favor; it is never worthless. (Check the character screen for your current total.)
+   - Helm/Armor/Boots/Gloves/Belt: equip if higher Defense or resistances (Defense is the sum of those five slots only; shields give no Defense). A piece at 0 durability gives no Defense until repaired. On these pieces too, a roll that feeds your gun (its damage %, crit, haste) outranks a generic roll of similar size.
+   - Rings/Amulet/Focus: equip if its stats feed your current gun's type (AD rolls with an AD gun, AP rolls with an AP gun) or the slot is empty; crit and haste rolls outrank flat stats here too.
+   - Don't hoard upgrades in the backpack — equip them
+   - **Salvage the clearly inferior to make room.** After equipping, scrap backpack items that are clearly worse than what's equipped in their slot: a weapon with lower damage and none of the priority rolls (crit / crit damage / damage % / attack speed), armor with lower Defense and no roll feeding your gun, jewelry whose stats don't feed your gun's type. Salvaging pays Essence and frees grid space for future loot — a pack full of junk is loot left on the ground later. Read item indices off the inventory screenshot and salvage by those; never guess an index. Don't salvage: equipped items, anything for a slot that's currently empty, a near-tie you can't confidently judge, a piece that would become your best if you switched gun types and it completes that package — or, while your total life leech is under 10%, any piece carrying leech (it's not junk, it's your sustain until the threshold is met). If a pickup fails because the backpack is full, salvage the clearly-inferior items first, then collect again — don't walk away from loot over a pack full of scrap.
+
+3. **Vanilla pickup on ground** (weapon, ammo, health, armor) → GOTO onto it. These are walk-over pickups, no key needed.
+
+4. **Mechanism candidate spotted** (any piece of geometry that looks different from its neighbors, or that changes over time — flashing, pulsing, blinking) → Go to it and confirm it. Face its center, move up to it with GOTO until you're close, then line up square-on in front of it with `WALK <angle>` and send `USE`, `WAIT`, then `SURVEY`, then review the dumped survey frames (survey_<ts>_NN_AAAdeg.png, all 36, in rotation order) to confirm what it does — frame 01 is the direct view of the mechanism and carries the verdict; the rest of the frames matter only if frame 01 shows no activation. If it lets you through, cross it with the batched sequence — `USE`, `WAIT`, `WALK 0`, all in one batch. Don't wait for a screenshot of the opening before crossing: the opening won't hold. Don't turn away from a candidate as if it were wall, and don't keep GOTO-ing into it — up close + the batched `USE`/`WAIT` is how it opens. And don't send `USE` at uniform wall — USE confirms a piece your eyes nominated by difference, it isn't how you search undifferentiated wall.
+   - **Colored door** (a side panel colored red, green, or blue) → It's a keyed door: you need the matching key. Send `KEYS` to check which keys you have:
+     - If you have the key: move up to the door, send `USE`, then walk through once it opens.
+     - If not: the key is somewhere in the level — explore systematically (every room, corners, alcoves, platforms) until you SEE it as a small colored card, then GOTO toward it and walk over it to pick it up.
+
+5. **Key visible** (small red/blue/yellow card on ground or pedestal) → GOTO toward it immediately. Walk over it to pick up. This is high priority.
+   - You don't need a precise estimate. Add your rough distance to your current stamp: facing east with the key ~150 ahead → GOTO (your x + 150) (your y). Close ~50, medium ~150, far ~300.
+   - The game will clamp if you overshoot into a wall. After moving, take a new screenshot: if the key is still visible, send another GOTO to get closer. Repeat until you walk over it. Iterative correction beats one-shot precision.
+
+6. **Enemy visible in distance** → GOTO toward it to engage
+
+7. **Facing wall** → Work it, don't flee it: scan the stretch in front of you for geometry that looks different from its neighbors and `USE` any piece vision nominates. Move along the wall in short hops, scanning as you go. Turn away only once the stretch is checked up close and holds nothing that looks different from its neighbors — then turn toward an opening or an unchecked wall, never just away from this one. Do not GOTO into the wall repeatedly.
+
+8. **Open area** → GOTO forward into it, explore
+
 ## Level Exploration and Exit
 
 Your goal is to progress through the level: explore → find keys → unlock keyed doors → reach the exit.
