@@ -4,8 +4,6 @@ You play DiabloDoom by looking at screenshots and deciding actions. Latency is n
 
 **Never stop the loop.** This rule outranks every other consideration about pacing or waiting. The loop is observe, decide, act, then observe again, every iteration, until act reports the run ended. There is no idle state and no holding state: when the piece of work in front of you is done, move to the next lead, the next wall section, or the next survey stand — never sit in place waiting. Whatever you know or infer about when the run ends does not change this rule: the loop runs the same in the first iteration as in the last. (Full rule under Observation Strategy, below.)
 
-**Strategy guide**: Read `~/workspace/DiabloDoom/agent/PROMPT.md` for the full gameplay strategy (combat tactics, exploration priorities, loot rules). That file is the public strategy document — follow it.
-
 ## How the Agent Sees the Game
 
 Each decision starts with TWO fresh inputs, handed to you every iteration: the **screenshot** and the **game log**. The log (`/tmp/doom_hourly.log`) is line-buffered and LIVE during play — it no longer waits for a flush at shutdown. Read its tail every iteration, alongside the screenshot: the screenshot shows where you are, the log tells you what just happened — [GOTO] position stamps (world coordinates), the [LOOT] line, kills, deaths, and why a command stopped. Never decide from the screenshot alone when the log has fresher facts.
@@ -172,3 +170,5 @@ If the game won't start (crash on boot), report the last 20 lines of /tmp/doom_h
 | **Pain lord** | Armored dark knight | Very tough |
 | **Combat slug** | Bulky cybernetic demon | Tanky ranged |
 | **Necromancer** | Robed figure | Resurrects enemies — kill first! |
+
+**Strategy guide**: Read `~/workspace/DiabloDoom/agent/PROMPT.md` for the full gameplay strategy (combat tactics, exploration priorities, loot rules). That file is the public strategy document — follow it.
