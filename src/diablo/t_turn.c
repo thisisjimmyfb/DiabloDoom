@@ -1735,9 +1735,9 @@ static void cmd_dispatch(const char *cmd)
         extern boolean P_DoCorpseRespawn(void);
         extern void *pending_corpse;
         if (P_DoCorpseRespawn())
-            printf("[FARM] RESPAWN confirmed - player reborn\n");
+            printf("[AGENT] RESPAWN confirmed - player reborn\n");
         else
-            printf("[FARM] RESPAWN failed - no dead player found (pending_corpse=%p, playerstate=%d)\n",
+            printf("[AGENT] RESPAWN failed - no dead player found (pending_corpse=%p, playerstate=%d)\n",
                    pending_corpse, players[consoleplayer].playerstate);
     }
     else if (!strcmp(cmd, "SCREENSHOT"))
@@ -1838,7 +1838,7 @@ static void cmd_dispatch(const char *cmd)
                     }
                 }
                 D_RecalcStats((struct player_s *)pl);
-                printf("[FARM] EQUIPPED backpack[%d] -> slot[%d]\n", bpi, slot);
+                printf("[AGENT] EQUIPPED backpack[%d] -> slot[%d]\n", bpi, slot);
             }
         }
     }
@@ -1865,7 +1865,7 @@ static void cmd_dispatch(const char *cmd)
                         pl->diablo_equipped[slot] = -1;
                         pl->diablo_equipped_dur[slot] = 0;
                         D_RecalcStats((struct player_s *)pl);
-                        printf("[FARM] UNEQUIPPED slot[%d] -> backpack[%d]\n", slot, i);
+                        printf("[AGENT] UNEQUIPPED slot[%d] -> backpack[%d]\n", slot, i);
                         break;
                     }
                 }

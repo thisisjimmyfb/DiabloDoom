@@ -789,7 +789,7 @@ P_TouchSpecialThing
 	if (remaining == 0)
 	{
 	    player->message = "Corpse recovered!";
-	    printf("[FARM] CORPSE_RECOVERED - inventory restored\n");
+	    printf("[AGENT] CORPSE_RECOVERED - inventory restored\n");
 	    P_RemoveMobj(special);
 	}
 	else
@@ -1261,7 +1261,7 @@ P_KillMobj
 	    int pnum = target->player - players;
 	    player_t *p = &players[pnum];
 	    int i;
-	    printf("[FARM] PLAYER_DIED - dropping inventory on corpse\n");
+	    printf("[AGENT] PLAYER_DIED - dropping inventory on corpse\n");
 	    // Manual respawn: player stays dead at 0% until RESPAWN command.
 	    // Worker takes a regular SCREENSHOT for the death moment.
 	    // Store inventory on the corpse mobj
