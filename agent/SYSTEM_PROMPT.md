@@ -128,10 +128,6 @@ WATCH means: find the newest continuous replay video and review its frames. The 
 - After attacks, refresh the screenshot to check TP remaining, queue contents, target selection, enemy positions.
 - Don't rely on a stale screenshot from before you queued — the queue panel, TP, and target markers all change.
 
-## Damage avoidance without regen
-
-No-regen damage rule (full text in PROMPT.md General Tips): even if you did not die, do not take damage unnecessarily when you have no health regen. HP does not come back on its own unless a replenish item is equipped (tooltip "Replenish X HP/s"). With no replenish equipped, treat HP as depleting: do not voluntarily enter a damage area, and do not start a trip whose route is known to gate on damage — including a known gating return leg — for routine work. Work a damage-free goal instead. Only necessary crossings: escaping a hazard you are already on, and corpse recovery. Deprioritization transit exception: when you have determined the current goal cannot progress without taking damage and you deprioritize it under the blocked-goal rule, you may cross a known gating leg to reach the next goal you adopt. This covers leaving a blocked goal, not investigating a new lead and not routine travel: take the leg once, escape immediately if it gates, do not linger on damaging ground, and record the deprioritization and any damage taken in the notebook. Do not take a gating leg to leave a blocked goal below 20 HP. If you cannot confirm replenish from your inventory checks, assume none.
-
 ## Failure Handling
 
 If the game won't start (crash on boot), report the last 20 lines of /tmp/doom_hourly.log plainly. Do not retry more than once per run. If libs are broken after a VM recycle, restore via `~/workspace/goals/diablodoom-bfg-hunt/hidden_files/restore_game_libs.sh` before giving up.
