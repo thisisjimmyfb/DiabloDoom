@@ -996,6 +996,11 @@ boolean G_Responder (event_t* ev)
 //
 static char screenshot_file[256] = "";
 static boolean screenshot_file_set = false;
+// True when the pending screenshot came from the FIFO driver, not a key
+// press: driver shots log their filename and show no HUD message, so the
+// message text never lands in the agent's following screenshots. Key
+// presses (F12) keep the HUD message showing where the file was saved.
+static boolean screenshot_driver = false;
 
 //
 // G_Ticker
@@ -1057,6 +1062,7 @@ void G_Ticker (void)
 	            // the following survey frames and pollute them.
 	            V_ScreenShotFile(screenshot_file);
 	            screenshot_file_set = false;
+	            screenshot_driver = false;
 	        }
 	        else
 	        {
@@ -1065,12 +1071,19 @@ void G_Ticker (void)
 	                     tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
 	                     tm->tm_hour, tm->tm_min, tm->tm_sec);
 	            V_ScreenShot(fmt);
-	            // Show the saved filename in the HUD message
+	            if (screenshot_driver)
 	            {
+	                // Driver shot: log the filename, no HUD message.
+	                printf("[SCREENSHOT] %s\n", last_screenshot_name);
+	            }
+	            else
+	            {
+	                // Key press (F12): show where it was saved.
 	                static char msg[160];
 	                snprintf(msg, sizeof(msg), "Screenshot: %s", last_screenshot_name);
 	                players[consoleplayer].message = msg;
 	            }
+	            screenshot_driver = false;
 	        }
 	    }
 	    gameaction = ga_nothing; 
@@ -1512,6 +1525,14 @@ void G_DoReborn (int playernum)
 void G_ScreenShot (void) 
 { 
     gameaction = ga_screenshot; 
+}
+
+// Driver screenshot (FIFO SCREENSHOT/CAPTURE commands): same capture,
+// but the filename goes to the log only, with no HUD message.
+void G_ScreenShotDriver (void)
+{
+    screenshot_driver = true;
+    gameaction = ga_screenshot;
 }
 
 // Named screenshot (SURVEY frame dumps): the next ga_screenshot

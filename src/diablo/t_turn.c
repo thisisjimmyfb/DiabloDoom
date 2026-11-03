@@ -1742,16 +1742,15 @@ static void cmd_dispatch(const char *cmd)
     }
     else if (!strcmp(cmd, "SCREENSHOT"))
     {
-        extern void G_ScreenShot(void);
-        G_ScreenShot();
+        extern void G_ScreenShotDriver(void);
+        G_ScreenShotDriver();
     }
     else if (!strcmp(cmd, "CAPTURE"))
     {
         // Dedicated capture: 15s replay video + screenshot in one command.
-        // Saves the replay FIRST, before the screenshot. G_ScreenShot draws
-        // a "captured" message on screen; if we screenshot first, that text
-        // lands in the replay buffer and appears in the video.
-        extern void G_ScreenShot(void);
+        // Saves the replay FIRST, before the screenshot, so no screenshot
+        // message text can land in the replay buffer and appear in the video.
+        extern void G_ScreenShotDriver(void);
         extern int D_ReplaySaveMP4(const char *filename);
         extern void D_ReplayNextFilename(char *buf, size_t bufsz);
         {
@@ -1762,7 +1761,7 @@ static void cmd_dispatch(const char *cmd)
                 printf("[CAPTURE] video: %s\n", filename);
             }
         }
-        G_ScreenShot();
+        G_ScreenShotDriver();
         printf("[CAPTURE] screenshot taken\n");
     }
     else if (!strcmp(cmd, "INVENTORY"))
