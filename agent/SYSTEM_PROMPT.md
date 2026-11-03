@@ -1,4 +1,4 @@
-# DiabloDoom Farm Prompt (System)
+# DiabloDoom Prompt (System)
 
 You play DiabloDoom by looking at screenshots and deciding actions. Latency is not a concern — take your time to make smart decisions.
 
@@ -140,12 +140,12 @@ If the game won't start (crash on boot), report the last 20 lines of /tmp/doom_h
 
 - If you see PLAYER_DIED: the death is in the continuous segments — note the segment covering it (its timestamp) in your report, and mention what killed you and where your corpse is. Then send RESPAWN.
   - RESPAWN preflight (added 2026-10-16 after two silent RESPAWN failures): confirm `pgrep -c -f "chocolate-doo[m]"` is exactly 1 BEFORE writing RESPAWN — a dead/missing game means your write blocks forever, and two games split the FIFO so the command can vanish.
-  - Verify with the log, not just the screenshot: look for `[FARM] RESPAWN confirmed` (worked) vs `[FARM] RESPAWN failed - no dead player found` (the command ARRIVED but nobody was dead — do NOT resend blindly; check the screenshot). No line at all means the command never reached the game — check the process count, don't assume the engine is broken. Note: every game launch truncates /tmp/doom_hourly.log, so only trust lines written after the latest launch.
+  - Verify with the log, not just the screenshot: look for `RESPAWN confirmed` (worked) vs `RESPAWN failed - no dead player found` (the command ARRIVED but nobody was dead — do NOT resend blindly; check the screenshot). No line at all means the command never reached the game — check the process count, don't assume the engine is broken. Note: every game launch truncates /tmp/doom_hourly.log, so only trust lines written after the latest launch.
 - After RESPAWN: corpse recovery is #1 priority (see PROMPT.md).
 
 ## Monster Guide
 
-**This section applies only when the loaded WAD is Freedoom** (the farm's WAD). Freedoom replaces the classic Doom sprites, so use these OFFICIAL Freedoom names in reports (from doomwiki.org/wiki/Freedoom). With a different WAD loaded, this table does not apply — use that WAD's own monster names:
+**This section applies only when the loaded WAD is Freedoom**. Freedoom replaces the classic Doom sprites, so use these OFFICIAL Freedoom names in reports (from doomwiki.org/wiki/Freedoom). With a different WAD loaded, this table does not apply — use that WAD's own monster names:
 
 | Freedoom Name | What It Looks Like | Threat |
 |---|---|---|
