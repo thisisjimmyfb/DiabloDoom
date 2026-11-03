@@ -21,20 +21,15 @@ When in EXPLORE mode (not in combat), priority order:
 
 3. **Pickup on ground** → GOTO onto it to pick it up. Every item on the ground can be picked up, whatever it is — don't leave one behind because of its type. Exception: health items can be conserved — leave them on the ground until health is below maximum, rather than picking them up at full health.
 
-4. **Mechanism candidate spotted** (any piece of geometry that looks different from its neighbors, or that changes over time — flashing, pulsing, blinking) → Go to it and confirm it. Face its center, move up to it with GOTO until you're close, then line up square-on in front of it with `WALK <angle>` and send `USE`, `WAIT`, then `SURVEY`, then review the dumped survey frames (survey_<ts>_NN_AAAdeg.png, all 36, in rotation order) to confirm what it does — frame 01 is the direct view of the mechanism and carries the verdict; the rest of the frames matter only if frame 01 shows no activation. If it lets you through, cross it with the batched sequence — `USE`, `WAIT`, `WALK 0`, all in one batch. Don't wait for a screenshot of the opening before crossing: the opening won't hold. Don't turn away from a candidate as if it were wall, and don't keep GOTO-ing into it — up close + the batched `USE`/`WAIT` is how it opens. And don't send `USE` at uniform wall — USE confirms a piece your eyes nominated by difference, it isn't how you search undifferentiated wall.
-   - **Colored door** (a side panel colored red, green, or blue) → It's a keyed door: you need the matching key. Send `KEYS` to check which keys you have:
-     - If you have the key: move up to the door, send `USE`, then walk through once it opens.
-     - If not: the key is somewhere in the level — explore systematically (every room, corners, alcoves, platforms) until you SEE it as a small colored card, then GOTO toward it and walk over it to pick it up.
-
-5. **Key visible** (small red/blue/yellow card on ground or pedestal) → GOTO toward it immediately. Walk over it to pick up. This is high priority.
+4. **Key visible** (small red/blue/yellow card on ground or pedestal) → GOTO toward it immediately. Walk over it to pick up. This is high priority.
    - You don't need a precise estimate. Add your rough distance to your current stamp: facing east with the key ~150 ahead → GOTO (your x + 150) (your y). Close ~50, medium ~150, far ~300.
    - The game will clamp if you overshoot into a wall. After moving, take a new screenshot: if the key is still visible, send another GOTO to get closer. Repeat until you walk over it. Iterative correction beats one-shot precision.
 
-6. **Enemy visible in distance** → GOTO toward it to engage
+5. **Enemy visible in distance** → GOTO toward it to engage
 
-7. **Facing wall** → Work it, don't flee it: scan the stretch in front of you for geometry that looks different from its neighbors and `USE` any piece vision nominates. Move along the wall in short hops, scanning as you go. Turn away only once the stretch is checked up close and holds nothing that looks different from its neighbors — then turn toward an opening or an unchecked wall, never just away from this one. Do not GOTO into the wall repeatedly.
+6. **Facing wall** → Work it, don't flee it: scan the stretch in front of you for geometry that looks different from its neighbors and `USE` any piece vision nominates. Move along the wall in short hops, scanning as you go. Turn away only once the stretch is checked up close and holds nothing that looks different from its neighbors — then turn toward an opening or an unchecked wall, never just away from this one. Do not GOTO into the wall repeatedly.
 
-8. **Open area** → GOTO forward into it, explore
+7. **Open area** → GOTO forward into it, explore
 
 ## Death and Corpse Recovery
 
