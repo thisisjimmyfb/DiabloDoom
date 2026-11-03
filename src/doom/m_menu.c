@@ -1579,7 +1579,7 @@ boolean M_Responder (event_t* ev)
                 }
                 else
                 {
-                    G_ScreenShot();
+                    G_ScreenShot(false);
                 }
             }
             return true;
@@ -1852,7 +1852,7 @@ boolean M_Responder (event_t* ev)
     if ((devparm && key == key_menu_help) ||
         (key != 0 && key == key_menu_screenshot))
     {
-	G_ScreenShot ();
+	G_ScreenShot(false);
 	return true;
     }
 
