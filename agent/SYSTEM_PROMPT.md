@@ -73,7 +73,7 @@ Write commands to /tmp/doom_cmd.txt (one per line). It's a FIFO — do NOT delet
 - **Plan phase** — the game is frozen and your input is accepted. Queue commands from the list below; each costs TP and appears in the queue panel. `END` (or `T`) closes the plan phase.
 - **Progress phase** — input is disabled and the game unfreezes to execute your queued commands, popping them off the queue panel one at a time, then settles 0.5s. When it ends you're back in plan phase — or back in explore mode if no enemy is targeting you.
 
-Commands (queue during plan phase):
+Planning Phase Commands:
 - `ATTACK` — attack selected target (4 TP)
 - `UNDO` — remove the last queued action and refund its TP (free)
 - `MOVE_FWD` / `MOVE_BACK` — move (1 TP)
