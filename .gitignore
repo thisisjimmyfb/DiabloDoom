@@ -81,6 +81,7 @@ third_party/x264/*.o
 third_party/x264/config.*
 third_party/x264/x264
 progress.dat
+progress.dat.incompatible*
 progress_auto*.dat
 
 # Farm short-term area memory (scratch, never commit)
