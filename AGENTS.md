@@ -140,7 +140,7 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
   gun fires; the kit panel has no heat-capacity entry for plasma) —
   see `ST_drawTurnMana`.
 - `src/doom/p_inter.c` — pickup/drop, including Diablo loot drops.
-- `DIABLO.md` — user-facing doc for the loot/equipment system (Phases 1–2
+- `DIABLODOOM.md` — user-facing doc for the loot/equipment system (Phases 1–2
   era; update it when behavior changes).
 
 ## Standing rules
