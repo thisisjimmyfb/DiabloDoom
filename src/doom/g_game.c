@@ -1522,16 +1522,12 @@ void G_DoReborn (int playernum)
 } 
  
  
-void G_ScreenShot (void) 
-{ 
-    gameaction = ga_screenshot; 
-}
-
-// Driver screenshot (FIFO SCREENSHOT/CAPTURE commands): same capture,
-// but the filename goes to the log only, with no HUD message.
-void G_ScreenShotDriver (void)
+// from_driver: true for FIFO driver shots (log the filename, no HUD
+// message, so the message never lands in the agent's next screenshots),
+// false for key presses (F12: show where it was saved in the HUD).
+void G_ScreenShot (boolean from_driver)
 {
-    screenshot_driver = true;
+    screenshot_driver = from_driver;
     gameaction = ga_screenshot;
 }
 
