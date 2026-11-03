@@ -1,7 +1,7 @@
 # AGENTS.md — DiabloDoom
 
 > Working agreement for agentic contributors (human or AI) on this repo.
-> The turn-based mode design lives in `SPEC.md` — read it before touching
+> The turn-based mode design lives in `DIABLODOOM.md` — read it before touching
 > anything turn-related. This file is about how to work here, not what to
 > build.
 
@@ -234,7 +234,7 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
 
 ## Combat affixes (magic tier)
 
-Prefixes (flat) and suffixes (%) for AD/AP/haste/plasma-capacity/leech. See SPEC.md
+Prefixes (flat) and suffixes (%) for AD/AP/haste/plasma-capacity/leech. See DIABLODOOM.md
 "Combat affix families" for the full table.
 
 - Suffixes: of Slaying (+15% AD), of the Magus (+15% AP), of Haste (+20%),
@@ -248,7 +248,7 @@ Prefixes (flat) and suffixes (%) for AD/AP/haste/plasma-capacity/leech. See SPEC
 
 ## Essence (salvage / repair)
 
-Diablo 3-style crafting loop on junk loot — see SPEC.md "Essence:
+Diablo 3-style crafting loop on junk loot — see DIABLODOOM.md "Essence:
 salvage and repair". Per-player currency `diablo_essence` on
 `player_t`, persisted in savegames; the count shows in the inventory
 header ("Essence: N" next to BACKPACK — SOUL_CAGE icon art is planned,
@@ -265,20 +265,20 @@ text display for now).
 
 Beating MAP30 warps to MAP01 keeping gear. `d_loop` increments;
 enemies get +50% HP / +25% damage per loop; +10% magic find per loop.
-See SPEC.md "NG+ loop".
+See DIABLODOOM.md "NG+ loop".
 
 ## Turn-based work
 
 The full design — pillars, Tempo economy, weapon kits, selection combat,
 engine architecture, persistence schema, Threads publishing, phased build
-sequence with gates, and pre-implementation decisions — is in **`SPEC.md`**.
+sequence with gates, and pre-implementation decisions — is in **`DIABLODOOM.md`** (the former SPEC.md, merged 2026-11-03).
 
-Before writing any turn-mode code:
+Before changing turn-mode behavior:
 
-- Read `SPEC.md` end to end.
-- Lock the "Decisions to lock before implementation" table with the user.
-- Prototype Phases 0–3 on a branch; the go/no-go is one room cleared via
-  MOVE/ATTACK-style commands only.
+- Read `DIABLODOOM.md`'s turn-based section end to end.
+- The "Decisions to lock before implementation" table and the Phases 0–3
+  prototype gates below were for the initial implementation, which has
+  shipped; they are historical, not pending gates.
 
 Key invariants from the spec: a central turn controller owns time, input,
 and resolution (no scattered `if (turn_based)` checks); the standalone

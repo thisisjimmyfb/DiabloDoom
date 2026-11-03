@@ -200,12 +200,15 @@ No polling, no file creation/deletion per tick — just a pipe.
 
 ### Commands
 
+> Note (2026-11-03): this table is the original command set. The driver has since grown (GOTO, USE, SNAP, SURVEY, WAIT, KEYS, EQUIP, UNEQUIP, SAVE, LOAD, QUIT, and more); the full current command reference is in `agent/SYSTEM_PROMPT.md` under Command Reference.
+
+
 #### Explore Mode Only
 These work only in explore mode (`T_InExplore()`). Ignored in combat.
 
 | Command | Action |
 |---------|--------|
-| `WALK` | Teleport 64 units forward. Triggers `P_TouchSpecialThing` for overlapping pickups (walk-over loot). |
+| `WALK` | Walk forward until an enemy, loot, block, or combat stops it; `WALK <angle>` (-90..+90, negative left) turns first, then steps 96 units. Triggers `P_TouchSpecialThing` for overlapping pickups (walk-over loot). |
 | `TURNL` | Turn left 45 degrees. |
 | `TURNR` | Turn right 45 degrees. |
 
@@ -219,14 +222,14 @@ These work in turn-based combat (when `T_Active()`). They queue actions (1 TP ea
 | `MOVE_BACK` | Step back (facing-relative). Kiting: back away from melee attackers. | 1 TP |
 | `STRAFE_L` | Strafe left (facing-relative, no camera turn). | 1 TP |
 | `STRAFE_R` | Strafe right (facing-relative, no camera turn). | 1 TP |
-| `END` | End turn. Executes queued actions, then enemy phase. | — |
+| `END` | End turn. Executes the queued actions, then advances the turn. | — |
 
 #### Both Modes
 
 | Command | Action |
 |---------|--------|
 | `COLLECT` | Auto-loot nearest Diablo loot (pathfind + pick up). |
-| `SCREENSHOT` | Capture `DOOM*.png` from game's 320x200 framebuffer (no tearing). |
+| `SCREENSHOT` | Capture a timestamped screenshot (`diablodoom_<ts>_NN.png` under `doomshots/`) from the game framebuffer. |
 | `INVENTORY` | Toggle character/inventory screen (C key equivalent). |
 | `RESPAWN` | Confirm respawn after death (manual corpse-run). Player stays dead at 0% until this is sent. |
 
@@ -274,9 +277,11 @@ RESPAWN
 
 ## DiabloDoom — Turn Based Combat Mode Spec
 
-> Distilled from the September 2026 build plan. This is the source of truth
-> for turn-based design; `AGENTS.md` points here. Iterate on this file
-> directly — it is meant to be edited.
+> Distilled from the September 2026 build plan. This section is the turn-based
+design record (formerly SPEC.md, merged into this file 2026-11-03).
+> Status note (2026-11-03): turn-based combat has shipped and runs daily;
+> the phased build sequence and pre-implementation gates below are historical,
+> not pending work. Edit this section directly — it is meant to be edited.
 
 ### Pitch
 
