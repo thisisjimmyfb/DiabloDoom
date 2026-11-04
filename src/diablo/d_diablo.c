@@ -593,11 +593,16 @@ void D_ResetPlayer(struct player_s *pl)
     player->diablo_recent = -1;
     for (i = 0; i < NUM_DSTATS; i++)
         player->diablo_stats[i] = 0;
+    // A fresh/reset player has no weapon equipped, so the default
+    // state is fists — not the vanilla spawn pistol. (Sync is a
+    // no-op here if the player mobj does not exist yet; the load
+    // path re-syncs via D_RecalcStats.)
+    D_SyncDoomWeapon(pl);
 }
 
 // Sync the Doom readyweapon to the equipped Diablo gun, so the
 // first-person sprite and the turn-mode kit follow the gun.
-// No weapon equipped -> pistol (guns only; no fist fallback).
+// No weapon equipped -> fists (unarmed fallback).
 void D_SyncDoomWeapon(struct player_s *pl)
 {
     player_t *player = (player_t *)pl;
@@ -606,7 +611,7 @@ void D_SyncDoomWeapon(struct player_s *pl)
     if (!player || !player->mo)
         return;
 
-    w = wp_pistol;
+    w = wp_fist;
     id = player->diablo_equipped[ESLOT_WEAPON];
     if (id != D_NOITEM)
     {

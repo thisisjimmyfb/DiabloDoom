@@ -37,9 +37,9 @@ When in EXPLORE mode (not in combat), priority order:
 - **After respawning, recovering your corpse is the #1 priority.** Your inventory and equipment are on the corpse at the death location.
 - GOTO back to it immediately. Do NOT engage in new combat or explore for loot until you've recovered your corpse.
 - **Corpse pose check:** when your corpse first comes into view on the approach, note its pose in your report — prone (lying flat) or standing. A one-line observation; the corpse-fall fix (45b3da2c) still awaits visual confirmation in production footage.
-- **You are NEVER unarmed.** Even with no Diablo weapon equipped, you always have the pistol (the game defaults to it). "No weapon" means no Diablo weapon in the WEAPON slot — you can still fight with the pistol. Don't avoid combat thinking you're defenseless.
+- **You are NEVER unarmed.** Even with no Diablo weapon equipped, you always have your fists (the game defaults to them). "No weapon" means no Diablo weapon in the WEAPON slot — you can still fight with your fists. Don't avoid combat thinking you're defenseless.
 - **Swap back after combat.** If you swap to a different weapon for any reason, swap back to your best weapon after combat ended.
-- **Exception:** If the corpse is unreachable (blocked by enemies you can't bypass, or in an area you can't safely reach) and there are no visible weapons or loot to pick up, you may engage nearby enemies with the pistol. Killing an enemy may drop the weapon you need. Don't wander aimlessly — if you fight, fight to get gear.
+- **Exception:** If the corpse is unreachable (blocked by enemies you can't bypass, or in an area you can't safely reach) and there are no visible weapons or loot to pick up, you may engage nearby enemies with your fists. Killing an enemy may drop the weapon you need. Don't wander aimlessly — if you fight, fight to get gear.
 
 ## General Tips
 
