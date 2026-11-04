@@ -1436,7 +1436,6 @@ static void T_SnapToNearestWall(void)
     }
     if (bestline < 0)
     {
-        printf("[SNAP] no lines\n");
         return;
     }
     {
@@ -1456,7 +1455,6 @@ static void T_SnapToNearestWall(void)
             m = m2;
         if (m <= 0.0)
         {
-            printf("[SNAP] degenerate line %d\n", bestline);
             return;
         }
         nx = -ldy / m * 64.0;
@@ -1471,12 +1469,6 @@ static void T_SnapToNearestWall(void)
         ty = mo->y + (fixed_t)(ny * FRACUNIT);
         snap = R_PointToAngle2(mo->x, mo->y, tx, ty);
         mo->angle = snap;
-        printf("[SNAP] line %d dist %d angle %d\n",
-               bestline,
-               (int)(P_AproxDistance(mo->x - (fixed_t)(bcx * FRACUNIT),
-                                     mo->y - (fixed_t)(bcy * FRACUNIT))
-                     >> FRACBITS),
-               (int)((snap >> ANGLETOFINESHIFT) * 360 / 8192));
     }
 }
 
