@@ -774,6 +774,13 @@ void P_SpawnPlayer (mapthing_t* mthing)
 
     // setup gun psprite
     P_SetupPsprites (p);
+
+    // DiabloDoom: the visible weapon follows Diablo equipment, not
+    // vanilla spawn defaults. A player with no weapon equipped
+    // spawns with fists, not the vanilla pistol (D_SyncDoomWeapon
+    // runs after the mobj exists, so it cannot be skipped here
+    // the way a pre-spawn sync would be).
+    D_SyncDoomWeapon((struct player_s *)p);
     
     // give all cards in death match mode
     if (deathmatch)

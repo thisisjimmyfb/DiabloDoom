@@ -93,6 +93,7 @@ The UI uses click-to-pick-up / click-to-place (not hold-and-drag):
 
 Every weapon carries its own magazine and needs ammo to fire: pistol 10
 (1/shot), shotgun 20 (2/shot), chaingun 10 (1/shot), chainsaw 6 (1/shot),
+except fists, which carry no magazine and need no ammo,
 rocket 20 (10/shot), Super Shotgun 8 (8/shot), BFG 20 (20/shot). Plasma
 has no magazine — its heat *is* the ammo. Magazines refill automatically
 by weapon type: AD weapons feed off your **attack speed** each round, AP
@@ -844,7 +845,7 @@ equipped), not loot.
 
 | Gun | Type | LoL mechanic | Replenish | Identity |
 |-----|------|--------------|-----------|----------|
-| Pistol | AD | **Magazine 10** (1/shot) | AS | Reliable fallback sidearm. |
+| Pistol | AD | **Magazine 10** (1/shot) | AS | Reliable sidearm. |
 | Shotgun | AD | **Magazine 20** (2/shot) | AS | Positioning reward, pellet spread. |
 | Chaingun | AD | **Magazine 10** (1/shot) | AS | TP-hungry DPS hose. |
 | Chainsaw | AD | **Magazine 6** (1/shot) + **30% inherent leech** | AS | High risk, constant uptime; leech sustains close-range fighting. |
@@ -871,7 +872,9 @@ with a high cooldown (wants cooldown reduction). Firing refreshes the counter.
 Cooldown never blocks a shot — ammo is still the firing limiter
 (`T_KitCanFire`); it only pauses regen. Attack speed is the command execution delay
 (`attack_tics` in the kit): pistol 15, shotgun 40, chaingun 16, rocket 80,
-plasma 16, BFG 80, chainsaw 12, SSG 50 tics (35 tics = 1 second).
+plasma 16, BFG 80, chainsaw 12, SSG 50, fists 6 tics (35 tics = 1 second).
+Fists are the unarmed default: no weapon equipped means fists, with very
+high attack speed and no ammo cost.
 
 **Continuous fire** (chainsaw/chaingun/plasma, 2026-10-22): committing
 an attack with a continuous weapon arms a lock on the target via

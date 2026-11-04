@@ -311,8 +311,11 @@ static int T_MonsterArmor(mobjtype_t type)
 // Weapon kits.
 
 static const t_kitdef_t t_kits[NUMWEAPONS] = {
-    // wp_fist (fallback; not a real kit)
-    { "PISTOL",     1,   3,   3,    0,    0,   0,      1, false,    0,    0, false,   0,   0,   0,  20, REPLENISH_AS },
+    // wp_fist: unarmed default. Very high attack speed, no ammo:
+    // ammo_cost 0 / ammo_max 0 already means no magazine (see
+    // T_HasAmmoForKit). attack_tics and tp_cost are my picks for
+    // "very high" (fastest kit in the game); correctable on word.
+    { "FISTS",      1,   3,   1,    0,    0,   0,      1, false,    0,    0, false,   0,   0,   0,   6, REPLENISH_AS },
     // Base kits are deliberately weak: item stats are the real damage
     // source, so hunting better gear is the progression.
     // Ammo: every weapon with a magazine requires ammo to fire.
