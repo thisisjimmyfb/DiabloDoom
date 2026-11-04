@@ -593,11 +593,14 @@ void D_ResetPlayer(struct player_s *pl)
     player->diablo_recent = -1;
     for (i = 0; i < NUM_DSTATS; i++)
         player->diablo_stats[i] = 0;
-    // A fresh/reset player has no weapon equipped, so the default
-    // state is fists — not the vanilla spawn pistol. (Sync is a
-    // no-op here if the player mobj does not exist yet; the load
-    // path re-syncs via D_RecalcStats.)
-    D_SyncDoomWeapon(pl);
+    // NOTE: do NOT sync the weapon here. D_ResetPlayer runs during
+    // savegame unarchive (P_UnArchivePlayers), before psprites are
+    // restored — and a sync that changes readyweapon calls
+    // P_SetPsprite, which segfaults on the unrestored psprite
+    // (2026-11-04: the fist fallback changed readyweapon where the
+    // old pistol fallback early-returned, and LOAD 0 crashed twice).
+    // The load path re-syncs later via D_RecalcStats, and spawn
+    // syncs at the end of P_SpawnPlayer, so no case is lost.
 }
 
 // Sync the Doom readyweapon to the equipped Diablo gun, so the
