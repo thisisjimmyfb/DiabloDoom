@@ -8,6 +8,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 #include "t_turn.h"
 #include "t_combat.h"
@@ -2071,6 +2072,13 @@ void T_DoEndTurn(void)
         return;
     if (!T_ActorAlive())
         return;
+
+    // WoW Forever event (until end of Wednesday 2026-11-11 PT):
+    // ending a turn plays an original "zug zug" grunt, a Warcraft-style
+    // command acknowledgement. The date gate self-expires; no removal
+    // commit is needed. Cutoff = 2026-11-12 08:00 UTC (midnight PST).
+    if (time(NULL) < 1794470400)
+        S_StartSound(NULL, sfx_zugzug);
 
     // Leaving a selection state: drop the target, back to planning.
     turnctrl.selected_target = -1;
