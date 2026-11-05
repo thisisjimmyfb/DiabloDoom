@@ -417,7 +417,6 @@ void D_UITickIdle(void)
         return;
     if (I_GetTimeMS() - ui_last_activity_ms > UI_IDLE_ZUGZUG_MS)
     {
-        printf("[AGENT] idle 30s: zug zug\n");
         D_PlayZugZug();
         ui_idle_zugzug_played = true;
     }
