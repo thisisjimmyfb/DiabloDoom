@@ -866,8 +866,8 @@ equipped), not loot.
 **Strength requirements (2026-11-04).** Every item has a strength
 requirement from its type, not its tier: guns need strength by weapon
 type, lightest to heaviest — fist 0, pistol 2, shotgun 4, double
-shotgun 6, chainsaw 8, chaingun 10, rocket launcher 11, plasma rifle
-12, BFG 15; everything else 0 — rarity never raises a requirement.
+shotgun 6, chainsaw 8, chaingun 10, rocket launcher 12, plasma rifle
+14, BFG 15; everything else 0 — rarity never raises a requirement.
 Strength for the check is exactly the sum of the strength
 bonuses of equipped gear — the only way to get strength is gear, so
 there is no base attribute in this sum. An item whose requirement
