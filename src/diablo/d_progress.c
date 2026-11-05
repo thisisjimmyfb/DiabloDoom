@@ -401,19 +401,19 @@ void D_AutoSaveGame(void)
     // netgames: an unattended title screen overwrote the player's real
     // slot-1 autosave pair with demo state. A real netgame's state is
     // not the single-player's to save either.
-    // The demo test keys on precache, not demoplayback: precache is
-    // false only while a demo's initial level load runs (G_DoPlayDemo
-    // sets it false around G_InitNew to skip the graphics preload),
-    // which is exactly the window where the single-player demo DEMO1
-    // leaves demoplayback, netdemo and netgame all false. Netgame
-    // demos are still caught by netgame/netdemo below.
-    // Note: a single-player demo crossing a level boundary mid-playback
-    // has precache true again, so its transition autosave is not
-    // blocked by this guard.
+    // The demo test is the union of precache and demoplayback:
+    // precache is false only while a demo's initial level load runs
+    // (G_DoPlayDemo sets it false around G_InitNew to skip the
+    // graphics preload), which is exactly the window where the
+    // single-player demo DEMO1 leaves demoplayback, netdemo and
+    // netgame all false. But a demo crossing a level boundary
+    // mid-playback has precache true again, so demoplayback covers
+    // that gap (its transition/combat autosaves). Netgame demos are
+    // still caught by netgame/netdemo below. (2026-11-05)
     {
         extern boolean netdemo;
         extern boolean precache;
-        if (!precache || netdemo || netgame)
+        if (!precache || demoplayback || netdemo || netgame)
             return;
     }
 
