@@ -46,6 +46,7 @@
 #include "doomstat.h"
 #include "m_random.h"
 #include "p_local.h"
+#include "s_sound.h"
 #include "t_combat.h"
 #include "w_wad.h"
 
@@ -392,6 +393,16 @@ static const diablo_itemdef_t diablo_unique[] =
        5,0,8,0,    0,0,0,0,   0,15,25,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
     IT("Frostburn",             TIER_UNIQUE, ESLOT_GLOVES,2,2, 0,0,0,  0, 0,640,
        5,5,0,0,    0,25,0,0,  4,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
+
+    // Ram Altman (2026-11-04): the wasted-RAM joke — a Unique amulet
+    // that sustains the wearer (life leech + replenish) while every
+    // kill raises a previously killed enemy, never the one just
+    // killed. Leech 10% and replenish 1 HP/s are first-pass numbers,
+    // correctable. Drops ungated like every other item.
+    { .name = "Ram Altman", .tier = TIER_UNIQUE,
+      .slot = ESLOT_AMULET, .grid_w = 1, .grid_h = 1,
+      .lifesteal = 10, .doomweapon = -1, .replenish = 1 },
+
 };
 
 #undef IT
@@ -483,7 +494,7 @@ int D_GetItemIconIdx(int tier, int idx)
         -1, -1,
         D_ICON_BOOT_IK_PILLAR, D_ICON_GLOVE_MAVINA_CLUTCH,
     };
-    // Unique (14): 2, 3, 7 are guns (BFG10K, Unmaker, Old Painless).
+    // Unique (15): 2, 3, 7 are guns (BFG10K, Unmaker, Old Painless).
     static const int unique_icons[] = {
         D_ICON_U_STONE_OF_JORDAN, D_ICON_U_HARLEQUIN_CREST,
         -1, -1,
@@ -492,6 +503,7 @@ int D_GetItemIconIdx(int tier, int idx)
         D_ICON_U_LIDLESS_WALL, D_ICON_U_VIPERMAGI,
         D_ICON_U_THUNDERGOD_VIGOR, D_ICON_U_RAVEN_FROST,
         D_ICON_BOOT_WAR_TRAVELER, D_ICON_GLOVE_FROSTBURN,
+        D_ICON_U_MARAS_KALEIDOSCOPE,
     };
 
     if (!D_ValidItem(tier, idx))
@@ -886,6 +898,114 @@ int D_Stat(struct player_s *pl, int stat)
     if (stat < 0 || stat >= NUM_DSTATS)
         return 0;
     return player->diablo_stats[stat];
+}
+
+// Ram Altman (Unique amulet, 2026-11-04): the wearer's kills raise a
+// previously killed enemy, never the one just killed. Corpses persist
+// as MF_CORPSE objects, so the scan reuses the Arch-vile's corpse
+// check (PIT_VileCheck's conditions) with a wider radius and the
+// just-killed mobj excluded. The first kill on a level raises
+// nothing: there is no older corpse yet. The leech and replenish
+// come from the item row; this is only the raise.
+#define RAM_ALTMAN_RAISE_RADIUS (512*FRACUNIT)
+
+static mobj_t *ram_altman_corpse;
+static mobj_t *ram_altman_skip;
+static fixed_t ram_altman_cx, ram_altman_cy;
+
+static boolean PIT_RamAltmanCheck(mobj_t *thing)
+{
+    int maxdist;
+    boolean check;
+
+    if (thing == ram_altman_skip)
+        return true;    // never the one just killed
+    if (!(thing->flags & MF_CORPSE))
+        return true;    // not a monster
+    if (thing->tics != -1)
+        return true;    // not lying still yet
+    if (thing->info->raisestate == S_NULL)
+        return true;    // monster doesn't have a raise state
+
+    maxdist = RAM_ALTMAN_RAISE_RADIUS;
+    if (abs(thing->x - ram_altman_cx) > maxdist
+     || abs(thing->y - ram_altman_cy) > maxdist)
+        return true;    // out of range
+
+    ram_altman_corpse = thing;
+    ram_altman_corpse->momx = ram_altman_corpse->momy = 0;
+    ram_altman_corpse->height <<= 2;
+    check = P_CheckPosition(ram_altman_corpse, ram_altman_corpse->x,
+                            ram_altman_corpse->y);
+    ram_altman_corpse->height >>= 2;
+    if (!check)
+        return true;    // doesn't fit here
+    return false;       // got one, so stop checking
+}
+
+static boolean D_PlayerHasRamAltman(player_t *player)
+{
+    int id;
+    const diablo_itemdef_t *def;
+
+    id = player->diablo_equipped[ESLOT_AMULET];
+    if (id == D_NOITEM)
+        return false;
+    def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
+    return def && def->name && strcmp(def->name, "Ram Altman") == 0;
+}
+
+void D_RamAltmanOnKill(mobj_t *source, mobj_t *target)
+{
+    player_t *player;
+    mobjinfo_t *info;
+    int xl, xh, yl, yh, bx, by;
+
+    if (!source || !source->player)
+        return;     // only the wearer's kills
+    if (!target || target->player)
+        return;     // never the player
+    if (!(target->flags & MF_COUNTKILL))
+        return;     // monsters only
+    player = source->player;
+    if (!D_PlayerHasRamAltman(player))
+        return;
+
+    ram_altman_skip = target;
+    ram_altman_corpse = NULL;
+    ram_altman_cx = target->x;
+    ram_altman_cy = target->y;
+
+    xl = (ram_altman_cx - bmaporgx - RAM_ALTMAN_RAISE_RADIUS
+          - MAXRADIUS*2) >> MAPBLOCKSHIFT;
+    xh = (ram_altman_cx - bmaporgx + RAM_ALTMAN_RAISE_RADIUS
+          + MAXRADIUS*2) >> MAPBLOCKSHIFT;
+    yl = (ram_altman_cy - bmaporgy - RAM_ALTMAN_RAISE_RADIUS
+          - MAXRADIUS*2) >> MAPBLOCKSHIFT;
+    yh = (ram_altman_cy - bmaporgy + RAM_ALTMAN_RAISE_RADIUS
+          + MAXRADIUS*2) >> MAPBLOCKSHIFT;
+
+    for (bx = xl; bx <= xh; bx++)
+    {
+        for (by = yl; by <= yh; by++)
+        {
+            if (!P_BlockThingsIterator(bx, by, PIT_RamAltmanCheck))
+            {
+                // Got one: raise it, Arch-vile style.
+                info = ram_altman_corpse->info;
+                S_StartSound(ram_altman_corpse, sfx_slop);
+                P_SetMobjState(ram_altman_corpse, info->raisestate);
+                ram_altman_corpse->height <<= 2;
+                ram_altman_corpse->flags = info->flags;
+                ram_altman_corpse->health = info->spawnhealth;
+                ram_altman_corpse->target = NULL;
+                printf("[AGENT] RAM ALTMAN raised a dead enemy (%d,%d)\n",
+                       ram_altman_corpse->x >> FRACBITS,
+                       ram_altman_corpse->y >> FRACBITS);
+                return;
+            }
+        }
+    }
 }
 
 // Equipment dump, tied to opening the inventory (2026-10-31):

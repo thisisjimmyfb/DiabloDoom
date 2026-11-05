@@ -134,6 +134,12 @@ Energy Cannon" in WADs that call it that) as Nrg Cannon, and
 rings…) keep their Diablo names, and the pistol keeps its name
 too — it has no pickup string to inherit from.
 
+**Ram Altman** is a Unique amulet that sustains its wearer with life
+leech and replenish — and every kill the wearer makes raises a
+previously killed enemy back to life, never the one just killed.
+The first kill on a level raises nothing: there is no older corpse
+yet. It is the wasted-RAM joke made into an item.
+
 ## Explore / combat
 
 The game is not always turn-based. **Explore** freely with WASD + arrows

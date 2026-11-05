@@ -1361,6 +1361,10 @@ P_KillMobj
     // one and only monster drop mechanic. Map-placed ammo still
     // converts into a roll at spawn (P_SpawnMapThing) -- placement
     // is not a drop.
+
+    // Ram Altman (2026-11-04): the wearer's kills raise a previously
+    // killed enemy, never the one just killed.
+    D_RamAltmanOnKill(source, target);
 }
 
 
