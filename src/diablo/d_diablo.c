@@ -606,20 +606,16 @@ void D_ResetPlayer(struct player_s *pl)
 
 // Strength requirements (2026-11-04). Every item has a strength
 // requirement from its tier. The ladder is my pick, correctable on
-// word: Normal 0, Magic 0, Rare 5, Set 10, Unique 15. Gear strength
-// bonuses run 2-10 per piece, so a couple of strength pieces unlock
-// rares and a strength-focused kit unlocks uniques.
+// Strength requirement is by item type, not rarity: only the gun you
+// hold needs strength (5, whatever the tier). Armor, jewelry and
+// consumables are free, so rarity never raises a requirement and the
+// highest requirement in the game is 5, down from 15. The 5 is my
+// pick, correctable on Jimmy's word.
 int D_ItemStrReq(const diablo_itemdef_t *def)
 {
     if (!def)
         return 0;
-    switch (def->tier)
-    {
-        case TIER_RARE:    return 5;
-        case TIER_SET:     return 10;
-        case TIER_UNIQUE:  return 15;
-        default:           return 0;
-    }
+    return (def->slot == ESLOT_WEAPON) ? 5 : 0;
 }
 
 // Strength for the requirement check is exactly the sum of the
