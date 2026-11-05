@@ -203,6 +203,7 @@ const char *D_MechDesc(int mech_bit); // short display text for one MECH_* bit
 int D_Stat(struct player_s *player, int stat);
 void D_RamAltmanOnKill(struct mobj_s *source, struct mobj_s *target);
 void D_DumpEquippedGear(void); // log dump of the equipped set, on inventory open
+void D_DumpItem(int id, int dur, boolean disabled, const char *label); // single-item [INSPECT] dump
 int D_MaxHealth(struct player_s *player);
 
 // Backpack / equip.  Returns false when the backpack is full.

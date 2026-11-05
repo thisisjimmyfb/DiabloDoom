@@ -95,8 +95,9 @@ Notes:
 - `SCREENSHOT` — capture screenshot to doomshots/
 - `REPLAY` — capture 15-second replay video (H.264 + AAC) (legacy — the continuous segments cover this; don't issue it)
 - `CAPTURE` — capture 15s replay video + screenshot in one command (legacy — the vision loop uses SCREENSHOT plus the continuous segments; don't issue it)
-- `INVENTORY` — toggle inventory screen; opening it also dumps the full equipped set to the game log as `[GEAR]` lines (per-slot item, durability, affixes, plus totals including replenish) — read those for exact equipment stats instead of tooltip screenshots
-- Strength requirements: an equipped item whose strength requirement exceeds your total gear strength is disabled — it contributes nothing (no stats, no armor, no mechanics), and a disabled gun means you fight with fists. The `[GEAR]` dump marks disabled items with the STR needed; equipping or unequipping strength gear can re-enable or disable other items, since disabled items stop granting strength.
+- `INVENTORY` — toggle inventory screen. Opening it dumps nothing to the log anymore.
+- `INSPECT <slot|backpack_index>` — dump one item's stats and modifiers to the game log as `[INSPECT]` lines and show its page on screen. Slot names: HELM, ARMOR, WEAPON, SHIELD, RING1, RING2, AMULET, BOOTS, GLOVES, BELT, FOCUS. A number is a flat backpack index. Only works while the inventory is open.
+- Strength requirements: an equipped item whose strength requirement exceeds your total gear strength is disabled — it contributes nothing (no stats, no armor, no mechanics), and a disabled gun means you fight with fists. `INSPECT` marks a disabled item with the STR needed; equipping or unequipping strength gear can re-enable or disable other items, since disabled items stop granting strength.
 - `VERSION` — print binary version hash to log
 - `EQUIP <backpack_idx> <slot>` — equip item. Slots: 0=HELM,1=ARMOR,2=WEAPON,3=SHIELD,4=RING1,5=RING2,6=AMULET,7=BOOTS,8=GLOVES,9=BELT,10=FOCUS
 - `UNEQUIP <slot>` — remove equipped item

@@ -434,9 +434,6 @@ void D_UIOpen(void)
         }
     }
 
-    /* Log the exact equipped set once per open (driver and keyboard
-       opens alike); the vision loop reads stats from the log. */
-    D_DumpEquippedGear();
     D_PlayZugZug();
 }
 
@@ -742,6 +739,45 @@ static void UIKbSyncCursor(void)
         ui_cx = ui_slots[ui_kb_slot].x + UI_SLOT_W / 2;
         ui_cy = ui_slots[ui_kb_slot].y + UI_SLOT_H / 2;
     }
+}
+
+// INSPECT support: point the kb cursor at an equipment slot or a
+// backpack item so UIHoverItem returns it and the existing tooltip
+// draws its page. The caller has already verified the item exists.
+void D_UISelectSlot(int slot)
+{
+    int i;
+    for (i = 0; i < NUM_ESLOTS; i++)
+    {
+        if (ui_slots[i].slot == slot)
+        {
+            ui_kb_pane = 1;
+            ui_kb_slot = i;
+            ui_kb_active = true;
+            UIKbSyncCursor();
+            return;
+        }
+    }
+}
+
+void D_UISelectBackpack(int bpi)
+{
+    player_t *player = &players[consoleplayer];
+    int gx, gy;
+    if (bpi < 0 || bpi >= D_BACKPACK_MAX)
+        return;
+    gx = player->diablo_bp_gx[bpi];
+    gy = player->diablo_bp_gy[bpi];
+    if (gx < 0 || gy < 0)
+        return;
+    // Switch to the page the item sits on so its cell is visible.
+    if (player->diablo_bp_page[bpi] != D_BpCurPage((struct player_s *)player))
+        player->diablo_bp_cur = player->diablo_bp_page[bpi];
+    ui_kb_pane = 0;
+    ui_kb_gx = gx;
+    ui_kb_gy = gy;
+    ui_kb_active = true;
+    UIKbSyncCursor();
 }
 
 static void UIKbMove(int dx, int dy)
