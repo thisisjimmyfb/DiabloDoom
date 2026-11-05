@@ -603,6 +603,87 @@ void D_ResetPlayer(struct player_s *pl)
     // syncs at the end of P_SpawnPlayer, so no case is lost.
 }
 
+// Strength requirements (2026-11-04). Every item has a strength
+// requirement from its tier. The ladder is my pick, correctable on
+// word: Normal 0, Magic 0, Rare 5, Set 10, Unique 15. Gear strength
+// bonuses run 2-10 per piece, so a couple of strength pieces unlock
+// rares and a strength-focused kit unlocks uniques.
+int D_ItemStrReq(const diablo_itemdef_t *def)
+{
+    if (!def)
+        return 0;
+    switch (def->tier)
+    {
+        case TIER_RARE:    return 5;
+        case TIER_SET:     return 10;
+        case TIER_UNIQUE:  return 15;
+        default:           return 0;
+    }
+}
+
+// Strength for the requirement check is exactly the sum of the
+// strength bonuses of equipped gear (no base attribute: the only way
+// to get strength is gear). A disabled item stops granting strength,
+// which can disable further items, so the check iterates to a fixed
+// point. Efficient and provably terminating, no recursion: each pass
+// disables at least one item or exits, and there are only NUM_ESLOTS
+// items, so the loop runs at most NUM_ESLOTS passes.
+void D_StrDisabledMask(struct player_s *pl, boolean *disabled)
+{
+    player_t *player = (player_t *)pl;
+    int s, pass;
+
+    for (s = 0; s < NUM_ESLOTS; s++)
+        disabled[s] = false;
+    if (!player)
+        return;
+    for (pass = 0; pass < NUM_ESLOTS; pass++)
+    {
+        int str = 0;
+        boolean changed = false;
+        for (s = 0; s < NUM_ESLOTS; s++)
+        {
+            int id;
+            const diablo_itemdef_t *def;
+            if (disabled[s])
+                continue;
+            id = player->diablo_equipped[s];
+            if (id == D_NOITEM)
+                continue;
+            def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
+            if (def && !def->consumable)
+                str += def->str;
+        }
+        for (s = 0; s < NUM_ESLOTS; s++)
+        {
+            int id;
+            const diablo_itemdef_t *def;
+            if (disabled[s])
+                continue;
+            id = player->diablo_equipped[s];
+            if (id == D_NOITEM)
+                continue;
+            def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
+            if (def && !def->consumable && D_ItemStrReq(def) > str)
+            {
+                disabled[s] = true;
+                changed = true;
+            }
+        }
+        if (!changed)
+            break;
+    }
+}
+
+boolean D_EquippedSlotStrDisabled(struct player_s *pl, int slot)
+{
+    boolean disabled[NUM_ESLOTS];
+    if (slot < 0 || slot >= NUM_ESLOTS)
+        return false;
+    D_StrDisabledMask(pl, disabled);
+    return disabled[slot];
+}
+
 // Sync the Doom readyweapon to the equipped Diablo gun, so the
 // first-person sprite and the turn-mode kit follow the gun.
 // No weapon equipped -> fists (unarmed fallback).
@@ -616,6 +697,10 @@ void D_SyncDoomWeapon(struct player_s *pl)
 
     w = wp_fist;
     id = player->diablo_equipped[ESLOT_WEAPON];
+    // A gun disabled by its strength requirement counts as no gun:
+    // the player falls back to fists.
+    if (id != D_NOITEM && D_EquippedSlotStrDisabled(pl, ESLOT_WEAPON))
+        id = D_NOITEM;
     if (id != D_NOITEM)
     {
         const diablo_itemdef_t *def =
@@ -661,6 +746,8 @@ int D_EquippedWeaponMech(struct player_s *pl)
     id = player->diablo_equipped[ESLOT_WEAPON];
     if (id == D_NOITEM)
         return 0;
+    if (D_EquippedSlotStrDisabled(pl, ESLOT_WEAPON))
+        return 0;
     {
         const diablo_itemdef_t *def =
             D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
@@ -677,13 +764,17 @@ int D_ActiveMechs(struct player_s *pl)
 {
     player_t *player = (player_t *)pl;
     int i, mechs = 0;
+    boolean disabled[NUM_ESLOTS];
 
     if (!player)
         return 0;
+    D_StrDisabledMask(pl, disabled);
     for (i = 0; i < NUM_ESLOTS; i++)
     {
         int id = player->diablo_equipped[i];
         const diablo_itemdef_t *def;
+        if (disabled[i])
+            continue;
         if (id == D_NOITEM)
             continue;
         def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
@@ -722,18 +813,26 @@ void D_RecalcStats(struct player_s *pl)
     player_t *player = (player_t *)pl;
     int s, i;
     const diablo_itemdef_t *def;
+    boolean disabled[NUM_ESLOTS];
 
     for (i = 0; i < NUM_DSTATS; i++)
         player->diablo_stats[i] = 0;
 
+    // Disabled items contribute nothing at all — not stats, not
+    // armor, not mechanics. The mask is computed once here, so the
+    // cascade settles before any stat is summed.
+    D_StrDisabledMask(pl, disabled);
     for (s = 0; s < NUM_ESLOTS; s++)
     {
-        int id = player->diablo_equipped[s];
-        if (id == D_NOITEM)
+        int id;
+        if (disabled[s])
             continue;
-        def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
-        if (!def || def->consumable)
-            continue;
+        id = player->diablo_equipped[s];
+            if (id == D_NOITEM)
+                continue;
+            def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
+            if (!def || def->consumable)
+                continue;
         player->diablo_stats[DSTAT_DMG_MIN] += def->dmg_min;
         player->diablo_stats[DSTAT_DMG_MAX] += def->dmg_max;
         // Defense (DSTAT_ARMOR) comes only from the durability slots
@@ -799,7 +898,9 @@ void D_DumpEquippedGear(void)
     struct player_s *pl = (struct player_s *)player;
     int s;
     int b;
+    boolean disabled[NUM_ESLOTS];
 
+    D_StrDisabledMask(pl, disabled);
     printf("[GEAR] equipped set:\n");
     for (s = 0; s < NUM_ESLOTS; s++)
     {
@@ -837,6 +938,13 @@ void D_DumpEquippedGear(void)
 
         /* One affix line listing only the nonzero stats. */
         affix[0] = '\0';
+        if (disabled[s])
+        {
+            snprintf(tmp, sizeof(tmp),
+                     " DISABLED (needs %d STR)",
+                     D_ItemStrReq(def));
+            strcat(affix, tmp);
+        }
         if (def->dmg_max > 0)
         {
             snprintf(tmp, sizeof(tmp), " dmg %d-%d",
@@ -1809,11 +1917,15 @@ int D_EquippedDurabilitySum(struct player_s *pl)
 {
     player_t *player = (player_t *)pl;
     int sum = 0, s;
+    boolean disabled[NUM_ESLOTS];
 
+    D_StrDisabledMask(pl, disabled);
     for (s = 0; s < NUM_ESLOTS; s++)
     {
         int id = player->diablo_equipped[s];
         const diablo_itemdef_t *def;
+        if (disabled[s])
+            continue;
         if (id == D_NOITEM)
             continue;
         def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));

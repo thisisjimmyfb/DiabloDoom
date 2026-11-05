@@ -191,6 +191,9 @@ const char *D_ItemWadSpriteName(const diablo_itemdef_t *def);
 // Player equipment state.
 void D_ResetPlayer(struct player_s *player);
 void D_RecalcStats(struct player_s *player);
+int D_ItemStrReq(const diablo_itemdef_t *def); // strength requirement by tier
+void D_StrDisabledMask(struct player_s *player, boolean *disabled); // NUM_ESLOTS, true = disabled by strength
+boolean D_EquippedSlotStrDisabled(struct player_s *player, int slot);
 void D_SyncDoomWeapon(struct player_s *player); // gun -> readyweapon/sprite
 int D_EquippedWeaponMech(struct player_s *player); // MECH_* of equipped gun
 int D_ActiveMechs(struct player_s *player); // OR of MECH_* from all equipped

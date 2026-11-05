@@ -854,6 +854,21 @@ equipped), not loot.
 | Super Shotgun | AP | **Magazine 8** (8/shot) + **knockback** | CD | Breach tool: shoves target 1 tile. Firing sets a 2-round cooldown; no ammo trickle while cooling down, trickle resumes at CD rate after. |
 | BFG9000 | AP | **Magazine 20** (20/shot) | CD | Ultimate: highest damage. Firing sets a 3-round cooldown; no ammo trickle while cooling down, trickle resumes at CD rate after. |
 
+**Strength requirements (2026-11-04).** Every item has a strength
+requirement from its tier: Normal 0, Magic 0, Rare 5, Set 10,
+Unique 15. Strength for the check is exactly the sum of the strength
+bonuses of equipped gear — the only way to get strength is gear, so
+there is no base attribute in this sum. An item whose requirement
+exceeds that sum is disabled: it stays in its slot but contributes
+nothing (no stats, no armor, no mechanics), and a disabled gun falls
+back to fists. Because a disabled item stops granting strength, the
+check iterates to a fixed point: sum the strength of still-enabled
+items, disable anything unmet, repeat until nothing changes. The
+loop is bounded (each pass disables at least one item or exits, at
+most one pass per equipment slot) — no recursion, no unbounded
+iteration. The `[GEAR]` dump marks disabled items with the STR
+needed.
+
 **Cooldown gates ammo regen (unified, 2026-11-01).** The `cooldown` value in a kit
 definition is one number with one meaning: firing the weapon sets its
 live cooldown counter to the effective cooldown (base minus Haste %,
