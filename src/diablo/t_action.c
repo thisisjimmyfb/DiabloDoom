@@ -2994,6 +2994,16 @@ static void T_NativeFire(player_t *player)
         case wp_supershotgun: A_FireShotgun2(player, NULL); break;
         default:             A_FirePistol(player, NULL); break;
     }
+
+    // Play the weapon attack animation, mirroring P_FireWeapon (which
+    // turn mode never calls): set the player mobj to its attack pose
+    // and the weapon psprite to the weapon's attack state. Without
+    // this, no weapon shows its attack animation in turn mode — fists
+    // worst of all, since they have no muzzle flash to cover it.
+    // (2026-11-05)
+    P_SetMobjState(player->mo, S_PLAY_ATK1);
+    P_SetPsprite(player, ps_weapon,
+                 weaponinfo[player->readyweapon].atkstate);
 }
 
 // ------------------------------------------------------------------
