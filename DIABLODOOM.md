@@ -138,7 +138,8 @@ too — it has no pickup string to inherit from.
 leech and replenish — and every kill the wearer makes raises a
 previously killed enemy back to life, never the one just killed.
 The first kill on a level raises nothing: there is no older corpse
-yet. It is the wasted-RAM joke made into an item.
+yet. An enemy raised by the amulet drops no loot when killed again.
+It is the wasted-RAM joke made into an item.
 
 ## Explore / combat
 

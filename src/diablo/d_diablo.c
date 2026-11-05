@@ -1001,6 +1001,8 @@ void D_RamAltmanOnKill(mobj_t *source, mobj_t *target)
                 P_SetMobjState(ram_altman_corpse, info->raisestate);
                 ram_altman_corpse->height <<= 2;
                 ram_altman_corpse->flags = info->flags;
+                // No loot when this one dies again (MF_NOLOOT).
+                ram_altman_corpse->flags |= MF_NOLOOT;
                 ram_altman_corpse->health = info->spawnhealth;
                 ram_altman_corpse->target = NULL;
                 printf("[AGENT] RAM ALTMAN raised a dead enemy (%d,%d)\n",

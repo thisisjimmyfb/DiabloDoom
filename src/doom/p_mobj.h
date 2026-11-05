@@ -192,7 +192,12 @@ typedef enum
     //  use a translation table for player colormaps
     MF_TRANSLATION  	= 0xc000000,
     // Hmm ???.
-    MF_TRANSSHIFT	= 26
+    MF_TRANSSHIFT	= 26,
+
+    // Ram Altman (2026-11-04): raised by the amulet — when this enemy
+    // is killed again it drops no loot, or one corpse could be farmed
+    // forever. Bit 28; bits 28-30 were free (translation uses 26-27).
+    MF_NOLOOT		= 0x10000000
 
 } mobjflag_t;
 
