@@ -363,6 +363,13 @@ void G_ClearMovementKeys(void)
         if (k >= 0 && k < NUMKEYS)
             gamekeydown[k] = false;
     }
+    // Fire key too (2026-11-05): Right Ctrl is both the fire button
+    // and hold-to-target, so a fire key held across a mode change
+    // (or a pulse) can stick in gamekeydown and leave BT_ATTACK
+    // set, firing an automatic weapon continuously in explore mode
+    // with no target lock. Clear it with the movement keys.
+    if (key_fire >= 0 && key_fire < NUMKEYS)
+        gamekeydown[key_fire] = false;
 }
 
 void G_BuildTiccmd (ticcmd_t* cmd, int maketic) 
