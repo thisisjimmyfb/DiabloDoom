@@ -1887,31 +1887,47 @@ static void cmd_dispatch(const char *cmd)
                 extern void D_BackpackRemoveAt(struct player_s *pl, int bpi);
                 extern void D_RecalcStats(struct player_s *player);
                 extern boolean D_BackpackAdd(struct player_s *pl, int tier, int idx);
+                const diablo_itemdef_t *def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
                 int old = pl->diablo_equipped[slot];
                 int new_dur = pl->diablo_backpack_dur[bpi];
                 int old_dur = pl->diablo_equipped_dur[slot];
-                // Simple validation: check item's slot matches (or allow swap)
-                pl->diablo_equipped[slot] = id;
-                pl->diablo_equipped_dur[slot] = new_dur;
-                D_BackpackRemoveAt((struct player_s *)pl, bpi);
-                // If there was an old item, put it back in backpack
-                if (old != -1)
+                // Slot validation: an item only fits its matching
+                // slot (rings fit RING1 or RING2; consumables and
+                // slotless items fit nowhere). The mouse UI already
+                // enforces this via D_SlotFits; the driver did not,
+                // which is how a ring landed in the weapon slot.
+                // A rejected EQUIP leaves the item in the backpack.
+                if (!D_SlotFits(slot, def))
                 {
-                    // D_BackpackAdd needs tier/idx; use direct placement instead
-                    int i;
-                    for (i = 0; i < D_BACKPACK_MAX; i++)
+                    char name[128];
+                    D_ItemDisplayName(def, name, sizeof(name));
+                    printf("[AGENT] EQUIP rejected: %s doesn't fit slot %d\n",
+                           name, slot);
+                }
+                else
+                {
+                    pl->diablo_equipped[slot] = id;
+                    pl->diablo_equipped_dur[slot] = new_dur;
+                    D_BackpackRemoveAt((struct player_s *)pl, bpi);
+                    // If there was an old item, put it back in backpack
+                    if (old != -1)
                     {
-                        if (pl->diablo_backpack[i] == -1)
+                        // D_BackpackAdd needs tier/idx; use direct placement instead
+                        int i;
+                        for (i = 0; i < D_BACKPACK_MAX; i++)
                         {
-                            pl->diablo_backpack[i] = old;
-                            pl->diablo_backpack_dur[i] = old_dur;
-                            pl->diablo_bp_page[i] = pl->diablo_bp_cur;
-                            break;
+                            if (pl->diablo_backpack[i] == -1)
+                            {
+                                pl->diablo_backpack[i] = old;
+                                pl->diablo_backpack_dur[i] = old_dur;
+                                pl->diablo_bp_page[i] = pl->diablo_bp_cur;
+                                break;
+                            }
                         }
                     }
+                    D_RecalcStats((struct player_s *)pl);
+                    printf("[AGENT] EQUIPPED backpack[%d] -> slot[%d]\n", bpi, slot);
                 }
-                D_RecalcStats((struct player_s *)pl);
-                printf("[AGENT] EQUIPPED backpack[%d] -> slot[%d]\n", bpi, slot);
             }
         }
     }
