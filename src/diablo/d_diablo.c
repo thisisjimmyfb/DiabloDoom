@@ -6,8 +6,9 @@
 // make the stats actually work.
 //
 // Stat formulas (kept deliberately simple):
-//   weapon damage : +random(dmg_min..dmg_max) of equipped weapon, plus
-//                   +1 per 4 strength, on every point of player damage
+//   weapon damage : +random(dmg_min..dmg_max) of equipped weapon
+//                   (guns get no strength scaling; fists get +1 per
+//                   4 gear strength — see D_WeaponBonus)
 //   defense       : Diablo 2-style. The armor values of the durability
 //                   slots (helm/armor/boots/gloves/belt) sum into a
 //                   Defense rating (hundreds to thousands). A monster's
@@ -1865,15 +1866,16 @@ int D_WeaponBonus(struct player_s *pl)
     int bonus;
 
     if (hi <= 0)
-        bonus = 0;
+        // Fists: strength scales unarmed damage (+1 per 4 gear
+        // strength), as before.
+        bonus = D_Stat(pl, DSTAT_STR) / 4;
     else if (hi <= lo)
         bonus = lo;
     else
         bonus = lo + (P_Random() % (hi - lo + 1));
 
-    // strength: +1 damage per 4 points, on all player attacks.
-    bonus += D_Stat(pl, DSTAT_STR) / 4;
-
+    // Guns get no strength scaling (2026-11-04): strength is an
+    // equipment requirement only, except for fists above.
     return bonus;
 }
 

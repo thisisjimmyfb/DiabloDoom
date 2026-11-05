@@ -800,7 +800,7 @@ its own movement history.)
 
 | Stat   | Meaning              | Effect                                                  |
 |--------|----------------------|---------------------------------------------------------|
-| AD     | Attack Damage        | Scales ballistic, explosive, melee. Strength feeds AD.  |
+| AD     | Attack Damage        | Scales ballistic, explosive, melee. Strength does NOT feed AD (guns) — it gates equipment and scales fists only. |
 | AP     | Ability Power        | Scales plasma, BFG, status, charged effects. Energy feeds AP. |
 | AS     | Attack Speed         | Reduces melee TP attack cost; ranged attacks are TP-free (ammo-gated). |
 | Haste  | Cooldown recovery    | Cooldown-reduction percent (cap 50%): applied when a cooldown is set, then flat reduction, minimum 1 round (1 round = 10 s). |
@@ -867,7 +867,13 @@ items, disable anything unmet, repeat until nothing changes. The
 loop is bounded (each pass disables at least one item or exits, at
 most one pass per equipment slot) — no recursion, no unbounded
 iteration. The `[GEAR]` dump marks disabled items with the STR
-needed.
+needed. Strength does not scale gun damage: a gun deals its own
+damage range (plus AD% / flat bonuses), and strength's only roles
+are the requirement check and fist damage. Every equip and unequip
+re-runs the full check from scratch — the disabled set is never
+stored — so equipping strength gear immediately re-enables items
+that now meet their requirement, and unequipping it can disable
+items again.
 
 **Cooldown gates ammo regen (unified, 2026-11-01).** The `cooldown` value in a kit
 definition is one number with one meaning: firing the weapon sets its

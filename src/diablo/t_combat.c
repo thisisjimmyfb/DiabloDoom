@@ -85,14 +85,20 @@ void T_DeriveStats(player_t *player, t_combatstats_t *out)
     dmg_max = player->diablo_stats[DSTAT_DMG_MAX];
     if (dmg_max <= 0)
     {
-        // Fists.
+        // Fists: strength scales unarmed damage, as before.
         dmg_min = 1;
         dmg_max = 3;
+        out->ad_min = dmg_min + str / 2;
+        out->ad_max = dmg_max + str;
     }
-
-    // Strength feeds weapon damage.
-    out->ad_min = dmg_min + str / 2;
-    out->ad_max = dmg_max + str;
+    else
+    {
+        // Guns: no strength scaling (2026-11-04). Strength is an
+        // equipment requirement only — gun damage is the gun's own
+        // range. AD% and flat bonuses still apply downstream.
+        out->ad_min = dmg_min;
+        out->ad_max = dmg_max;
+    }
     if (out->ad_max < out->ad_min)
         out->ad_max = out->ad_min;
     // NOTE: AD_PCT is NOT applied here. The approved formula applies it
