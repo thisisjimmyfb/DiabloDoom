@@ -1307,12 +1307,18 @@ static void ST_drawDiabloWeapon(void)
     def = (id != D_NOITEM) ? D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id)) : NULL;
     if (def == NULL)
     {
-        // No Diablo weapon equipped: show the built-in pistol sprite
-        // (the game defaults to pistol when unarmed; see
-        // D_SyncDoomWeapon).  A real patch through the patch path --
-        // not the Doom view-model sprite, not the opaque icon.
-        STWepDrawPatch(ST_WEPX0, ST_WEPY, ST_WEPW, ST_WEPH,
-                       D_PistolSprite());
+        // No Diablo weapon equipped: the game defaults to fists when
+        // unarmed (see D_SyncDoomWeapon), so show the fist sprite
+        // (PUNGA0, vanilla in every IWAD) instead of the pistol.
+        // Checked by name first (custom-resource rule): without it,
+        // leave the panel empty rather than showing the wrong weapon.
+        // PUNGA0 is 96x46, close to the panel's 38x21 aspect, so the
+        // panel stretch keeps it readable.
+        patch_t *fist = NULL;
+        if (W_CheckNumForName("PUNGA0") >= 0)
+            fist = W_CacheLumpName("PUNGA0", PU_CACHE);
+        if (fist)
+            STWepDrawPatch(ST_WEPX0, ST_WEPY, ST_WEPW, ST_WEPH, fist);
         return;
     }
 
