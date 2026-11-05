@@ -9,6 +9,7 @@
 
 #include <limits.h>
 #include <string.h>
+#include <time.h>
 
 #include "d_diablo.h"
 #include "d_diablo_icons.h"
@@ -19,6 +20,7 @@
 #include "doomkeys.h"
 #include "doomstat.h"
 #include "p_inter.h"
+#include "s_sound.h"
 #include "hu_stuff.h"
 #include "i_input.h"
 #include "i_swap.h"
@@ -357,6 +359,22 @@ boolean D_UIIsOpen(void)
     return ui_open;
 }
 
+// WoW Forever event (until end of Wednesday 2026-11-11 PT):
+// entering or exiting the inventory plays an original "zug zug"
+// grunt. The date gate self-expires; no removal commit is needed.
+// Cutoff = 2026-11-12 08:00 UTC (midnight PST). Custom-resource
+// guard: DSZUGZUG exists only in the avatar wad, not in vanilla
+// Doom, so check the lump is actually loaded before playing it.
+// An unguarded S_StartSound would reach W_GetNumForName and I_Error
+// out of the game for anyone running without -file. Missing lump =
+// silently skip, never crash.
+static void D_PlayZugZug(void)
+{
+    if (time(NULL) < 1794470400
+        && W_CheckNumForName("DSZUGZUG") >= 0)
+        S_StartSound(NULL, sfx_zugzug);
+}
+
 void D_UIOpen(void)
 {
     player_t *player;
@@ -419,6 +437,7 @@ void D_UIOpen(void)
     /* Log the exact equipped set once per open (driver and keyboard
        opens alike); the vision loop reads stats from the log. */
     D_DumpEquippedGear();
+    D_PlayZugZug();
 }
 
 void D_UIClose(void)
@@ -474,6 +493,7 @@ void D_UIClose(void)
     // backgrounds are repainted via d_ui_needs_redraw (see D_Display).
     d_ui_needs_redraw = true;
     V_DrawFilledBox(0, 0, SCREENWIDTH, SCREENHEIGHT, 0);
+    D_PlayZugZug();
 }
 
 // ---------------------------------------------------------------------------
