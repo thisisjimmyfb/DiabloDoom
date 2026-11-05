@@ -126,21 +126,26 @@ static unsigned int ProgressChecksum(unsigned char *data, unsigned int len)
 
 // Find the repo root: the progress file lives in ~/workspace/DiabloDoom
 // (persistent across VM recycles, per 2026-10-10).
-// slot = 0 -> progress.dat (legacy/farm default)
-// slot >= 1 -> progress_slotN.dat (user-selectable slots)
+// slot -> autosave file (2026-11-05): the game memory-maps the
+// autosave file directly, so there is no separate live progress.dat
+// vs snapshot split. Slot 1 -> progress_auto1.dat, slot 2 ->
+// progress_auto2.dat, slot 3 -> progress_auto3.dat; slot 0 (the
+// legacy/farm default) uses progress_auto1.dat. The file lives in
+// the persistent autosave dir, so it survives VM recycles, and the
+// mapping keeps it current even if the game crashes.
 static void ProgressGetPathForSlot(char *buf, size_t buflen, int slot)
 {
-    // Use the current working directory (repo root). The game is run
-    // from the repo root, so ./progress.dat is the right location on
-    // any machine, regardless of where the repo is checked out.
-    if (slot <= 0)
-        M_snprintf(buf, buflen, "./" PROGRESS_FILENAME);
+    char auto_dir[512];
+    int auto_slot;
+    ProgressGetAutoDir(auto_dir, sizeof(auto_dir));
+    if (slot <= 1)
+        auto_slot = 1;
+    else if (slot > PROGRESS_NUM_AUTO_SLOTS)
+        auto_slot = PROGRESS_NUM_AUTO_SLOTS;
     else
-    {
-        char tmp[64];
-        M_snprintf(tmp, sizeof(tmp), PROGRESS_SLOT_FILENAME_FMT, slot);
-        M_snprintf(buf, buflen, "./%s", tmp);
-    }
+        auto_slot = slot;
+    M_snprintf(buf, buflen, "%s/" PROGRESS_AUTO_FILENAME_FMT,
+               auto_dir, auto_slot);
 }
 
 static void ProgressGetAutoDir(char *buf, size_t buflen)
@@ -371,8 +376,6 @@ void D_ProgressTick(void)
 // The Doom savegame slots 7-9 are not used; progress.dat is the save.
 void D_AutoSaveGame(void)
 {
-    char path[512];
-    char tmp[64];
     extern gameaction_t gameaction;
     extern boolean g_loading_savegame;
 
@@ -464,29 +467,15 @@ void D_AutoSaveGame(void)
                    gamemap, gameepisode, (int)gameaction, d_map, d_episode);
         }
     }
-    M_snprintf(tmp, sizeof(tmp), PROGRESS_AUTO_FILENAME_FMT,
+    // The live file IS the autosave file (2026-11-05: the game
+    // memory-maps progress_autoN.dat directly, no separate live
+    // progress.dat vs snapshot split), so there is no progress file
+    // to copy. Force the mapping to disk so a crash cannot lose it.
+    if (progress_map)
+    {
+        msync(progress_map, PROGRESS_FILE_SIZE, MS_SYNC);
+        printf("[AUTOSAVE] progress msync'd (slot %d)\n",
                progress_auto_slot + 1);
-    {
-        char auto_dir[512];
-        ProgressGetAutoDir(auto_dir, sizeof(auto_dir));
-        M_snprintf(path, sizeof(path), "%s/%s", auto_dir, tmp);
-    }
-
-    // Copy the entire progress file (header + slots) to the auto slot.
-    // Single slot (no rotation) per user preference.
-    {
-        FILE *f = fopen(path, "wb");
-        if (f)
-        {
-            fwrite(progress_map, 1, PROGRESS_FILE_SIZE, f);
-            fclose(f);
-            printf("[AUTOSAVE] %s updated (slot %d)\n",
-                   tmp, progress_auto_slot + 1);
-        }
-        else
-        {
-            printf("[AUTOSAVE] failed to write %s\n", tmp);
-        }
     }
 
     // Auto slots are 0-2 (display 1-3); manual are 3-5 (display 4-6).
