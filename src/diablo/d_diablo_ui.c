@@ -1305,11 +1305,13 @@ static void UIDrawItemIcon(int x, int y, int w, int h, int id)
 }
 
 // Draw one equipment slot box (with item icon when filled, name when empty).
-/* Half-scale text for paperdoll slot names: a full-size 6-letter label
-   measures ~45px against a 30px slot, and neighboring slots erase the
-   overflow. Glyphs render at half size via the same sampling the icon
-   fitter uses, so the longest label lands at ~22px. Other UI text
-   keeps full size; only slot names use this. */
+/* Three-fifths-scale text for paperdoll slot names: a full-size
+   6-letter label measures ~45px against a 30px slot, and neighboring
+   slots erase the overflow. Half-scale glyphs dropped too much of
+   each letter to read cleanly, so slot names render at 3/5 instead:
+   the longest label lands at ~27px, still inside its slot, with more
+   of each stroke surviving the sampling. Other UI text keeps full
+   size; only slot names use this. */
 static int UITextWidthSmall(const char *s)
 {
     int w = 0;
@@ -1323,7 +1325,7 @@ static int UITextWidthSmall(const char *s)
             w += 2;
         else
         {
-            int sw = (SHORT(hu_font[c]->width) + 1) / 2;
+            int sw = (SHORT(hu_font[c]->width) * 3 + 2) / 5;
             if (sw < 1)
                 sw = 1;
             w += sw;
@@ -1354,8 +1356,8 @@ static void UIDrawTextSmall(int x, int y, const char *s)
         }
         w = SHORT(hu_font[c]->width);
         h = SHORT(hu_font[c]->height);
-        sw = (w + 1) / 2;
-        sh = (h + 1) / 2;
+        sw = (w * 3 + 2) / 5;
+        sh = (h * 3 + 2) / 5;
         if (sw < 1)
             sw = 1;
         if (sh < 1)
