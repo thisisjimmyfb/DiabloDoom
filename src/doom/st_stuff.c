@@ -1335,9 +1335,9 @@ static void ST_drawDiabloWeapon(void)
             fist = W_CacheLumpName("PUNGA0", PU_CACHE);
         if (fist)
             STWepDrawPatch(ST_WEPX0, ST_WEPY, ST_WEPW, ST_WEPH, fist);
-        return;
     }
-
+    else
+    {
     // Guns prefer the WAD's own pickup sprite when the loaded IWAD
     // carries one (same rule as the inventory screen); failing
     // that, the built-in patch (pistol); the built-in icon is the
@@ -1360,9 +1360,24 @@ static void ST_drawDiabloWeapon(void)
                               d_item_icons[icon_idx]);
         }
     }
+    }
 
-    dmg_min = D_Stat((struct player_s *)plyr, DSTAT_DMG_MIN);
-    dmg_max = D_Stat((struct player_s *)plyr, DSTAT_DMG_MAX);
+    // Damage number: one shared draw for guns and fists. Guns read
+    // the derived item range (D_Stat); fists have no weapon item to
+    // read, so the number comes from the fist kit via T_DamageRange
+    // — the same function the turn-mode stat block uses, so the arms
+    // panel and the AD readout agree. (2026-11-05)
+    if (def != NULL)
+    {
+        dmg_min = D_Stat((struct player_s *)plyr, DSTAT_DMG_MIN);
+        dmg_max = D_Stat((struct player_s *)plyr, DSTAT_DMG_MAX);
+    }
+    else
+    {
+        t_combatstats_t st;
+        T_DeriveStats(plyr, &st);
+        T_DamageRange(plyr, NULL, &st, &dmg_min, &dmg_max);
+    }
     snprintf(dmgbuf, sizeof(dmgbuf), "%d-%d", dmg_min, dmg_max);
     STWepDrawText(ST_WEPCX - STWepTextWidth(dmgbuf) / 2, 191, dmgbuf);
 }
