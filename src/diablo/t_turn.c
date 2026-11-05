@@ -1889,57 +1889,29 @@ static void cmd_dispatch(const char *cmd)
     {
         // EQUIP <backpack_index> <slot>: equip item from backpack to paperdoll.
         // Slot: 0=HELM,1=ARMOR,2=WEAPON,3=SHIELD,4=RING1,5=RING2,6=AMULET,7=BOOTS,8=GLOVES,9=BELT,10=CLIPS
+        // Uses the shared equip path (D_EquipBackpackItem, same as the
+        // E key) — no driver-specific equip code. A rejected EQUIP
+        // leaves the item in the backpack.
         int bpi, slot;
         player_t *pl = &players[consoleplayer];
         if (sscanf(cmd + 6, "%d %d", &bpi, &slot) == 2
             && bpi >= 0 && bpi < D_BACKPACK_MAX && slot >= 0 && slot <= 10)
         {
-            int id = pl->diablo_backpack[bpi];
-            if (id != -1)
+            extern boolean D_EquipBackpackItem(struct player_s *pl,
+                                               int bpi, int slot);
+            if (D_EquipBackpackItem((struct player_s *)pl, bpi, slot))
+                printf("[AGENT] EQUIPPED backpack[%d] -> slot[%d]\n", bpi, slot);
+            else
             {
-                extern void D_BackpackRemoveAt(struct player_s *pl, int bpi);
-                extern void D_RecalcStats(struct player_s *player);
-                extern boolean D_BackpackAdd(struct player_s *pl, int tier, int idx);
-                const diablo_itemdef_t *def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
-                int old = pl->diablo_equipped[slot];
-                int new_dur = pl->diablo_backpack_dur[bpi];
-                int old_dur = pl->diablo_equipped_dur[slot];
-                // Slot validation: an item only fits its matching
-                // slot (rings fit RING1 or RING2; consumables and
-                // slotless items fit nowhere). The mouse UI already
-                // enforces this via D_SlotFits; the driver did not,
-                // which is how a ring landed in the weapon slot.
-                // A rejected EQUIP leaves the item in the backpack.
-                if (!D_SlotFits(slot, def))
+                int id = pl->diablo_backpack[bpi];
+                if (id != -1)
                 {
+                    const diablo_itemdef_t *def =
+                        D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
                     char name[128];
                     D_ItemDisplayName(def, name, sizeof(name));
-                    printf("[AGENT] EQUIP rejected: %s doesn't fit slot %d\n",
+                    printf("[AGENT] EQUIP rejected: %s doesn't fit slot %d or no room\n",
                            name, slot);
-                }
-                else
-                {
-                    pl->diablo_equipped[slot] = id;
-                    pl->diablo_equipped_dur[slot] = new_dur;
-                    D_BackpackRemoveAt((struct player_s *)pl, bpi);
-                    // If there was an old item, put it back in backpack
-                    if (old != -1)
-                    {
-                        // D_BackpackAdd needs tier/idx; use direct placement instead
-                        int i;
-                        for (i = 0; i < D_BACKPACK_MAX; i++)
-                        {
-                            if (pl->diablo_backpack[i] == -1)
-                            {
-                                pl->diablo_backpack[i] = old;
-                                pl->diablo_backpack_dur[i] = old_dur;
-                                pl->diablo_bp_page[i] = pl->diablo_bp_cur;
-                                break;
-                            }
-                        }
-                    }
-                    D_RecalcStats((struct player_s *)pl);
-                    printf("[AGENT] EQUIPPED backpack[%d] -> slot[%d]\n", bpi, slot);
                 }
             }
         }
@@ -1947,31 +1919,15 @@ static void cmd_dispatch(const char *cmd)
     else if (!strncmp(cmd, "UNEQUIP ", 8))
     {
         // UNEQUIP <slot>: move equipped item back to backpack.
+        // Uses the shared unequip path (D_UnequipSlot, same as the
+        // Q key) — no driver-specific unequip code.
         int slot;
         player_t *pl = &players[consoleplayer];
         if (sscanf(cmd + 8, "%d", &slot) == 1 && slot >= 0 && slot <= 10)
         {
-            int id = pl->diablo_equipped[slot];
-            if (id != -1)
-            {
-                extern void D_RecalcStats(struct player_s *player);
-                int i;
-                for (i = 0; i < D_BACKPACK_MAX; i++)
-                {
-                    if (pl->diablo_backpack[i] == -1)
-                    {
-                        pl->diablo_backpack[i] = id;
-                        pl->diablo_backpack_dur[i] =
-                            pl->diablo_equipped_dur[slot];
-                        pl->diablo_bp_page[i] = pl->diablo_bp_cur;
-                        pl->diablo_equipped[slot] = -1;
-                        pl->diablo_equipped_dur[slot] = 0;
-                        D_RecalcStats((struct player_s *)pl);
-                        printf("[AGENT] UNEQUIPPED slot[%d] -> backpack[%d]\n", slot, i);
-                        break;
-                    }
-                }
-            }
+            extern boolean D_UnequipSlot(struct player_s *pl, int slot);
+            if (D_UnequipSlot((struct player_s *)pl, slot))
+                printf("[AGENT] UNEQUIPPED slot[%d] -> backpack\n", slot);
         }
     }
     else if (!strncmp(cmd, "SALVAGE ", 8))
