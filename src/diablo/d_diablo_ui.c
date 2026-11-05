@@ -34,24 +34,26 @@
 // ---------------------------------------------------------------------------
 
 #define UI_CELL      20                      // backpack cell size (px)
-#define UI_BP_X      112                     // backpack grid origin
+#define UI_BP_X      152                     // backpack grid origin
 #define UI_BP_Y      32
-#define UI_BP_W      (D_BP_GRID_W * UI_CELL) // 200
+#define UI_BP_W      (D_BP_GRID_W * UI_CELL) // 160
 #define UI_BP_H      (D_BP_GRID_H * UI_CELL) // 140
 
-#define UI_SLOT_W    30
-#define UI_SLOT_H    24
+#define UI_SLOT_W    40
+#define UI_SLOT_H    28
 
-// Equipment slot boxes: {slot, x, y}.
+// Equipment slot boxes: {slot, x, y}. Three columns (x 6/52/98)
+// and five rows (y 32/61/90/119/148); the bottom row ends at y 176,
+// above the footer text at y 180.
 static const struct { int slot, x, y; } ui_slots[NUM_ESLOTS] =
 {
-    { ESLOT_HELM,   40,  32 },
-    { ESLOT_AMULET,  6,  62 }, { ESLOT_ARMOR, 40,  62 },
-    { ESLOT_WEAPON,  6,  92 }, { ESLOT_SHIELD, 40,  92 },
-    { ESLOT_GLOVES,  6, 122 }, { ESLOT_BELT,  40, 122 },
-    { ESLOT_BOOTS,  74, 122 },
-    { ESLOT_RING1,   6, 152 }, { ESLOT_RING2, 40, 152 },
-    { ESLOT_FOCUS,  74, 152 },
+    { ESLOT_HELM,   52,  32 },
+    { ESLOT_AMULET,  6,  61 }, { ESLOT_ARMOR, 52,  61 },
+    { ESLOT_WEAPON,  6,  90 }, { ESLOT_SHIELD, 52,  90 },
+    { ESLOT_GLOVES,  6, 119 }, { ESLOT_BELT,  52, 119 },
+    { ESLOT_BOOTS,  98, 119 },
+    { ESLOT_RING1,   6, 148 }, { ESLOT_RING2, 52, 148 },
+    { ESLOT_FOCUS,  98, 148 },
 };
 
 static const char *ui_slotnames[NUM_ESLOTS] =
@@ -1361,13 +1363,12 @@ static void UIDrawItemIcon(int x, int y, int w, int h, int id)
 }
 
 // Draw one equipment slot box (with item icon when filled, name when empty).
-/* Three-fifths-scale text for paperdoll slot names: a full-size
-   6-letter label measures ~45px against a 30px slot, and neighboring
-   slots erase the overflow. Half-scale glyphs dropped too much of
-   each letter to read cleanly, so slot names render at 3/5 instead:
-   the longest label lands at ~27px, still inside its slot, with more
-   of each stroke surviving the sampling. Other UI text keeps full
-   size; only slot names use this. */
+/* Four-fifths-scale text for paperdoll slot names: a full-size
+   6-letter label measures ~45px, too wide for a 40px slot, and
+   3/5-scale glyphs (~27px) dropped too much of each letter to read
+   cleanly. At 4/5 the longest label lands at ~36px, inside its
+   slot, with more of each stroke surviving the sampling. Other UI
+   text keeps full size; only slot names use this. */
 static int UITextWidthSmall(const char *s)
 {
     int w = 0;
@@ -1381,7 +1382,7 @@ static int UITextWidthSmall(const char *s)
             w += 2;
         else
         {
-            int sw = (SHORT(hu_font[c]->width) * 3 + 2) / 5;
+            int sw = (SHORT(hu_font[c]->width) * 4 + 2) / 5;
             if (sw < 1)
                 sw = 1;
             w += sw;
@@ -1412,8 +1413,8 @@ static void UIDrawTextSmall(int x, int y, const char *s)
         }
         w = SHORT(hu_font[c]->width);
         h = SHORT(hu_font[c]->height);
-        sw = (w * 3 + 2) / 5;
-        sh = (h * 3 + 2) / 5;
+        sw = (w * 4 + 2) / 5;
+        sh = (h * 4 + 2) / 5;
         if (sw < 1)
             sw = 1;
         if (sh < 1)
@@ -1669,11 +1670,12 @@ void D_UIDrawer(void)
                    D_BpPages((struct player_s *)player));
         UIDrawText(UI_BP_X, 26, bptitle);
     }
-    // Essence display (salvage currency)
+    // Essence display (salvage currency), right-aligned to the
+    // backpack's right edge so a large count never runs off-screen.
     {
         char essbuf[32];
         M_snprintf(essbuf, sizeof(essbuf), "Essence: %d", player->diablo_essence);
-        UIDrawText(UI_BP_X + 120, 26, essbuf);
+        UIDrawText(UI_BP_X + UI_BP_W - UITextWidth(essbuf), 26, essbuf);
     }
     V_DrawFilledBox(UI_BP_X - 2, UI_BP_Y - 2, UI_BP_W + 4, UI_BP_H + 4,
                     c_panel);
