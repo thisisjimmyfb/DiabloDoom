@@ -96,7 +96,7 @@ typedef enum
 #define D_NOITEM         (-1)
 
 // Phase 2 backpack grid dimensions (cells).  10x7 = 70 cells per page.
-#define D_BP_GRID_W  10
+#define D_BP_GRID_W  8
 #define D_BP_GRID_H  7
 
 // Backpack pages (2026-10-29): 1 page by default, +1 per
