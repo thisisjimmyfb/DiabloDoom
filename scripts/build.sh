@@ -74,4 +74,25 @@ cmake --build "$BUILD_DIR" --parallel "$(nproc)"
 
 echo
 echo "Build complete: $BUILD_DIR/src/chocolate-doom"
-echo "Run with:       $BUILD_DIR/src/chocolate-doom -iwad /path/to/doom.wad"
+
+# Print a ready-to-run command for every IWAD found under ./wad
+# (gitignored, so local paths never land in the repo).
+PWAD_ARGS=""
+[ -f agent/jolly.wad ] && PWAD_ARGS=" -file agent/jolly.wad"
+iwads=()
+if [ -d wad ]; then
+    while IFS= read -r f; do
+        # Only IWADs can start a game; PWADs (add-ons) start with "PWAD".
+        if [ "$(head -c4 "$f")" = "IWAD" ]; then
+            iwads+=("$f")
+        fi
+    done < <(find wad -type f -iname '*.wad' | sort)
+fi
+if [ "${#iwads[@]}" -eq 0 ]; then
+    echo "Run with:       $BUILD_DIR/src/chocolate-doom -iwad /path/to/doom.wad$PWAD_ARGS"
+else
+    echo "Run with:"
+    for f in "${iwads[@]}"; do
+        printf '  %s/src/chocolate-doom -iwad %q%s\n' "$BUILD_DIR" "$f" "$PWAD_ARGS"
+    done
+fi
