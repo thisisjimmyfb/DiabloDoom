@@ -201,7 +201,7 @@ No polling, no file creation/deletion per tick — just a pipe.
 
 ### Commands
 
-> Note (2026-11-03): this table is the original command set. The driver has since grown (GOTO, USE, SNAP, SURVEY, WAIT, KEYS, EQUIP, UNEQUIP, SAVE, LOAD, QUIT, and more); the full current command reference is in `agent/SYSTEM_PROMPT.md` under Command Reference.
+> Note (2026-11-03): this table is the original command set. The driver has since grown (GOTO, USE, SNAP_WALL, SURVEY, WAIT, KEYS, EQUIP, UNEQUIP, SAVE, LOAD, QUIT, and more); the full current command reference is in `agent/SYSTEM_PROMPT.md` under Command Reference.
 
 
 #### Explore Mode Only
