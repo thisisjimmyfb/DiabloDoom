@@ -1479,6 +1479,11 @@ static void T_SnapToNearestWall(void)
 // Dispatch a single driver command line from the FIFO.
 static void cmd_dispatch(const char *cmd)
 {
+    // Any driver command counts as activity for the idle Zug Zug timer.
+    {
+        extern void D_UINoteActivity(void);
+        D_UINoteActivity();
+    }
     // Log every command with the current mode for debugging.
     {
         const char *mode_str = "UNKNOWN";

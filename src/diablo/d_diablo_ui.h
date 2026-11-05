@@ -30,6 +30,10 @@
 boolean D_UIIsOpen(void);
 void D_UIOpen(void);
 void D_UIClose(void);
+// Idle Zug Zug: note player activity (input or driver command),
+// and once-per-frame idle check (plays the grunt after 30 s idle).
+void D_UINoteActivity(void);
+void D_UITickIdle(void);
 // INSPECT support: point the kb cursor at an equipment slot or a
 // backpack item so its tooltip page shows.
 void D_UISelectSlot(int slot);

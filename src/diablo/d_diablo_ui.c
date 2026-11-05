@@ -11,6 +11,8 @@
 #include <string.h>
 #include <time.h>
 
+#include "i_timer.h"
+
 #include "d_diablo.h"
 #include "d_diablo_icons.h"
 #include "d_pistol_sprite.h"
@@ -377,6 +379,50 @@ static void D_PlayZugZug(void)
         S_StartSound(NULL, sfx_zugzug);
 }
 
+// Idle Zug Zug (WoW Forever event): after the player has been idle
+// for more than 30 seconds of real time, play the grunt once for
+// that idle period. Any input (keyboard/mouse, noted by
+// D_ProcessEvents) or driver command (noted by cmd_dispatch) counts
+// as activity and re-arms it. Only fires in a live single-player
+// level, so it never grunts on the title screen or in a menu.
+#define UI_IDLE_ZUGZUG_MS 30000
+static int ui_last_activity_ms = 0;
+static boolean ui_idle_started = false;
+static boolean ui_idle_zugzug_played = false;
+
+void D_UINoteActivity(void)
+{
+    ui_last_activity_ms = I_GetTimeMS();
+    ui_idle_started = true;
+    ui_idle_zugzug_played = false;
+}
+
+void D_UITickIdle(void)
+{
+    if (!ui_idle_started)
+    {
+        // First frame: start the clock, don't fire yet.
+        ui_last_activity_ms = I_GetTimeMS();
+        ui_idle_started = true;
+        return;
+    }
+    if (ui_idle_zugzug_played)
+        return;
+    if (gamestate != GS_LEVEL)
+        return;
+    if (deathmatch || netgame)
+        return;
+    if (!playeringame[consoleplayer]
+        || players[consoleplayer].playerstate != PST_LIVE)
+        return;
+    if (I_GetTimeMS() - ui_last_activity_ms > UI_IDLE_ZUGZUG_MS)
+    {
+        printf("[AGENT] idle 30s: zug zug\n");
+        D_PlayZugZug();
+        ui_idle_zugzug_played = true;
+    }
+}
+
 void D_UIOpen(void)
 {
     player_t *player;
@@ -435,8 +481,6 @@ void D_UIOpen(void)
             break;
         }
     }
-
-    D_PlayZugZug();
 }
 
 void D_UIClose(void)
@@ -492,7 +536,6 @@ void D_UIClose(void)
     // backgrounds are repainted via d_ui_needs_redraw (see D_Display).
     d_ui_needs_redraw = true;
     V_DrawFilledBox(0, 0, SCREENWIDTH, SCREENHEIGHT, 0);
-    D_PlayZugZug();
 }
 
 // ---------------------------------------------------------------------------

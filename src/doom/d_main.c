@@ -146,6 +146,8 @@ void D_ProcessEvents (void)
 	
     while ((ev = D_PopEvent()) != NULL)
     {
+	// Any input counts as activity for the idle Zug Zug timer.
+	D_UINoteActivity();
 	// Diablo character screen (mod): when open it owns all input,
 	// ahead of the menu responder.
 	if (D_UIIsOpen() && D_UIResponder(ev))
@@ -455,6 +457,10 @@ void D_RunFrame()
     I_StartFrame ();
 
     TryRunTics (); // will run at least one tic
+
+    // Idle Zug Zug: once per frame, check whether the player has
+    // been idle for more than 30 seconds.
+    D_UITickIdle();
 
     S_UpdateSounds (players[consoleplayer].mo);// move positional sounds
 
