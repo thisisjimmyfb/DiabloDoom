@@ -492,24 +492,11 @@ void D_AutoSaveGame(void)
     // Auto slots are 0-2 (display 1-3); manual are 3-5 (display 4-6).
     // With SAVEGAMESIZE expanded to 4MB, Diablo data fits.
     // No rotation: auto-save always uses slot 1 (Doom slot 0).
-    // Do NOT write the Doom world when the level is completing
-    // (gameaction == ga_completed, i.e. this call came from
-    // G_DoCompleted): the world snapshot at that moment is a dead
-    // level — the exit is already consumed and the intermission is
-    // about to run, but gameaction is not part of the savegame, so
-    // loading it drops the player back into the old level with no
-    // way to exit (2026-11-05). The progress file above is still
-    // written, so the player's gear survives; the world in slot 0
-    // stays the last playable autosave, and the next level's start
-    // autosave writes a fresh world when it loads.
-    if (gameaction != ga_completed)
     {
         extern void G_DoSaveGameSlot(int slot, const char *desc);
         G_DoSaveGameSlot(0, "AUTO 1");
         printf("[AUTOSAVE] Doom savegame written to slot 0\n");
     }
-    else
-        printf("[AUTOSAVE] level completing: progress saved, world left at last playable autosave\n");
 }
 
 // Load Diablo progress from an auto-save slot (1-based: 1..PROGRESS_NUM_AUTO_SLOTS).

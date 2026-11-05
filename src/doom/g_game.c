@@ -1608,12 +1608,11 @@ void G_DoCompleted (void)
     if (!demoplayback && !netdemo && !netgame)
         T_ProfileSave();
 
-    // Auto-save Diablo progress on level completion.
-    {
-        extern void D_AutoSaveGame(void);
-        D_AutoSaveGame();
-    }
-	 
+    // No autosave here (2026-11-05): the world at level completion
+    // is a dead level — the exit is already consumed — and gameaction
+    // is not part of the savegame, so a save taken here drops the
+    // player back into the old level with no way to exit. Progress
+    // is saved at the next level's start and on loot pickups.
     gameaction = ga_nothing; 
  
     for (i=0 ; i<MAXPLAYERS ; i++) 
