@@ -21,8 +21,8 @@ pauses while the screen is open.
 ### Layout
 
 - **Paperdoll** (left): helm, armor, weapon, shield, 2 rings, amulet,
-  boots, gloves, belt, plus a **FOCUS** slot — passive, non-consumable
-  focus items (Piercing Rounds, Incendiary Shells, …) that grant stat
+  boots, gloves, belt, plus a **CLIPS** slot — passive, non-consumable
+  clips (Piercing Rounds, Incendiary Shells, …) that grant stat
   bonuses to the equipped weapon.
 - **Backpack** (right): 10×7 grid per page (70 cells), 1 page by
   default. Every vanilla backpack pickup unlocks one more page,
@@ -1088,7 +1088,7 @@ preview the counter rising toward capacity instead.
   plasma's capacity is its max ammo). The panel always shows both
   AS and CD for every gun, AP and AD alike (2026-10-22) — both
   attributes affect all guns: attack speed paces the fire interval
-  and cooldown drives the ammo replenish rate. The FOCUS paperdoll slot
+  and cooldown drives the ammo replenish rate. The CLIPS paperdoll slot
   (equippable ammo items granting passive weapon stats) is unchanged.
 **Energy raises maximum ammo (2026-10-31).** Maximum magazine
 capacity is the kit base plus gear Energy: **+1 max ammo per point
@@ -1130,8 +1130,8 @@ turn system is active; no other native fire function gates), and
 the HUD never displays them in Diablo mode. Vanilla mode is
 untouched: its native gates and pools behave exactly as before.
 
-**FOCUS slot.** "Ammo" survives as a paperdoll inventory slot renamed
-FOCUS: equippable focus items (Piercing Rounds, Incendiary Shells, Swift
+**CLIPS slot.** "Ammo" survives as a paperdoll inventory slot renamed
+CLIPS (from FOCUS): equippable clips (Piercing Rounds, Incendiary Shells, Swift
 Cartridges, Spotter Rounds) that are never consumed and passively grant
 stat bonuses to the equipped weapon. One shared slot; layout unchanged,
 no profile-version bump.
@@ -1194,7 +1194,7 @@ skills). `D_ActiveMechs()` ORs the `MECH_*` bits across all equipped
 
 Diablo-style prefixes (flat/constant boosts) and suffixes (percentage
 boosts) for the core combat stats. These spawn on magic weapons and can
-also appear on rings, amulets, gloves, and focus items.
+also appear on rings, amulets, gloves, and clips.
 
 **Suffixes — percentage boosts:**
 
@@ -1220,7 +1220,7 @@ with % boosts. Flat cooldown applies after haste % (min 1 round).
 **Non-weapon affixes:** combat stats also spawn on jewelry and gloves:
 Ring/Amulet of Slaying (+10% AD), of the Magus (+10% AP), of Haste (+10%
 haste), Vampiric Ring (+5% leech); Gloves of Slaying (+3 flat AD), Gloves
-of Haste; Cooling Rounds focus (+20 plasma max ammo).
+of Haste; Cooling Rounds clips (+20 plasma max ammo).
 
 **Affix difficulty tiers.** Higher difficulties drop stronger affix
 variants (`diff_tier` field, filtered by `D_DifficultyTier()`):

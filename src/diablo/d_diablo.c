@@ -239,7 +239,7 @@ static const diablo_itemdef_t diablo_magic[] =
     IT("Assault Gloves",    TIER_MAGIC, ESLOT_GLOVES, 2,2, 0,0,0,  0, 0, 240,
        3,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
 
-    // Combat affixes on non-weapons: rings, amulets, gloves, focus.
+    // Combat affixes on non-weapons: rings, amulets, gloves, clips.
     IT("Ring of Slaying", TIER_MAGIC, ESLOT_RING1, 1,1, 0,0,0,  0, 0, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,10,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
     IT("Ring of the Magus", TIER_MAGIC, ESLOT_RING1, 1,1, 0,0,0,  0, 0, 0,
@@ -258,15 +258,15 @@ static const diablo_itemdef_t diablo_magic[] =
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 0, 3, 0, 0, 0, -1, 0),
     IT("Gloves of Haste", TIER_MAGIC, ESLOT_GLOVES, 2,2, 0,0,0,  0, 0, 240,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,10,0,0, 0, 0, 0, 0, 0, -1, 0),
-    IT("Cooling Rounds", TIER_MAGIC, ESLOT_FOCUS, 1,1, 0,0,0,  0, 0, 0,
+    IT("Cooling Rounds", TIER_MAGIC, ESLOT_CLIPS, 1,1, 0,0,0,  0, 0, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,0,0,0,0,0, 20, 0, 0, 0, 0, -1, 0),
-    IT("Piercing Rounds",   TIER_MAGIC, ESLOT_FOCUS,   1,1, 0,0,0,   0, 0, 0,
+    IT("Piercing Rounds",   TIER_MAGIC, ESLOT_CLIPS,   1,1, 0,0,0,   0, 0, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,  15,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
-    IT("Incendiary Shells", TIER_MAGIC, ESLOT_FOCUS,   1,1, 0,0,0,   0, 0, 0,
+    IT("Incendiary Shells", TIER_MAGIC, ESLOT_CLIPS,   1,1, 0,0,0,   0, 0, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,  0,10,0,0,0, 0, 0, 0, 0, 0, -1, 0),
-    IT("Swift Cartridges",  TIER_MAGIC, ESLOT_FOCUS,   1,1, 0,0,0,   0, 0, 0,
+    IT("Swift Cartridges",  TIER_MAGIC, ESLOT_CLIPS,   1,1, 0,0,0,   0, 0, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,  0,0,20,0,0, 0, 0, 0, 0, 0, -1, 0),
-    IT("Spotter Rounds",    TIER_MAGIC, ESLOT_FOCUS,   1,1, 0,0,0,   0, 0, 0,
+    IT("Spotter Rounds",    TIER_MAGIC, ESLOT_CLIPS,   1,1, 0,0,0,   0, 0, 0,
        0,0,0,0,   0,0,0,0,   0,0,0,  0,0,0,10,0, 0, 0, 0, 0, 0, -1, 0),
     // Replenish life (2026-10-30): rollable replenish items,
     // appended at the end so existing indices never shift.
@@ -458,12 +458,12 @@ boolean D_ValidItem(int tier, int idx)
 }
 
 // Map (tier, idx) to a d_diablo_icons.h icon index.
-// Guns share their base-gun icon (all variants of a base); the 4 FOCUS
+// Guns share their base-gun icon (all variants of a base); the 4 CLIPS
 // items share the ammo-box icon; everything else has a unique icon.
 int D_GetItemIconIdx(int tier, int idx)
 {
     const diablo_itemdef_t *def;
-    // Non-gun icons by table position (guns/FOCUS return before these).
+    // Non-gun icons by table position (guns/CLIPS return before these).
     // Normal (11): 0 Pistol, 1 Shotgun are guns.
     static const int normal_icons[] = {
         -1, -1,
@@ -471,7 +471,7 @@ int D_GetItemIconIdx(int tier, int idx)
         D_ICON_BELT, D_ICON_POTION_RED, D_ICON_POTION_BLUE,
         D_ICON_POTION_GREEN, D_ICON_BOOT_LEATHER, D_ICON_GLOVE_LEATHER,
     };
-    // Magic (16): 0-5 are guns, 12-15 are FOCUS.
+    // Magic (16): 0-5 are guns, 12-15 are CLIPS.
     static const int magic_icons[]  = {
         -1, -1, -1, -1, -1, -1,
         D_ICON_M_VAMPIRIC_BONE_SHIELD, D_ICON_M_PRISMATIC_AMULET,
@@ -525,7 +525,7 @@ int D_GetItemIconIdx(int tier, int idx)
             default: break;
         }
     }
-    if (def->slot == ESLOT_FOCUS)
+    if (def->slot == ESLOT_CLIPS)
         return D_ICON_AMMO_BOX;
 
     // Bounds-checked: the arrays below must match their item tables.
@@ -562,7 +562,7 @@ int D_GetItemIconIdx(int tier, int idx)
         case ESLOT_AMULET: return D_ICON_AMULET;
         case ESLOT_RING1:
         case ESLOT_RING2:  return D_ICON_RING;
-        case ESLOT_FOCUS:  return D_ICON_AMMO_BOX;
+        case ESLOT_CLIPS:  return D_ICON_AMMO_BOX;
         case ESLOT_NONE:   return D_ICON_POTION_RED;
         default:           return D_ICON_GUN_PISTOL;
     }
@@ -1186,7 +1186,7 @@ void D_DumpEquippedGear(void)
     static const char *slotnames[NUM_ESLOTS] =
     {
         "HELM", "ARMOR", "WEAPON", "SHIELD", "RING1", "RING2",
-        "AMULET", "BOOTS", "GLOVES", "BELT", "FOCUS"
+        "AMULET", "BOOTS", "GLOVES", "BELT", "CLIPS"
     };
     static const char *tiernames[NUM_TIERS] =
     {

@@ -147,7 +147,7 @@ void T_DeriveStats(player_t *player, t_combatstats_t *out)
 
 // Gear percent multipliers, applied AFTER all flat damage (kit base +
 // gun damage + attributes), per the approved AD/AP formula. Diablo-style:
-// +X% Attack Damage / +Y% Ability Power from items and focus buffs.
+// +X% Attack Damage / +Y% Ability Power from items and clips buffs.
 // Flat bonuses (DSTAT_AD_FLAT/DSTAT_AP_FLAT) are added before the %
 // multiplier.
 int T_ApplyAdPct(player_t *player, int dmg)
