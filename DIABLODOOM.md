@@ -521,6 +521,10 @@ through a bounded simulation pulse.
    also plays an original "zug zug" grunt (DSZUGZUG in the avatar wad) as
    a Warcraft-style command acknowledgement. The date gate in
    `T_DoEndTurn` self-expires, so the sound simply stops after the event.
+   The play is guarded: DSZUGZUG exists only in the avatar wad, so the
+   turn-end code checks the lump is loaded and silently skips the sound
+   when running without `-file` (an unguarded play would `I_Error` out
+   of the game on the missing lump).
 5. **Preview** — during planning, the first-person camera follows queued
    moves (no game logic, just the view), so the player sees where the
    queue goes before committing. UNDO steps the camera back; Z clears
