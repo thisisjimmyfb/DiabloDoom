@@ -141,7 +141,9 @@ typedef struct
     int dmg_min;     // weapon damage range
     int dmg_max;
     int armor;       // damage reduction value
-    int str;         // +1 damage per 4 (all player attacks)
+    int str;         // strength: equipment requirement currency, and
+                     // +1 fist damage per 4 (fists only — guns get no
+                     // strength scaling)
     int dex;         // aggregated; block/dodge hook is a Phase 2 TODO
     int vit;         // +5 max HP per point
     int ene;         // aggregated; mana pool is a Phase 2 TODO
