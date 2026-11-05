@@ -14,6 +14,7 @@
 #include <errno.h>
 
 #include "hu_stuff.h"
+#include "m_controls.h"
 #include "t_turn.h"
 #include "t_combat.h"
 #include "d_diablo.h"
@@ -504,6 +505,13 @@ void T_EnterCombat(mobj_t *spotter)
     for (i = 0; i < sizeof(move_keys) / sizeof(move_keys[0]); i++)
         if (move_keys[i] >= 0 && move_keys[i] < 256)
             turnctrl.stale_keys[move_keys[i]] = true;
+    // Fire key too (2026-11-05): Right Ctrl is both the fire button
+    // and hold-to-target, so a fire key held into combat can stick
+    // (its repeats would arm targeting after the pulse ends, and
+    // the release is then swallowed). Mark it stale with the
+    // movement keys so its repeats are ignored until released.
+    if (key_fire >= 0 && key_fire < 256)
+        turnctrl.stale_keys[key_fire] = true;
     // Clear Doom-level key states to prevent stuck movement.
     {
         extern void G_ClearMovementKeys(void);
