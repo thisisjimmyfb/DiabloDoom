@@ -1305,6 +1305,78 @@ static void UIDrawItemIcon(int x, int y, int w, int h, int id)
 }
 
 // Draw one equipment slot box (with item icon when filled, name when empty).
+/* Half-scale text for paperdoll slot names: a full-size 6-letter label
+   measures ~45px against a 30px slot, and neighboring slots erase the
+   overflow. Glyphs render at half size via the same sampling the icon
+   fitter uses, so the longest label lands at ~22px. Other UI text
+   keeps full size; only slot names use this. */
+static int UITextWidthSmall(const char *s)
+{
+    int w = 0;
+    for (; *s; s++)
+    {
+        int c = *s;
+        if (c >= 'a' && c <= 'z')
+            c = c - 'a' + 'A';
+        c -= HU_FONTSTART;
+        if (c < 0 || c >= HU_FONTSIZE)
+            w += 2;
+        else
+        {
+            int sw = (SHORT(hu_font[c]->width) + 1) / 2;
+            if (sw < 1)
+                sw = 1;
+            w += sw;
+        }
+    }
+    return w;
+}
+
+static void UIDrawTextSmall(int x, int y, const char *s)
+{
+    int cx = x;
+    for (; *s; s++)
+    {
+        int c = *s;
+        int w, h, sw, sh;
+        if (c >= 'a' && c <= 'z')
+            c = c - 'a' + 'A';
+        c -= HU_FONTSTART;
+        if (c < 0 || c >= HU_FONTSIZE)
+        {
+            cx += 2;
+            continue;
+        }
+        if (hu_font[c] == NULL)
+        {
+            cx += 2;
+            continue;
+        }
+        w = SHORT(hu_font[c]->width);
+        h = SHORT(hu_font[c]->height);
+        sw = (w + 1) / 2;
+        sh = (h + 1) / 2;
+        if (sw < 1)
+            sw = 1;
+        if (sh < 1)
+            sh = 1;
+        if (cx < 0 || y < 0 || cx + sw > SCREENWIDTH || y + sh > SCREENHEIGHT)
+        {
+            if (cx + sw > SCREENWIDTH)
+                break;
+            cx += sw;
+            continue;
+        }
+        UIDrawPatchFit(cx, y, sw, sh, hu_font[c]);
+        cx += sw;
+    }
+}
+
+static void UIDrawTextSmallCentered(int cx, int y, const char *s)
+{
+    UIDrawTextSmall(cx - UITextWidthSmall(s) / 2, y, s);
+}
+
 static void UIDrawSlot(player_t *player, int slot, int x, int y)
 {
     int id = player->diablo_equipped[slot];
@@ -1325,8 +1397,8 @@ static void UIDrawSlot(player_t *player, int slot, int x, int y)
     if (id != D_NOITEM)
         UIDrawItemIcon(x + 2, y + 2, UI_SLOT_W - 4, UI_SLOT_H - 4, id);
     else
-        UIDrawTextCentered(x + UI_SLOT_W / 2, y + UI_SLOT_H / 2 - 4,
-                           ui_slotnames[slot]);
+        UIDrawTextSmallCentered(x + UI_SLOT_W / 2, y + UI_SLOT_H / 2 - 2,
+                                ui_slotnames[slot]);
 }
 
 // Instance durability of the item UIHoverItem would return
