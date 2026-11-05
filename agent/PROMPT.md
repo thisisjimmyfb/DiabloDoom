@@ -28,6 +28,7 @@ When in EXPLORE mode (not in combat), priority order:
 5. **Enemy visible in distance** → GOTO toward it to engage
 
    - **Fists and the chainsaw are melee — they only hit a foe right next to you.** Close to melee range before attacking with them; an attack from farther away can't land.
+   - **Don't attack barrels — they explode.** They show up on the target list, but attacking one only hurts you with the splash, so leave them alone.
 
 6. **Facing wall** → Work it, don't flee it: scan the stretch in front of you for geometry that looks different from its neighbors and `USE` any piece vision nominates. Move along the wall in short hops, scanning as you go. Turn away only once the stretch is checked up close and holds nothing that looks different from its neighbors — then turn toward an opening or an unchecked wall, never just away from this one. Do not GOTO into the wall repeatedly.
 
