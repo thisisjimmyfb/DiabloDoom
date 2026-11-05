@@ -95,7 +95,7 @@ static int ui_kb_gx = 0, ui_kb_gy = 0;
 static int ui_kb_slot = 0;
 
 // Resolved palette indices.
-static int c_bg, c_panel, c_edge, c_dim, c_white;
+static int c_bg, c_panel, c_edge, c_dim, c_white, c_red;
 static int c_rarity[NUM_TIERS];
 static int c_rarity_dark[NUM_TIERS];
 static boolean colors_done = false;
@@ -130,6 +130,7 @@ static void ResolveColors(void)
     c_edge  = FindColor(110, 100, 110);
     c_dim   = FindColor(120, 120, 130);
     c_white = FindColor(235, 235, 235);
+    c_red   = FindColor(220, 30, 30);
 
     c_rarity[TIER_NORMAL] = FindColor(200, 200, 200);
     c_rarity[TIER_MAGIC]  = FindColor(90, 130, 255);
@@ -1307,12 +1308,19 @@ static void UIDrawItemIcon(int x, int y, int w, int h, int id)
 static void UIDrawSlot(player_t *player, int slot, int x, int y)
 {
     int id = player->diablo_equipped[slot];
+    /* Strength-disabled slots get a red border: the item stays in its
+       slot but contributes nothing, and the border marks that at a
+       glance instead of leaving the slot looking live. */
+    int border = (id != D_NOITEM
+                  && D_EquippedSlotStrDisabled((struct player_s *)player,
+                                               slot))
+                     ? c_red : c_edge;
 
     V_DrawFilledBox(x, y, UI_SLOT_W, UI_SLOT_H, c_panel);
-    V_DrawHorizLine(x, y, UI_SLOT_W, c_edge);
-    V_DrawHorizLine(x, y + UI_SLOT_H - 1, UI_SLOT_W, c_edge);
-    V_DrawVertLine(x, y, UI_SLOT_H, c_edge);
-    V_DrawVertLine(x + UI_SLOT_W - 1, y, UI_SLOT_H, c_edge);
+    V_DrawHorizLine(x, y, UI_SLOT_W, border);
+    V_DrawHorizLine(x, y + UI_SLOT_H - 1, UI_SLOT_W, border);
+    V_DrawVertLine(x, y, UI_SLOT_H, border);
+    V_DrawVertLine(x + UI_SLOT_W - 1, y, UI_SLOT_H, border);
 
     if (id != D_NOITEM)
         UIDrawItemIcon(x + 2, y + 2, UI_SLOT_W - 4, UI_SLOT_H - 4, id);
@@ -1444,6 +1452,19 @@ static void UIDrawTooltip(int id)
     if (n <= 0)
         return;
     def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
+    /* Strength-disabled indication: hovering a disabled paperdoll slot
+       appends its requirement, so the stats above read as inactive.
+       Backpack items are never disabled, so only a hovered equipment
+       slot can add this line. */
+    {
+        player_t *player = &players[consoleplayer];
+        int slot = UISlotAt(ui_cx, ui_cy);
+        if (slot >= 0 && player->diablo_equipped[slot] == id
+            && D_EquippedSlotStrDisabled((struct player_s *)player, slot)
+            && def != NULL && n < 12)
+            snprintf(lines[n++], 48, "DISABLED (needs %d STR)",
+                     D_ItemStrReq(def));
+    }
 
     for (i = 0; i < n; i++)
     {

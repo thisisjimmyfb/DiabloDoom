@@ -876,7 +876,10 @@ items, disable anything unmet, repeat until nothing changes. The
 loop is bounded (each pass disables at least one item or exits, at
 most one pass per equipment slot) — no recursion, no unbounded
 iteration. The `[GEAR]` dump marks disabled items with the STR
-needed. Strength does not scale gun damage: a gun deals its own
+needed. The paperdoll marks a disabled slot with a red border and
+its tooltip names the STR needed, and the arms panel shows the fist
+sprite when the equipped gun is disabled. Strength does not scale
+gun damage: a gun deals its own
 damage range (plus AD% / flat bonuses), and strength's only roles
 are the requirement check and fist damage. Every equip and unequip
 re-runs the full check from scratch — the disabled set is never
