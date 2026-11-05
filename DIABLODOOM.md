@@ -517,6 +517,10 @@ through a bounded simulation pulse.
    turn start first. T with an empty queue still runs a brief
    progress/settle phase, so it always advances the game. Dying clears
    the queue immediately and ends the phase; the death flow takes over.
+   WoW Forever event: until end of Wednesday 2026-11-11 PT, ending a turn
+   also plays an original "zug zug" grunt (DSZUGZUG in the avatar wad) as
+   a Warcraft-style command acknowledgement. The date gate in
+   `T_DoEndTurn` self-expires, so the sound simply stops after the event.
 5. **Preview** — during planning, the first-person camera follows queued
    moves (no game logic, just the view), so the player sees where the
    queue goes before committing. UNDO steps the camera back; Z clears
