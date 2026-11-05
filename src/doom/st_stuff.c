@@ -348,18 +348,17 @@ cheatseq_t cheat_choppers = CHEAT("idchoppers", 0);
 cheatseq_t cheat_clev = CHEAT("idclev", 2);
 cheatseq_t cheat_mypos = CHEAT("idmypos", 0);
 
-// Diablo item give (2026-11-05): orb<tier><idx> gives any Diablo
-// item to the backpack for testing, e.g. orb414 = Ram Altman
+// Diablo item give (2026-11-05): jolly<tier><idx> gives any Diablo
+// item to the backpack for testing, e.g. jolly414 = Ram Altman
 // (Unique tier 4, index 14). Tier 0=Normal, 1=Magic, 2=Rare,
-// 3=Set, 4=Unique; index is two digits. The sequence is "orb",
-// not "loot": the T in "loot" is swallowed by T_Responder in
-// explore mode (it returns true for 't'/"no turn to end outside
-// combat"), so ST_Responder never sees it and the cheat can never
-// complete. O, R, B all pass through (T_Responder default, and
-// not C/E/Q in G_Responder). "idg" was also rejected: G is COLLECT
-// and I is inventory, and ST_Responder returns false so cheat keys
-// also reach the game.
-cheatseq_t cheat_diablo_give = CHEAT("orb", 3);
+// 3=Set, 4=Unique; index is two digits. The sequence is "jolly":
+// all five letters (J, O, L, L, Y) sit on the right side of the
+// keyboard, so the right hand can type it while the left stays on
+// WASD. They all pass through (T_Responder default, and not C/E/Q
+// in G_Responder). "loot" failed because T_Responder swallows 't'
+// in explore mode; "orb" worked but sat mid-keyboard; "idg" was
+// rejected because G is COLLECT and I is inventory.
+cheatseq_t cheat_diablo_give = CHEAT("jolly", 3);
 
 
 //
@@ -466,7 +465,7 @@ ST_Responder (event_t* ev)
 	plyr->message = DEH_String(STSTR_KFAADDED);
       }
       // 'g' cheat for giving a Diablo item by tier+index:
-      // orb<tier><idx tens><idx ones>, e.g. orb414 = Ram Altman
+      // jolly<tier><idx tens><idx ones>, e.g. jolly414 = Ram Altman
       // (Unique tier 4, index 14). Adds it to the backpack; press E
       // to equip it. Tier 0=Normal, 1=Magic, 2=Rare, 3=Set, 4=Unique.
       // (Digits switch weapons, as with idclev — harmless.)
