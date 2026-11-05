@@ -326,12 +326,14 @@ P_GiveBody
 ( player_t*	player,
   int		num )
 {
-    if (player->health >= MAXHEALTH)
+    // Diablo vitality raises max health; stimpacks, medikits, and the
+    // berserk heal up to max HP (2026-11-05), not the vanilla 100 cap.
+    if (player->health >= D_MaxHealth(player))
 	return false;
 		
     player->health += num;
-    if (player->health > MAXHEALTH)
-	player->health = MAXHEALTH;
+    if (player->health > D_MaxHealth(player))
+	player->health = D_MaxHealth(player);
     player->mo->health = player->health;
 	
     return true;
