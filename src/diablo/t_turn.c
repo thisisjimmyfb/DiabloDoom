@@ -1330,21 +1330,21 @@ static void cmd_drain(void (*dispatch)(const char *))
 }
 
 // ------------------------------------------------------------------
-// SNAP: face the nearest wall head-on (2026-11-01).
+// SNAP_WALL: face the nearest wall head-on (2026-11-01).
 // GOTO arrival facing is the last path direction and TURNL/TURNR
 // move in 45-degree steps, so neither can guarantee the agent faces
 // a mechanism's face normal before USE -- and a USE ray 180 degrees
-// off hits the wall behind, not the mechanism. SNAP removes the
+// off hits the wall behind, not the mechanism. SNAP_WALL removes the
 // lottery: it finds the closest linedef to the player and faces
 // the opposite of the line normal pointing toward the player --
 // that is, toward the closest point on the line, head-on. (The
 // normal itself points from the line toward the player, so facing
 // along it looks AWAY from the wall; the original code did exactly
-// that, and every SNAP+USE rayed backward. Fixed 2026-11-01.)
+// that, and every SNAP_WALL+USE rayed backward. Fixed 2026-11-01.)
 // It does NOT identify the wall as the mechanism -- plain
 // wall sections carry no engine property that says "mechanism".
 // Procedure: WALK until blocked (flush, so the nearest line is the
-// face you are against), SNAP, USE.
+// face you are against), SNAP_WALL, USE.
 // ------------------------------------------------------------------
 
 // Report state for the USE ray probe below: what the 64-unit USE
@@ -1585,12 +1585,12 @@ static void cmd_dispatch(const char *cmd)
         else
             printf("[USE] ignored (explore mode only)\n");
     }
-    else if (!strcmp(cmd, "SNAP"))
+    else if (!strcmp(cmd, "SNAP_WALL"))
     {
         // Face the nearest wall head-on (2026-11-01): snap
         // facing to point at the closest point on the closest
         // linedef. Explore mode only, like USE: this is
-        // the trial procedure's squaring step. Send SNAP after the
+        // the trial procedure's squaring step. Send SNAP_WALL after the
         // flush WALK and before USE; unlike TURNL/TURNR (45-degree
         // steps) and GOTO arrival facing (last path direction), the
         // snap is exact, so the following USE ray runs along the
@@ -1600,7 +1600,7 @@ static void cmd_dispatch(const char *cmd)
         if (T_InExplore() && pl->mo != NULL && pl->health > 0)
             T_SnapToNearestWall();
         else
-            printf("[SNAP] ignored (explore mode only)\n");
+            printf("[SNAP_WALL] ignored (explore mode only)\n");
     }
     else if (!strcmp(cmd, "WAIT"))
     {
