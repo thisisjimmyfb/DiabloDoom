@@ -864,8 +864,9 @@ equipped), not loot.
 | BFG9000 | AP | **Magazine 20** (20/shot) | CD | Ultimate: highest damage. Firing sets a 3-round cooldown; no ammo trickle while cooling down, trickle resumes at CD rate after. |
 
 **Strength requirements (2026-11-04).** Every item has a strength
-requirement from its tier: Normal 0, Magic 0, Rare 5, Set 10,
-Unique 15. Strength for the check is exactly the sum of the strength
+requirement from its type, not its tier: a gun (weapon slot) needs 5
+strength, everything else 0 — rarity never raises a requirement.
+Strength for the check is exactly the sum of the strength
 bonuses of equipped gear — the only way to get strength is gear, so
 there is no base attribute in this sum. An item whose requirement
 exceeds that sum is disabled: it stays in its slot but contributes
