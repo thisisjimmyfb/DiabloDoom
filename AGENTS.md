@@ -231,6 +231,16 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
    smoke-tested in-game.
 6. **IP contingency is a backup plan only.** Do not rename items or the
    repo unless the user asks or a cease-and-desist arrives.
+7. **Custom resources must degrade gracefully without their PWAD.**
+   Any resource that does not exist in vanilla Doom (a custom sound
+   slot, sprite, patch, flat, or any other lump) must be checked with
+   `W_CheckNumForName` before use, and skipped or fallen back to a
+   vanilla resource when absent. Never call `W_GetNumForName`,
+   `S_StartSound`, or any other must-exist lookup on a possibly-absent
+   custom lump: at startup a missing lump only precaches as -1, but at
+   play time the lookup `I_Error`s out of the game. This applies to
+   every custom resource, not just sounds. (Rule from the user,
+   2026-11-04, after the DSZUGZUG turn-end sound shipped unguarded.)
 
 ## Combat affixes (magic tier)
 

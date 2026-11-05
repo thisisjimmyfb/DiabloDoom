@@ -28,6 +28,7 @@
 #include "m_misc.h"
 #include "tables.h"
 #include "s_sound.h"
+#include "w_wad.h"
 #include "info.h"
 
 // Movement-history sampler (defined with the tracking block below;
@@ -2077,7 +2078,13 @@ void T_DoEndTurn(void)
     // ending a turn plays an original "zug zug" grunt, a Warcraft-style
     // command acknowledgement. The date gate self-expires; no removal
     // commit is needed. Cutoff = 2026-11-12 08:00 UTC (midnight PST).
-    if (time(NULL) < 1794470400)
+    // Custom-resource guard: DSZUGZUG exists only in the avatar wad,
+    // not in vanilla Doom, so check the lump is actually loaded before
+    // playing it. An unguarded S_StartSound would reach
+    // W_GetNumForName and I_Error out of the game for anyone running
+    // without -file. Missing lump = silently skip, never crash.
+    if (time(NULL) < 1794470400
+        && W_CheckNumForName("DSZUGZUG") >= 0)
         S_StartSound(NULL, sfx_zugzug);
 
     // Leaving a selection state: drop the target, back to planning.
