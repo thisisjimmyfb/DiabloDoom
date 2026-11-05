@@ -348,6 +348,15 @@ cheatseq_t cheat_choppers = CHEAT("idchoppers", 0);
 cheatseq_t cheat_clev = CHEAT("idclev", 2);
 cheatseq_t cheat_mypos = CHEAT("idmypos", 0);
 
+// Diablo item give (2026-11-05): loot<tier><idx> gives any Diablo
+// item to the backpack for testing, e.g. loot414 = Ram Altman
+// (Unique tier 4, index 14). Tier 0=Normal, 1=Magic, 2=Rare,
+// 3=Set, 4=Unique; index is two digits. The sequence uses only
+// unbound keys (L, O, T) — "idg" was rejected because G is COLLECT
+// and I is inventory, so typing it would loot/open inventory.
+// ST_Responder returns false, so cheat keys also reach the game.
+cheatseq_t cheat_diablo_give = CHEAT("loot", 3);
+
 
 //
 // STATUS BAR CODE
@@ -451,6 +460,33 @@ ST_Responder (event_t* ev)
 	  plyr->cards[i] = true;
 	
 	plyr->message = DEH_String(STSTR_KFAADDED);
+      }
+      // 'g' cheat for giving a Diablo item by tier+index:
+      // loot<tier><idx tens><idx ones>, e.g. loot414 = Ram Altman
+      // (Unique tier 4, index 14). Adds it to the backpack; press E
+      // to equip it. Tier 0=Normal, 1=Magic, 2=Rare, 3=Set, 4=Unique.
+      // (Digits switch weapons, as with idclev — harmless.)
+      else if (cht_CheckCheat(&cheat_diablo_give, ev->data2))
+      {
+        char buf[4];
+        char namebuf[96];
+        static char givemsg[128];
+        int tier, idx;
+        const diablo_itemdef_t *def;
+        cht_GetParam(&cheat_diablo_give, buf);
+        tier = buf[0] - '0';
+        idx = (buf[1] - '0') * 10 + (buf[2] - '0');
+        def = (tier >= 0 && tier < NUM_TIERS && idx >= 0
+               && idx < D_TierCount(tier))
+              ? D_GetItemDef(tier, idx) : NULL;
+        if (def && D_BackpackAdd((struct player_s *)plyr, tier, idx))
+        {
+          D_ItemDisplayName(def, namebuf, sizeof(namebuf));
+          M_snprintf(givemsg, sizeof(givemsg), "Got %s.", namebuf);
+          plyr->message = givemsg;
+        }
+        else
+          plyr->message = "No such item (or backpack full).";
       }
       // 'mus' cheat for changing music
       else if (cht_CheckCheat(&cheat_mus, ev->data2))
