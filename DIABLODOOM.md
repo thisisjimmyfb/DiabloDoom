@@ -319,8 +319,9 @@ one panel at a time. The bar stays; only the panels change.
 - **ARMS → equipped weapon panel** (done, `ee1ee623`). The classic 2–7
   weapon ownership boxes are retired. The ARMS section now shows only the
   weapon equipped in the Diablo inventory: item icon + aggregated damage
-  range, or the fist sprite when the slot is empty (fists are the unarmed
-  default). See `ST_drawDiabloWeapon` in
+  range, or the fist sprite when the slot is empty, holds a disabled
+  gun, or holds a non-weapon item (a ring, an amulet — fists are the
+  fighting weapon then). See `ST_drawDiabloWeapon` in
   `src/doom/st_stuff.c`.
 - **AMMO → classic restored** (done). The left ammo readout is back to
   classic Doom: baked-in `AMMO` label with big red numbers showing the

@@ -1085,7 +1085,13 @@ static void STWepDrawIcon(int x, int y, int w, int h,
                 continue;
             }
             sx = dx * d_icon_size / w;
-            *dest++ = (pixel_t)icon[sy * d_icon_size + sx];
+            // Icons are quantized from images with a transparent
+            // background, which lands on palette index 0 (black):
+            // skip it so the arms background shows through instead
+            // of a solid black box.
+            if (icon[sy * d_icon_size + sx] != 0)
+                *dest = (pixel_t)icon[sy * d_icon_size + sx];
+            dest++;
         }
     }
 }
@@ -1307,9 +1313,13 @@ static void ST_drawDiabloWeapon(void)
     def = (id != D_NOITEM) ? D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id)) : NULL;
     /* A strength-disabled gun contributes nothing and combat falls back
        to fists, so the panel shows the fist sprite instead of a gun
-       the player cannot use. */
+       the player cannot use. The same goes for a non-weapon item in
+       the weapon slot (a ring, an amulet): it is not a gun, combat
+       still uses fists, so the panel shows the fist, not the item's
+       icon. */
     if (def != NULL
-        && D_EquippedSlotStrDisabled((struct player_s *)plyr, ESLOT_WEAPON))
+        && (def->slot != ESLOT_WEAPON
+            || D_EquippedSlotStrDisabled((struct player_s *)plyr, ESLOT_WEAPON)))
         def = NULL;
     if (def == NULL)
     {
