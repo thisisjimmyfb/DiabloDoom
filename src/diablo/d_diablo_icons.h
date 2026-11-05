@@ -56,5 +56,7 @@ extern const int d_icon_size;
 #define D_ICON_U_RAVEN_FROST 44
 #define D_ICON_BOOT_WAR_TRAVELER 45
 #define D_ICON_GLOVE_FROSTBURN 46
+#define D_ICON_AMULET 47
+#define D_ICON_RING 48
 
 #endif

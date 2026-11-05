@@ -9,7 +9,7 @@ Icon policy (AD/AP gun rework):
 - The 8 gun bases share one icon each (variants reuse the base icon).
 - The 4 FOCUS items share the ammo-box icon.
 - Every other item keeps a unique icon.
-Total: 47 icons. Order defines the D_ICON_* indices.
+Total: 49 icons. Order defines the D_ICON_* indices.
 """
 import os
 from PIL import Image
@@ -77,6 +77,10 @@ ICONS = [
     "u_raven_frost",
     "boot_war_traveler",
     "glove_frostburn",
+    # Generic slot icons (2): fallback for any item with no specific
+    # icon, so it shows its slot's generic art instead of the pistol.
+    "amulet",
+    "ring",
 ]
 
 def load_palette():

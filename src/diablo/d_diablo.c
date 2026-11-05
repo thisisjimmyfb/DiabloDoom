@@ -528,20 +528,44 @@ int D_GetItemIconIdx(int tier, int idx)
     if (def->slot == ESLOT_FOCUS)
         return D_ICON_AMMO_BOX;
 
-    // Bounds-checked: the arrays below must match their item tables;
-    // a mismatch returns icon 0 instead of reading out of bounds.
+    // Bounds-checked: the arrays below must match their item tables.
+    // A mismatch (or a -1 entry) falls back to the slot's generic icon
+    // instead of the pistol, so an item always reads as what it is.
 #define ICON_AT(arr, i) \
-    ((i) >= 0 && (i) < (int)(sizeof(arr) / sizeof((arr)[0])) ? (arr)[i] : 0)
-    switch (tier)
+    ((i) >= 0 && (i) < (int)(sizeof(arr) / sizeof((arr)[0])) ? (arr)[i] : -1)
     {
-        case TIER_NORMAL: return ICON_AT(normal_icons, idx);
-        case TIER_MAGIC:  return ICON_AT(magic_icons, idx);
-        case TIER_RARE:   return ICON_AT(rare_icons, idx);
-        case TIER_SET:    return ICON_AT(set_icons, idx);
-        case TIER_UNIQUE: return ICON_AT(unique_icons, idx);
-        default: return 0;
+        int icon;
+        switch (tier)
+        {
+            case TIER_NORMAL: icon = ICON_AT(normal_icons, idx); break;
+            case TIER_MAGIC:  icon = ICON_AT(magic_icons, idx); break;
+            case TIER_RARE:   icon = ICON_AT(rare_icons, idx); break;
+            case TIER_SET:    icon = ICON_AT(set_icons, idx); break;
+            case TIER_UNIQUE: icon = ICON_AT(unique_icons, idx); break;
+            default: icon = -1; break;
+        }
+        if (icon > 0)
+            return icon;
     }
 #undef ICON_AT
+    // No specific icon for this item: use its slot's generic art.
+    // (2026-11-05 — the item tables outgrew the per-tier icon lists,
+    // so most rings, amulets, and later-table gear showed a pistol.)
+    switch (def->slot)
+    {
+        case ESLOT_HELM:   return D_ICON_HELM_CAP;
+        case ESLOT_ARMOR:  return D_ICON_ARMOR_LEATHER;
+        case ESLOT_SHIELD: return D_ICON_SHIELD_BUCKLER;
+        case ESLOT_BELT:   return D_ICON_BELT;
+        case ESLOT_BOOTS:  return D_ICON_BOOT_LEATHER;
+        case ESLOT_GLOVES: return D_ICON_GLOVE_LEATHER;
+        case ESLOT_AMULET: return D_ICON_AMULET;
+        case ESLOT_RING1:
+        case ESLOT_RING2:  return D_ICON_RING;
+        case ESLOT_FOCUS:  return D_ICON_AMMO_BOX;
+        case ESLOT_NONE:   return D_ICON_POTION_RED;
+        default:           return D_ICON_GUN_PISTOL;
+    }
 }
 
 // WAD pickup sprite (the art lying in the world) for a gun item, by
