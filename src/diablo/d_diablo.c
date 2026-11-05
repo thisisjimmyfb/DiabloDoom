@@ -1020,62 +1020,16 @@ void D_RamAltmanOnKill(mobj_t *source, mobj_t *target)
 // affixes, and aggregated totals -- instead of the vision loop
 // having to read tooltips off screenshots. Read-only: prints to
 // the log only, changes no state.
-void D_DumpEquippedGear(void)
+/* Build the one affix line listing only the nonzero stats
+   (plus DISABLED / worn-out), shared by the [GEAR] dump and
+   the [INSPECT] single-item dump. */
+static void D_BuildAffixString(const diablo_itemdef_t *def, int dur,
+                               boolean disabled, char *affix)
 {
-    static const char *slotnames[NUM_ESLOTS] =
-    {
-        "HELM", "ARMOR", "WEAPON", "SHIELD", "RING1", "RING2",
-        "AMULET", "BOOTS", "GLOVES", "BELT", "FOCUS"
-    };
-    static const char *tiernames[NUM_TIERS] =
-    {
-        "Normal", "Magic", "Rare", "Set", "Unique"
-    };
-    player_t *player = &players[consoleplayer];
-    struct player_s *pl = (struct player_s *)player;
-    int s;
-    int b;
-    boolean disabled[NUM_ESLOTS];
-
-    D_StrDisabledMask(pl, disabled);
-    printf("[GEAR] equipped set:\n");
-    for (s = 0; s < NUM_ESLOTS; s++)
-    {
-        int id = player->diablo_equipped[s];
-        const diablo_itemdef_t *def;
-        char name[128];
-        char affix[1024];
-        char tmp[64];
-        int dur;
-        int maxdur;
-        const char *tiername;
-
-        if (id == D_NOITEM)
-        {
-            printf("[GEAR] %s: (empty)\n", slotnames[s]);
-            continue;
-        }
-        def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
-        if (!def)
-        {
-            printf("[GEAR] %s: (bad item id %d)\n", slotnames[s], id);
-            continue;
-        }
-        D_ItemDisplayName(def, name, sizeof(name));
-        tiername = (def->tier >= 0 && def->tier < NUM_TIERS)
-                       ? tiernames[def->tier] : "?";
-        dur = player->diablo_equipped_dur[s];
-        maxdur = D_ItemMaxDurability(def);
-        if (maxdur > 0)
-            printf("[GEAR] %s: %s (%s) dur %d/%d\n",
-                   slotnames[s], name, tiername, dur, maxdur);
-        else
-            printf("[GEAR] %s: %s (%s) dur n/a\n",
-                   slotnames[s], name, tiername);
-
+    char tmp[64];
         /* One affix line listing only the nonzero stats. */
         affix[0] = '\0';
-        if (disabled[s])
+        if (disabled)
         {
             snprintf(tmp, sizeof(tmp),
                      " DISABLED (needs %d STR)",
@@ -1201,6 +1155,63 @@ void D_DumpEquippedGear(void)
                      def->replenish);
             strcat(affix, tmp);
         }
+}
+
+void D_DumpEquippedGear(void)
+{
+    static const char *slotnames[NUM_ESLOTS] =
+    {
+        "HELM", "ARMOR", "WEAPON", "SHIELD", "RING1", "RING2",
+        "AMULET", "BOOTS", "GLOVES", "BELT", "FOCUS"
+    };
+    static const char *tiernames[NUM_TIERS] =
+    {
+        "Normal", "Magic", "Rare", "Set", "Unique"
+    };
+    player_t *player = &players[consoleplayer];
+    struct player_s *pl = (struct player_s *)player;
+    int s;
+    int b;
+    boolean disabled[NUM_ESLOTS];
+
+    D_StrDisabledMask(pl, disabled);
+    printf("[GEAR] equipped set:\n");
+    for (s = 0; s < NUM_ESLOTS; s++)
+    {
+        int id = player->diablo_equipped[s];
+        const diablo_itemdef_t *def;
+        char name[128];
+        char affix[1024];
+        char tmp[64];
+        int dur;
+        int maxdur;
+        const char *tiername;
+
+        if (id == D_NOITEM)
+        {
+            printf("[GEAR] %s: (empty)\n", slotnames[s]);
+            continue;
+        }
+        def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
+        if (!def)
+        {
+            printf("[GEAR] %s: (bad item id %d)\n", slotnames[s], id);
+            continue;
+        }
+        D_ItemDisplayName(def, name, sizeof(name));
+        tiername = (def->tier >= 0 && def->tier < NUM_TIERS)
+                       ? tiernames[def->tier] : "?";
+        dur = player->diablo_equipped_dur[s];
+        maxdur = D_ItemMaxDurability(def);
+        if (maxdur > 0)
+            printf("[GEAR] %s: %s (%s) dur %d/%d\n",
+                   slotnames[s], name, tiername, dur, maxdur);
+        else
+            printf("[GEAR] %s: %s (%s) dur n/a\n",
+                   slotnames[s], name, tiername);
+
+        /* One affix line listing only the nonzero stats. */
+        D_BuildAffixString(def, dur, disabled[s], affix);
         if (affix[0] != '\0')
             printf("[GEAR] %s affixes:%s\n", slotnames[s], affix);
         for (b = 0; b < 15; b++)
@@ -1220,6 +1231,61 @@ void D_DumpEquippedGear(void)
            D_Stat(pl, DSTAT_REPLENISH), D_Stat(pl, DSTAT_CRIT_CHANCE),
            D_Stat(pl, DSTAT_CRIT_DMG), D_Stat(pl, DSTAT_AD_PCT),
            D_Stat(pl, DSTAT_AP_PCT), D_Stat(pl, DSTAT_HASTE));
+}
+
+// Single-item dump for the INSPECT driver command: the same per-item
+// lines as the [GEAR] dump (name/tier/durability, affixes, mechs),
+// tagged [INSPECT] and labelled by slot name or backpack index.
+// `dur` is the item's current durability; `disabled` is true only
+// for an equipped item whose strength requirement is unmet
+// (backpack items are never disabled).
+void D_DumpItem(int id, int dur, boolean disabled, const char *label)
+{
+    static const char *tiernames[NUM_TIERS] =
+    {
+        "Normal", "Magic", "Rare", "Set", "Unique"
+    };
+    const diablo_itemdef_t *def;
+    char name[128];
+    char affix[1024];
+    const char *tiername;
+    int maxdur;
+    int b;
+
+    if (id == D_NOITEM)
+    {
+        printf("[INSPECT] %s: (empty)\n", label);
+        return;
+    }
+    def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
+    if (!def)
+    {
+        printf("[INSPECT] %s: (bad item id %d)\n", label, id);
+        return;
+    }
+    D_ItemDisplayName(def, name, sizeof(name));
+    tiername = (def->tier >= 0 && def->tier < NUM_TIERS)
+                   ? tiernames[def->tier] : "?";
+    maxdur = D_ItemMaxDurability(def);
+    if (maxdur > 0)
+        printf("[INSPECT] %s: %s (%s) dur %d/%d\n",
+               label, name, tiername, dur, maxdur);
+    else
+        printf("[INSPECT] %s: %s (%s) dur n/a\n",
+               label, name, tiername);
+
+    D_BuildAffixString(def, dur, disabled, affix);
+    if (affix[0] != '\0')
+        printf("[INSPECT] %s affixes:%s\n", label, affix);
+    for (b = 0; b < 15; b++)
+    {
+        const char *mdesc;
+        if (!(def->mech & (1 << b)))
+            continue;
+        mdesc = D_MechDesc(1 << b);
+        if (mdesc != NULL)
+            printf("[INSPECT] %s mech: %s\n", label, mdesc);
+    }
 }
 
 int D_MaxHealth(struct player_s *pl)

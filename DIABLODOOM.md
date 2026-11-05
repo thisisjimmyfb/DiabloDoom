@@ -887,8 +887,8 @@ check iterates to a fixed point: sum the strength of still-enabled
 items, disable anything unmet, repeat until nothing changes. The
 loop is bounded (each pass disables at least one item or exits, at
 most one pass per equipment slot) — no recursion, no unbounded
-iteration. The `[GEAR]` dump marks disabled items with the STR
-needed. The paperdoll marks a disabled slot with a red border and
+iteration. `INSPECT` marks a disabled item with the STR needed.
+The paperdoll marks a disabled slot with a red border and
 its tooltip names the STR needed, and the arms panel shows the fist
 sprite when the equipped gun is disabled. Strength does not scale
 gun damage: a gun deals its own

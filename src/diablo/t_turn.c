@@ -1035,6 +1035,10 @@ static boolean cmd_is_diagnostic(const char *cmd)
     for (i = 0; diag[i] != NULL; i++)
         if (!strcmp(cmd, diag[i]))
             return true;
+    // INSPECT takes an argument, so the full line never equals the
+    // bare command name; match the prefix instead.
+    if (!strncmp(cmd, "INSPECT ", 8))
+        return true;
     return false;
 }
 
@@ -1765,6 +1769,84 @@ static void cmd_dispatch(const char *cmd)
             D_UIClose();
         else
             D_UIOpen();
+    }
+    else if (!strncmp(cmd, "INSPECT ", 8))
+    {
+        // INSPECT <slot|backpack_index>: dump one item's stats and
+        // modifiers to the game log as [INSPECT] lines and show its
+        // page on screen. Slot names: HELM, ARMOR, WEAPON, SHIELD,
+        // RING1, RING2, AMULET, BOOTS, GLOVES, BELT, FOCUS. A numeric
+        // argument is a flat backpack index. Only works while the
+        // inventory is open.
+        extern void D_UISelectSlot(int slot);
+        extern void D_UISelectBackpack(int bpi);
+        extern boolean D_UIIsOpen(void);
+        player_t *pl = &players[consoleplayer];
+        const char *arg = cmd + 8;
+        int bpi;
+        while (*arg == ' ')
+            arg++;
+        if (!D_UIIsOpen())
+        {
+            printf("[INSPECT] ignored (inventory closed)\n");
+        }
+        else if (sscanf(arg, "%d", &bpi) == 1)
+        {
+            // Numeric: flat backpack index.
+            int id;
+            char label[32];
+            if (bpi < 0 || bpi >= D_BACKPACK_MAX)
+            {
+                printf("[INSPECT] backpack %d: (bad index)\n", bpi);
+            }
+            else
+            {
+                id = pl->diablo_backpack[bpi];
+                snprintf(label, sizeof(label), "backpack %d", bpi);
+                if (id == D_NOITEM)
+                    printf("[INSPECT] %s: (empty)\n", label);
+                else
+                {
+                    D_DumpItem(id, pl->diablo_backpack_dur[bpi], false, label);
+                    D_UISelectBackpack(bpi);
+                }
+            }
+        }
+        else
+        {
+            // Slot name.
+            static const char *slotnames[NUM_ESLOTS] =
+            {
+                "HELM", "ARMOR", "WEAPON", "SHIELD", "RING1", "RING2",
+                "AMULET", "BOOTS", "GLOVES", "BELT", "FOCUS"
+            };
+            int slot = -1;
+            int i;
+            for (i = 0; i < NUM_ESLOTS; i++)
+            {
+                if (!strcmp(arg, slotnames[i]))
+                {
+                    slot = i;
+                    break;
+                }
+            }
+            if (slot < 0)
+            {
+                printf("[INSPECT] unknown slot '%s'\n", arg);
+            }
+            else
+            {
+                int id = pl->diablo_equipped[slot];
+                if (id == D_NOITEM)
+                    printf("[INSPECT] %s: (empty)\n", slotnames[slot]);
+                else
+                {
+                    boolean disabled = D_EquippedSlotStrDisabled((struct player_s *)pl, slot);
+                    D_DumpItem(id, pl->diablo_equipped_dur[slot], disabled, slotnames[slot]);
+                    D_UISelectSlot(slot);
+                }
+            }
+        }
     }
     else if (!strcmp(cmd, "KEYS"))
     {

@@ -30,6 +30,10 @@
 boolean D_UIIsOpen(void);
 void D_UIOpen(void);
 void D_UIClose(void);
+// INSPECT support: point the kb cursor at an equipment slot or a
+// backpack item so its tooltip page shows.
+void D_UISelectSlot(int slot);
+void D_UISelectBackpack(int bpi);
 
 // Set by D_UIClose: the UI covered the whole screen, so D_Display must
 // repaint the view border and status bar on the next frame (the 3D view
