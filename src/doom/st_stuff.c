@@ -1305,6 +1305,12 @@ static void ST_drawDiabloWeapon(void)
     STWepDrawPatch(ST_ARMSBGX, ST_ARMSBGY, ST_WEPW, ST_HEIGHT, armsbg);
 
     def = (id != D_NOITEM) ? D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id)) : NULL;
+    /* A strength-disabled gun contributes nothing and combat falls back
+       to fists, so the panel shows the fist sprite instead of a gun
+       the player cannot use. */
+    if (def != NULL
+        && D_EquippedSlotStrDisabled((struct player_s *)plyr, ESLOT_WEAPON))
+        def = NULL;
     if (def == NULL)
     {
         // No Diablo weapon equipped: the game defaults to fists when
