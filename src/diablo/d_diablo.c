@@ -608,10 +608,10 @@ void D_ResetPlayer(struct player_s *pl)
 // requirement from its tier. The ladder is my pick, correctable on
 // Strength requirement is by weapon type, not rarity, lightest to
 // heaviest: fist 0, pistol 2, shotgun 4, double shotgun 6, chainsaw
-// 8, chaingun 10, rocket launcher 12, plasma rifle 14, BFG 15.
+// 8, chaingun 10, plasma rifle 12, rocket launcher 14, BFG 15.
 // Armor, jewelry and consumables are free. Fist 0 through chaingun
-// 10 are my picks, correctable on Jimmy's word; rocket launcher 12,
-// plasma rifle 14, and BFG 15 are his numbers. The requirement
+// 10 are my picks, correctable on Jimmy's word; plasma rifle 12,
+// rocket launcher 14, and BFG 15 are his numbers. The requirement
 // follows the item itself (its doomweapon), not the slot it happens
 // to sit in.
 int D_ItemStrReq(const diablo_itemdef_t *def)
@@ -625,8 +625,8 @@ int D_ItemStrReq(const diablo_itemdef_t *def)
         case wp_supershotgun: return 6;
         case wp_chainsaw:     return 8;
         case wp_chaingun:     return 10;
-        case wp_missile:      return 12;
-        case wp_plasma:       return 14;
+        case wp_missile:      return 14;
+        case wp_plasma:       return 12;
         case wp_bfg:          return 15;
         default:              return 0;
     }
