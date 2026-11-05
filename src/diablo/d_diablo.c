@@ -606,16 +606,30 @@ void D_ResetPlayer(struct player_s *pl)
 
 // Strength requirements (2026-11-04). Every item has a strength
 // requirement from its tier. The ladder is my pick, correctable on
-// Strength requirement is by item type, not rarity: only the gun you
-// hold needs strength (5, whatever the tier). Armor, jewelry and
-// consumables are free, so rarity never raises a requirement and the
-// highest requirement in the game is 5, down from 15. The 5 is my
-// pick, correctable on Jimmy's word.
+// Strength requirement is by weapon type, not rarity, lightest to
+// heaviest: fist 0, pistol 2, shotgun 4, double shotgun 6, chainsaw
+// 8, chaingun 10, rocket launcher 11, plasma rifle 12, BFG 15.
+// Armor, jewelry and consumables are free. The numbers are my picks,
+// correctable on Jimmy's word; the rocket launcher was not in his
+// list and sits between chaingun and plasma rifle by Doom's slot
+// order. The requirement follows the item itself (its doomweapon),
+// not the slot it happens to sit in.
 int D_ItemStrReq(const diablo_itemdef_t *def)
 {
-    if (!def)
+    if (!def || def->slot != ESLOT_WEAPON)
         return 0;
-    return (def->slot == ESLOT_WEAPON) ? 5 : 0;
+    switch (def->doomweapon)
+    {
+        case wp_pistol:       return 2;
+        case wp_shotgun:      return 4;
+        case wp_supershotgun: return 6;
+        case wp_chainsaw:     return 8;
+        case wp_chaingun:     return 10;
+        case wp_missile:      return 11;
+        case wp_plasma:       return 12;
+        case wp_bfg:          return 15;
+        default:              return 0;
+    }
 }
 
 // Strength for the requirement check is exactly the sum of the
