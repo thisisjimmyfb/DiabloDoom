@@ -646,6 +646,31 @@ static void UILeftClick(void)
                 {
                     int shield_dur =
                         player->diablo_equipped_dur[ESLOT_SHIELD];
+                    int old_id = player->diablo_equipped[slot];
+                    // Two items are displaced here (the old weapon
+                    // and the shield) but the cursor holds only one:
+                    // stash the old weapon in the backpack first, or
+                    // refuse the equip so nothing is lost (2026-11-05:
+                    // the old weapon was overwritten and lost when a
+                    // two-handed weapon replaced a one-handed one
+                    // with a shield equipped).
+                    if (old_id != D_NOITEM)
+                    {
+                        const diablo_itemdef_t *odef = D_GetItemDef(
+                            D_ITEMTIER(old_id), D_ITEMIDX(old_id));
+                        int gx, gy;
+                        if (!odef
+                         || player->diablo_bp_count >= D_BACKPACK_MAX
+                         || !D_GridFindSpace((struct player_s *)player,
+                                             odef->grid_w, odef->grid_h,
+                                             &gx, &gy))
+                        {
+                            UIMsg("Backpack full.");
+                            return;
+                        }
+                        UIAppendAt(player, old_id, gx, gy,
+                                   player->diablo_equipped_dur[slot]);
+                    }
                     UIMsg("Two-handed: shield unequipped.");
                     player->diablo_equipped[ESLOT_SHIELD] = D_NOITEM;
                     player->diablo_equipped_dur[ESLOT_SHIELD] = 0;
