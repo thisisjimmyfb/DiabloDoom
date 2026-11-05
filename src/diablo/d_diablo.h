@@ -223,6 +223,11 @@ int D_BaseItemForWeapon(int doomweapon);
 int D_RollWeaponItem(int tier, int doomweapon);
 void D_EquipRecent(struct player_s *player);   // E key (Phase 1)
 void D_UnequipAll(struct player_s *player);    // Q key (Phase 1)
+// Shared equip/unequip path: the E/Q keys, the mouse drop, and the
+// driver EQUIP/UNEQUIP commands all go through these. No
+// driver-specific equip code.
+boolean D_EquipBackpackItem(struct player_s *player, int bpi, int slot);
+boolean D_UnequipSlot(struct player_s *player, int slot);
 void D_BackpackFullMsg(struct player_s *player);
 
 // Phase 2 backpack grid.  bpi is an index into diablo_backpack[].

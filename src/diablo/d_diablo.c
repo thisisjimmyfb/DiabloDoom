@@ -1942,13 +1942,121 @@ void D_UseBackpackItem(struct player_s *pl, int bpi)
     player->diablo_recent = -1;
 }
 
+// Shared equip path (keyboard E, mouse drop target, driver EQUIP):
+// equip the backpack item at bpi into slot. Validates the fit,
+// handles the two-handed/shield displacement, swaps the old item
+// into the backpack with grid placement, and recalcs stats.
+// Returns false (nothing changed, except items already safely
+// stashed) when the item does not fit or there is no backpack room
+// for a displaced item. The driver EQUIP command and the E key
+// both call this — there is no driver-specific equip code.
+static boolean D_StashEquipped(player_t *player, int slot)
+{
+    int id = player->diablo_equipped[slot];
+    const diablo_itemdef_t *def;
+    int gx, gy;
+    if (id == D_NOITEM)
+        return true;
+    def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
+    if (!def
+     || player->diablo_bp_count >= D_BACKPACK_MAX
+     || !D_GridFindSpace((struct player_s *)player,
+                         def->grid_w, def->grid_h, &gx, &gy))
+    {
+        D_BackpackFullMsg((struct player_s *)player);
+        return false;
+    }
+    player->diablo_backpack[player->diablo_bp_count] = id;
+    player->diablo_bp_gx[player->diablo_bp_count] = gx;
+    player->diablo_bp_gy[player->diablo_bp_count] = gy;
+    player->diablo_bp_page[player->diablo_bp_count] =
+        D_BpCurPage((struct player_s *)player);
+    player->diablo_backpack_dur[player->diablo_bp_count] =
+        player->diablo_equipped_dur[slot];
+    player->diablo_bp_count++;
+    player->diablo_equipped[slot] = D_NOITEM;
+    player->diablo_equipped_dur[slot] = 0;
+    return true;
+}
+
+boolean D_EquipBackpackItem(struct player_s *pl, int bpi, int slot)
+{
+    player_t *player = (player_t *)pl;
+    int id, new_dur;
+    const diablo_itemdef_t *def;
+
+    if (bpi < 0 || bpi >= player->diablo_bp_count
+     || slot < 0 || slot >= NUM_ESLOTS)
+        return false;
+    id = player->diablo_backpack[bpi];
+    def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
+    if (!def || !D_SlotFits(slot, def))
+        return false;
+
+    // Two-handed/shield displacement: a two-handed weapon needs the
+    // shield hand, and a shield needs the weapon hand free of a
+    // two-handed weapon. The displaced item goes to the backpack;
+    // if it does not fit, nothing is equipped.
+    if (slot == ESLOT_WEAPON && def->slot == ESLOT_WEAPON
+        && D_IsTwoHandedWeapon(def->doomweapon)
+        && player->diablo_equipped[ESLOT_SHIELD] != D_NOITEM)
+    {
+        if (!D_StashEquipped(player, ESLOT_SHIELD))
+            return false;
+    }
+    if (slot == ESLOT_SHIELD
+        && player->diablo_equipped[ESLOT_WEAPON] != D_NOITEM)
+    {
+        const diablo_itemdef_t *wdef = D_GetItemDef(
+            D_ITEMTIER(player->diablo_equipped[ESLOT_WEAPON]),
+            D_ITEMIDX(player->diablo_equipped[ESLOT_WEAPON]));
+        if (wdef && D_IsTwoHandedWeapon(wdef->doomweapon)
+            && !D_StashEquipped(player, ESLOT_WEAPON))
+            return false;
+    }
+
+    new_dur = player->diablo_backpack_dur[bpi];
+    D_BackpackRemove(player, bpi);
+    // Swap: the old item in the target slot goes to the backpack.
+    // (Stashed after the removal, so the freed grid spot counts.)
+    if (player->diablo_equipped[slot] != D_NOITEM
+        && !D_StashEquipped(player, slot))
+    {
+        // The new item is already out of the backpack; put it back
+        // so a failed swap loses nothing.
+        D_BackpackAddDur(pl, D_ITEMTIER(id), D_ITEMIDX(id), new_dur);
+        return false;
+    }
+    player->diablo_equipped[slot] = id;
+    player->diablo_equipped_dur[slot] = new_dur;
+    player->diablo_recent = -1;
+    D_RecalcStats(pl);
+    return true;
+}
+
+// Shared unequip path (keyboard Q, driver UNEQUIP): move the equipped
+// item in slot back to the backpack with grid placement. Returns
+// false (nothing changed) when the slot is empty or there is no room.
+boolean D_UnequipSlot(struct player_s *pl, int slot)
+{
+    player_t *player = (player_t *)pl;
+    if (slot < 0 || slot >= NUM_ESLOTS)
+        return false;
+    if (player->diablo_equipped[slot] == D_NOITEM)
+        return false;
+    if (!D_StashEquipped(player, slot))
+        return false;
+    D_RecalcStats(pl);
+    return true;
+}
+
 // E key (Phase 1 placeholder): equip the most recently picked-up item,
 // or use it if it is a consumable.  Swaps with the equipped item when
 // the slot is taken.
 void D_EquipRecent(struct player_s *pl)
 {
     player_t *player = (player_t *)pl;
-    int bpi, id, tier, idx, slot, old;
+    int bpi, id, tier, idx, slot;
     const diablo_itemdef_t *def;
 
     if (player->playerstate != PST_LIVE || player->health <= 0)
@@ -1983,46 +2091,8 @@ void D_EquipRecent(struct player_s *pl)
             slot = ESLOT_RING1;
     }
 
-    old = player->diablo_equipped[slot];
-    if (old != D_NOITEM)
-    {
-        const diablo_itemdef_t *odef;
-        int gx, gy;
-        odef = D_GetItemDef(D_ITEMTIER(old), D_ITEMIDX(old));
-        if (!odef
-         || player->diablo_bp_count >= D_BACKPACK_MAX
-         || !D_GridFindSpace(pl, odef->grid_w, odef->grid_h, &gx, &gy))
-        {
-            // No room to stash the swapped-out item.
-            D_BackpackFullMsg(pl);
-            return;
-        }
-    }
-
-    {
-        int new_dur = player->diablo_backpack_dur[bpi];
-        D_BackpackRemove(player, bpi);
-        if (old != D_NOITEM)
-        {
-            // Stash the displaced item with grid placement.
-            const diablo_itemdef_t *odef;
-            int gx, gy;
-            odef = D_GetItemDef(D_ITEMTIER(old), D_ITEMIDX(old));
-            D_GridFindSpace(pl, odef->grid_w, odef->grid_h, &gx, &gy);
-            player->diablo_backpack[player->diablo_bp_count] = old;
-            player->diablo_bp_gx[player->diablo_bp_count] = gx;
-            player->diablo_bp_gy[player->diablo_bp_count] = gy;
-            player->diablo_bp_page[player->diablo_bp_count] =
-                D_BpCurPage(pl);
-            player->diablo_backpack_dur[player->diablo_bp_count] =
-                player->diablo_equipped_dur[slot];
-            player->diablo_bp_count++;
-        }
-        player->diablo_equipped_dur[slot] = new_dur;
-    }
-    player->diablo_equipped[slot] = id;
-    player->diablo_recent = -1;
-    D_RecalcStats(pl);
+    if (!D_EquipBackpackItem(pl, bpi, slot))
+        return;
 
     {
         char namebuf[96];
@@ -2042,30 +2112,10 @@ void D_UnequipAll(struct player_s *pl)
 
     for (s = 0; s < NUM_ESLOTS; s++)
     {
-        int id = player->diablo_equipped[s];
-        const diablo_itemdef_t *def;
-        int gx, gy;
-        if (id == D_NOITEM)
+        if (player->diablo_equipped[s] == D_NOITEM)
             continue;
-        def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
-        if (!def)
-            continue;
-        // Find a grid spot for the item's footprint.
-        if (!D_GridFindSpace(pl, def->grid_w, def->grid_h, &gx, &gy))
-        {
-            D_BackpackFullMsg(pl);
+        if (!D_UnequipSlot(pl, s))
             break;
-        }
-        player->diablo_equipped[s] = D_NOITEM;
-        player->diablo_backpack[player->diablo_bp_count] = id;
-        player->diablo_bp_gx[player->diablo_bp_count] = gx;
-        player->diablo_bp_gy[player->diablo_bp_count] = gy;
-        player->diablo_bp_page[player->diablo_bp_count] =
-            D_BpCurPage(pl);
-        player->diablo_backpack_dur[player->diablo_bp_count] =
-            player->diablo_equipped_dur[s];
-        player->diablo_equipped_dur[s] = 0;
-        player->diablo_bp_count++;
         moved++;
     }
 
