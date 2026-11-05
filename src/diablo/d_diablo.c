@@ -626,20 +626,24 @@ void D_ResetPlayer(struct player_s *pl)
 // rocket launcher 14, and BFG 15 are his numbers. The requirement
 // follows the item itself (its doomweapon), not the slot it happens
 // to sit in.
+// Strength ladder (2026-11-04): fist = pistol = plasma rifle = 0;
+// shotgun < double shotgun < rocket launcher < chaingun < BFG.
+// The chainsaw sits between double shotgun and rocket launcher (its
+// old relative slot). Numbers are first-pass picks, correctable.
 int D_ItemStrReq(const diablo_itemdef_t *def)
 {
     if (!def || def->slot != ESLOT_WEAPON)
         return 0;
     switch (def->doomweapon)
     {
-        case wp_pistol:       return 2;
-        case wp_shotgun:      return 4;
-        case wp_supershotgun: return 6;
-        case wp_chainsaw:     return 8;
-        case wp_chaingun:     return 10;
-        case wp_missile:      return 14;
-        case wp_plasma:       return 12;
-        case wp_bfg:          return 15;
+        case wp_pistol:       return 0;
+        case wp_shotgun:      return 2;
+        case wp_supershotgun: return 4;
+        case wp_chainsaw:     return 5;
+        case wp_chaingun:     return 8;
+        case wp_missile:      return 6;
+        case wp_plasma:       return 0;
+        case wp_bfg:          return 10;
         default:              return 0;
     }
 }
