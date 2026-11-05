@@ -1349,7 +1349,10 @@ P_KillMobj
     }
 
     // Diablo loot system: slain monsters drop loot.
-    if ((target->flags & MF_COUNTKILL) && target->player == NULL)
+    // Ram Altman (2026-11-04): an enemy raised by the amulet drops
+    // no loot when killed again, or one corpse could be farmed forever.
+    if ((target->flags & MF_COUNTKILL) && target->player == NULL
+     && !(target->flags & MF_NOLOOT))
     {
         P_DropDiabloLoot(target, source);
     }
