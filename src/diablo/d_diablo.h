@@ -30,10 +30,11 @@ typedef enum
 } diablo_tier_t;
 
 // Equipment slots.  Rings get two slots (RING1/RING2).
-// Phase 7: ESLOT_FOCUS is the single shared passive weapon-buff slot
-// (renamed from ESLOT_AMMO when ammo became the mana pool). Focus items
-// are non-consumable; they passively buff the equipped weapon
-// (e.g. armor-piercing rounds, incendiary shells). Exactly one focus slot.
+// Phase 7: ESLOT_CLIPS is the single shared passive weapon-buff slot
+// (renamed from ESLOT_AMMO when ammo became the mana pool, then from
+// ESLOT_FOCUS — the slot holds ammo clips). Clips are non-consumable;
+// they passively buff the equipped weapon (e.g. armor-piercing rounds,
+// incendiary shells). Exactly one clips slot.
 typedef enum
 {
     ESLOT_HELM,
@@ -46,7 +47,7 @@ typedef enum
     ESLOT_BOOTS,
     ESLOT_GLOVES,
     ESLOT_BELT,
-    ESLOT_FOCUS,
+    ESLOT_CLIPS,
     NUM_ESLOTS,
     ESLOT_NONE = -1  // consumables (potions) fit no slot
 } diablo_eslot_t;

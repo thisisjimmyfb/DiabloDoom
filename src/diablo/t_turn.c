@@ -1788,7 +1788,7 @@ static void cmd_dispatch(const char *cmd)
         // INSPECT <slot|backpack_index>: dump one item's stats and
         // modifiers to the game log as [INSPECT] lines and show its
         // page on screen. Slot names: HELM, ARMOR, WEAPON, SHIELD,
-        // RING1, RING2, AMULET, BOOTS, GLOVES, BELT, FOCUS. A numeric
+        // RING1, RING2, AMULET, BOOTS, GLOVES, BELT, CLIPS. A numeric
         // argument is a flat backpack index. Only works while the
         // inventory is open.
         extern void D_UISelectSlot(int slot);
@@ -1831,7 +1831,7 @@ static void cmd_dispatch(const char *cmd)
             static const char *slotnames[NUM_ESLOTS] =
             {
                 "HELM", "ARMOR", "WEAPON", "SHIELD", "RING1", "RING2",
-                "AMULET", "BOOTS", "GLOVES", "BELT", "FOCUS"
+                "AMULET", "BOOTS", "GLOVES", "BELT", "CLIPS"
             };
             int slot = -1;
             int i;
@@ -1888,7 +1888,7 @@ static void cmd_dispatch(const char *cmd)
     else if (!strncmp(cmd, "EQUIP ", 6))
     {
         // EQUIP <backpack_index> <slot>: equip item from backpack to paperdoll.
-        // Slot: 0=HELM,1=ARMOR,2=WEAPON,3=SHIELD,4=RING1,5=RING2,6=AMULET,7=BOOTS,8=GLOVES,9=BELT,10=FOCUS
+        // Slot: 0=HELM,1=ARMOR,2=WEAPON,3=SHIELD,4=RING1,5=RING2,6=AMULET,7=BOOTS,8=GLOVES,9=BELT,10=CLIPS
         int bpi, slot;
         player_t *pl = &players[consoleplayer];
         if (sscanf(cmd + 6, "%d %d", &bpi, &slot) == 2
