@@ -608,18 +608,25 @@ void P_BulletSlope (mobj_t*	mo)
 void
 P_GunShot
 ( mobj_t*	mo,
-  boolean	accurate )
+  boolean	accurate,
+  boolean	cone )
 {
     angle_t	angle;
     int		damage;
+    fixed_t	slope;
 	
     damage = 5*(P_Random ()%3+1);
     angle = mo->angle;
+    slope = bulletslope;
 
     if (!accurate)
+    {
 	angle += P_SubRandom() << 18;
+	if (cone)
+	    slope += P_SubRandom() << 5;
+    }
 
-    P_LineAttack (mo, angle, MISSILERANGE, bulletslope, damage);
+    P_LineAttack (mo, angle, MISSILERANGE, slope, damage);
 }
 
 
@@ -641,7 +648,7 @@ A_FirePistol
 		  weaponinfo[player->readyweapon].flashstate);
 
     P_BulletSlope (player->mo);
-    P_GunShot (player->mo, !player->refire);
+    P_GunShot (player->mo, !player->refire, false);
 }
 
 
@@ -667,7 +674,7 @@ A_FireShotgun
     P_BulletSlope (player->mo);
 	
     for (i=0 ; i<7 ; i++)
-	P_GunShot (player->mo, false);
+	P_GunShot (player->mo, false, true);
 }
 
 
@@ -738,7 +745,7 @@ A_FireCGun
 
     P_BulletSlope (player->mo);
 	
-    P_GunShot (player->mo, !player->refire);
+    P_GunShot (player->mo, !player->refire, true);
 }
 
 
