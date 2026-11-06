@@ -8,6 +8,11 @@ extern const unsigned char *d_item_icons[];
 extern const int d_num_item_icons;
 extern const int d_icon_size;
 
+// Palette index for transparent pixels (the icon's black
+// background). The renderer skips these. Real pixels are
+// never quantized to this index.
+#define D_ICON_TRANSPARENT 255
+
 // Icon indices (must match order in d_diablo_icons.c).
 #define D_ICON_GUN_PISTOL 0
 #define D_ICON_GUN_SHOTGUN 1

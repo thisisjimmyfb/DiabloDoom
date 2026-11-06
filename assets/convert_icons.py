@@ -89,11 +89,13 @@ def load_palette():
     # List of (r, g, b) tuples
     return [(data[i], data[i+1], data[i+2]) for i in range(0, 768, 3)]
 
-def find_nearest(palette, r, g, b):
+def find_nearest(palette, r, g, b, exclude=None):
     """Find nearest palette index by Euclidean distance."""
     best_idx = 0
     best_dist = float('inf')
     for i, (pr, pg, pb) in enumerate(palette):
+        if i == exclude:
+            continue
         dr = r - pr
         dg = g - pg
         db = b - pb
@@ -105,16 +107,57 @@ def find_nearest(palette, r, g, b):
                 break
     return best_idx
 
+# Palette index reserved for transparent pixels. The renderer skips
+# these, so the icon's black background disappears and the rarity
+# tile behind it shows through. Real pixels are never allowed to
+# quantize to this index (see convert_icon).
+TRANSPARENT_IDX = 255
+# A pixel counts as background (near-black) for the flood fill.
+BG_THRESHOLD = 64
+
 def convert_icon(path, palette):
-    """Load image, resize to ICON_SIZE, quantize to palette. Returns bytes."""
+    """Load image, resize to ICON_SIZE, quantize to palette. Returns bytes.
+
+    The source art is a centered item on a black background. A flood
+    fill from the border through near-black pixels finds that
+    background (and only it -- dark parts inside the item are not
+    connected to the border, so they stay opaque) and marks it with
+    the transparent index.
+    """
     img = Image.open(path).convert("RGB")
     img = img.resize((ICON_SIZE, ICON_SIZE), Image.LANCZOS)
     pixels = img.load()
+    # Near-black grid for the flood fill.
+    is_bg = [[max(pixels[x, y]) < BG_THRESHOLD
+              for x in range(ICON_SIZE)] for y in range(ICON_SIZE)]
+    # Flood fill from every border cell that is background.
+    transparent = [[False] * ICON_SIZE for _ in range(ICON_SIZE)]
+    stack = []
+    for x in range(ICON_SIZE):
+        for y in (0, ICON_SIZE - 1):
+            if is_bg[y][x] and not transparent[y][x]:
+                transparent[y][x] = True
+                stack.append((x, y))
+    for y in range(ICON_SIZE):
+        for x in (0, ICON_SIZE - 1):
+            if is_bg[y][x] and not transparent[y][x]:
+                transparent[y][x] = True
+                stack.append((x, y))
+    while stack:
+        x, y = stack.pop()
+        for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+            if 0 <= nx < ICON_SIZE and 0 <= ny < ICON_SIZE \
+                    and is_bg[ny][nx] and not transparent[ny][nx]:
+                transparent[ny][nx] = True
+                stack.append((nx, ny))
     result = bytearray()
     for y in range(ICON_SIZE):
         for x in range(ICON_SIZE):
+            if transparent[y][x]:
+                result.append(TRANSPARENT_IDX)
+                continue
             r, g, b = pixels[x, y]
-            idx = find_nearest(palette, r, g, b)
+            idx = find_nearest(palette, r, g, b, exclude=TRANSPARENT_IDX)
             result.append(idx)
     return bytes(result)
 
@@ -166,6 +209,10 @@ def main():
         f.write("extern const unsigned char *d_item_icons[];\n")
         f.write("extern const int d_num_item_icons;\n")
         f.write("extern const int d_icon_size;\n\n")
+        f.write("// Palette index for transparent pixels (the icon's black\n")
+        f.write("// background). The renderer skips these. Real pixels are\n")
+        f.write("// never quantized to this index.\n")
+        f.write("#define D_ICON_TRANSPARENT 255\n\n")
         f.write("// Icon indices (must match order in d_diablo_icons.c).\n")
         for i, name in enumerate(ICONS):
             f.write(f"#define D_ICON_{name.upper()} {i}\n")

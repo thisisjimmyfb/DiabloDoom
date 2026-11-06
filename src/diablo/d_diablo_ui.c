@@ -1396,6 +1396,9 @@ static void UIDrawItemIcon(int x, int y, int w, int h, int id)
         box = (w < h) ? w : h;
         ox = (w - box) / 2;
         oy = (h - box) / 2;
+        // Rarity tile behind the icon: transparent pixels (the icon's
+        // old black background) show this instead of a black box.
+        V_DrawFilledBox(x, y, w, h, c_rarity_dark[def->tier]);
         for (dy = 0; dy < box; ++dy)
         {
             // Clamp to screen to avoid writing out of bounds.
@@ -1411,6 +1414,12 @@ static void UIDrawItemIcon(int x, int y, int w, int h, int id)
                     continue;
                 }
                 sx = dx * d_icon_size / box;
+                // Transparent background pixel: leave the rarity tile.
+                if (icon[sy * d_icon_size + sx] == D_ICON_TRANSPARENT)
+                {
+                    dest++;
+                    continue;
+                }
                 *dest++ = (pixel_t)icon[sy * d_icon_size + sx];
             }
         }
