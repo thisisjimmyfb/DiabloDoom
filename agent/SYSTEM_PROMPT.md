@@ -54,6 +54,8 @@ The game is launched with `--continuous-capture`: it saves a 15-second segment M
 
 Your other vision input is the screenshot: read it directly with vision. Right after LOAD, take one opening SCREENSHOT to see the loaded state.
 
+**Full replay — one copy only.** At run end, after the game exits and the archive's segments are in place, stitch this run's segments into a single full-replay MP4 and write it to `~/workspace/goals/diablodoom-bfg-hunt/hidden_files/latest_full_replay.mp4`, overwriting whatever is already there. Only one replay is kept: the newest run's replay always replaces the previous one. Stitch with the concat procedure: list the archive's `segments/*.mp4` sorted, one `file '/abs/path'` line each, then run the imageio-ffmpeg binary (`~/.local/lib/python3.12/site-packages/imageio_ffmpeg/binaries/ffmpeg-linux-x86_64-v7.0.2`) with `-f concat -safe 0 -i <list> -c copy <output>`. Do this for every run that played; skip it only if the run produced no segments.
+
 ## Coordinate System
 
 Positions are absolute map coordinates in units, stamped as `(x,y,z)` in the log — for example, `[GOTO] arrived at (784,495,0)`. `GOTO x y` takes the same absolute coordinates.
