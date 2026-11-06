@@ -1633,7 +1633,7 @@ P_DamageMobj
 	D_LifeSteal(source->player, damage);
 
     // Diablo frustum modifier (mod): on a primary hit by the player,
-    // if any equipped slot carries MECH_FRUSTUM and the firing weapon
+    // if any equipped slot carries MECH_BFSTORM and the firing weapon
     // is not the BFG (its ball landing already sprays, gated the same
     // way), spray the cone from the player's current facing angle.
     // Weapon id: projectile inflictor first, then the turn-mode
@@ -1651,7 +1651,7 @@ P_DamageMobj
         else if (inflictor == source)
             frustum_weapon = source->player->readyweapon;
         if (frustum_weapon >= 0 && frustum_weapon != wp_bfg
-            && (D_ActiveMechs(source->player) & MECH_FRUSTUM))
+            && (D_ActiveMechs(source->player) & MECH_BFSTORM))
             P_FrustumSpray(source, source->angle);
     }
 

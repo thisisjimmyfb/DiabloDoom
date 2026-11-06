@@ -367,7 +367,7 @@ static const diablo_itemdef_t diablo_unique[] =
     IT("Harlequin Crest",       TIER_UNIQUE, ESLOT_HELM,  2,2, 0,0,0,  0, 0,720,
        0,0,10,0,   0,0,0,0,   0,25,0,0,0,0,0,0, 0, 0, 0, 0, 0, -1, 0),
     IT("BFG10K",              TIER_UNIQUE, ESLOT_WEAPON,3,2, 0,0,0, 25,50, 0,
-       10,0,0,0,   0,0,0,0,   0,0,0,0,0,0,15,50, 0, 0, 0, 0, 0, wp_bfg, MECH_FRUSTUM),
+       10,0,0,0,   0,0,0,0,   0,0,0,0,0,0,15,50, 0, 0, 0, 0, 0, wp_bfg, MECH_BFSTORM),
 
     IT("Unmaker",             TIER_UNIQUE, ESLOT_WEAPON,3,2, 0,0,0, 22,45, 0,
        0,10,0,0,   0,0,0,0,   0,0,0,0,0,0,20,0, 0, 0, 0, 0, 0, wp_plasma, 0),
@@ -401,7 +401,8 @@ static const diablo_itemdef_t diablo_unique[] =
     // correctable. Drops ungated like every other item.
     { .name = "Ram Altman", .tier = TIER_UNIQUE,
       .slot = ESLOT_AMULET, .grid_w = 1, .grid_h = 1,
-      .lifesteal = 10, .doomweapon = -1, .replenish = 1 },
+      .lifesteal = 10, .doomweapon = -1, .replenish = 1,
+      .mech = MECH_RAISE },
 
 };
 
@@ -854,7 +855,8 @@ const char *D_MechDesc(int mech_bit)
         case MECH_REAPER:    return "Reaper: kills refund 2 TP";
         case MECH_LUCKY:     return "Lucky: every 3rd shot crits";
         case MECH_GLACIER:   return "Glacier: hits slow foes";
-        case MECH_FRUSTUM:   return "Frustum: hits everything in the view cone";
+        case MECH_BFSTORM:   return "BF Storm: hits everything in view";
+        case MECH_RAISE:     return "Raise: kills resurrect a dead enemy";
         default:             return NULL;
     }
 }
@@ -1238,7 +1240,7 @@ void D_DumpEquippedGear(void)
         D_BuildAffixString(def, dur, disabled[s], affix);
         if (affix[0] != '\0')
             printf("[GEAR] %s affixes:%s\n", slotnames[s], affix);
-        for (b = 0; b < 15; b++)
+        for (b = 0; b < 16; b++)
         {
             const char *mdesc;
             if (!(def->mech & (1 << b)))
@@ -1301,7 +1303,7 @@ void D_DumpItem(int id, int dur, boolean disabled, const char *label)
     D_BuildAffixString(def, dur, disabled, affix);
     if (affix[0] != '\0')
         printf("[INSPECT] %s affixes:%s\n", label, affix);
-    for (b = 0; b < 15; b++)
+    for (b = 0; b < 16; b++)
     {
         const char *mdesc;
         if (!(def->mech & (1 << b)))

@@ -831,7 +831,7 @@ void A_BFGSpray (mobj_t* mo)
     player = mo->target->player;
     if (!player)
         return;
-    if (!(D_ActiveMechs(player) & MECH_FRUSTUM))
+    if (!(D_ActiveMechs(player) & MECH_BFSTORM))
         return;
     P_FrustumSpray(mo->target, mo->angle);
 }
