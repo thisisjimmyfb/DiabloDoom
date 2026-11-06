@@ -112,8 +112,12 @@ def find_nearest(palette, r, g, b, exclude=None):
 # tile behind it shows through. Real pixels are never allowed to
 # quantize to this index (see convert_icon).
 TRANSPARENT_IDX = 255
-# A pixel counts as background (near-black) for the flood fill.
-BG_THRESHOLD = 64
+# A pixel counts as background (near-black) for the flood fill. The
+# art's background is pure black (0,0,0); dark items (stormwalker
+# boots' leather bottoms out near 40) must not be eaten, so the
+# threshold sits well below the darkest real item pixels but above
+# the blended edge where black meets the item.
+BG_THRESHOLD = 24
 # An enclosed near-black region this big (in pixels, on the 32x32
 # icon) is a hole through the item -- a ring's center, a coil's
 # middle -- not a dark detail. The ring hole is 78px; the largest
