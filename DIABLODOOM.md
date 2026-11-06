@@ -168,7 +168,8 @@ each carry a **Defense** value (hundreds to thousands on good gear);
 the total is your Defense rating. It doesn't reduce damage — it makes
 monsters **miss**: the tougher the monster and the lower your Defense,
 the more often it hits, and a landed hit deals full damage. Shields
-don't add Defense.
+don't add Defense. Dexterity also feeds Defense: your rating gets
+Dex / 4 on top of gear (Diablo 2's base Defense Rating).
 
 Those five pieces also wear out. Every hit that lands on you knocks
 1 point off a random worn piece. At 0 durability a piece is broken:
@@ -457,7 +458,7 @@ freeze-escape is for exits that need thought.
 mode now enters mini-combat planning on its own, damage-first
 immediately after `P_Ticker()` in `T_ExploreTick()`, with no attack
 queued, no autosave, no spotter message, and no exclusions for now.
-It fires only on landed damage (dodges, godmode, and invulnerability
+It fires only on landed damage (blocks, godmode, and invulnerability
 do not drop health, so they do not fire), never at health zero or
 below (deaths take the normal path), and never during planning or
 the progress phase — the check lives only in `T_ExploreTick()`, which
@@ -826,7 +827,7 @@ its own movement history.)
 | AS     | Attack Speed         | Reduces melee TP attack cost; ranged attacks are TP-free (ammo-gated). |
 | Haste  | Cooldown recovery    | Cooldown-reduction percent (cap 50%): applied when a cooldown is set, then flat reduction, minimum 1 round (1 round = 10 s). |
 | Crit   | Chance + damage      | Gear-inherent (Diablo-style): weapons/items grant crit chance and bonus crit damage. Base crits deal x2; each crit-damage point adds 1%. Chance caps at 50%. Crit is rolled exactly once per attack inside `T_DiabloDamageCallback` (once-per-attack pellet semantics); the legacy `P_DamageMobj` crit hook is bypassed in turn mode so crits can never double-roll. |
-| Defense | Diablo 2-style rating | Sum of the five durability slots' armor values (rescaled into the thousands). Lowers a monster's chance to hit; no damage reduction. |
+| Defense | Diablo 2-style rating | Sum of the five durability slots' armor values (rescaled into the thousands), plus Dex / 4. Lowers a monster's chance to hit; no damage reduction. |
 | MR     | Magic resistance     | Reduces AP-tagged plasma, occult, status damage.        |
 | Move   | Movement efficiency  | Boots/effects can reduce step cost, never below 1 TP.   |
 
@@ -838,8 +839,16 @@ Defense (Diablo 2-style, since 2026-10-21): a monster's chance to hit is
 `CTH = 200 * AR / (AR + Defense)`, clamped to [5, 95], where the
 attacker's rating is `AR = 60 + spawn health`. A landed hit deals full
 damage (elemental resists and vanilla Doom armor absorption still apply
-afterwards). Only the helm, armor, boots, gloves and belt slots produce
-Defense; shields and other slots do not.
+afterwards). Defense comes from the helm, armor, boots, gloves and belt
+slots, plus Dex / 4 (Diablo 2's base Defense Rating); shields and other
+slots do not add Defense.
+
+Block (Diablo 2-style, since 2026-11-06; replaces dodge): while a shield
+is equipped, Dexterity gives a chance to block a monster's attack
+entirely — `block% = Dex * 100 / (Dex + 100)`, capped at 75% (Diablo 2's
+block cap). A successful block avoids the hit entirely, same feedback as
+a Defense miss (damage flash, no health lost). Without a shield, Dexterity
+gives no block chance. Block is rolled before Defense in `P_DamageMobj`.
 
 Tooltip order (ground loot, backpack, equipped — all identical):
 damage range; AD/AP ratios; TP cost; attack speed; charge/ammo state;
@@ -848,7 +857,7 @@ cooldown; crit; special trait.
 #### Hero attributes (the existing four)
 
 - **Strength** — AD, knockback resistance, heavy-weapon handling.
-- **Dexterity** — hit chance, attack-speed TP cost, dodge.
+- **Dexterity** — hit chance, attack-speed TP cost, block (with a shield), Defense (Dex / 4).
 - **Energy** — AP, charge efficiency, potion and status power.
 - **Vitality** — max health, physical resilience, recovery.
 
@@ -1257,8 +1266,8 @@ The five Defense slots (helm, armor, boots, gloves, belt) carry
 per-instance durability, `20 + Defense/20` points per piece
 (`diablo_equipped_dur[]` / `diablo_backpack_dur[]` on `player_t`). Each
 landed monster hit wears one random worn piece by 1
-(`D_WearRandomPiece`, called from `P_DamageMobj` after the defense and
-dodge rolls pass). At 0 the piece stays equipped and keeps its other
+(`D_WearRandomPiece`, called from `P_DamageMobj` after the block and
+defense rolls pass). At 0 the piece stays equipped and keeps its other
 stats, but contributes no Defense until repaired. Durability travels
 with the item through the backpack, equip swaps, the corpse
 snapshot/recovery and savegames (format DIB3; DIB2 saves load with

@@ -290,8 +290,8 @@ int D_DifficultyTier(void);
 int D_RollItemForDifficulty(int tier); // filtered random item by difficulty
 
 // Phase 4: dexterity/energy/resistance hooks.
-boolean D_DodgeRoll(struct player_s *player);   // true = avoided the hit
-int D_DodgeChance(struct player_s *player);     // percent, for UI
+boolean D_BlockRoll(struct player_s *player);   // true = blocked the hit
+int D_BlockChance(struct player_s *player);     // percent, requires a shield
 int D_CritRoll(struct player_s *player, int damage);  // gear crit damage
 int D_CritChance(struct player_s *player);      // percent, gear-derived, for UI
 // Reduce damage by the resistance matching the inflictor's element.
