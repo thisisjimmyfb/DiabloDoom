@@ -113,11 +113,13 @@ def find_nearest(palette, r, g, b, exclude=None):
 # quantize to this index (see convert_icon).
 TRANSPARENT_IDX = 255
 # A pixel counts as background (near-black) for the flood fill. The
-# art's background is pure black (0,0,0); dark items (stormwalker
-# boots' leather bottoms out near 40) must not be eaten, so the
-# threshold sits well below the darkest real item pixels but above
-# the blended edge where black meets the item.
-BG_THRESHOLD = 24
+# art's background is pure black (0,0,0); dark items must not be
+# eaten, so the threshold sits just above pure black. The doom grasp
+# glove's leather bottoms out near 1 (median 35) — a threshold of 24
+# still ate a third of it; 12 keeps the glove solid (287/1024 opaque
+# vs 220 at 24) without leaving a halo on bright items, and the true
+# holes still measure 36+ px against the 30px hole minimum.
+BG_THRESHOLD = 12
 # An enclosed near-black region this big (in pixels, on the 32x32
 # icon) is a hole through the item -- a ring's center, a coil's
 # middle -- not a dark detail. The ring hole is 78px; the largest
