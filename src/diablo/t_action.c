@@ -305,7 +305,8 @@ static void T_RefuseTP(turnaction_t action)
 {
     static char msg[64];
     int need = T_CostFor(action);
-    M_snprintf(msg, sizeof(msg), "Need %d TP (have %d).", need, turnctrl.tp);
+    M_snprintf(msg, sizeof(msg), "Need %d %s (have %d).", need,
+               need == 1 ? "point" : "points", turnctrl.tp);
     players[consoleplayer].message = msg;
     printf("[TURN] refused action %d: need %d tp, have %d\n",
            action, need, turnctrl.tp);
@@ -443,7 +444,8 @@ static boolean T_Enqueue(turnaction_t action, int cost, angle_t moveangle,
     turnctrl.tp -= cost;
     turnctrl.queue_tp += cost;
     T_QueueEntryName(e, name, sizeof(name));
-    M_snprintf(msg, sizeof(msg), "Queued %s (%d TP).", name, cost);
+    M_snprintf(msg, sizeof(msg), "Queued %s (%d %s).", name, cost,
+               cost == 1 ? "point" : "points");
     players[consoleplayer].message = msg;
     printf("[TURN] enqueued %s cost=%d tp_left=%d qlen=%d\n",
            name, cost, turnctrl.tp, turnctrl.queue_len);
@@ -2238,7 +2240,8 @@ void T_DoUndoQueue(void)
     turnctrl.tp += e->cost;
     turnctrl.queue_tp -= e->cost;
     T_QueueEntryName(e, name, sizeof(name));
-    M_snprintf(msg, sizeof(msg), "Undid %s (+%d TP).", name, e->cost);
+    M_snprintf(msg, sizeof(msg), "Undid %s (+%d %s).", name, e->cost,
+               e->cost == 1 ? "point" : "points");
     players[consoleplayer].message = msg;
     printf("[TURN] undo %s refund=%d tp=%d qlen=%d\n",
            name, e->cost, turnctrl.tp, turnctrl.queue_len);
@@ -2290,7 +2293,8 @@ void T_DoClearQueue(void)
         mo->floorz = mo->subsector->sector->floorheight;
         mo->ceilingz = mo->subsector->sector->ceilingheight;
     }
-    M_snprintf(msg, sizeof(msg), "Queue cleared (+%d TP).", refund);
+    M_snprintf(msg, sizeof(msg), "Queue cleared (+%d %s).", refund,
+               refund == 1 ? "point" : "points");
     players[consoleplayer].message = msg;
     printf("[TURN] clear queue refund=%d tp=%d\n", refund, turnctrl.tp);
     T_DumpState("clear-queue");

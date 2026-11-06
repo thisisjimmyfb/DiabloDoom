@@ -852,7 +852,7 @@ const char *D_MechDesc(int mech_bit)
         case MECH_BREACHER:  return "Breacher: kills refund reload";
         case MECH_BULL:      return "Bull: firing shoves you back";
         case MECH_SPLITTING: return "Splitting: +2 pellets";
-        case MECH_REAPER:    return "Reaper: kills refund 2 TP";
+        case MECH_REAPER:    return "Reaper: kills refund 2 points";
         case MECH_LUCKY:     return "Lucky: every 3rd shot crits";
         case MECH_GLACIER:   return "Glacier: hits slow foes";
         case MECH_BFSTORM:   return "BF Storm: hits everything in view";
