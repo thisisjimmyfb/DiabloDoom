@@ -61,7 +61,7 @@ Positions are absolute map coordinates in units, stamped as `(x,y,z)` in the log
 - **x runs east–west:** +x is east, −x is west.
 - **y runs north–south:** +y is north, −y is south.
 - **Facing angles** follow the same axes: 0° is east, 90° is north, 180° is west, 270° is south. Angles increase counterclockwise. `TURNL` turns +45°, `TURNR` turns −45°.
-- **z is the ground level (floorz)** where you stand, not your height above it. The same (x,y) at a different z is a different place: a drop in z means you have gone down to a lower level (a trench, a channel, a pool), and a rise means you have climbed to a higher one. A GOTO that arrives at a different z than the level you were on has changed levels.
+- **z is the ground level (floorz)** where you stand, not your height above it. A sudden change in z is an indication of a sudden drop or rise in height — a drop in z means you have gone down (a trench, a channel, a pool), a rise means you have climbed up. The same (x,y) at a different z is a different place.
 
 ## Command Reference
 
@@ -75,7 +75,7 @@ Write commands to /tmp/doom_cmd.txt (one per line). It's a FIFO — do NOT delet
   `[GOTO] blocked at waypoint K` if the path stalls, or
   `[GOTO] no path to (x,y)` if no route exists. GOTO is Z-aware: a step
   up of more than 24 units does not exist to the pathfinder, so a target
-  on a much higher level returns `no path` — the route is not there, not
+  much higher than you returns `no path` — the route is not there, not
   merely blocked. Coordinates come from the game's own stamps: your
   position is in every outcome line, and death/loot events stamp their
   positions. Send one GOTO, wait for its outcome line, then observe.
