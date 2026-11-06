@@ -1616,6 +1616,21 @@ static int UITooltipLines(int id, int dur, char lines[12][48])
         snprintf(lines[n++], 48, "+%d%% Crit Chance", def->crit_chance);
     if (def->crit_dmg)
         snprintf(lines[n++], 48, "+%d%% Crit Damage", def->crit_dmg);
+    // Special mechanics (MECH_*): shown, never hidden — a signature
+    // effect like Ram Altman's raise must read on the tooltip.
+    if (def->mech)
+    {
+        int b;
+        for (b = 0; b < 16 && n < 12; b++)
+        {
+            const char *mdesc;
+            if (!(def->mech & (1 << b)))
+                continue;
+            mdesc = D_MechDesc(1 << b);
+            if (mdesc != NULL)
+                snprintf(lines[n++], 48, "%s", mdesc);
+        }
+    }
     return n;
 }
 
