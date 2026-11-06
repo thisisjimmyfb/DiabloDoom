@@ -1523,12 +1523,12 @@ P_DamageMobj
 	    return;
 	}
 	
-	// Diablo equipment (mod): dexterity dodge roll.  A successful
-	// dodge avoids the hit entirely.
-	if (player && D_DodgeRoll(player))
+	// Diablo equipment (mod): dexterity block roll.  A successful
+	// block avoids the hit entirely. Requires a shield equipped.
+	if (player && D_BlockRoll(player))
 	{
 	    // Small feedback: the damage indicator still flashes, but
-	    // no health is lost.  (No message spam; dodges are common.)
+	    // no health is lost.  (No message spam; blocks are common.)
 	    player->damagecount += 10;
 	    if (player->damagecount > 100)
 		player->damagecount = 100;

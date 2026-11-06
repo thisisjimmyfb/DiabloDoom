@@ -888,9 +888,10 @@ void D_RecalcStats(struct player_s *pl)
                 continue;
         player->diablo_stats[DSTAT_DMG_MIN] += def->dmg_min;
         player->diablo_stats[DSTAT_DMG_MAX] += def->dmg_max;
-        // Defense (DSTAT_ARMOR) comes only from the durability slots
-        // (helm/armor/boots/gloves/belt), and a piece worn to 0
-        // contributes nothing until repaired (2026-10-21).
+        // Defense (DSTAT_ARMOR) comes from the durability slots
+        // (helm/armor/boots/gloves/belt), plus Dex / 4 (below), and
+        // a piece worn to 0 contributes nothing until repaired
+        // (2026-10-21).
         if (D_IsDurabilityItem(def)
          && player->diablo_equipped_dur[s] > 0)
             player->diablo_stats[DSTAT_ARMOR] += def->armor;
@@ -918,6 +919,11 @@ void D_RecalcStats(struct player_s *pl)
         player->diablo_stats[DSTAT_CD_FLAT] += def->cd_flat;
         player->diablo_stats[DSTAT_REPLENISH] += def->replenish;
     }
+
+    // Dexterity also feeds Defense (Diablo 2): base Defense Rating
+    // is Dex / 4, on top of gear. (My pick, correctable.)
+    player->diablo_stats[DSTAT_ARMOR] +=
+        player->diablo_stats[DSTAT_DEX] / 4;
 
     D_SyncDoomWeapon(player);
 }
@@ -2476,23 +2482,27 @@ int D_RollItemForDifficulty(int tier)
 // Phase 4: dexterity -> dodge and crit; energy -> potion power;
 // elemental resistances mapped from the damage source.
 
-// Dodge chance with diminishing returns: 100 dex = 50%, capped at 40%.
-int D_DodgeChance(struct player_s *pl)
+// Block chance with diminishing returns, Diablo 2-style: dexterity
+// increases the chance to block, but only while a shield is equipped.
+// 100 dex = 50%, capped at 75% (my picks, correctable).
+int D_BlockChance(struct player_s *pl)
 {
     int dex = D_Stat(pl, DSTAT_DEX);
     int chance;
 
+    if (pl->diablo_equipped[ESLOT_SHIELD] == D_NOITEM)
+        return 0;
     if (dex <= 0)
         return 0;
     chance = dex * 100 / (dex + 100);
-    if (chance > 40)
-        chance = 40;
+    if (chance > 75)
+        chance = 75;
     return chance;
 }
 
-boolean D_DodgeRoll(struct player_s *pl)
+boolean D_BlockRoll(struct player_s *pl)
 {
-    int chance = D_DodgeChance(pl);
+    int chance = D_BlockChance(pl);
     if (chance <= 0)
         return false;
     return (P_Random() % 100) < chance;
