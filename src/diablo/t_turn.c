@@ -2541,7 +2541,7 @@ static boolean T_ActionEnabled(turnaction_t action)
     return T_CanAfford(action);
 }
 
-// One action row: key, name, TP cost. Unaffordable rows draw dim red.
+// One action row: key, name, points cost. Unaffordable rows draw dim red.
 // Rows scrolled above the text area (y < 18) are skipped but still
 // advance y: the title at y=2 (7px tall, ends at 9) keeps its gap to
 // the text area even when a long queue scrolls the menu up — the
@@ -2579,9 +2579,9 @@ static void T_KitGateStr(weapontype_t w, char *buf, int bufsz)
         M_snprintf(buf, bufsz, " AMMO!");
 }
 
-// Planning-time action list with per-action TP costs. Disabled
+// Planning-time action list with per-action points costs. Disabled
 // (unaffordable) actions render dim red and their keypresses are
-// refused with a "Need N TP" message — they are never selectable.
+// refused with a "Need N points" message — they are never selectable.
 // END TURN is always the final row, separated as the exit: a dim
 // divider above it and a bright-red bracketed row so it reads as
 // the way out, not just another action.
@@ -2591,7 +2591,7 @@ static void T_DrawActionList(int start_y)
     int x = 8, y = start_y;
     player_t *pl = &players[consoleplayer];
 
-    T_DrawActionRow(x, &y, "WASD", "MOVE/STRF", TA_MOVE_N, "1TP");
+    T_DrawActionRow(x, &y, "WASD", "MOVE/STRF", TA_MOVE_N, "1 point");
     T_DrawActionRow(x, &y, "<>", "TURN", TA_TURN_L, "FREE");
     T_DrawActionRow(x, &y, "SPC", "USE", TA_USE, "FREE");
     if (!T_KitCanFire(pl->readyweapon))
@@ -2612,17 +2612,21 @@ static void T_DrawActionList(int start_y)
     }
     else
     {
-        M_snprintf(cost, sizeof(cost), "%dTP", T_CostFor(TA_ATTACK));
+        {
+            int acost = T_CostFor(TA_ATTACK);
+            M_snprintf(cost, sizeof(cost), "%d %s", acost,
+                       acost == 1 ? "point" : "points");
+        }
         T_DrawActionRow(x, &y, "CTRL", "TARGET", TA_ATTACK, cost);
     }
     T_DrawActionRow(x, &y, "BKSP", "UNDO", TA_UNDO, "FREE");
     // The exit: END TURN as a simple action row, consistent with the rest.
     // (C inventory is hidden from the menu but still works during combat.)
-    T_DrawActionRow(x, &y, "ENTER", "END TURN", TA_END_TURN, "0TP");
+    T_DrawActionRow(x, &y, "ENTER", "END TURN", TA_END_TURN, "0 points");
 }
 
 // Queued-action panel: FIFO order with per-action costs and the total
-// reserved TP. Drawn below the action list while planning (and while
+// reserved points. Drawn below the action list while planning (and while
 // targeting, so the queue stays visible). Hidden when empty.
 static int T_DrawQueuePanelAt(int start_y)
 {
@@ -2642,13 +2646,15 @@ static int T_DrawQueuePanelAt(int start_y)
     {
         t_queueentry_t *e = &turnctrl.queue[i];
         T_QueueEntryName(e, name, sizeof(name));
-        M_snprintf(line, sizeof(line), "%d %s %dTP", i + 1, name, e->cost);
+        M_snprintf(line, sizeof(line), "%d %s %d %s", i + 1, name, e->cost,
+                   e->cost == 1 ? "point" : "points");
         if (y >= 18)
             T_DrawText(x, y, line);
         y += 9;
     }
-    M_snprintf(line, sizeof(line), "%d ACTS %dTP RSVD",
-               turnctrl.queue_len, turnctrl.queue_tp);
+    M_snprintf(line, sizeof(line), "%d ACTS %d %s RSVD",
+               turnctrl.queue_len, turnctrl.queue_tp,
+               turnctrl.queue_tp == 1 ? "point" : "points");
     if (y >= 18)
         T_DrawTextHi(x, y, line);
     y += 9;
@@ -2716,14 +2722,15 @@ void T_DrawHUD(void)
         return;
     }
 
-    // TP readout shows reserved (queued) TP separately: "TP 4/10"
-    // is spendable now, "(6 IN QUEUE)" is already committed.
+    // Points readout shows reserved (queued) points separately:
+    // "4/10 points" is spendable now, "(6 IN QUEUE)" is already
+    // committed.
     if (turnctrl.queue_len > 0)
         M_snprintf(line, sizeof(line),
-                   "TURN MODE - TP %d/%d (%d IN QUEUE)",
+                   "TURN MODE - %d/%d points (%d IN QUEUE)",
                    turnctrl.tp, turnctrl.tp_max, turnctrl.queue_tp);
     else
-        M_snprintf(line, sizeof(line), "TURN MODE - TP %d/%d",
+        M_snprintf(line, sizeof(line), "TURN MODE - %d/%d points",
                    turnctrl.tp, turnctrl.tp_max);
     T_DrawTextCentered(2, line);
 
@@ -2837,21 +2844,23 @@ void T_DrawHUD(void)
                     T_KitGateStr(pl->readyweapon, gate, sizeof(gate));
                     if (kit->splash_radius > 0)
                         M_snprintf(line, sizeof(line),
-                                   "[%d]%s HP%d R%d H%d%% D%d-%d SPLASH %dTP%s",
+                                   "[%d]%s HP%d R%d H%d%% D%d-%d SPLASH %d %s%s",
                                    turnctrl.selected_target + 1,
                                    T_TargetName(mo), mo->health, dist,
                                    T_HitChance(pl, mo, &st),
                                    dmin, dmax,
                                    T_CostFor(TA_ATTACK),
+                                   T_CostFor(TA_ATTACK) == 1 ? "point" : "points",
                                    gate);
                     else
                         M_snprintf(line, sizeof(line),
-                                   "[%d]%s HP%d R%d H%d%% D%d-%d %dTP%s",
+                                   "[%d]%s HP%d R%d H%d%% D%d-%d %d %s%s",
                                    turnctrl.selected_target + 1,
                                    T_TargetName(mo), mo->health, dist,
                                    T_HitChance(pl, mo, &st),
                                    dmin, dmax,
                                    T_CostFor(TA_ATTACK),
+                                   T_CostFor(TA_ATTACK) == 1 ? "point" : "points",
                                    gate);
                 }
                 T_DrawTextCenteredHi(148, line);
