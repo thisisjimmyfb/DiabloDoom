@@ -114,6 +114,11 @@ def find_nearest(palette, r, g, b, exclude=None):
 TRANSPARENT_IDX = 255
 # A pixel counts as background (near-black) for the flood fill.
 BG_THRESHOLD = 64
+# An enclosed near-black region this big (in pixels, on the 32x32
+# icon) is a hole through the item -- a ring's center, a coil's
+# middle -- not a dark detail. The ring hole is 78px; the largest
+# dark detail that must stay opaque (a buckler's shading) is 28px.
+HOLE_MIN_PIXELS = 30
 
 def convert_icon(path, palette):
     """Load image, resize to ICON_SIZE, quantize to palette. Returns bytes.
@@ -150,6 +155,31 @@ def convert_icon(path, palette):
                     and is_bg[ny][nx] and not transparent[ny][nx]:
                 transparent[ny][nx] = True
                 stack.append((nx, ny))
+    # Holes: near-black regions fully enclosed by the item (a ring's
+    # center, a coil's middle) are background showing through, not
+    # part of the item. Find each connected enclosed region; only
+    # ones big enough to be a hole go transparent, so small dark
+    # details (shading, a buckler's boss shadow) stay opaque.
+    seen = [[False] * ICON_SIZE for _ in range(ICON_SIZE)]
+    for sy in range(ICON_SIZE):
+        for sx in range(ICON_SIZE):
+            if not is_bg[sy][sx] or transparent[sy][sx] or seen[sy][sx]:
+                continue
+            comp = []
+            stack = [(sx, sy)]
+            seen[sy][sx] = True
+            while stack:
+                x, y = stack.pop()
+                comp.append((x, y))
+                for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+                    if 0 <= nx < ICON_SIZE and 0 <= ny < ICON_SIZE \
+                            and is_bg[ny][nx] and not transparent[ny][nx] \
+                            and not seen[ny][nx]:
+                        seen[ny][nx] = True
+                        stack.append((nx, ny))
+            if len(comp) >= HOLE_MIN_PIXELS:
+                for x, y in comp:
+                    transparent[y][x] = True
     result = bytearray()
     for y in range(ICON_SIZE):
         for x in range(ICON_SIZE):
