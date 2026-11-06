@@ -1210,8 +1210,8 @@ static void T_WalkBegin(fixed_t step_target)
     walk_last_y = pl->mo->y;
     walk_start_x = pl->mo->x;
     walk_start_y = pl->mo->y;
-    printf("[WALK] started at (%d,%d)\n",
-           pl->mo->x >> 16, pl->mo->y >> 16);
+    printf("[WALK] started at (%d,%d,%d)\n",
+           pl->mo->x >> 16, pl->mo->y >> 16, pl->mo->floorz >> 16);
 }
 
 void T_WalkStart(void)
@@ -1253,8 +1253,8 @@ void T_WalkCancel(void)
             int moved = P_AproxDistance(pl->mo->x - walk_start_x,
                                         pl->mo->y - walk_start_y)
                         >> 16;
-            printf("[WALK] stopped at (%d,%d), moved %d from (%d,%d)\n",
-                   pl->mo->x >> 16, pl->mo->y >> 16, moved,
+            printf("[WALK] stopped at (%d,%d,%d), moved %d from (%d,%d)\n",
+                   pl->mo->x >> 16, pl->mo->y >> 16, pl->mo->floorz >> 16, moved,
                    walk_start_x >> 16, walk_start_y >> 16);
         }
         else
@@ -1290,8 +1290,8 @@ void T_WalkTick(void)
                                     mo->y - walk_start_y) >> 16;
         if (moved >= (walk_step_target >> 16))
         {
-            printf("[WALK] step complete at (%d,%d), moved %d from (%d,%d)\n",
-                   mo->x >> 16, mo->y >> 16, moved,
+            printf("[WALK] step complete at (%d,%d,%d), moved %d from (%d,%d)\n",
+                   mo->x >> 16, mo->y >> 16, mo->floorz >> 16, moved,
                    walk_start_x >> 16, walk_start_y >> 16);
             mo->momx = 0;
             mo->momy = 0;
@@ -1391,8 +1391,8 @@ void T_GotoTick(void)
     {
         int moved = P_AproxDistance(mo->x - goto_start_x,
                                     mo->y - goto_start_y) >> 16;
-        printf("[GOTO] arrived at (%d,%d), moved %d from (%d,%d)\n",
-               mo->x >> 16, mo->y >> 16, moved,
+        printf("[GOTO] arrived at (%d,%d,%d), moved %d from (%d,%d)\n",
+               mo->x >> 16, mo->y >> 16, mo->floorz >> 16, moved,
                goto_start_x >> 16, goto_start_y >> 16);
         goto_finish(GOTO_RES_ARRIVED);
         return;
