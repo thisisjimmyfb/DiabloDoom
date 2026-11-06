@@ -222,15 +222,15 @@ These work only in explore mode (`T_InExplore()`). Ignored in combat.
 | `TURNR` | Turn right 45 degrees. |
 
 #### Combat Mode Only
-These work in turn-based combat (when `T_Active()`). They queue actions (1 TP each for moves, variable for attacks).
+These work in turn-based combat (when `T_Active()`). They queue actions (1 point each for moves, variable for attacks).
 
-| Command | Action | TP Cost |
+| Command | Action | Point Cost |
 |---------|--------|---------|
 | `ATTACK` | Queue attack on selected target. | Varies by weapon |
-| `MOVE_FWD` | Step forward (facing-relative). Kiting: use to close distance. | 1 TP |
-| `MOVE_BACK` | Step back (facing-relative). Kiting: back away from melee attackers. | 1 TP |
-| `STRAFE_L` | Strafe left (facing-relative, no camera turn). | 1 TP |
-| `STRAFE_R` | Strafe right (facing-relative, no camera turn). | 1 TP |
+| `MOVE_FWD` | Step forward (facing-relative). Kiting: use to close distance. | 1 point |
+| `MOVE_BACK` | Step back (facing-relative). Kiting: back away from melee attackers. | 1 point |
+| `STRAFE_L` | Strafe left (facing-relative, no camera turn). | 1 point |
+| `STRAFE_R` | Strafe right (facing-relative, no camera turn). | 1 point |
 | `END` | End turn. Executes the queued actions, then advances the turn. | — |
 
 #### Both Modes
@@ -248,7 +248,7 @@ In turn-based combat, use movement commands to kite melee attackers:
 
 - **Guns only**: Keep distance from melee enemies. `MOVE_BACK` to create space, `ATTACK` to shoot, repeat. Never let a Demon reach melee range.
 - **Fists**: Do not fight. `MOVE_BACK` / `STRAFE_*` to disengage, then explore for a weapon.
-- Movement costs 1 TP per step. Queue moves + attacks, then `END` to execute.
+- Movement costs 1 point per step. Queue moves + attacks, then `END` to execute.
 
 ### Examples
 
@@ -389,7 +389,7 @@ The game is **not** always turn-based. Two modes:
 default bindings). The normal Doom ticker runs; enemies are frozen solid
 (`P_MobjThinker` skips non-player `MF_COUNTKILL` mobjs). Barrels, loot,
 doors, and the world tick normally. Walking over loot picks it up via the
-standard touch path. The HUD shows a minimal `EXPLORE` header; no TP, no
+standard touch path. The HUD shows a minimal `EXPLORE` header; no points, no
 queue, no action list. G (auto-loot pathing) is disabled in explore mode —
 walk to the loot instead. F/Tab targeting is disabled: there is nothing
 to fight.
@@ -410,7 +410,7 @@ line of sight** (`T_ExploreDetect()`): sight within the monster's front
 180-degree arc, or an already-acquired monster regaining LOS. The player
 merely *seeing* an enemy only drives the HUD target markers; it never
 starts combat. The HUD flips to `TURN MODE - ROUND 1` with a "X spots
-you!" callout, and the player plans with 10 TP. Enemies that acquired
+you!" callout, and the player plans with 10 points. Enemies that acquired
 the player but are not visible get an "X is hunting you!" telegraph
 before the first progress phase. When the queue drains with no
 combatants left, the game returns to EXPLORE — and every monster
@@ -443,12 +443,12 @@ direction (for shootable walls/secrets that aren't targetable mobjs).
 The FIFO driver's `ATTACK` is the same entry (start + confirm in one):
 in explore it queues the target-less attack and holds planning. Since
 2026-10-23 the entry cannot abort on an attack refusal (kit cannot
-fire / TP / ammo): the refusal message stands, nothing is queued, and
+fire / points / ammo): the refusal message stands, nothing is queued, and
 planning holds — ATTACK from explore doubles as the agent's freeze
 against passive damage (damaging floors tick in real time while the
 vision loop thinks; planning replaces the world tick entirely). The
 agent deletes the queued attack with the FIFO `UNDO` command
-(Backspace parity, added the same day), queues movement to TP 0, and
+(Backspace parity, added the same day), queues movement to 0 points, and
 ENDs to execute its way out. Passive damage never cancels a GOTO —
 the walk rides out the ticks at run speed (forwardmove[1]) — so a
 plain GOTO to the last safe stamp is the sprint-out gear, and the
@@ -483,8 +483,8 @@ combat exit is on clear (no combatants left when the queue drains).
 
 #### Tempo
 
-Each round begins with **10 Tempo Points (TP)**. ("Tempo" avoids colliding
-with the League-style AP stat.) The player commits actions until TP is
+Each round begins with **10 Tempo Points**. ("Tempo" avoids colliding
+with the League-style AP stat.) The player commits actions until points are
 exhausted or chooses End Turn. Status effects advance once per round;
 weapon cooldowns, charges, and inverted-ammo drain tick on wall-clock time instead —
 every game tic via `T_TickCadence`, independent of round boundaries
@@ -493,14 +493,14 @@ through a bounded simulation pulse.
 
 #### Baseline action costs
 
-| Action              | TP                          |
+| Action              | Points                          |
 |---------------------|-----------------------------|
 | Select / cycle target | 0                         |
 | Facing-relative step (WASD) | 1                  |
 | Use / interact     | 2                           |
 | Attack selected enemy | Derived from attack speed |
-| Undo last queued action (Backspace) | 0 (refunds TP) |
-| Clear queue (Z)     | 0 (refunds all TP)          |
+| Undo last queued action (Backspace) | 0 (refunds points) |
+| Clear queue (Z)     | 0 (refunds all points)          |
 | Inventory / character screen (C) | 0 (free; owns input while open) |
 | End turn            | 0 (always legal; listed last as the exit row) |
 
@@ -512,10 +512,10 @@ through a bounded simulation pulse.
 2. **Select** — cycle or press a number; inspect hit chance, damage, cost,
    HP, cover.
 3. **Queue** — planning actions (move, use, attack) ENQUEUE and
-   reserve TP immediately. The queue shows each entry with its cost and
-   the total reserved TP. Unaffordable actions are dimmed and cannot be
-   queued. Backspace removes the last entry (refunds TP); Z clears the
-   whole queue (refunds all TP).
+   reserve points immediately. The queue shows each entry with its cost and
+   the total reserved points. Unaffordable actions are dimmed and cannot be
+   queued. Backspace removes the last entry (refunds points); Z clears the
+   whole queue (refunds all points).
 4. **Progress** — Enter (or T) unfreezes the world into the *progress
    phase*: the queue drains FIFO in real time while the game runs —
    enemies move, shoot, and die around the player. There is no enemy
@@ -549,7 +549,7 @@ through a bounded simulation pulse.
   (e.g. STEP E); turning the view afterward does not change them.
 - Attack entries snapshot the target actor; at execution the target is
   revalidated — if it died or became invalid, the attack skips gracefully,
-  refunds its TP, and the drain continues.
+  refunds its points, and the drain continues.
 - Movement uses `P_XYMovement` (the normal game movement code) with wall
   sliding (`P_SlideMove`), matching explore-mode behavior. Blocked moves
   slide along walls instead of stopping dead. `P_ZMovement` runs after
@@ -583,10 +583,10 @@ never change facing. The left/right arrows rotate the view 45 degrees
 for free — that is view control, not aiming: targeting is still numbered
 selection, so the no-aiming contract holds. View turning is immediate
 and never queued. Selection, cancellation, undo, and clear are free;
-TP is reserved at queue time, so browsing targets never changes world
+Points are reserved at queue time, so browsing targets never changes world
 state.
 
-**Inventory rule:** opening the character screen costs no TP. Equipping or
+**Inventory rule:** opening the character screen costs no points. Equipping or
 consuming an item does. Grid organization stays free.
 
 **Auto-loot rule:** the HUD shows "Loot nearby, press G to loot"
@@ -824,12 +824,12 @@ its own movement history.)
 |--------|----------------------|---------------------------------------------------------|
 | AD     | Attack Damage        | Scales ballistic, explosive, melee. Strength does NOT feed AD (guns) — it gates equipment and scales fists only. |
 | AP     | Ability Power        | Scales plasma, BFG, status, charged effects. Energy feeds AP. |
-| AS     | Attack Speed         | Reduces melee TP attack cost; ranged attacks are TP-free (ammo-gated). |
+| AS     | Attack Speed         | Reduces melee attack point cost; ranged attacks are point-free (ammo-gated). |
 | Haste  | Cooldown recovery    | Cooldown-reduction percent (cap 50%): applied when a cooldown is set, then flat reduction, minimum 1 round (1 round = 10 s). |
 | Crit   | Chance + damage      | Gear-inherent (Diablo-style): weapons/items grant crit chance and bonus crit damage. Base crits deal x2; each crit-damage point adds 1%. Chance caps at 50%. Crit is rolled exactly once per attack inside `T_DiabloDamageCallback` (once-per-attack pellet semantics); the legacy `P_DamageMobj` crit hook is bypassed in turn mode so crits can never double-roll. |
 | Defense | Diablo 2-style rating | Sum of the five durability slots' armor values (rescaled into the thousands), plus Dex / 4. Lowers a monster's chance to hit; no damage reduction. |
 | MR     | Magic resistance     | Reduces AP-tagged plasma, occult, status damage.        |
-| Move   | Movement efficiency  | Boots/effects can reduce step cost, never below 1 TP.   |
+| Move   | Movement efficiency  | Boots/effects can reduce step cost, never below 1 point.   |
 
 Damage: `damage = base + (AD × ratio_AD) + (AP × ratio_AP)` — most weapons
 have one dominant scaling path; hybrid is a special build, not the default.
@@ -851,13 +851,13 @@ a Defense miss (damage flash, no health lost). Without a shield, Dexterity
 gives no block chance. Block is rolled before Defense in `P_DamageMobj`.
 
 Tooltip order (ground loot, backpack, equipped — all identical):
-damage range; AD/AP ratios; TP cost; attack speed; charge/ammo state;
+damage range; AD/AP ratios; point cost; attack speed; charge/ammo state;
 cooldown; crit; special trait.
 
 #### Hero attributes (the existing four)
 
 - **Strength** — AD, knockback resistance, heavy-weapon handling.
-- **Dexterity** — hit chance, attack-speed TP cost, block (with a shield), Defense (Dex / 4).
+- **Dexterity** — hit chance, attack-speed point cost, block (with a shield), Defense (Dex / 4).
 - **Energy** — AP, charge efficiency, potion and status power.
 - **Vitality** — max health, physical resilience, recovery.
 
@@ -877,7 +877,7 @@ equipped), not loot.
 |-----|------|--------------|-----------|----------|
 | Pistol | AD | **Magazine 10** (1/shot) | AS | Reliable sidearm. |
 | Shotgun | AD | **Magazine 20** (2/shot) | AS | Positioning reward, pellet spread. |
-| Chaingun | AD | **Magazine 10** (1/shot) | AS | TP-hungry DPS hose. |
+| Chaingun | AD | **Magazine 10** (1/shot) | AS | point-hungry DPS hose. |
 | Chainsaw | AD | **Magazine 6** (1/shot) + **30% inherent leech** | AS | High risk, constant uptime; leech sustains close-range fighting. |
 | Plasma Rifle | AP | **Ammo** (inverted) | — (ammo) | The ammo counter represents heat: starts at 0, +20 per shot, fires while the count is below the 125 capacity, and drains at the replenish rate continuously — the drain is the reload period. No separate heat resource (2026-10-22). |
 | Rocket Launcher | AP | **Charges** (3, +1 per 2 s) + **Magazine 20** (10/shot) | AS | Punctuated splash; firing consumes 1 charge. Each regenerated charge also loads one attack's worth of ammo. |
@@ -999,7 +999,7 @@ two-handed gun is equipped unequips the gun the same way.
 Damage model:
 
 - **AD gun:** `dmg = kit_base + gun_dmg_range + STR/2..STR`, then × (1 + AD%).
-  Gated by TP and its magazine (auto-replenished; see below).
+  Gated by points and its magazine (auto-replenished; see below).
 - **AP gun:** `dmg = kit_base + AP/4..AP/2`, then × (1 + AP%).
   STR does not scale AP guns; ENE does.
 - Kit damage **stacks with** the gun's Diablo stats instead of overwriting
@@ -1068,10 +1068,10 @@ preview the counter rising toward capacity instead.
   trickle while its cooldown counter is running (firing sets it;
   see Cooldown above) — kits with cooldown 0 trickle ungated.
   Ranged attacks cost
-  0 TP -- ammo is the limiter,
+  0 points -- ammo is the limiter,
   so a round can dump the whole magazine; the magazine is a burst
-  buffer (e.g. Reaper TP refunds). Melee (fists, chainsaw) still costs
-  TP per attack, reduced by attack speed. Normal magazines trickle
+  buffer (e.g. Reaper points refunds). Melee (fists, chainsaw) still costs
+  points per attack, reduced by attack speed. Normal magazines trickle
   UP +1 per interval for ALL weapons: cooldown-driven kits 1 per
   effective `cooldown` × 12 tics (SSG 24, BFG 36 — haste/CDR gear
   speeds the refill), attack-speed kits 1 per `tp_cost` × 2 tics
@@ -1187,7 +1187,7 @@ one small hook; no new subsystems except where noted.
 | Affix | Effect |
 |-------|--------|
 | Splitting | Shotgun/Chaingun fire +2 pellets. |
-| of the Reaper | Kills refund 2 TP (signature on the Chainsaw). |
+| of the Reaper | Kills refund 2 points (signature on the Chainsaw). |
 | Lucky | Every 3rd pistol shot is a guaranteed crit. |
 | of the Glacier | Hits slow enemies: they act 1 round later. **Stretch goal** — needs an enemy-phase hook. |
 
@@ -1295,12 +1295,12 @@ so each number sits above its enemy's head.
 
 #### Visual language
 
-Turn-system chrome renders in **gold**: the TURN MODE header, TP readout,
+Turn-system chrome renders in **gold**: the TURN MODE header, points readout,
 action list, and help line. **Red stays Diablo's color** — inventory
 screens, item rarity accents, and Diablo stat readouts. Actions the player
-cannot afford render **dimmed gold** with their TP cost shown and cannot be
+cannot afford render **dimmed gold** with their point cost shown and cannot be
 selected. END TURN is always the final action-list row, visually separated
-as the exit (`>>T END TURN 0TP<<`).
+as the exit (`>>T END TURN 0 points<<`).
 
 **Kill moment:** a kill triggers a ~2 s death beat — living monsters freeze
 while the corpse's death animation plays out under a screenshot-able kill
@@ -1310,14 +1310,14 @@ plus a brief kill flash. The queue drain resumes when the beat ends.
 #### Select → preview → confirm (enqueues)
 
 - `Tab` / `]` next target, `[` previous, number keys select directly.
-- ATTACK shows hit chance, damage, TP cost, range, cover, target HP.
-- Confirm enqueues the attack and reserves its TP; it executes FIFO when
+- ATTACK shows hit chance, damage, point cost, range, cover, target HP.
+- Confirm enqueues the attack and reserves its points; it executes FIFO when
   the progress phase starts (Enter/T), auto-facing the snapshotted target.
   Cancel returns to selection for free. Selection never advances time.
   In CONFIRM state, Enter still confirms the attack.
 - If the enemy becomes invalid before commitment, the action cancels
-  without reserving TP. If it becomes invalid before execution, the
-  queued attack skips gracefully and refunds its TP.
+  without reserving points. If it becomes invalid before execution, the
+  queued attack skips gracefully and refunds its points.
 
 #### Enemy-targeted abilities
 
@@ -1360,7 +1360,7 @@ One rules layer owns time, input, and resolution. Do **not** scatter
 |-------------------|---------------------------------------------------|--------------------------|
 | Input adapter     | Keyboard tokens → typed actions: MOVE(dir), SELECT(id), ATTACK(id, mode), ABILITY(id), USE, POTION, END | Discrete values only |
 | Target service    | LOS set, stable numbers, markers, sorted list, actor-ID validation at commit | No crosshair query |
-| Turn controller   | Phase, TP, round, selected actor, queued action, charge, cooldowns, "stable enough for next input" | Single-player only |
+| Turn controller   | Phase, points, round, selected actor, queued action, charge, cooldowns, "stable enough for next input" | Single-player only |
 | Action resolver   | Cost/preview, derived facing, revalidation, bounded pulse | Deterministic seed path |
 | Gameplay bridge   | Approved movement/attack commands into existing player, weapon, projectile, thinker systems | Real-time path unchanged |
 | Presentation      | HUD markers, target list, preview, weapon state, turn log, audio — reads controller state | No rules in UI |
@@ -1368,7 +1368,7 @@ One rules layer owns time, input, and resolution. Do **not** scatter
 
 **State machine:** PLANNING → TARGETING → CONFIRM → PULSE → PLANNING
 (or EXPLORE when no combatants remain). Targeting and confirmation are
-reversible; TP is reserved when an action is queued. There is no enemy
+reversible; points are reserved when an action is queued. There is no enemy
 phase — monsters act in real time while the queue drains in PULSE.
 
 **Compatibility:** real-time play bypasses the controller via the stock
@@ -1528,9 +1528,9 @@ previous one "mostly works."
 |-------|------|------|
 | 0 | Baseline. Turn controller wired as the unconditional default — no flag, no real-time mode. Capture Doom save behavior and the existing rebirth gear-preservation path. | Inventory, save/load, death, level transitions unchanged. |
 | 1 | Turn kernel + derived movement. PLANNING/PULSE states, bounded simulation, round counter, discrete facing-relative MOVE (W/S step, A/D strafe, arrows turn view free). | Navigate and interact via MOVE, USE, END — no analog input; view turning is a free arrow-key action, not aiming. |
-| 2 | Tempo economy. 10 TP, action costs, free target browsing, legal-action checks, round refresh. | No action overspends TP; cycling/canceling spend zero; save/load restores decision state. |
+| 2 | Tempo economy. 10 points, action costs, free target browsing, legal-action checks, round refresh. | No action overspends points; cycling/canceling spend zero; save/load restores decision state. |
 | 3 | Target service + ATTACK contract. Visible-enemy enumeration, numbered markers, target list, Tab/`[`/`]`/number keys, auto-face, preview, confirm. | Every legal enemy has one stable number; ATTACK always resolves against the confirmed actor ID. |
-| 4 | Combat stats + hit preview. AD, AP, AS, Haste, crit, Armor, MR, range, cover, derived effects from the four attributes. | Fixed-seed tests reproduce displayed hit, damage, TP, cooldown, health, defense. |
+| 4 | Combat stats + hit preview. AD, AP, AS, Haste, crit, Armor, MR, range, cover, derived effects from the four attributes. | Fixed-seed tests reproduce displayed hit, damage, points, cooldown, health, defense. |
 
 **Checkpoint after 4:** clear the same room by keyboard and by scripted
 actions. If the player ever needs a reticle, manual rotation, or a ground
@@ -1561,7 +1561,7 @@ AD, AP, and defensive builds.
 - **Fixed-seed arena** — same monsters, positions, items, RNG every run.
 - **Action replay** — text action scripts drive the controller without
   mouse events.
-- **State dump** — round, TP, health, effects, cooldowns, inventory after
+- **State dump** — round, points, health, effects, cooldowns, inventory after
   each action.
 
 #### Quality gates (every phase)
@@ -1579,7 +1579,7 @@ AD, AP, and defensive builds.
 
 The smallest complete tactical loop: single-player turn-based
 mode with Tab/`[`/`]`/number selection, preview, confirm, auto-facing; six
-enemy-targeted weapon kits; 10-TP rounds with discrete controls only;
+enemy-targeted weapon kits; 10-point rounds with discrete controls only;
 numbered markers + target list (name, hit, distance, HP); AD/AP/AS/Haste/
 crit/Armor/MR + four allocatable attributes; cover,
 tactical affixes, selected uniques; tier-scaled XP, thresholds,
@@ -1609,7 +1609,7 @@ maps, then expanded command grammar and public-session cadence.
 | Movement unit | Short fixed-distance, collision-aware step. WASD is facing-relative at commit (W/S step, A/D strafe); the view never auto-faces. |
 | Round timing | **Decided Oct 6:** weapon cooldowns, charges, and heat tick on wall-clock time (1 round = 10 s = 350 tics, via `T_TickCadence`, independent of round boundaries); status effects still advance once per round. |
 | Target identity | Display numbers stable while planning state is unchanged; resolve through actor IDs; rebuild + visibly renumber only after world state changes. |
-| Failure handling | Action invalid after commitment → refund TP, return to planning, unless world state already changed. |
+| Failure handling | Action invalid after commitment → refund points, return to planning, unless world state already changed. |
 | Profile authority | Standalone profile owns identity, progression, loadout, backpack, counters; Doom saves own map + turn state. |
 | Publishing boundary | Game exports immutable snapshots, never blocks on Threads; separate publisher dedups event IDs and records success/failure. |
 

@@ -64,6 +64,7 @@ When you change gun types, re-check your gear (see the gearing rules above): the
 - If health is low (<30%) and no enemy nearby, keep exploring for health pickups.
 - Equip upgrades immediately — don't save them for later.
 - In combat, always end your turn after queueing actions.
+- Count your points before queueing: a step costs 1 point, an attack costs 4. When you're out of points, end your turn instead of trying to act — the game refuses actions you can't afford.
 
 ## Damage avoidance without regen
 
