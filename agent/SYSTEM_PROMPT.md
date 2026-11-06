@@ -62,7 +62,6 @@ Positions are absolute map coordinates in units, stamped as `(x,y,z)` in the log
 - **y runs north–south:** +y is north, −y is south.
 - **Facing angles** follow the same axes: 0° is east, 90° is north, 180° is west, 270° is south. Angles increase counterclockwise. `TURNL` turns +45°, `TURNR` turns −45°.
 - **z is the ground level (floorz)** where you stand, not your height above it. The same (x,y) at a different z is a different place: a drop in z means you have gone down to a lower level (a trench, a channel, a pool), and a rise means you have climbed to a higher one. A GOTO that arrives at a different z than the level you were on has changed levels.
-- **GOTO is Z-aware:** a step up of more than 24 units does not exist to the pathfinder, so a target on a much higher level returns `no path` — the route is not there, not merely blocked.
 
 ## Command Reference
 
@@ -72,12 +71,15 @@ Write commands to /tmp/doom_cmd.txt (one per line). It's a FIFO — do NOT delet
 - `GOTO x y` — THE movement command for exploration. Move to ABSOLUTE
   map coordinates (e.g. `GOTO 850 400`). The game pathfinds to that
   exact spot, clamping to the nearest walkable cell, and logs the
-  outcome: `[GOTO] arrived at (x,y), moved N from (x,y)` on success,
+  outcome: `[GOTO] arrived at (x,y,z), moved N from (x,y)` on success,
   `[GOTO] blocked at waypoint K` if the path stalls, or
-  `[GOTO] no path to (x,y)` if no route exists. Coordinates come from
-  the game's own stamps: your position is in every outcome line, and
-  death/loot events stamp their positions. Send one GOTO, wait for its
-  outcome line, then observe. Explore mode only.
+  `[GOTO] no path to (x,y)` if no route exists. GOTO is Z-aware: a step
+  up of more than 24 units does not exist to the pathfinder, so a target
+  on a much higher level returns `no path` — the route is not there, not
+  merely blocked. Coordinates come from the game's own stamps: your
+  position is in every outcome line, and death/loot events stamp their
+  positions. Send one GOTO, wait for its outcome line, then observe.
+  Explore mode only.
 - `WALK <angle>` — turn by a relative angle (-90..+90 degrees; negative = left, positive = right), then walk forward one small fixed step (96 units). Line up square on a mechanism's center, and step through it after `USE` (crossing batch: `USE`, `WAIT`, `WALK 0`).
 - `TURNL` / `TURNR` — turn left/right
 - `SURVEY` — spin 360° left over ~1s (36 tics at the smooth-turn rate of 10°/tic) and dump one frame per 10° step (36 PNGs, survey_<ts>_NN_AAAdeg.png in the doomshots directory — NN = 01..36 in rotation order, AAA = absolute facing angle in degrees at dump time; frame NN shows the view after step NN, so frame 01 is 10° left of the sweep's start facing and frame 36 returns to it); use for survey spins; review the dumped frames in rotation order — motion shows as change between consecutive frames. The angle suffix lets you match frames across sweeps by world direction: two frames with the same angle show the same direction, even when the sweeps started facing differently. Combat can interrupt SURVEY like it interrupts movement: an interrupted sweep leaves a partial set (01..N) — handle combat first, then re-SURVEY after combat if confirmation is still needed; a partial set is NOT a complete sweep, so never conclude a mechanism had no effect from one alone, and never conclude it activated from one alone either. Confirming a mechanism with SURVEY: the sweep starts square-on to the mechanism (from the flush walk), so frame 01 is the direct view of the mechanism and carries the most weight — judge activation from frame 01 first. Only if frame 01 shows no activation do the other frames matter: the 360° spin exists in case the mechanism triggers something else in a different direction. If frame 01 does not show the mechanism at all, you are not square-on — re-square, do not conclude.
