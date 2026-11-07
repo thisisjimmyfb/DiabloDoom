@@ -376,18 +376,35 @@ P_FireDiabloWeapon
         default:             A_FirePistol(player, NULL); break;
     }
 
+    // Reload only when the magazine is empty (2026-11-07): the
+    // magazine's capacity (base + Energy, T_KitMaxAmmo) sets how
+    // many shots fit before the reload animation (cooldown).
+    // While the magazine still affords another shot, there is no
+    // reload -- the weapon stays ready and the shot just fired.
+    // Ammo is infinite, so an emptied magazine refills to full
+    // when the reload finishes.
+    if (kit->ammo_cost > 0
+        && T_HasAmmoForKit(player->readyweapon))
+    {
+        P_NoiseAlert (player->mo, player->mo);
+        return true;
+    }
+
     // Cooldown-tied reload animation (2026-11-06): the weapon's
     // effective cooldown (rounds, set by T_KitOnFire during the
     // spend above, after Haste/CDR) sets the reload animation
     // duration: total = cooldown * 12 tics. A cooldown of 0 skips
     // the animation entirely -- the shot already fired synchronously
-    // above, so return without touching the psprite. This makes the
-    // cooldown the single tunable knob for reload speed on every
-    // weapon: tune the kit's cooldown field to tune its reload.
+    // above, so refill at once and return without touching the
+    // psprite. This makes the cooldown the single tunable knob for
+    // reload speed on every weapon: tune the kit's cooldown field
+    // to tune its reload. (Inverted magazines -- plasma -- are
+    // not refilled here; their heat drains on its own.)
     {
         int cd = T_KitCooldown(player->readyweapon);
         if (cd <= 0)
         {
+            T_KitRefillAmmo(player->readyweapon);
             P_NoiseAlert (player->mo, player->mo);
             return true;
         }
@@ -455,9 +472,14 @@ A_WeaponReady
 
     // Diablo turn combat: the attack chain is over; chain fire is no
     // longer suppressed, and any cooldown-tied reload scale ends.
-    // (2026-11-06)
+    // (2026-11-06) A finished reload refills the magazine to full
+    // at once -- ammo is infinite (2026-11-07).
     t_diablo_chain_fire_suppressed = false;
-    t_diablo_reload_active = false;
+    if (t_diablo_reload_active)
+    {
+        T_KitRefillAmmo(player->readyweapon);
+        t_diablo_reload_active = false;
+    }
     
     // get out of attack state
     if (player->mo->state == &states[S_PLAY_ATK1]
@@ -1167,13 +1189,16 @@ void P_MovePsprites (player_t* player)
 		    // the whole reload lasts the cooldown-driven
 		    // target. When the chain reaches the ready state
 		    // the reload is done (A_WeaponReady also clears
-		    // the flag; this is the safety net).
+		    // the flag; this is the safety net) -- and ammo
+		    // is infinite, so the finished reload refills
+		    // the magazine to full at once (2026-11-07).
 		    if (i == ps_weapon && t_diablo_reload_active)
 		    {
 			if (psp->state ==
 			    &states[weaponinfo[player->readyweapon]
 				    .readystate])
 			{
+			    T_KitRefillAmmo(player->readyweapon);
 			    t_diablo_reload_active = false;
 			}
 			else

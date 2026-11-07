@@ -2094,7 +2094,8 @@ void T_DoEndTurn(void)
         // game breathe, then back to planning. This ensures T always
         // does something visible.
         turnctrl.executing = true;
-        // (Ammo trickles in gradually via T_PulseOneTic, not batch.
+        // (Ammo refills when the reload animation completes during
+        // the pulse (P_MovePsprites/A_WeaponReady), not batch.
         // Cooldowns/charges tick every game tic via T_TickCharges,
         // not on turn end.)
         T_BeginPulse(18, false, false);
@@ -2104,7 +2105,8 @@ void T_DoEndTurn(void)
     {
         player_t *player = &players[consoleplayer];
         turnctrl.executing = true;
-        // (Ammo trickles in gradually via T_PulseOneTic, not batch.
+        // (Ammo refills when the reload animation completes during
+        // the pulse (P_MovePsprites/A_WeaponReady), not batch.
         // Cooldowns/charges tick every game tic via T_TickCharges,
         // not on turn end.)
         // First-person replay: teleport back to the turn start, then

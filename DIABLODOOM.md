@@ -95,10 +95,15 @@ Every weapon carries its own magazine and needs ammo to fire: pistol 10
 (1/shot), shotgun 20 (2/shot), chaingun 10 (1/shot), chainsaw 6 (1/shot),
 except fists, which carry no magazine and need no ammo,
 rocket 20 (10/shot), Super Shotgun 8 (8/shot), BFG 20 (20/shot). Plasma
-has no magazine — its heat *is* the ammo. Magazines refill automatically
-by weapon type: AD weapons feed off your **attack speed** each round, AP
-weapons reload when their **cooldown** finishes (rocket reloads as
-charges regenerate). Ammo pickups are gone entirely: every map-placed
+has no magazine — its heat *is* the ammo. Ammo is infinite
+(2026-11-07): a magazine refills to full at once when its reload
+finishes. The reload happens only when the magazine is empty —
+Energy scales the capacity (base +1 per point of gear Energy),
+so Energy sets how many shots fit before the reload animation:
+the reload animation's speed is the weapon's cooldown
+(0-cooldown weapons reload instantly, so their magazine refills
+the moment it empties). Plasma's heat still drains over time,
+and rocket charges still regenerate. Ammo pickups are gone entirely: every map-placed
 ammo pickup now spawns a random Diablo item instead, and Mana Potions
 no longer drop from kills (any you already carry still works). The status bar's left AMMO area shows your
 ready weapon's current magazine (remaining heat capacity for plasma).
@@ -115,7 +120,7 @@ weapon type has a Set or Unique variant yet (there is no unique
 pistol), and a roll that lands on a missing tier is re-rolled, so
 those weapons simply can't produce that tier for now. If the
 backpack has no room for the item, the weapon stays on the ground.
-This matters because magazines auto-replenish: the classic "walk
+This matters because magazines refill on reload: the classic "walk
 over a duplicate for its ammo" almost never applies here, so
 without the item grant a repeat pickup would do nothing at all.
 
@@ -608,7 +613,7 @@ never an instant move or a teleport. Explore mode only.
    reachable, it tries the nearest vanilla pickup within 512 units
    the same way -- except an ammo cache when no magazine has room
    for it: `P_GiveAmmo` would refuse it on arrival (magazines
-   auto-replenish in explore, so full is the steady state), so a
+   refill on reload, so full is the steady state), so a
    useless cache is not a target and COLLECT returns false. If the
    magazines fill during the walk itself, the walk ends on arrival
    with "MAGAZINES FULL." instead of the stuck watchdog. **Every
@@ -777,7 +782,7 @@ the Diablo mechanic -- `P_DropDiabloLoot` (70% chance, killer's
 magic find) is the only thing a death can spawn. The vanilla drop
 switch (zombiemen -> clip, shotgun guy -> shotgun, chaingun guy
 -> chaingun) is **deleted, not converted**: a kill drops a Diablo
-item or nothing. Rationale: magazines replenish on their own, so
+item or nothing. Rationale: magazines refill on reload, so
 raw ammo is redundant -- and as a magazine cache it was worse
 than redundant, since `P_GiveAmmo` refuses a cache when every
 magazine is full, which in explore is the steady state: the clip
@@ -873,16 +878,16 @@ Doom `readyweapon`, so the first-person sprite, ground pickup sprite, and
 turn-mode kit all follow the gun. Fist is the unarmed fallback (no gun
 equipped), not loot.
 
-| Gun | Type | LoL mechanic | Replenish | Identity |
+| Gun | Type | LoL mechanic | Reload | Identity |
 |-----|------|--------------|-----------|----------|
-| Pistol | AD | **Magazine 10** (1/shot) | AS | Reliable sidearm. |
-| Shotgun | AD | **Magazine 20** (2/shot) | AS | Positioning reward, pellet spread. |
-| Chaingun | AD | **Magazine 10** (1/shot) | AS | point-hungry DPS hose. |
-| Chainsaw | AD | **Magazine 6** (1/shot) + **30% inherent leech** | AS | High risk, constant uptime; leech sustains close-range fighting. |
-| Plasma Rifle | AP | **Ammo** (inverted) | — (ammo) | The ammo counter represents heat: starts at 0, +20 per shot, fires while the count is below the 125 capacity, and drains at the replenish rate continuously — the drain is the reload period. No separate heat resource (2026-10-22). |
-| Rocket Launcher | AP | **Charges** (3, +1 per 2 s) + **Magazine 20** (10/shot) | AS | Punctuated splash; firing consumes 1 charge. Each regenerated charge also loads one attack's worth of ammo. |
-| Super Shotgun | AP | **Magazine 8** (8/shot) + **knockback** | CD | Breach tool: shoves target 1 tile. Firing sets a 2-round cooldown; no ammo trickle while cooling down, trickle resumes at CD rate after. |
-| BFG9000 | AP | **Magazine 20** (20/shot) | CD | Ultimate: highest damage. Firing sets a 3-round cooldown; no ammo trickle while cooling down, trickle resumes at CD rate after. |
+| Pistol | AD | **Magazine 10** (1/shot) | instant when empty | Reliable sidearm. |
+| Shotgun | AD | **Magazine 20** (2/shot) | instant when empty | Positioning reward, pellet spread. |
+| Chaingun | AD | **Magazine 10** (1/shot) | instant when empty | point-hungry DPS hose. |
+| Chainsaw | AD | **Magazine 6** (1/shot) + **30% inherent leech** | instant when empty | High risk, constant uptime; leech sustains close-range fighting. |
+| Plasma Rifle | AP | **Ammo** (inverted) | heat drain | The ammo counter represents heat: starts at 0, +20 per shot, fires while the count is below the 125 capacity, and drains at the replenish rate continuously — the drain is the reload period. No separate heat resource (2026-10-22). |
+| Rocket Launcher | AP | **Charges** (3, +1 per 2 s) + **Magazine 20** (10/shot) | charges | Punctuated splash; firing consumes 1 charge. Each regenerated charge also loads one attack's worth of ammo. |
+| Super Shotgun | AP | **Magazine 8** (8/shot) + **knockback** | cd 2, when empty | Breach tool: shoves target 1 tile. One shot empties the magazine; firing sets a 2-round cooldown, which drives the reload animation, and the magazine refills to full when the reload finishes. |
+| BFG9000 | AP | **Magazine 20** (20/shot) | cd 3, when empty | Ultimate: highest damage. One shot empties the magazine; firing sets a 3-round cooldown, which drives the reload animation, and the magazine refills to full when the reload finishes. |
 
 **Strength requirements (2026-11-04).** Every item has a strength
 requirement from its type, not its tier: guns need strength by weapon

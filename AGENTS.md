@@ -174,7 +174,7 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
    numbered selection only.
 3. **Phase 0 needs the user's explicit approval.** Do not start implementing
    turn-based mode until he says go.
-4. **Ammo is per-weapon magazines, auto-replenished by AD/AP type.**
+4. **Ammo is per-weapon magazines; ammo is infinite (2026-11-07).**
    Every weapon with a magazine requires ammo to fire (`T_KitCanFire`,
    deny `NO AMMO`; inverted magazines deny `AMMO FULL`); costs validated
    when the attack is queued (`NEED n AMMO (HAVE m).`), applied when it
@@ -188,22 +188,23 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
    and the count drains at the replenish rate. There is no separate heat
    state anywhere: one counter, one gate, one spend, one rate system,
    with the direction declared in the kit def (`ammo_inverted`).
-   There is no per-round ammo grant (removed 2026-10-22). ONE code
-   path replenishes every gun (2026-10-23): `T_TickCadence`'s
-   per-weapon loop moves every magazine at its kit's replenish rate
-   on every unfrozen game tic — normal magazines trickle UP +1 per
-   interval for all weapons (1 per `tp_cost` × 2 tics, clamped
-   3–20, for attack-speed weapons; 1 per effective `cooldown` × 12
-   tics for cooldown-driven ones: SSG 24, BFG 36), inverted
-   magazines drain DOWN in the same loop, and rocket charges regen
-   there too, each loading one attack's worth of ammo. Firing sets
-   a weapon's cooldown counter (unified, 2026-11-01) and its magazine
-   does not trickle while that counter runs — AD kits carry
-   cooldown 0, so the gate never engages for them. There is no
-   refill-on-cooldown-complete (`T_RefillOnCooldownReady` is a
-   no-op) and no second regen path in the pulse simulator — until
-   2026-10-23 the trickle-up ran only inside `T_PulseOneTic`, so
-   explore-heavy play never refilled anything. During planning the HUD AMMO readout previews
+   There is no per-round ammo grant (removed 2026-10-22), and no
+   over-time trickle (removed 2026-11-07): a normal magazine refills
+   to full at once when its reload finishes — and the reload happens
+   only when the magazine is empty (2026-11-07). Energy scales the
+   capacity (base +1 per point of gear Energy, `T_KitMaxAmmo`), so
+   Energy sets how many shots fit before the reload: `T_KitRefillAmmo`
+   is called when the reload animation reaches the ready state
+   (`P_MovePsprites` / `A_WeaponReady`), or immediately on the
+   emptying shot for 0-cooldown weapons (whose reload animation is
+   skipped). The reload animation's speed is the weapon's cooldown
+   (2026-11-06), so the cooldown is the reload-speed knob.
+   Inverted magazines (plasma) still drain in `T_TickCadence`'s
+   per-weapon loop on every unfrozen game tic, and rocket charges
+   regen there too, each loading one attack's worth of ammo. Firing sets
+   a weapon's cooldown counter (unified, 2026-11-01); the counter
+   gates the plasma heat drain while it runs, but never blocks a
+   shot. During planning the HUD AMMO readout previews
    the deduction queued attacks will cause (display-only; the spend happens
    on execute), so players can see when further attacks would be no-ops.
    Ammo pickups convert to Diablo loot: map-placed ammo is replaced

@@ -2455,7 +2455,7 @@ int D_RollItemForDifficulty(int tier)
         table = diablo_unique;
 
     // Count valid items. Ammo-restoring mana potions never roll:
-    // magazines replenish on their own, so a mana drop is rerolled
+    // magazines refill on reload, so a mana drop is rerolled
     // into a random item by simply leaving it out of the pool.
     for (i = 0; i < diablo_tiercounts[tier]; i++)
         if (table[i].diff_tier <= D_DifficultyTier()

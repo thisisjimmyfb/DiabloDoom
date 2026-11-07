@@ -90,7 +90,9 @@ unsigned int T_GetCombatSeed(void);
 // readyweapon. Rockets/BFG are enemy-targeted: pick an enemy, splash is
 // centered on them and previewed. No ground targeting, ever.
 
-// Ammo replenish model: what drives the trickle rate.
+// Ammo replenish model: what drives the inverted-magazine
+// (plasma) drain rate. Normal magazines no longer trickle
+// (removed 2026-11-07); they refill when the reload finishes.
 typedef enum
 {
     REPLENISH_AS,  // attack-speed driven (tp_cost * 2 tics)
@@ -122,7 +124,7 @@ typedef struct
     int leech;          // inherent lifesteal % (chainsaw); stacks with gear
     int knockback;      // tiles to shove target on hit (SSG); 0 = none
     int attack_tics;    // command execution delay in tics (attack speed)
-    replenish_model_t replenish; // what drives ammo trickle rate
+    replenish_model_t replenish; // what drives the inverted-mag drain rate
 } t_kitdef_t;
 
 const t_kitdef_t *T_KitForWeapon(weapontype_t w);
@@ -168,6 +170,9 @@ void T_KitPickupAmmo(void);             // ammo pickup: half-fill all mags
                                         // (inverted: vent half)
 void T_KitRefillAllAmmo(void);          // mana potion: full mags
                                         // (inverted: vent to 0)
+void T_KitRefillAmmo(weapontype_t w);   // reload done: full mag
+                                        // (inverted: no-op, heat
+                                        // drains on its own)
                                         // charges, zero Lucky counters
 // The heat array in the cadence snapshot is a save-format compat slot:
 // it carries plasma's counter (an alias of its ammo) so savegames
