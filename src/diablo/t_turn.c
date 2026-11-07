@@ -1481,6 +1481,13 @@ static void T_SnapToNearestWall(void)
         ty = mo->y + (fixed_t)(ny * FRACUNIT);
         snap = R_PointToAngle2(mo->x, mo->y, tx, ty);
         mo->angle = snap;
+        // Status message like the other driver commands (2026-11-07):
+        // the snap used to be silent on success, so the log showed
+        // the agent sent SNAP_WALL but never whether it squared up
+        // or what it faced. Report the line and the new facing
+        // (same units as the [TURN] angle= field).
+        printf("[SNAP_WALL] snapped to line %d, facing %u\n",
+               bestline, (unsigned)(snap >> 24));
     }
 }
 
