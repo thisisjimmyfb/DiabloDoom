@@ -901,10 +901,13 @@ void P_SpawnMapThing (mapthing_t* mthing)
                 D_GetItemDef(D_ITEMTIER(item_id), D_ITEMIDX(item_id));
             char namebuf[96];
             D_ItemDisplayName(def, namebuf, sizeof(namebuf));
-            printf("[LOOT] map-spawn \"%s\" tier=%d idx=%d at (%d,%d) (was %s)\n",
+            printf("[LOOT] map-spawn \"%s\" tier=%d idx=%d at (%d,%d,%d) (was %s)\n",
                    namebuf,
                    D_ITEMTIER(item_id), D_ITEMIDX(item_id),
-                   mthing->x, mthing->y, P_AmmoName(i));
+                   mthing->x, mthing->y,
+                   R_PointInSubsector(mthing->x << FRACBITS,
+                                      mthing->y << FRACBITS)->sector->floorheight >> 16,
+                   P_AmmoName(i));
             P_SpawnDiabloLootAt(mthing->x << FRACBITS, mthing->y << FRACBITS,
                                 item_id);
         }

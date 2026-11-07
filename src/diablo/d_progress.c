@@ -22,6 +22,7 @@
 #include "d_progress.h"
 #include "p_saveg.h"
 #include "g_game.h"
+#include "r_main.h"
 #include "m_misc.h"
 
 // Progress file location: repo root (persistent across VM recycles).
@@ -91,13 +92,15 @@ void D_AutosaveTeleportCheck(void)
             if (P_TeleportMove(pl->mo, x, y))
             {
                 pl->mo->angle = (angle_t)autosave_teleport_angle;
-                printf("[AUTOSAVE] teleported to (%d,%d)\n",
-                       autosave_teleport_x, autosave_teleport_y);
+                printf("[AUTOSAVE] teleported to (%d,%d,%d)\n",
+                       autosave_teleport_x, autosave_teleport_y,
+                       pl->mo->floorz >> 16);
             }
             else
             {
-                printf("[AUTOSAVE] teleport blocked at (%d,%d)\n",
-                       autosave_teleport_x, autosave_teleport_y);
+                printf("[AUTOSAVE] teleport blocked at (%d,%d,%d)\n",
+                       autosave_teleport_x, autosave_teleport_y,
+                       R_PointInSubsector(x, y)->sector->floorheight >> 16);
             }
         }
     }
@@ -459,11 +462,15 @@ void D_AutoSaveGame(void)
         }
         {
             int stored_x, stored_y;
+            extern player_t players[];
+            extern int consoleplayer;
+            player_t *pl = &players[consoleplayer];
             memcpy(&stored_x, &progress_hdr->reserved[2], 4);
             memcpy(&stored_y, &progress_hdr->reserved[6], 4);
-            printf("[AUTOSAVE] storing level E%dM%d pos=(%d,%d) (gamemap=%d, gameepisode=%d, gameaction=%d, d_map=%d, d_episode=%d)\n",
+            printf("[AUTOSAVE] storing level E%dM%d pos=(%d,%d,%d) (gamemap=%d, gameepisode=%d, gameaction=%d, d_map=%d, d_episode=%d)\n",
                    episode_to_store, map_to_store,
                    stored_x >> 16, stored_y >> 16,
+                   pl->mo ? pl->mo->floorz >> 16 : 0,
                    gamemap, gameepisode, (int)gameaction, d_map, d_episode);
         }
     }
