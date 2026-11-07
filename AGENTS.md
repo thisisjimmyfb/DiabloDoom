@@ -202,6 +202,10 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
    tics, so the cooldown is the reload-speed knob -- tune the field
    to tune the reload). Current ladder (tics): chainsaw 8, pistol 12,
    plasma 12, shotgun 18, rocket 24, SSG 24, chaingun 30, BFG 36.
+   Death exits combat (2026-11-07): when the player dies, the turn
+   controller calls T_EnterExplore() at the end of the progress phase
+   and at the end of the enemy phase, so a death mid-pulse never
+   leaves the game wedged in PLANNING at hp 0 with no respawn path.
    Dexterity tightens the spread (2026-11-07, option B): the shotgun
    cone (all 7 pellets), the chaingun cone (refire shots), and the
    pistol's refire spread scale by `100 / (100 + 2*Dex)` (effective

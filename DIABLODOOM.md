@@ -289,6 +289,7 @@ RESPAWN
 - Combat attacks: `T_DoAttack()` in `src/diablo/t_action.c`.
 - Loot: `T_DoCollect()` in `src/diablo/t_action.c`.
 - Respawn: `P_DoCorpseRespawn()` in `src/doom/p_inter.c`.
+- Death exits combat (2026-11-07): when the player dies, the turn controller calls `T_EnterExplore()` — both at the end of the progress phase and at the end of the enemy phase — so a death mid-pulse does not leave the game wedged in PLANNING at hp 0 with no respawn path (the 10:00 run sat 7+ minutes that way). The player stays dead at 0% in EXPLORE until RESPAWN is sent.
 
 ## DiabloDoom — Turn Based Combat Mode Spec
 

@@ -834,8 +834,13 @@ static void T_EndPulse(void)
             turnctrl.turn_start_angle = players[consoleplayer].mo->angle;
         }
         // Combat exit: no visible combatants left -> back to explore.
+        // Also exit when the player is dead (2026-11-07): a dead
+        // player has no move, so staying in PLANNING wedges the
+        // turn controller with no respawn path (the 10:00 run sat
+        // 7+ minutes at hp 0 in PLANNING after dying mid-pulse).
         T_RefreshTargets();
-        if (T_NumCombatants() == 0)
+        if (T_NumCombatants() == 0
+            || players[consoleplayer].health <= 0)
         {
             T_EnterExplore();
         }
@@ -872,14 +877,19 @@ static void T_EndPulse(void)
             // weapon animation carries on after the command itself
             // has executed.
             // End of progress phase. If the player died, stop here —
-            // the death flow takes over. Otherwise back to planning.
+            // the death flow takes over. Exit combat first (2026-11-07):
+            // staying in a turn state with a dead player wedges the
+            // turn controller with no respawn path. Otherwise back to
+            // planning.
             turnctrl.executing = false;
             if (players[consoleplayer].mo == NULL
                 || players[consoleplayer].health <= 0)
             {
-                // Dead: clear queue and let the death flow handle it.
+                // Dead: clear queue and exit combat so the death flow
+                // (respawn) can run.
                 turnctrl.queue_len = 0;
                 turnctrl.queue_tp = 0;
+                T_EnterExplore();
                 return;
             }
             T_RefreshTargets();
