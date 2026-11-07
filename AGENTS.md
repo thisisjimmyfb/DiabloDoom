@@ -181,7 +181,7 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
    executes (`T_KitSpendAmmo`).
    Ranged attacks cost 0 TP -- ammo is the limiter, so a round
    can dump the whole magazine. Melee (fists, chainsaw) costs TP per attack.
-   Capacities/costs: pistol 10/1, shotgun 20/2, chaingun 10/1, chainsaw 6/1,
+   Capacities/costs: pistol 10/1, shotgun 16/2, chaingun 10/1, chainsaw 6/1,
    rocket 20/10, SSG 8/8, BFG 20/20. Plasma's magazine is **inverted**
    (2026-10-22): its ammo counter represents heat — capacity 125, starts
    at 0, each shot adds 20, it fires while the count is below capacity,

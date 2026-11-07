@@ -334,7 +334,7 @@ static const t_kitdef_t t_kits[NUMWEAPONS] = {
     // fast reload, faster than the chaingun.
     { "SIDEARM",    2,   4,   4,   24,    0,   0,      1, false,    1,   10, false,   0,   0,   0,  15, REPLENISH_AS },
     // wp_shotgun: close-range burst, 4 pellets. Cooldown 36 tics.
-    { "SHOTGUN",    2,   3,   5,   36,    0,   0,      4, false,    2,   20, false,   0,   0,   0,  40, REPLENISH_AS },
+    { "SHOTGUN",    2,   3,   5,   36,    0,   0,      4, false,    2,   16, false,   0,   0,   0,  40, REPLENISH_AS },
     // wp_chaingun: 3-round burst. Cooldown 60 tics (2026-11-07): one
     // of the slowest reloads, comparable to the BFG -- a heavy
     // rotary weapon takes time to feed a new belt.

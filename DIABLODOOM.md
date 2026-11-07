@@ -886,7 +886,7 @@ equipped), not loot.
 | Gun | Type | LoL mechanic | Reload | Identity |
 |-----|------|--------------|-----------|----------|
 | Pistol | AD | **Magazine 10** (1/shot) | cd 24 tics, when empty | Reliable sidearm. |
-| Shotgun | AD | **Magazine 20** (2/shot) | cd 36 tics, when empty | Positioning reward, pellet spread. |
+| Shotgun | AD | **Magazine 16** (2/shot) | cd 36 tics, when empty | Positioning reward, pellet spread. |
 | Chaingun | AD | **Magazine 10** (1/shot) | cd 60 tics, when empty | point-hungry DPS hose. |
 | Chainsaw | AD | **Magazine 6** (1/shot) + **30% inherent leech** | cd 16 tics, when empty | High risk, constant uptime; leech sustains close-range fighting. |
 | Plasma Rifle | AP | **Ammo** (inverted) | heat drain | The ammo counter represents heat: starts at 0, +20 per shot, fires while the count is below the 125 capacity, and drains at the replenish rate continuously — the drain is the reload period. No separate heat resource (2026-10-22). |
