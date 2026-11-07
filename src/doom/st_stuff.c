@@ -1202,7 +1202,11 @@ static void ST_drawTurnKits(void)
     // on, then AD%/AP% (T_DamageRange mirrors the damage callback).
     T_DamageRange(plyr, NULL, &st, &dmg_min, &dmg_max);
     kit = T_KitForWeapon(plyr->readyweapon);
-    cd = T_KitCooldown(plyr->readyweapon);
+    // CD is the weapon's reload duration in tics (2026-11-07):
+    // T_KitReloadTics, the effective kit cooldown after Haste/CDR.
+    // (T_KitCooldown is the live rounds counter, which reads 2 for
+    // an 18-tic shotgun -- the wrong unit for this stat row.)
+    cd = T_KitReloadTics(plyr->readyweapon);
 
     // Damage: AD range for AD guns, AP value for AP guns (not both).
     if (kit->ap_weapon)
