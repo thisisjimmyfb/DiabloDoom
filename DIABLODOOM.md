@@ -1142,35 +1142,35 @@ extended: topping pools up to paper over native ammo checks was
 the wrong fix for a magazine-paid shot.
 
 **All guns route through Diablo magazines, in both modes
-(2026-10-31).** The magazine is the only ammo economy. In turn
-mode the attack executor validates (`T_HasAmmoForKit`) and calls
-`P_FireDiabloWeapon`, which owns the gate (`T_KitCanFire`), the
-spend (`T_KitSpendAmmo`, charges via `T_KitOnFire`), the
-synchronous fire, and the weapon animation — the single choke
-point for turn-mode shots. In real-time explore, `P_FireWeapon` —
-the one choke point every real-time shot passes through (initial
-press and each refire cycle; turn mode never calls it) — does the
-same gate and spend. `P_FireDiabloWeapon` (2026-11-06) mirrors
-`P_FireWeapon` in logic but fires the shot synchronously by
-calling the `A_Fire*` functions directly, so the turn executor's
-hit resolution still reads the result right after the call; the
-old `T_NativeFire` fired synchronously but never set the weapon
-psprite, so no weapon showed its attack animation in turn mode.
-`P_FireDiabloWeapon` sets the psprite to the weapon's attack
-state (the same call `P_FireWeapon` makes), so the attack
-animation — including the SSG's reload frames — plays in turn
-mode, on EVERY shot, not just on reload (2026-11-07: previously
-it returned early when the magazine still had ammo, so most shots
-landed with no animation at all — the chaingun drum rotation and
-the chainsaw sawing only ever played as a reload). The direct
-fire sets a chain-fire suppression flag before the psprite is
-set, so the state chain's `A_Fire*` call returns early and the
-shot never double-fires; the flag clears when the weapon returns
-to ready (`A_WeaponReady`). The reload flag is set only when the
-magazine is empty, so the refill triggers on chain completion;
-on a normal shot the chain just plays and the weapon returns to
-ready. A cooldown of 0 (fists) no longer skips the animation —
-the punch chain plays at vanilla speed. The reload animation
+(2026-10-31).** The magazine is the only ammo economy. There is
+one fire path: `P_FireDiabloWeapon` (2026-11-06; single fire path
+2026-11-07). The turn executor calls it directly, and `P_FireWeapon`
+delegates to it in Diablo mode — so explore's button press
+(`A_WeaponReady`) and re-fire (`A_ReFire`) use it too. It owns the
+gate (`T_KitCanFire`), the spend (`T_KitSpendAmmo`, charges via
+`T_KitOnFire`), the synchronous fire, and the weapon animation.
+It fires the shot synchronously by calling the `A_Fire*` functions
+directly, so the turn executor's hit resolution still reads the
+result right after the call; the old `T_NativeFire` fired
+synchronously but never set the weapon psprite, so no weapon showed
+its attack animation in turn mode. `P_FireDiabloWeapon` sets the
+psprite to the weapon's attack state, so the attack animation —
+including the SSG's reload frames — plays in both modes, on EVERY
+shot, not just on reload (2026-11-07: previously it returned early
+when the magazine still had ammo, so most shots landed with no
+animation at all — the chaingun drum rotation and the chainsaw
+sawing only ever played as a reload). The direct fire sets a
+chain-fire suppression flag before the psprite is set, so the state
+chain's `A_Fire*` call returns early and the shot never
+double-fires; the flag clears when the weapon returns to ready
+(`A_WeaponReady`). The reload flag is set only when the magazine is
+empty, so the refill triggers on chain completion; on a normal shot
+the chain just plays and the weapon returns to ready. A cooldown of
+0 (fists) no longer skips the animation — the punch chain plays at
+vanilla speed. Because the flag is set in both modes, a magazine
+emptied in explore refills when its reload animation completes,
+just as in turn mode — before the unification, explore never set
+the flag, so a magazine emptied in real-time never refilled. The reload animation
 is tied to the weapon's cooldown (2026-11-06): its total duration
 is the weapon's effective cooldown (rounds, after Haste/CDR) times
 12 tics, the same 12-tics-per-round rate the cooldown-driven
