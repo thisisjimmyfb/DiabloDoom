@@ -79,7 +79,7 @@ typedef enum
     DSTAT_PLASMA_CAP,  // bonus to plasma rifle max ammo (base 125)
     DSTAT_AD_FLAT,     // flat bonus damage (added before AD%)
     DSTAT_AP_FLAT,     // flat bonus ability power (added before AP%)
-    DSTAT_CD_FLAT,     // flat cooldown reduction in rounds
+    DSTAT_CD_FLAT,     // flat cooldown reduction in tics (2026-11-07: cd is tics now)
     DSTAT_REPLENISH,   // HP per second regenerated (all slots sum)
     NUM_DSTATS
 } diablo_stat_t;
@@ -166,7 +166,7 @@ typedef struct
     int plasma_cap;  // bonus to plasma rifle max ammo (base 125)
     int ad_flat;     // flat bonus damage (added before AD%)
     int ap_flat;     // flat bonus ability power (added before AP%)
-    int cd_flat;     // flat cooldown reduction in rounds
+    int cd_flat;     // flat cooldown reduction in tics (2026-11-07: cd is tics now)
     int diff_tier;   // min difficulty tier to drop (0=any, 1=Nightmare+, 2=Hell+)
     int doomweapon;  // weapontype_t for ESLOT_WEAPON guns, -1 otherwise.
                      // Equipping syncs the Doom readyweapon so the

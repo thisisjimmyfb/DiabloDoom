@@ -58,17 +58,18 @@
 static boolean t_diablo_chain_fire_suppressed = false;
 
 // Diablo turn-combat reload animation, tied to the weapon cooldown
-// (2026-11-06). The reload animation (weapon psprite attack state
-// chain) plays at a speed set by the weapon's effective cooldown:
-// total duration = cooldown rounds * 12 tics (the REPLENISH_CD
-// rate, 12 tics per cooldown round). A cooldown of 0 skips the
-// animation entirely (the shot fires with no psprite change).
-// The scale is stored as a fraction (num/den) applied to each
-// attack-frame's vanilla tics, so the relative timing of the
-// frames is preserved. The cooldown is the single tunable knob
-// for reload speed on every weapon: tune the kit's cooldown
-// field to tune its reload. Cleared when the weapon returns to
-// ready (A_WeaponReady) and at the start of P_FireDiabloWeapon.
+// (2026-11-06; tics 2026-11-07). The reload animation (weapon
+// psprite attack state chain) plays at a speed set by the weapon's
+// effective cooldown in TICS: total duration = the cooldown value
+// itself (the kit's cooldown field IS the number of tics). A
+// cooldown of 0 skips the animation entirely (the shot fires with
+// no psprite change). The scale is stored as a fraction (num/den)
+// applied to each attack-frame's vanilla tics, so the relative
+// timing of the frames is preserved. The cooldown is the single
+// tunable knob for reload speed on every weapon: tune the kit's
+// cooldown field to tune its reload. Cleared when the weapon
+// returns to ready (A_WeaponReady) and at the start of
+// P_FireDiabloWeapon.
 static boolean t_diablo_reload_active = false;
 static int t_diablo_reload_num = 1;   // target total tics
 static int t_diablo_reload_den = 1;   // vanilla total tics
@@ -390,18 +391,20 @@ P_FireDiabloWeapon
         return true;
     }
 
-    // Cooldown-tied reload animation (2026-11-06): the weapon's
-    // effective cooldown (rounds, set by T_KitOnFire during the
-    // spend above, after Haste/CDR) sets the reload animation
-    // duration: total = cooldown * 12 tics. A cooldown of 0 skips
-    // the animation entirely -- the shot already fired synchronously
-    // above, so refill at once and return without touching the
-    // psprite. This makes the cooldown the single tunable knob for
-    // reload speed on every weapon: tune the kit's cooldown field
-    // to tune its reload. (Inverted magazines -- plasma -- are
-    // not refilled here; their heat drains on its own.)
+    // Cooldown-tied reload animation (2026-11-06; tics 2026-11-07):
+    // the weapon's effective cooldown in TICS (T_KitReloadTics,
+    // kit cooldown after Haste/CDR) IS the reload animation
+    // duration -- the kit's cooldown field is the number of tics,
+    // so the target is the value itself, not rounds x 12. A
+    // cooldown of 0 skips the animation entirely -- the shot
+    // already fired synchronously above, so refill at once and
+    // return without touching the psprite. This makes the cooldown
+    // the single tunable knob for reload speed on every weapon:
+    // tune the kit's cooldown field to tune its reload. (Inverted
+    // magazines -- plasma -- are not refilled here; their heat
+    // drains on its own.)
     {
-        int cd = T_KitCooldown(player->readyweapon);
+        int cd = T_KitReloadTics(player->readyweapon);
         if (cd <= 0)
         {
             T_KitRefillAmmo(player->readyweapon);
@@ -409,7 +412,7 @@ P_FireDiabloWeapon
             return true;
         }
         {
-            int target = cd * 12;
+            int target = cd;
             int vanilla =
                 T_DiabloAttackChainTics(player->readyweapon);
             t_diablo_reload_num = target;
