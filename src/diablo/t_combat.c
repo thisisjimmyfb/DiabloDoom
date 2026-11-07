@@ -330,20 +330,22 @@ static const t_kitdef_t t_kits[NUMWEAPONS] = {
     // The replenish model (see replenish_model_t) now only sets
     // the inverted magazine's (plasma) drain rate; for normal
     // magazines the field is inert.
-    // wp_pistol: balanced AD sidearm. Cooldown 24 tics (2026-11-07):
-    // fast reload, faster than the chaingun.
-    { "SIDEARM",    2,   4,   4,   24,    0,   0,      1, false,    1,   10, false,   0,   0,   0,  15, REPLENISH_AS },
-    // wp_shotgun: close-range burst, 4 pellets. Cooldown 36 tics.
-    { "SHOTGUN",    2,   3,   5,   36,    0,   0,      4, false,    2,   12, false,   0,   0,   0,  40, REPLENISH_AS },
-    // wp_chaingun: 3-round burst. Cooldown 60 tics (2026-11-07): one
-    // of the slowest reloads, comparable to the BFG -- a heavy
-    // rotary weapon takes time to feed a new belt.
-    { "CHAINGUN",   1,   3,   5,   60,    0,   0,      3, false,    1,   10, false,   0,   0,   0,  16, REPLENISH_AS },
+    // wp_pistol: balanced AD sidearm. Cooldown 19 tics (2026-11-07):
+    // the vanilla attack-chain total, so the animation plays at
+    // vanilla speed (1:1, no stretch).
+    { "SIDEARM",    2,   4,   4,   19,    0,   0,      1, false,    1,   10, false,   0,   0,   0,  15, REPLENISH_AS },
+    // wp_shotgun: close-range burst, 4 pellets. Cooldown 44 tics
+    // (vanilla chain total).
+    { "SHOTGUN",    2,   3,   5,   44,    0,   0,      4, false,    2,   12, false,   0,   0,   0,  40, REPLENISH_AS },
+    // wp_chaingun: 3-round burst. Cooldown 9 tics (vanilla chain
+    // total): the rapid-fire weapon's short chain, so the reload
+    // is quick and the barrel spin reads at vanilla speed.
+    { "CHAINGUN",   1,   3,   5,    9,    0,   0,      3, false,    1,   10, false,   0,   0,   0,  16, REPLENISH_AS },
     // wp_missile: AP rockets, enemy-targeted splash. No charges
     // (2026-11-07): the charge gate is gone; the magazine is the
     // limiter instead -- ammo_max 10, ammo_cost 10, so 1 shot per
-    // magazine, then the reload. Cooldown 48 tics.
-    { "ROCKET",     5,   9,   6,   48,  128,  50,      1, true,   10,   10, false,   0,   0,   0,  80, REPLENISH_AS },
+    // magazine, then the reload. Cooldown 21 tics (vanilla chain).
+    { "ROCKET",     5,   9,   6,   21,  128,  50,      1, true,   10,   10, false,   0,   0,   0,  80, REPLENISH_AS },
     // wp_plasma: AP energy, inverted magazine (2026-10-22):
     // the ammo counter represents heat. It starts at 0, each shot
     // adds 20, the weapon fires while the counter is below the 125
@@ -353,22 +355,23 @@ static const t_kitdef_t t_kits[NUMWEAPONS] = {
     // (Tuned same day at the user's word -- a little of both: less per
     // shot than the original 25, more capacity than the original
     // 100, so ~6 shots of runway before the gate closes.)
-    // Cooldown 24 tics (2026-11-07, was 1 round): the fast AP
-    // weapon with a moderate cooldown — firing pauses the heat
+    // Cooldown 23 tics (2026-11-07, vanilla chain total): the fast
+    // AP weapon with a moderate cooldown — firing pauses the heat
     // drain for two rounds, so longer bursts want more Energy
-    // (capacity). The reload animation is 24 tics; the heat-drain
+    // (capacity). The reload animation is 23 tics; the heat-drain
     // pause stays in rounds (see T_KitOnFire).
-    { "PULSE",      2,   4,   4,   24,    0,   0,      1, true,   20,  125,  true,   0,   0,   0,  16, REPLENISH_AS },
-    // wp_bfg: AP ultimate. Cooldown 72 tics (2026-11-07, was 3
-    // rounds) drives the reload animation (and the reload refills
-    // the magazine at once).
-    { "BFG",       10,  18,   8,   72,  192,  60,      1, true,   20,   20, false,   0,   0,   0,  80, REPLENISH_CD },
+    { "PULSE",      2,   4,   4,   23,    0,   0,      1, true,   20,  125,  true,   0,   0,   0,  16, REPLENISH_AS },
+    // wp_bfg: AP ultimate. Cooldown 60 tics (2026-11-07, vanilla
+    // chain total) drives the reload animation (and the reload
+    // refills the magazine at once).
+    { "BFG",       10,  18,   8,   60,  192,  60,      1, true,   20,   20, false,   0,   0,   0,  80, REPLENISH_CD },
     // wp_chainsaw: AD melee with inherent leech (sustain for close range).
-    // Cooldown 16 tics (2026-11-07): the fastest reload of any gun.
-    { "SAW",        1,   2,   3,   16,    0,   0,      1, false,    1,    6, false,   0,  30,   0,  12, REPLENISH_AS },
+    // Cooldown 9 tics (2026-11-07, vanilla chain total): the fastest
+    // reload of any gun.
+    { "SAW",        1,   2,   3,    9,    0,   0,      1, false,    1,    6, false,   0,  30,   0,  12, REPLENISH_AS },
     // wp_supershotgun: AP double-barrel, breach reload, natural knockback.
-    // Cooldown 48 tics (2026-11-07, was 2 rounds).
-    { "SSG",        4,   8,   6,   48,    0,   0,      8, true,    8,    8, false,   0,   0,   1,  50, REPLENISH_CD },
+    // Cooldown 62 tics (2026-11-07, vanilla chain total).
+    { "SSG",        4,   8,   6,   62,    0,   0,      8, true,    8,    8, false,   0,   0,   1,  50, REPLENISH_CD },
 };
 
 const t_kitdef_t *T_KitForWeapon(weapontype_t w)
