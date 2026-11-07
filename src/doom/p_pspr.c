@@ -216,42 +216,26 @@ boolean P_CheckAmmo (player_t* player)
 //
 void P_FireWeapon (player_t* player)
 {
-    statenum_t	newstate;
-
-    // Diablo turn combat: clear any stale chain-fire suppression
-    // (e.g. from a save/load mid-chain) so a fresh shot is never
-    // suppressed. (2026-11-06)
-    t_diablo_chain_fire_suppressed = false;
-
+    // Diablo mode is always active in this fork (single-player, in a
+    // level; T_Active is false only in netgame, which the fork does
+    // not support, or outside a level, where the player cannot fire).
+    // Route all fire through P_FireDiabloWeapon so explore and turn
+    // combat share one fire path, including the reload flag and chain
+    // scaling -- the magazine refills when the reload animation
+    // completes in both modes. (2026-11-07)
     if (T_Active())
     {
-        // Diablo mode, real-time fire: the magazine is the only ammo
-        // economy. This is the one choke point every real-time shot
-        // passes through (initial press and each refire cycle; turn
-        // mode never calls it — it fires via P_FireDiabloWeapon), so
-        // gate and spend here, exactly as the turn executor does.
-        // Native fire never gates on vanilla ammo in Diablo mode (see
-        // A_FireCGun), so no vanilla pool top-up is needed anywhere.
-        const t_kitdef_t *kit = T_KitForWeapon(player->readyweapon);
-        if (kit->ammo_cost > 0 && !T_KitCanFire(player->readyweapon))
-        {
-            const char *reason = T_KitDenyReason(player->readyweapon);
-            if (reason != NULL)
-                player->message = reason;
-            return;
-        }
-        if (kit->ammo_cost > 0)
-        {
-            T_KitSpendAmmo(player->readyweapon);
-            T_KitOnFire(player);
-        }
+        P_FireDiabloWeapon(player);
+        return;
     }
-    else if (!P_CheckAmmo (player))
+
+    // Vanilla fallback (unreachable in gameplay).
+    if (!P_CheckAmmo (player))
         return;
 
     P_SetMobjState (player->mo, S_PLAY_ATK1);
-    newstate = weaponinfo[player->readyweapon].atkstate;
-    P_SetPsprite (player, ps_weapon, newstate);
+    P_SetPsprite (player, ps_weapon,
+                  weaponinfo[player->readyweapon].atkstate);
     P_NoiseAlert (player->mo, player->mo);
 }
 
@@ -287,12 +271,13 @@ static int T_DiabloAttackChainTics(weapontype_t w)
 
 // P_FireDiabloWeapon.
 //
-// Diablo turn-combat fire: mirrors P_FireWeapon in logic (gate, spend,
-// attack pose, weapon psprite to the attack state, noise alert) but
-// fires the shot synchronously by calling the A_Fire* functions
-// directly, so the turn executor's hit resolution (t_last_damage,
-// T_ResolveKill, kill beat) still reads the result right after the
-// call. P_FireWeapon defers the shot to the state chain, which would
+// The fork's single fire path: explore and turn combat both fire
+// through here (P_FireWeapon delegates to it in Diablo mode, and the
+// turn executor calls it directly). Gates and spends the magazine,
+// then fires the shot synchronously by calling the A_Fire*
+// functions directly, so the turn executor's hit resolution
+// (t_last_damage, T_ResolveKill, kill beat) still reads the result
+// right after the call. A deferred shot (vanilla P_FireWeapon) would
 // break that resolution; the old T_NativeFire fired synchronously but
 // never set the psprite, so no weapon showed its attack animation in
 // turn mode. The chain would re-fire a few tics later (the c30dbad7
@@ -300,7 +285,7 @@ static int T_DiabloAttackChainTics(weapontype_t w)
 // and the A_Fire* functions skip while it is set; the suppression
 // clears when the weapon returns to ready (A_WeaponReady). Returns
 // true if the shot fired, false if the weapon could not fire (gate).
-// (2026-11-06)
+// (2026-11-06; single fire path 2026-11-07)
 //
 boolean
 P_FireDiabloWeapon
@@ -377,13 +362,13 @@ P_FireDiabloWeapon
         default:             A_FirePistol(player, NULL); break;
     }
 
-    // Mirror P_FireWeapon: play the attack state chain on EVERY shot,
-    // not just on reload. P_FireWeapon sets the psprite to atkstate
-    // on every shot; the chain plays at vanilla speed (the cooldown
-    // is the vanilla chain total, so the scale is 1:1). The reload
-    // flag is set only when the magazine is empty, so the refill
-    // triggers on chain completion; on a normal shot the chain just
-    // plays and the weapon returns to ready. (2026-11-07)
+    // Play the attack state chain on EVERY shot, not just on reload
+    // (vanilla P_FireWeapon behavior, now the single fire path). The
+    // chain plays at vanilla speed (the cooldown is the vanilla chain
+    // total, so the scale is 1:1). The reload flag is set only when
+    // the magazine is empty, so the refill triggers on chain
+    // completion; on a normal shot the chain just plays and the weapon
+    // returns to ready. (2026-11-07)
     // Reload sequence note: vanilla has a reload sequence only for
     // the shotgun (pump, S_SGUN3-8) and SSG (breach, S_DSGUN3-9).
     // The other guns have no reload sequence; their reload is the
