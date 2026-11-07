@@ -821,8 +821,8 @@ static void T_EndPulse(void)
         turnctrl.tp = turnctrl.tp_max; // TP economy lands in phase 2
         T_KitTickCooldowns();
         // No per-round ammo grant (removed at the user's order,
-        // 2026-10-22): magazines replenish only via the trickle
-        // while game time runs, pickups, and potions.
+        // 2026-10-22): magazines refill when their reload
+        // finishes (2026-11-07), plus pickups and potions.
         turnctrl.state = TS_PLANNING;
         // Anchor the preview: turn start is the camera home for queue
         // previews, UNDO/CLEAR resets, and the END TURN teleport-back.
@@ -2118,9 +2118,10 @@ void T_Ticker(void)
     }
 
     // Time-based cadence (charges, cooldowns, heat): independent of
-    // rounds, but frozen during the planning phase, same as the ammo
-    // trickle -- nothing about the player's weapons improves while
-    // they plan (2026-10-22).
+    // rounds, but frozen during the planning phase -- nothing about
+    // the player's weapons improves while they plan (2026-10-22).
+    // (The reload refill is not cadence: it fires when the reload
+    // animation runs, which is during pulses, not planning.)
     if (turnctrl.state != TS_PLANNING && turnctrl.state != TS_TARGETING &&
         turnctrl.state != TS_CONFIRM)
     {

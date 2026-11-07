@@ -325,8 +325,11 @@ static const t_kitdef_t t_kits[NUMWEAPONS] = {
     // Base kits are deliberately weak: item stats are the real damage
     // source, so hunting better gear is the progression.
     // Ammo: every weapon with a magazine requires ammo to fire.
-    // Replenish model is explicit per-weapon (see replenish_model_t):
-    // AS = attack-speed driven, CD = cooldown driven (CDR gear speeds it up).
+    // Ammo is infinite (2026-11-07): a magazine refills to full
+    // at once when its reload finishes -- there is no trickle.
+    // The replenish model (see replenish_model_t) now only sets
+    // the inverted magazine's (plasma) drain rate; for normal
+    // magazines the field is inert.
     // wp_pistol: balanced AD sidearm
     { "SIDEARM",    2,   4,   4,    0,    0,   0,      1, false,    1,   10, false,   0,   0,   0,  15, REPLENISH_AS },
     // wp_shotgun: close-range burst, 4 pellets
@@ -348,7 +351,8 @@ static const t_kitdef_t t_kits[NUMWEAPONS] = {
     // moderate cooldown — firing pauses the heat drain for one
     // round, so longer bursts want more Energy (capacity).
     { "PULSE",      2,   4,   4,    1,    0,   0,      1, true,   20,  125,  true,   0,   0,   0,  16, REPLENISH_AS },
-    // wp_bfg: AP ultimate, cooldown-driven replenish
+    // wp_bfg: AP ultimate. Cooldown 3 drives the reload
+    // animation (and the reload refills the magazine at once).
     { "BFG",       10,  18,   8,    3,  192,  60,      1, true,   20,   20, false,   0,   0,   0,  80, REPLENISH_CD },
     // wp_chainsaw: AD melee with inherent leech (sustain for close range)
     { "SAW",        1,   2,   3,    0,    0,   0,      1, false,    1,    6, false,   0,  30,   0,  12, REPLENISH_AS },
@@ -389,7 +393,6 @@ static int t_ammo[NUMWEAPONS];      // THE per-weapon resource counter:
 static int t_charge_tics[NUMWEAPONS]; // tics since last charge regen
 static int t_cooldown_tics[NUMWEAPONS]; // tics since last cooldown tick
 static int t_decay_acc[NUMWEAPONS];   // fractional drain accumulator
-static int t_trickle_tics[NUMWEAPONS]; // tics since last trickle +1
 static int t_replenish_acc;            // HP/sec accumulator (35 tics = 1s)
                                       // (inverted magazines)
 static boolean t_cadence_inited;
@@ -495,7 +498,7 @@ void T_KitSetCooldown(weapontype_t w, int rounds)
 
 // Effective cooldown in rounds for a kit: base, reduced by Haste %
 // then flat CDR, floored at 1. The ONE cooldown number (// 2026-11-01): it sets the live counter on fire (T_KitOnFire) and
-// the trickle interval for cooldown-driven kits
+// the drain interval for cooldown-driven inverted kits
 // (T_KitReplenishTics). No special treatment by weapon class: a
 // kit with cooldown 0 simply never sets the counter.
 static int T_KitEffectiveCooldown(const t_kitdef_t *kit, player_t *player)
@@ -522,17 +525,17 @@ void T_KitOnFire(player_t *player)
     if (kit->max_charges > 0 && t_charges[w] > 0)
         t_charges[w]--;
     // Unified cooldown (2026-11-01): firing sets the live
-    // cooldown counter to the kit's effective cooldown, and the
-    // counter gates the weapon's replenish in T_TickCadence — no
-    // trickle while it runs (normal magazines), no heat drain
-    // while it runs (inverted magazines); replenish resumes when
-    // it hits 0.
-    // Firing refreshes the counter. No special treatment by
-    // weapon class: kits with cooldown 0 (all current AD kits)
-    // never set it, so they stay limited by attack speed alone;
-    // a fast kit with a slow cooldown gates its own regen.
-    // Ammo still gates firing (T_KitCanFire); cooldown never
-    // blocks a shot, it only pauses regen.
+    // cooldown counter to the kit's effective cooldown. The
+    // counter no longer gates ammo replenish (removed
+    // 2026-11-07: ammo is infinite, a finished reload refills
+    // the magazine at once) -- it still gates the inverted
+    // magazine's heat drain in T_TickCadence, and
+    // P_FireDiabloWeapon reads it to scale the reload
+    // animation. Firing refreshes the counter. No special
+    // treatment by weapon class: kits with cooldown 0 (all
+    // current AD kits) never set it, so they stay limited by
+    // attack speed alone. Ammo still gates firing
+    // (T_KitCanFire); cooldown never blocks a shot.
     if (kit->cooldown > 0)
         t_cooldowns[w] = T_KitEffectiveCooldown(kit, player);
 }
@@ -604,11 +607,12 @@ void T_KitResetCadence(void)
     d_diablo_damage_cb = T_DiabloDamageCallback;
 }
 
-// THE ammo replenish rate: tics per unit of magazine movement for a
-// kit, from its explicit replenish model. One rate system for every
-// weapon, applied by the one cadence loop (T_TickCadence, every
-// unfrozen game tic): normal magazines trickle UP at this rate;
-// inverted magazines drain DOWN at this rate.
+// THE inverted-magazine drain rate: tics per unit of heat
+// movement for a kit, from its explicit replenish model. Since
+// the ammo trickle was removed (2026-11-07) this is used only
+// by the plasma heat drain in T_TickCadence; the reload
+// animation's speed comes from the cooldown directly
+// (P_FireDiabloWeapon), not from this rate.
 static int T_KitReplenishTics(const t_kitdef_t *kit, player_t *player)
 {
     if (kit->replenish == REPLENISH_CD)
@@ -639,7 +643,6 @@ static int T_KitReplenishTics(const t_kitdef_t *kit, player_t *player)
 // - Inverted magazines (plasma): drain at the replenish rate,
 //   continuously
 // All independent of round boundaries.
-static void T_RefillOnCooldownReady(weapontype_t w);
 void T_TickCadence(void)
 {
     int w;
@@ -682,8 +685,6 @@ void T_TickCadence(void)
             {
                 t_cooldown_tics[w] = 0;
                 t_cooldowns[w]--;
-                if (t_cooldowns[w] == 0)
-                    T_RefillOnCooldownReady((weapontype_t)w);
             }
         }
         else
@@ -692,9 +693,8 @@ void T_TickCadence(void)
         }
 
         // Inverted magazine (plasma): the counter drains toward 0
-        // at the weapon's replenish rate -- the same interval normal
-        // magazines trickle up at (T_KitReplenishTics), run in
-        // reverse. The drain is plasma's "reload": once firing has
+        // at the weapon's replenish rate (T_KitReplenishTics).
+        // The drain is plasma's "reload": once firing has
         // filled the counter to capacity, it must fall below
         // capacity before the weapon can fire again.
         if (t_kits[w].ammo_inverted && t_ammo[w] > 0)
@@ -730,45 +730,13 @@ void T_TickCadence(void)
             t_decay_acc[w] = 0;
         }
 
-        // Normal magazine (every non-inverted kit): trickle UP at
-        // the same replenish rate the inverted magazine drains at --
-        // one code path moves every magazine, in the direction the
-        // kit declares. This loop is the ONLY over-time ammo regen:
-        // it runs on every unfrozen game tic (explore included), so
-        // a magazine refills whenever game time runs, not only while
-        // combat pulses simulate. (Before 2026-10-23 the trickle-up
-        // lived in the pulse simulator alone, so explore-heavy play
-        // never refilled anything -- the BFG sat at 7/20 across whole
-        // farm cycles with no combat.)
-        if (!t_kits[w].ammo_inverted && t_kits[w].ammo_max > 0
-            && t_kits[w].ammo_cost > 0
-            && t_ammo[w] < T_KitMaxAmmo((weapontype_t)w))
-        {
-            // Unified cooldown gate (2026-11-01): no trickle
-            // while this weapon's cooldown counter is running.
-            // Firing sets it (T_KitOnFire); it ticks down 1 round
-            // per 350 tics in the block above, and the trickle
-            // resumes when it reaches 0. Partial trickle progress
-            // does not survive the wait.
-            if (t_cooldowns[w] > 0)
-            {
-                t_trickle_tics[w] = 0;
-                continue;
-            }
-            {
-                int interval = T_KitReplenishTics(&t_kits[w],
-                                                  &players[consoleplayer]);
-                if (++t_trickle_tics[w] >= interval)
-                {
-                    t_trickle_tics[w] = 0;
-                    t_ammo[w]++;
-                }
-            }
-        }
-        else
-        {
-            t_trickle_tics[w] = 0;
-        }
+        // Ammo replenish removed (2026-11-07): ammo is infinite,
+        // so normal magazines do NOT trickle up over time. A
+        // magazine refills to full at once when its reload finishes
+        // (T_KitRefillAmmo, called from the reload animation's end
+        // in p_pspr.c, or immediately on fire for 0-cooldown
+        // weapons). The inverted magazine (plasma) still drains
+        // above -- that is heat, not ammo replenish.
     }
 
     // Replenish life (2026-10-30): HP per second from all
@@ -848,17 +816,6 @@ void T_KitLoadCadence(const int *cool, const int *heat,
         }
     }
     t_cadence_inited = true;
-}
-
-// AP magazine refill when a cooldown-gated weapon (SSG/BFG) finishes
-// its cooldown. Now a no-op: the cadence trickle (T_TickCadence) handles
-// replenishment at a cooldown-driven rate, so weapons don't instant-refill.
-static void T_RefillOnCooldownReady(weapontype_t w)
-{
-    (void)w;
-    // Intentionally empty. Cooldown expiry does not refill anything
-    // by itself: it only lifts the trickle gate in T_TickCadence,
-    // and the magazine resumes trickling from there.
 }
 
 void T_KitTickCooldowns(void)
@@ -994,6 +951,22 @@ void T_KitRefillAllAmmo(void)
                   : T_KitMaxAmmo((weapontype_t)w);
 }
 
+// Reload done (2026-11-07): ammo is infinite, so a finished reload
+// refills the one magazine to full at once -- no trickle. Inverted
+// magazines (plasma) are NOT refilled here: their counter is heat,
+// which drains on its own in T_TickCadence; a reload never vents it
+// (a mana potion does -- T_KitRefillAllAmmo).
+void T_KitRefillAmmo(weapontype_t w)
+{
+    if (w < 0 || w >= NUMWEAPONS)
+        return;
+    if (t_kits[w].ammo_inverted)
+        return;
+    if (!t_cadence_inited)
+        T_KitResetCadence();
+    t_ammo[w] = T_KitMaxAmmo(w);
+}
+
 // Kill credit + kill-triggered affix mechanics for one victim.
 void T_ResolveKill(player_t *player, mobj_t *victim, int dmg,
                           const char *kitname)
@@ -1022,11 +995,11 @@ void T_ResolveKill(player_t *player, mobj_t *victim, int dmg,
     }
     if (mech & MECH_BREACHER)
     {
-        // Kills immediately refund the reload cooldown: the counter
-        // zeroes, so the trickle gate lifts at once and the
-        // magazine resumes trickling (no instant refill).
+        // Kills immediately refund the reload: the cooldown
+        // counter zeroes and the magazine refills to full at
+        // once (ammo is infinite; the reload is the refill).
         t_cooldowns[player->readyweapon] = 0;
-        T_RefillOnCooldownReady(player->readyweapon);
+        T_KitRefillAmmo(player->readyweapon);
     }
     if (mech & MECH_REAPER)
     {
