@@ -570,8 +570,8 @@ static mobj_t *T_FindNearestLoot(mobj_t *player_mo)
         // Skip if already picked up (removed)
         if (mo->health <= 0)
         {
-            printf("[COLLECT] loot type=%d at (%d,%d) skipped: health=%d\n",
-                   mo->type, mo->x >> 16, mo->y >> 16, mo->health);
+            printf("[COLLECT] loot type=%d at (%d,%d,%d) skipped: health=%d\n",
+                   mo->type, mo->x >> 16, mo->y >> 16, mo->floorz >> 16, mo->health);
             continue;
         }
         {
@@ -864,7 +864,7 @@ static boolean goto_active = false;
 // detects "blocked" as no displacement, since physics owns the move).
 static fixed_t goto_last_x = 0, goto_last_y = 0;
 static int goto_stuck_tics = 0;
-static fixed_t goto_start_x = 0, goto_start_y = 0;
+static fixed_t goto_start_x = 0, goto_start_y = 0, goto_start_z = 0;
 static int goto_recenter_tics = 0;
 // Outcome of the current/last walk (GOTO_RES_* in t_turn.h). NONE
 // while a walk is running; set when the walk ends so a caller that
@@ -956,7 +956,8 @@ boolean T_GotoStart(fixed_t tx, fixed_t ty)
         }
         if (clamp_steps > 0)
         {
-            printf("[GOTO] target clamped to (%d,%d)\n", cx >> 16, cy >> 16);
+            printf("[GOTO] target clamped to (%d,%d,%d)\n", cx >> 16, cy >> 16,
+                   R_PointInSubsector(cx, cy)->sector->floorheight >> 16);
             tx = cx;
             ty = cy;
         }
@@ -965,7 +966,8 @@ boolean T_GotoStart(fixed_t tx, fixed_t ty)
     steps = T_FindPathTo(pl->mo, tx, ty, path_dirs, GOTO_MAX_WP);
     if (steps < 0)
     {
-        printf("[GOTO] no path to (%d,%d)\n", tx >> 16, ty >> 16);
+        printf("[GOTO] no path to (%d,%d,%d)\n", tx >> 16, ty >> 16,
+               R_PointInSubsector(tx, ty)->sector->floorheight >> 16);
         goto_result = GOTO_RES_NOPATH;
         return false;
     }
@@ -1012,8 +1014,10 @@ boolean T_GotoStart(fixed_t tx, fixed_t ty)
         goto_last_y = players[consoleplayer].mo->y;
         goto_start_x = players[consoleplayer].mo->x;
         goto_start_y = players[consoleplayer].mo->y;
+        goto_start_z = players[consoleplayer].mo->floorz;
     }
-    printf("[GOTO] path to (%d,%d): %d waypoints\n", tx >> 16, ty >> 16, steps);
+    printf("[GOTO] path to (%d,%d,%d): %d waypoints\n", tx >> 16, ty >> 16,
+           R_PointInSubsector(tx, ty)->sector->floorheight >> 16, steps);
     return true;
 }
 
@@ -1122,6 +1126,7 @@ static fixed_t walk_last_x = 0;
 static fixed_t walk_last_y = 0;
 static fixed_t walk_start_x = 0;
 static fixed_t walk_start_y = 0;
+static fixed_t walk_start_z = 0;
 
 // Step mode (WALK <angle>, 2026-10-23): > 0 = the walk stops
 // once it has covered this much forward displacement, instead of
@@ -1210,6 +1215,7 @@ static void T_WalkBegin(fixed_t step_target)
     walk_last_y = pl->mo->y;
     walk_start_x = pl->mo->x;
     walk_start_y = pl->mo->y;
+    walk_start_z = pl->mo->floorz;
     printf("[WALK] started at (%d,%d,%d)\n",
            pl->mo->x >> 16, pl->mo->y >> 16, pl->mo->floorz >> 16);
 }
@@ -1253,9 +1259,9 @@ void T_WalkCancel(void)
             int moved = P_AproxDistance(pl->mo->x - walk_start_x,
                                         pl->mo->y - walk_start_y)
                         >> 16;
-            printf("[WALK] stopped at (%d,%d,%d), moved %d from (%d,%d)\n",
+            printf("[WALK] stopped at (%d,%d,%d), moved %d from (%d,%d,%d)\n",
                    pl->mo->x >> 16, pl->mo->y >> 16, pl->mo->floorz >> 16, moved,
-                   walk_start_x >> 16, walk_start_y >> 16);
+                   walk_start_x >> 16, walk_start_y >> 16, walk_start_z >> 16);
         }
         else
         {
@@ -1290,9 +1296,9 @@ void T_WalkTick(void)
                                     mo->y - walk_start_y) >> 16;
         if (moved >= (walk_step_target >> 16))
         {
-            printf("[WALK] step complete at (%d,%d,%d), moved %d from (%d,%d)\n",
+            printf("[WALK] step complete at (%d,%d,%d), moved %d from (%d,%d,%d)\n",
                    mo->x >> 16, mo->y >> 16, mo->floorz >> 16, moved,
-                   walk_start_x >> 16, walk_start_y >> 16);
+                   walk_start_x >> 16, walk_start_y >> 16, walk_start_z >> 16);
             mo->momx = 0;
             mo->momy = 0;
             walk_active = false;
@@ -1327,8 +1333,8 @@ void T_WalkTick(void)
             int steps = T_FindPathTo(mo, found->x, found->y, path_dirs, 64);
             if (steps >= 0)
             {
-                printf("[WALK] loot nearby (%d units), stopping [type=%d at (%d,%d)]\n",
-                       d >> 16, found->type, found->x >> 16, found->y >> 16);
+                printf("[WALK] loot nearby (%d units), stopping [type=%d at (%d,%d,%d)]\n",
+                       d >> 16, found->type, found->x >> 16, found->y >> 16, found->floorz >> 16);
                 // Stop ONCE for this item; later walks ignore it.
                 T_WalkIgnoreAdd(found);
                 T_WalkCancel();
@@ -1391,9 +1397,9 @@ void T_GotoTick(void)
     {
         int moved = P_AproxDistance(mo->x - goto_start_x,
                                     mo->y - goto_start_y) >> 16;
-        printf("[GOTO] arrived at (%d,%d,%d), moved %d from (%d,%d)\n",
+        printf("[GOTO] arrived at (%d,%d,%d), moved %d from (%d,%d,%d)\n",
                mo->x >> 16, mo->y >> 16, mo->floorz >> 16, moved,
-               goto_start_x >> 16, goto_start_y >> 16);
+               goto_start_x >> 16, goto_start_y >> 16, goto_start_z >> 16);
         goto_finish(GOTO_RES_ARRIVED);
         return;
     }
@@ -1460,8 +1466,9 @@ void T_GotoTick(void)
                 if (T_RecenterAim(mo, &ax, &ay))
                 {
                     goto_recenter_tics = 35;
-                    printf("[GOTO] stalled off-centre; re-centring to (%d,%d)\n",
-                           ax >> 16, ay >> 16);
+                    printf("[GOTO] stalled off-centre; re-centring to (%d,%d,%d)\n",
+                           ax >> 16, ay >> 16,
+                           R_PointInSubsector(ax, ay)->sector->floorheight >> 16);
                 }
             }
             if (++goto_stuck_tics > 35)
@@ -1469,9 +1476,9 @@ void T_GotoTick(void)
                 int moved = P_AproxDistance(mo->x - goto_start_x,
                                             mo->y - goto_start_y) >> 16;
                 printf("[GOTO] blocked at waypoint %d, aborting"
-                       " at (%d,%d), moved %d from (%d,%d)\n",
-                       goto_wp_index, mo->x >> 16, mo->y >> 16,
-                       moved, goto_start_x >> 16, goto_start_y >> 16);
+                       " at (%d,%d,%d), moved %d from (%d,%d,%d)\n",
+                       goto_wp_index, mo->x >> 16, mo->y >> 16, mo->floorz >> 16,
+                       moved, goto_start_x >> 16, goto_start_y >> 16, goto_start_z >> 16);
                 goto_finish(GOTO_RES_BLOCKED);
                 return;
             }
@@ -1571,8 +1578,8 @@ static boolean collect_start_leg(void)
             snprintf(msg, sizeof(msg), "COLLECTING LOOT...");
         player->message = msg;
     }
-    printf("[COLLECT] walking to loot at (%d,%d)\n",
-           loot->x >> 16, loot->y >> 16);
+    printf("[COLLECT] walking to loot at (%d,%d,%d)\n",
+           loot->x >> 16, loot->y >> 16, loot->floorz >> 16);
     return true;
 }
 
@@ -1613,8 +1620,8 @@ boolean T_DoCollect(void)
         return false;
     }
 
-    printf("[COLLECT] attempting: player at (%d,%d)\n",
-           mo->x >> 16, mo->y >> 16);
+    printf("[COLLECT] attempting: player at (%d,%d,%d)\n",
+           mo->x >> 16, mo->y >> 16, mo->floorz >> 16);
 
     // Filter loot targets in order of distance: every one the grid
     // BFS can reach becomes a candidate destination for GOTO.

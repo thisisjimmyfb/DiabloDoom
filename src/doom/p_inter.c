@@ -655,11 +655,11 @@ static void P_DropDiabloLoot(mobj_t *target, mobj_t *source)
             D_GetItemDef(D_ITEMTIER(item_id), D_ITEMIDX(item_id));
         char namebuf[96];
         D_ItemDisplayName(def, namebuf, sizeof(namebuf));
-        printf("[LOOT] dropped \"%s\" tier=%d idx=%d by %s at (%d,%d)\n",
+        printf("[LOOT] dropped \"%s\" tier=%d idx=%d by %s at (%d,%d,%d)\n",
                namebuf,
                D_ITEMTIER(item_id), D_ITEMIDX(item_id),
                P_MonsterName(target->type),
-               target->x >> 16, target->y >> 16);
+               target->x >> 16, target->y >> 16, target->floorz >> 16);
     }
 }
 

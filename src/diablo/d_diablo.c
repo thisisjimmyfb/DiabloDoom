@@ -1037,9 +1037,10 @@ void D_RamAltmanOnKill(mobj_t *source, mobj_t *target)
                 ram_altman_corpse->flags |= MF_NOLOOT;
                 ram_altman_corpse->health = info->spawnhealth;
                 ram_altman_corpse->target = NULL;
-                printf("[AGENT] RAM ALTMAN raised a dead enemy (%d,%d)\n",
+                printf("[AGENT] RAM ALTMAN raised a dead enemy (%d,%d,%d)\n",
                        ram_altman_corpse->x >> FRACBITS,
-                       ram_altman_corpse->y >> FRACBITS);
+                       ram_altman_corpse->y >> FRACBITS,
+                       ram_altman_corpse->floorz >> FRACBITS);
                 return;
             }
         }

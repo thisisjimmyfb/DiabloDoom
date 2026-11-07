@@ -485,9 +485,9 @@ void T_EnterCombat(mobj_t *spotter)
     {
         mobj_t *pmo = players[consoleplayer].mo;
         T_RefreshTargets();
-        printf("[COMBAT] enter: spotter type=%d at (%d,%d), player at (%d,%d), dist=%d, player_sees_spotter=%d, visible_targets=%d\n",
-               spotter->type, spotter->x >> 16, spotter->y >> 16,
-               pmo->x >> 16, pmo->y >> 16,
+        printf("[COMBAT] enter: spotter type=%d at (%d,%d,%d), player at (%d,%d,%d), dist=%d, player_sees_spotter=%d, visible_targets=%d\n",
+               spotter->type, spotter->x >> 16, spotter->y >> 16, spotter->floorz >> 16,
+               pmo->x >> 16, pmo->y >> 16, pmo->floorz >> 16,
                P_AproxDistance(spotter->x - pmo->x, spotter->y - pmo->y) >> 16,
                P_CheckSight(pmo, spotter) ? 1 : 0,
                t_numtargets);
