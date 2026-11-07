@@ -377,48 +377,50 @@ P_FireDiabloWeapon
         default:             A_FirePistol(player, NULL); break;
     }
 
-    // Reload only when the magazine is empty (2026-11-07): the
-    // magazine's capacity (base + Energy, T_KitMaxAmmo) sets how
-    // many shots fit before the reload animation (cooldown).
-    // While the magazine still affords another shot, there is no
-    // reload -- the weapon stays ready and the shot just fired.
-    // Ammo is infinite, so an emptied magazine refills to full
-    // when the reload finishes.
-    if (kit->ammo_cost > 0
-        && T_HasAmmoForKit(player->readyweapon))
+    // Mirror P_FireWeapon: play the attack state chain on EVERY shot,
+    // not just on reload. P_FireWeapon sets the psprite to atkstate
+    // on every shot; the chain plays at vanilla speed (the cooldown
+    // is the vanilla chain total, so the scale is 1:1). The reload
+    // flag is set only when the magazine is empty, so the refill
+    // triggers on chain completion; on a normal shot the chain just
+    // plays and the weapon returns to ready. (2026-11-07)
+    // Reload sequence note: vanilla has a reload sequence only for
+    // the shotgun (pump, S_SGUN3-8) and SSG (breach, S_DSGUN3-9).
+    // The other guns have no reload sequence; their reload is the
+    // recovery frames (the unfireable state) stretched to fill the
+    // cooldown -- a compromise, not a fake reload. Since the
+    // cooldowns are the vanilla chain totals, the scale is 1:1 and
+    // no stretching happens yet; if a cooldown is tuned longer
+    // later, stretch the recovery frames, not the fire frame.
     {
-        P_NoiseAlert (player->mo, player->mo);
-        return true;
-    }
-
-    // Cooldown-tied reload animation (2026-11-06; tics 2026-11-07):
-    // the weapon's effective cooldown in TICS (T_KitReloadTics,
-    // kit cooldown after Haste/CDR) IS the reload animation
-    // duration -- the kit's cooldown field is the number of tics,
-    // so the target is the value itself, not rounds x 12. A
-    // cooldown of 0 skips the animation entirely -- the shot
-    // already fired synchronously above, so refill at once and
-    // return without touching the psprite. This makes the cooldown
-    // the single tunable knob for reload speed on every weapon:
-    // tune the kit's cooldown field to tune its reload. (Inverted
-    // magazines -- plasma -- are not refilled here; their heat
-    // drains on its own.)
-    {
+        boolean reloading = (kit->ammo_cost > 0
+                             && !T_HasAmmoForKit(player->readyweapon));
         int cd = T_KitReloadTics(player->readyweapon);
-        if (cd <= 0)
+        int vanilla =
+            T_DiabloAttackChainTics(player->readyweapon);
+        int target;
+
+        if (reloading)
         {
-            T_KitRefillAmmo(player->readyweapon);
-            P_NoiseAlert (player->mo, player->mo);
-            return true;
-        }
-        {
-            int target = cd;
-            int vanilla =
-                T_DiabloAttackChainTics(player->readyweapon);
-            t_diablo_reload_num = target;
-            t_diablo_reload_den = vanilla;
+            // Reload: the chain lasts the cooldown. Refill on
+            // completion (T_KitRefillAmmo is a no-op for the
+            // inverted plasma magazine; its heat drains on its own).
+            target = cd;
             t_diablo_reload_active = true;
         }
+        else
+        {
+            // Normal shot: the chain plays at vanilla speed.
+            // No refill.
+            target = vanilla;
+            t_diablo_reload_active = false;
+        }
+
+        // A cooldown of 0 (fists) means no reload to time, but the
+        // attack chain still plays -- at vanilla speed. Do not
+        // early-return without the animation.
+        t_diablo_reload_num = target;
+        t_diablo_reload_den = vanilla;
     }
 
     // Suppress the chain re-fire, then play the animation, mirroring
@@ -427,10 +429,19 @@ P_FireDiabloWeapon
     // the fire frame's A_Fire* call returns early on the flag. The
     // first attack frame's tics are scaled so the whole chain lasts
     // the cooldown-driven target; P_MovePsprites scales the rest.
+    // Chainsaw (2026-11-07): when attacking, play S_SAW2 (the
+    // cutting frame); when reloading, go back to S_SAW1 (the
+    // atkstate), so the reload plays the chain from the start.
     t_diablo_chain_fire_suppressed = true;
     P_SetMobjState (player->mo, S_PLAY_ATK1);
-    P_SetPsprite (player, ps_weapon,
-                  weaponinfo[player->readyweapon].atkstate);
+    {
+        statenum_t atkstate =
+            weaponinfo[player->readyweapon].atkstate;
+        if (player->readyweapon == wp_chainsaw
+            && !t_diablo_reload_active)
+            atkstate = S_SAW2;
+        P_SetPsprite (player, ps_weapon, atkstate);
+    }
     {
         pspdef_t *psp = &player->psprites[ps_weapon];
         int scaled = psp->tics * t_diablo_reload_num
