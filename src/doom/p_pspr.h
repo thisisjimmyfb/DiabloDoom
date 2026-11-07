@@ -72,8 +72,10 @@ typedef struct
 extern fixed_t bulletslope;
 
 struct mobj_s;
+struct player_s;
 void P_FrustumSpray(struct mobj_s *originator, angle_t angle);
 boolean P_FrustumSpraying(void);
+boolean P_FireDiabloWeapon(struct player_s *player);
 
 
 #endif

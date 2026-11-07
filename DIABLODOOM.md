@@ -1128,13 +1128,28 @@ the wrong fix for a magazine-paid shot.
 
 **All guns route through Diablo magazines, in both modes
 (2026-10-31).** The magazine is the only ammo economy. In turn
-mode the attack executor gates (`T_KitCanFire`) and spends
-(`T_KitSpendAmmo`, charges via `T_KitOnFire`) before native fire.
-In real-time explore, `P_FireWeapon` — the one choke point every
-real-time shot passes through (initial press and each refire cycle;
-turn mode never calls it) — does the same gate and spend. Vanilla
-ammo pools are a shadow: native fire never gates on them in Diablo
-mode (`A_FireCGun`'s empty-clip early return is bypassed while the
+mode the attack executor validates (`T_HasAmmoForKit`) and calls
+`P_FireDiabloWeapon`, which owns the gate (`T_KitCanFire`), the
+spend (`T_KitSpendAmmo`, charges via `T_KitOnFire`), the
+synchronous fire, and the weapon animation — the single choke
+point for turn-mode shots. In real-time explore, `P_FireWeapon` —
+the one choke point every real-time shot passes through (initial
+press and each refire cycle; turn mode never calls it) — does the
+same gate and spend. `P_FireDiabloWeapon` (2026-11-06) mirrors
+`P_FireWeapon` in logic but fires the shot synchronously by
+calling the `A_Fire*` functions directly, so the turn executor's
+hit resolution still reads the result right after the call; the
+old `T_NativeFire` fired synchronously but never set the weapon
+psprite, so no weapon showed its attack animation in turn mode.
+`P_FireDiabloWeapon` sets the psprite to the weapon's attack
+state (the same call `P_FireWeapon` makes), so the attack
+animation — including the SSG's reload frames — plays in turn
+mode. The direct fire sets a chain-fire suppression flag before
+the psprite is set, so the state chain's `A_Fire*` call returns
+early and the shot never double-fires; the flag clears when the
+weapon returns to ready (`A_WeaponReady`). Vanilla ammo pools are
+a shadow: native fire never gates on them in Diablo mode
+(`A_FireCGun`'s empty-clip early return is bypassed while the
 turn system is active; no other native fire function gates), and
 the HUD never displays them in Diablo mode. Vanilla mode is
 untouched: its native gates and pools behave exactly as before.

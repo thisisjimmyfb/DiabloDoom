@@ -1148,7 +1148,7 @@ P_SpawnPlayerMissile
 
     // Diablo turn-mode: if the player fired this in turn mode, tag it
     // with the weapon for Diablo damage calculation on impact.
-    // (d_diablo_damage_cb is set by T_ExecAttack before T_NativeFire.)
+    // (d_diablo_damage_cb is set by T_ExecAttack before P_FireDiabloWeapon.)
     if (source && source->player && d_diablo_damage_cb)
     {
         extern int d_diablo_hitscan_weapon;
