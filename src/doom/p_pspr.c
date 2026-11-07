@@ -57,6 +57,22 @@
 // start of P_FireDiabloWeapon before the direct fire. (2026-11-06)
 static boolean t_diablo_chain_fire_suppressed = false;
 
+// Diablo turn-combat reload animation, tied to the weapon cooldown
+// (2026-11-06). The reload animation (weapon psprite attack state
+// chain) plays at a speed set by the weapon's effective cooldown:
+// total duration = cooldown rounds * 12 tics (the REPLENISH_CD
+// rate, 12 tics per cooldown round). A cooldown of 0 skips the
+// animation entirely (the shot fires with no psprite change).
+// The scale is stored as a fraction (num/den) applied to each
+// attack-frame's vanilla tics, so the relative timing of the
+// frames is preserved. The cooldown is the single tunable knob
+// for reload speed on every weapon: tune the kit's cooldown
+// field to tune its reload. Cleared when the weapon returns to
+// ready (A_WeaponReady) and at the start of P_FireDiabloWeapon.
+static boolean t_diablo_reload_active = false;
+static int t_diablo_reload_num = 1;   // target total tics
+static int t_diablo_reload_den = 1;   // vanilla total tics
+
 
 
 //
@@ -240,6 +256,34 @@ void P_FireWeapon (player_t* player)
 
 
 
+// Total vanilla tics of a weapon's attack state chain, from
+// atkstate until the readystate (exclusive of the readystate
+// itself). Used to scale the reload animation to the weapon's
+// cooldown: each attack frame's tics are multiplied by
+// (target / vanilla total), so the whole chain lasts the target.
+// Bounded so a malformed chain cannot loop forever.
+static int T_DiabloAttackChainTics(weapontype_t w)
+{
+    statenum_t st = weaponinfo[w].atkstate;
+    statenum_t ready = weaponinfo[w].readystate;
+    int total = 0;
+    int guard = 0;
+    while (st != ready && st != S_NULL && guard < 32)
+    {
+        int t = states[st].tics;
+        if (t < 1)
+            t = 1;
+        total += t;
+        st = states[st].nextstate;
+        guard++;
+    }
+    if (total < 1)
+        total = 1;
+    return total;
+}
+
+
+
 // P_FireDiabloWeapon.
 //
 // Diablo turn-combat fire: mirrors P_FireWeapon in logic (gate, spend,
@@ -264,8 +308,11 @@ P_FireDiabloWeapon
     const t_kitdef_t *kit;
 
     // Clear any stale suppression from an interrupted chain, so the
-    // direct fire below is never suppressed.
+    // direct fire below is never suppressed. Also clear any stale
+    // reload scale, so a previous weapon's cooldown cannot stretch
+    // this shot's animation.
     t_diablo_chain_fire_suppressed = false;
+    t_diablo_reload_active = false;
 
     // Gate + spend, exactly as P_FireWeapon's Diablo branch. (The turn
     // executor still validates first for its point-refund skip; this
@@ -329,14 +376,49 @@ P_FireDiabloWeapon
         default:             A_FirePistol(player, NULL); break;
     }
 
+    // Cooldown-tied reload animation (2026-11-06): the weapon's
+    // effective cooldown (rounds, set by T_KitOnFire during the
+    // spend above, after Haste/CDR) sets the reload animation
+    // duration: total = cooldown * 12 tics. A cooldown of 0 skips
+    // the animation entirely -- the shot already fired synchronously
+    // above, so return without touching the psprite. This makes the
+    // cooldown the single tunable knob for reload speed on every
+    // weapon: tune the kit's cooldown field to tune its reload.
+    {
+        int cd = T_KitCooldown(player->readyweapon);
+        if (cd <= 0)
+        {
+            P_NoiseAlert (player->mo, player->mo);
+            return true;
+        }
+        {
+            int target = cd * 12;
+            int vanilla =
+                T_DiabloAttackChainTics(player->readyweapon);
+            t_diablo_reload_num = target;
+            t_diablo_reload_den = vanilla;
+            t_diablo_reload_active = true;
+        }
+    }
+
     // Suppress the chain re-fire, then play the animation, mirroring
     // P_FireWeapon. The psprite is set to the attack state, so the
     // weapon animation — including the SSG reload frames — plays, but
-    // the fire frame's A_Fire* call returns early on the flag.
+    // the fire frame's A_Fire* call returns early on the flag. The
+    // first attack frame's tics are scaled so the whole chain lasts
+    // the cooldown-driven target; P_MovePsprites scales the rest.
     t_diablo_chain_fire_suppressed = true;
     P_SetMobjState (player->mo, S_PLAY_ATK1);
     P_SetPsprite (player, ps_weapon,
                   weaponinfo[player->readyweapon].atkstate);
+    {
+        pspdef_t *psp = &player->psprites[ps_weapon];
+        int scaled = psp->tics * t_diablo_reload_num
+                     / t_diablo_reload_den;
+        if (scaled < 1)
+            scaled = 1;
+        psp->tics = scaled;
+    }
     P_NoiseAlert (player->mo, player->mo);
     return true;
 }
@@ -372,8 +454,10 @@ A_WeaponReady
     int		angle;
 
     // Diablo turn combat: the attack chain is over; chain fire is no
-    // longer suppressed. (2026-11-06)
+    // longer suppressed, and any cooldown-tied reload scale ends.
+    // (2026-11-06)
     t_diablo_chain_fire_suppressed = false;
+    t_diablo_reload_active = false;
     
     // get out of attack state
     if (player->mo->state == &states[S_PLAY_ATK1]
@@ -1077,7 +1161,32 @@ void P_MovePsprites (player_t* player)
 	    {
 		psp->tics--;
 		if (!psp->tics)
+		{
 		    P_SetPsprite (player, i, psp->state->nextstate);
+		    // Diablo reload: scale the new attack frame so
+		    // the whole reload lasts the cooldown-driven
+		    // target. When the chain reaches the ready state
+		    // the reload is done (A_WeaponReady also clears
+		    // the flag; this is the safety net).
+		    if (i == ps_weapon && t_diablo_reload_active)
+		    {
+			if (psp->state ==
+			    &states[weaponinfo[player->readyweapon]
+				    .readystate])
+			{
+			    t_diablo_reload_active = false;
+			}
+			else
+			{
+			    int scaled = psp->tics
+					 * t_diablo_reload_num
+					 / t_diablo_reload_den;
+			    if (scaled < 1)
+				scaled = 1;
+			    psp->tics = scaled;
+			}
+		    }
+		}
 	    }				
 	}
     }

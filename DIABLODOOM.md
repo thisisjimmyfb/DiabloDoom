@@ -1147,7 +1147,17 @@ animation — including the SSG's reload frames — plays in turn
 mode. The direct fire sets a chain-fire suppression flag before
 the psprite is set, so the state chain's `A_Fire*` call returns
 early and the shot never double-fires; the flag clears when the
-weapon returns to ready (`A_WeaponReady`). Vanilla ammo pools are
+weapon returns to ready (`A_WeaponReady`). The reload animation
+is tied to the weapon's cooldown (2026-11-06): its total duration
+is the weapon's effective cooldown (rounds, after Haste/CDR) times
+12 tics, the same 12-tics-per-round rate the cooldown-driven
+replenish uses. Each attack frame's tics are scaled by
+(target / vanilla chain total), so the relative timing of the
+frames is preserved. A cooldown of 0 skips the animation
+entirely — the shot fires with no psprite change. The cooldown
+is therefore the single tunable knob for reload speed on every
+weapon: tune the kit's `cooldown` field to tune its reload.
+Vanilla ammo pools are
 a shadow: native fire never gates on them in Diablo mode
 (`A_FireCGun`'s empty-clip early return is bypassed while the
 turn system is active; no other native fire function gates), and
