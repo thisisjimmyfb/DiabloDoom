@@ -45,6 +45,18 @@
 #define WEAPONBOTTOM	128*FRACUNIT
 #define WEAPONTOP		32*FRACUNIT
 
+// Diablo turn-combat chain-fire suppression. P_FireDiabloWeapon fires
+// the shot synchronously and then sets the weapon psprite to the
+// attack state so the animation (including the SSG reload frames)
+// plays; without this flag the state machine would walk into the
+// fire frame a few tics later and fire a second time (the c30dbad7
+// double-fire). The A_Fire* functions return early while it is set.
+// Cleared when the weapon returns to ready (A_WeaponReady), at the
+// start of every P_FireWeapon / P_FireDiabloWeapon call (so a stale
+// set from a save/load can never suppress a fresh shot), and at the
+// start of P_FireDiabloWeapon before the direct fire. (2026-11-06)
+static boolean t_diablo_chain_fire_suppressed = false;
+
 
 
 //
@@ -189,14 +201,19 @@ void P_FireWeapon (player_t* player)
 {
     statenum_t	newstate;
 
+    // Diablo turn combat: clear any stale chain-fire suppression
+    // (e.g. from a save/load mid-chain) so a fresh shot is never
+    // suppressed. (2026-11-06)
+    t_diablo_chain_fire_suppressed = false;
+
     if (T_Active())
     {
         // Diablo mode, real-time fire: the magazine is the only ammo
         // economy. This is the one choke point every real-time shot
         // passes through (initial press and each refire cycle; turn
-        // mode never calls it — it fires via T_NativeFire), so gate
-        // and spend here, exactly as the turn executor does. Native
-        // fire never gates on vanilla ammo in Diablo mode (see
+        // mode never calls it — it fires via P_FireDiabloWeapon), so
+        // gate and spend here, exactly as the turn executor does.
+        // Native fire never gates on vanilla ammo in Diablo mode (see
         // A_FireCGun), so no vanilla pool top-up is needed anywhere.
         const t_kitdef_t *kit = T_KitForWeapon(player->readyweapon);
         if (kit->ammo_cost > 0 && !T_KitCanFire(player->readyweapon))
@@ -219,6 +236,109 @@ void P_FireWeapon (player_t* player)
     newstate = weaponinfo[player->readyweapon].atkstate;
     P_SetPsprite (player, ps_weapon, newstate);
     P_NoiseAlert (player->mo, player->mo);
+}
+
+
+
+// P_FireDiabloWeapon.
+//
+// Diablo turn-combat fire: mirrors P_FireWeapon in logic (gate, spend,
+// attack pose, weapon psprite to the attack state, noise alert) but
+// fires the shot synchronously by calling the A_Fire* functions
+// directly, so the turn executor's hit resolution (t_last_damage,
+// T_ResolveKill, kill beat) still reads the result right after the
+// call. P_FireWeapon defers the shot to the state chain, which would
+// break that resolution; the old T_NativeFire fired synchronously but
+// never set the psprite, so no weapon showed its attack animation in
+// turn mode. The chain would re-fire a few tics later (the c30dbad7
+// double-fire), so the direct fire sets t_diablo_chain_fire_suppressed
+// and the A_Fire* functions skip while it is set; the suppression
+// clears when the weapon returns to ready (A_WeaponReady). Returns
+// true if the shot fired, false if the weapon could not fire (gate).
+// (2026-11-06)
+//
+boolean
+P_FireDiabloWeapon
+( player_t* player )
+{
+    const t_kitdef_t *kit;
+
+    // Clear any stale suppression from an interrupted chain, so the
+    // direct fire below is never suppressed.
+    t_diablo_chain_fire_suppressed = false;
+
+    // Gate + spend, exactly as P_FireWeapon's Diablo branch. (The turn
+    // executor still validates first for its point-refund skip; this
+    // is the second line of defense.)
+    kit = T_KitForWeapon(player->readyweapon);
+    if (kit->ammo_cost > 0 && !T_KitCanFire(player->readyweapon))
+    {
+        const char *reason = T_KitDenyReason(player->readyweapon);
+        if (reason != NULL)
+            player->message = reason;
+        return false;
+    }
+    if (kit->ammo_cost > 0)
+    {
+        T_KitSpendAmmo(player->readyweapon);
+        T_KitOnFire(player);
+    }
+
+    // Fire synchronously (the old T_NativeFire logic, folded in): the
+    // damage callback runs now, so the executor reads t_last_damage
+    // right after this returns. The A_Fire* functions take (player,
+    // pspdef) but psp is unused for the core fire logic; pass NULL
+    // except for the chaingun, whose A_FireCGun uses psp->state to
+    // select the flash frame (dummy pspdef pointing at S_CHAIN1).
+    switch (player->readyweapon)
+    {
+        case wp_fist:        A_Punch(player, NULL); break;
+        case wp_pistol:      A_FirePistol(player, NULL); break;
+        case wp_shotgun:
+            // Doom 1 WAD SSG fallback: Diablo SSG uses 20-pellet fire
+            // even with shotgun sprites. A_FireShotgun2 uses the
+            // readyweapon's flashstate (shotgun, safe) for the muzzle flash.
+            {
+                int id = player->diablo_equipped[ESLOT_WEAPON];
+                boolean is_ssg = false;
+                if (id != D_NOITEM)
+                {
+                    const diablo_itemdef_t *def =
+                        D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
+                    if (def && def->doomweapon == wp_supershotgun)
+                        is_ssg = true;
+                }
+                if (is_ssg)
+                    A_FireShotgun2(player, NULL);
+                else
+                    A_FireShotgun(player, NULL);
+            }
+            break;
+        case wp_chaingun:
+            {
+                pspdef_t dummy_psp;
+                dummy_psp.state = &states[S_CHAIN1];
+                A_FireCGun(player, &dummy_psp);
+            }
+            break;
+        case wp_missile:     A_FireMissile(player, NULL); break;
+        case wp_plasma:      A_FirePlasma(player, NULL); break;
+        case wp_bfg:         A_FireBFG(player, NULL); break;
+        case wp_chainsaw:    A_Saw(player, NULL); break;
+        case wp_supershotgun: A_FireShotgun2(player, NULL); break;
+        default:             A_FirePistol(player, NULL); break;
+    }
+
+    // Suppress the chain re-fire, then play the animation, mirroring
+    // P_FireWeapon. The psprite is set to the attack state, so the
+    // weapon animation — including the SSG reload frames — plays, but
+    // the fire frame's A_Fire* call returns early on the flag.
+    t_diablo_chain_fire_suppressed = true;
+    P_SetMobjState (player->mo, S_PLAY_ATK1);
+    P_SetPsprite (player, ps_weapon,
+                  weaponinfo[player->readyweapon].atkstate);
+    P_NoiseAlert (player->mo, player->mo);
+    return true;
 }
 
 
@@ -250,6 +370,10 @@ A_WeaponReady
 {	
     statenum_t	newstate;
     int		angle;
+
+    // Diablo turn combat: the attack chain is over; chain fire is no
+    // longer suppressed. (2026-11-06)
+    t_diablo_chain_fire_suppressed = false;
     
     // get out of attack state
     if (player->mo->state == &states[S_PLAY_ATK1]
@@ -437,6 +561,12 @@ A_Punch
     angle_t	angle;
     int		damage;
     int		slope;
+
+    // Diablo turn combat: the shot was already fired synchronously by
+    // P_FireDiabloWeapon; the state chain reaching this frame must not
+    // fire again. (2026-11-06)
+    if (t_diablo_chain_fire_suppressed)
+	return;
 	
     damage = (P_Random ()%10+1)<<1;
 
@@ -471,6 +601,12 @@ A_Saw
     angle_t	angle;
     int		damage;
     int		slope;
+
+    // Diablo turn combat: the shot was already fired synchronously by
+    // P_FireDiabloWeapon; the state chain reaching this frame must not
+    // fire again. (2026-11-06)
+    if (t_diablo_chain_fire_suppressed)
+	return;
 
     damage = 2*(P_Random ()%10+1);
     angle = player->mo->angle;
@@ -534,6 +670,12 @@ A_FireMissile
 ( player_t*	player,
   pspdef_t*	psp ) 
 {
+    // Diablo turn combat: the shot was already fired synchronously by
+    // P_FireDiabloWeapon; the state chain reaching this frame must not
+    // fire again. (2026-11-06)
+    if (t_diablo_chain_fire_suppressed)
+	return;
+
     DecreaseAmmo(player, weaponinfo[player->readyweapon].ammo, 1);
     P_SpawnPlayerMissile (player->mo, MT_ROCKET);
 }
@@ -547,6 +689,12 @@ A_FireBFG
 ( player_t*	player,
   pspdef_t*	psp ) 
 {
+    // Diablo turn combat: the shot was already fired synchronously by
+    // P_FireDiabloWeapon; the state chain reaching this frame must not
+    // fire again. (2026-11-06)
+    if (t_diablo_chain_fire_suppressed)
+	return;
+
     DecreaseAmmo(player, weaponinfo[player->readyweapon].ammo, 
                  deh_bfg_cells_per_shot);
     P_SpawnPlayerMissile (player->mo, MT_BFG);
@@ -562,6 +710,12 @@ A_FirePlasma
 ( player_t*	player,
   pspdef_t*	psp ) 
 {
+    // Diablo turn combat: the shot was already fired synchronously by
+    // P_FireDiabloWeapon; the state chain reaching this frame must not
+    // fire again. (2026-11-06)
+    if (t_diablo_chain_fire_suppressed)
+	return;
+
     DecreaseAmmo(player, weaponinfo[player->readyweapon].ammo, 1);
 
     P_SetPsprite (player,
@@ -638,6 +792,12 @@ A_FirePistol
 ( player_t*	player,
   pspdef_t*	psp ) 
 {
+    // Diablo turn combat: the shot was already fired synchronously by
+    // P_FireDiabloWeapon; the state chain reaching this frame must not
+    // fire again. (2026-11-06)
+    if (t_diablo_chain_fire_suppressed)
+	return;
+
     S_StartSound (player->mo, sfx_pistol);
 
     P_SetMobjState (player->mo, S_PLAY_ATK2);
@@ -662,6 +822,12 @@ A_FireShotgun
 {
     int		i;
 	
+    // Diablo turn combat: the shot was already fired synchronously by
+    // P_FireDiabloWeapon; the state chain reaching this frame must not
+    // fire again. (2026-11-06)
+    if (t_diablo_chain_fire_suppressed)
+	return;
+
     S_StartSound (player->mo, sfx_shotgn);
     P_SetMobjState (player->mo, S_PLAY_ATK2);
 
@@ -690,6 +856,12 @@ A_FireShotgun2
     int		i;
     angle_t	angle;
     int		damage;
+
+    // Diablo turn combat: the shot was already fired synchronously by
+    // P_FireDiabloWeapon; the state chain reaching this frame must not
+    // fire again. (2026-11-06)
+    if (t_diablo_chain_fire_suppressed)
+	return;
 		
 	
     // Fallback: if the WAD lacks the SSG sound (Doom 1), use shotgun sound.
@@ -728,6 +900,12 @@ A_FireCGun
 ( player_t*	player,
   pspdef_t*	psp ) 
 {
+    // Diablo turn combat: the shot was already fired synchronously by
+    // P_FireDiabloWeapon; the state chain reaching this frame must not
+    // fire again. (2026-11-06)
+    if (t_diablo_chain_fire_suppressed)
+	return;
+
     S_StartSound (player->mo, sfx_pistol);
 
     if (!player->ammo[weaponinfo[player->readyweapon].ammo]

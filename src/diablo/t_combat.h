@@ -7,7 +7,7 @@
 // are deterministic.
 //
 // Attacks resolve through the live simulation: T_ExecAttack fires
-// the real Doom weapon (T_NativeFire: hitscan/projectiles), and on a
+// the real Doom weapon (P_FireDiabloWeapon: hitscan/projectiles), and on a
 // hit T_DiabloDamageCallback computes the Diablo damage. The preview
 // (T_HitChance, T_DamageRange) and the callback call the same formula
 // functions: displayed values always match applied values.

@@ -23,6 +23,7 @@
 // scales it down. Tune for game feel.
 #define T_MOVE_BASE_TICS 12
 #include "p_local.h"
+#include "p_pspr.h"
 #include "p_saveg.h"
 #include "r_main.h"
 #include "m_misc.h"
@@ -2065,7 +2066,6 @@ static boolean T_ExecUse(void)
 // defined above.
 static boolean T_ExecAttack(mobj_t *target, int cost,
                             boolean from_tick);
-static void T_NativeFire(player_t *player);
 
 // ------------------------------------------------------------------
 // END TURN: drain the queued actions FIFO — each entry executes through
@@ -2774,7 +2774,11 @@ static boolean T_ExecAttack(mobj_t *target, int cost,
     // since validation; skip gracefully with a TP refund like the
     // other skip paths. Affordability is THE gate's test
     // (T_HasAmmoForKit) -- direction-aware, so inverted magazines
-    // (plasma) skip at capacity, not at empty.
+    // (plasma) skip at capacity, not at empty. The spend itself
+    // (T_KitSpendAmmo) and the kit setup (T_KitOnFire: charge
+    // consumption, cooldown) happen inside P_FireDiabloWeapon, the
+    // single choke point — not here, or the ammo/cooldown would be
+    // spent twice. (2026-11-06)
     {
         const t_kitdef_t *kit = T_KitForWeapon(player->readyweapon);
         if (kit->ammo_cost > 0)
@@ -2792,13 +2796,8 @@ static boolean T_ExecAttack(mobj_t *target, int cost,
                 T_DumpState("exec-attack-skip");
                 return false;
             }
-            T_KitSpendAmmo(player->readyweapon);
         }
     }
-
-    // Kit setup: charge consumption, cooldown (with Haste and flat
-    // CDR). Must happen on fire, not on hit.
-    T_KitOnFire(player);
 
     // Face the target (instant for aiming; the smooth visual turn is
     // a follow-up). Untargeted attacks fire in the current facing.
@@ -2818,7 +2817,7 @@ static boolean T_ExecAttack(mobj_t *target, int cost,
         if (is_hitscan)
             d_diablo_hitscan_weapon = w;
     }
-    // Reset hit tracking before native fire; the damage callback sets it.
+    // Reset hit tracking before Diablo fire; the damage callback sets it.
     // The kill flag gets the same reset: it must describe THIS shot
     // only, or it latches after the session's first kill and every
     // later shot -- queued or continuous-fire tick -- takes the
@@ -2827,7 +2826,16 @@ static boolean T_ExecAttack(mobj_t *target, int cost,
     t_last_damage = 0;
     t_last_crit = 0;
     T_ClearLastKill();
-    T_NativeFire(player);
+    // Diablo fire: gates, spends ammo, fires synchronously, and plays
+    // the weapon animation (P_FireDiabloWeapon, 2026-11-06). A false
+    // return means the gate failed after validation (should not
+    // happen); refund the points like the other skip paths.
+    if (!P_FireDiabloWeapon(player))
+    {
+        turnctrl.tp += cost;
+        T_DumpState("exec-attack-skip");
+        return false;
+    }
     d_diablo_hitscan_weapon = -1;
 
     // For hitscan, the callback ran synchronously; t_last_damage > 0 means hit.
@@ -2945,72 +2953,6 @@ static boolean T_ExecAttack(mobj_t *target, int cost,
     // commands, not to the stream.
     T_DumpState("exec-attack");
     return false;
-}
-
-// Trigger the native Doom weapon fire function for visuals.
-// The damage is overridden via t_damage_override (see P_DamageMobj).
-// This spawns real projectiles / hitscan, plays sound and muzzle flash.
-static void T_NativeFire(player_t *player)
-{
-    // Declarations for the native fire functions (from p_pspr.c).
-    // They take (player, pspdef) but psp is unused for the core fire
-    // logic; we pass NULL and handle the flash separately if needed.
-    extern void A_Punch(player_t *, pspdef_t *);
-    extern void A_FirePistol(player_t *, pspdef_t *);
-    extern void A_FireShotgun(player_t *, pspdef_t *);
-    extern void A_FireCGun(player_t *, pspdef_t *);
-    extern void A_FireMissile(player_t *, pspdef_t *);
-    extern void A_FirePlasma(player_t *, pspdef_t *);
-    extern void A_FireBFG(player_t *, pspdef_t *);
-    extern void A_Saw(player_t *, pspdef_t *);
-    extern void A_FireShotgun2(player_t *, pspdef_t *);
-
-    switch (player->readyweapon)
-    {
-        case wp_fist:        A_Punch(player, NULL); break;
-        case wp_pistol:      A_FirePistol(player, NULL); break;
-        case wp_shotgun:
-            // Doom 1 WAD SSG fallback: Diablo SSG uses 20-pellet fire
-            // even with shotgun sprites. A_FireShotgun2 uses the
-            // readyweapon's flashstate (shotgun, safe) for the muzzle flash.
-            {
-                int id = player->diablo_equipped[ESLOT_WEAPON];
-                boolean is_ssg = false;
-                if (id != D_NOITEM)
-                {
-                    const diablo_itemdef_t *def =
-                        D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
-                    if (def && def->doomweapon == wp_supershotgun)
-                        is_ssg = true;
-                }
-                if (is_ssg)
-                    A_FireShotgun2(player, NULL);
-                else
-                    A_FireShotgun(player, NULL);
-            }
-            break;
-        case wp_chaingun:
-            // A_FireCGun uses psp->state to select the flash frame; pass a
-            // dummy pspdef pointing at S_CHAIN1 (T_NativeFire passes NULL).
-            {
-                pspdef_t dummy_psp;
-                dummy_psp.state = &states[S_CHAIN1];
-                A_FireCGun(player, &dummy_psp);
-            }
-            break;
-        case wp_missile:     A_FireMissile(player, NULL); break;
-        case wp_plasma:      A_FirePlasma(player, NULL); break;
-        case wp_bfg:         A_FireBFG(player, NULL); break;
-        case wp_chainsaw:    A_Saw(player, NULL); break;
-        case wp_supershotgun: A_FireShotgun2(player, NULL); break;
-        default:             A_FirePistol(player, NULL); break;
-    }
-
-    // No weapon attack animation here: the direct fire call above is
-    // the whole shot, and setting the weapon psprite to the attack
-    // state would let the state machine fire a second time (the
-    // attack state's chain walks into the fire frame a few tics
-    // later). The shot itself is the feedback. (2026-11-05)
 }
 
 // ------------------------------------------------------------------
