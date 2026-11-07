@@ -1159,20 +1159,31 @@ psprite, so no weapon showed its attack animation in turn mode.
 `P_FireDiabloWeapon` sets the psprite to the weapon's attack
 state (the same call `P_FireWeapon` makes), so the attack
 animation — including the SSG's reload frames — plays in turn
-mode. The direct fire sets a chain-fire suppression flag before
-the psprite is set, so the state chain's `A_Fire*` call returns
-early and the shot never double-fires; the flag clears when the
-weapon returns to ready (`A_WeaponReady`). The reload animation
+mode, on EVERY shot, not just on reload (2026-11-07: previously
+it returned early when the magazine still had ammo, so most shots
+landed with no animation at all — the chaingun drum rotation and
+the chainsaw sawing only ever played as a reload). The direct
+fire sets a chain-fire suppression flag before the psprite is
+set, so the state chain's `A_Fire*` call returns early and the
+shot never double-fires; the flag clears when the weapon returns
+to ready (`A_WeaponReady`). The reload flag is set only when the
+magazine is empty, so the refill triggers on chain completion;
+on a normal shot the chain just plays and the weapon returns to
+ready. A cooldown of 0 (fists) no longer skips the animation —
+the punch chain plays at vanilla speed. The reload animation
 is tied to the weapon's cooldown (2026-11-06): its total duration
 is the weapon's effective cooldown (rounds, after Haste/CDR) times
 12 tics, the same 12-tics-per-round rate the cooldown-driven
 replenish uses. Each attack frame's tics are scaled by
 (target / vanilla chain total), so the relative timing of the
-frames is preserved. A cooldown of 0 skips the animation
-entirely — the shot fires with no psprite change. The cooldown
-is therefore the single tunable knob for reload speed on every
-weapon: tune the kit's `cooldown` field to tune its reload.
-Vanilla ammo pools are
+frames is preserved. The cooldown is therefore the single tunable
+knob for reload speed on every weapon: tune the kit's `cooldown`
+field to tune its reload. Vanilla has a reload sequence only for
+the shotgun (pump) and SSG (breach); the other guns have none,
+so their reload is the recovery frames (the unfireable state)
+stretched to fill the cooldown — a compromise, not a fake reload.
+Chainsaw: attack plays S_SAW2 (the cutting frame); reload goes
+back to S_SAW1 (the atkstate). Vanilla ammo pools are
 a shadow: native fire never gates on them in Diablo mode
 (`A_FireCGun`'s empty-clip early return is bypassed while the
 turn system is active; no other native fire function gates), and
