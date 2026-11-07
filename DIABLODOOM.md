@@ -863,7 +863,7 @@ cooldown; crit; special trait.
 #### Hero attributes (the existing four)
 
 - **Strength** — AD, knockback resistance, heavy-weapon handling.
-- **Dexterity** — hit chance, attack-speed point cost, block (with a shield), Defense (Dex / 4).
+- **Dexterity** — hit chance, attack-speed point cost, block (with a shield), Defense (Dex / 4), and cone-spread tightening: the shotgun/chaingun spread scales by `100 / (100 + 2*Dex)`, so the spread is quartered (the sniper point) at Dex 150.
 - **Energy** — AP, charge efficiency, potion and status power.
 - **Vitality** — max health, physical resilience, recovery.
 

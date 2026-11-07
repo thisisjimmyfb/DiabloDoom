@@ -202,6 +202,12 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
    tics, so the cooldown is the reload-speed knob -- tune the field
    to tune the reload). Current ladder (tics): chainsaw 8, pistol 12,
    plasma 12, shotgun 18, rocket 24, SSG 24, chaingun 30, BFG 36.
+   Dexterity tightens the spread (2026-11-07, option B): the shotgun
+   cone (all 7 pellets), the chaingun cone (refire shots), and the
+   pistol's refire spread scale by `100 / (100 + 2*Dex)` (effective
+   Dex = 10 + gear), so the spread is quartered -- the sniper point
+   -- at Dex 150. The pistol's first shot is accurate (no spread)
+   and the SSG's own inline spread are untouched.
    Inverted magazines (plasma) still drain in `T_TickCadence`'s
    per-weapon loop on every unfrozen game tic, and rocket charges
    regen there too, each loading one attack's worth of ammo. Firing sets

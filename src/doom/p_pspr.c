@@ -877,16 +877,37 @@ P_GunShot
     angle_t	angle;
     int		damage;
     fixed_t	slope;
-	
+    int		spread_pct = 100;	// percent of full spread
+
+    // Dexterity tightens the spread (2026-11-07, option B):
+    // factor = 100 / (100 + 2*dex), so the spread is quartered
+    // (the sniper point) at dex 150 -- only a dedicated max-dex
+    // build gets there. Effective dex = 10 + gear Dex, the same
+    // dex Block/Defense/accuracy use. Only the player's shots
+    // scale; monsters have no Dex. Applies to the shotgun cone
+    // (all 7 pellets), the chaingun cone (refire shots), and the
+    // pistol's refire spread; the pistol's first shot is accurate
+    // (no spread) and is untouched, and the SSG's own inline
+    // spread is untouched.
+    if (mo->player != NULL)
+    {
+	int dex = 10 + mo->player->diablo_stats[DSTAT_DEX];
+	spread_pct = 10000 / (100 + 2 * dex);
+    }
+
     damage = 5*(P_Random ()%3+1);
     angle = mo->angle;
     slope = bulletslope;
 
     if (!accurate)
     {
-	angle += P_SubRandom() << 18;
+	int r = P_SubRandom();
+	angle += (r * spread_pct / 100) << 18;
 	if (cone)
-	    slope += P_SubRandom() << 5;
+	{
+	    r = P_SubRandom();
+	    slope += (r * spread_pct / 100) << 5;
+	}
     }
 
     P_LineAttack (mo, angle, MISSILERANGE, slope, damage);
