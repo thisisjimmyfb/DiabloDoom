@@ -335,12 +335,15 @@ one panel at a time. The bar stays; only the panels change.
   classic Doom: baked-in `AMMO` label with big red numbers showing the
   ready weapon's Diablo magazine counter (not a vanilla pool), via the
   `w_ready` widget in `src/doom/st_stuff.c`. No custom text rendering.
-- **Right ammo counts → AD/AP/CD panel** (done). The four per-type ammo
+- **Right ammo counts → AD/AP/AS/CD panel** (done). The four per-type ammo
   counters (and their `BULL`/`SHELL`/`RCKT`/`CELL` labels, painted over)
   are replaced by a stat block, `ST_drawTurnKits`: damage (`AD x-y` for
-  AD guns, `AP x` for AP guns — never both), cooldown (`CD x`), and the
-  weapon's gate (`HEAT x` for plasma, `CHG x/y` for rocket). Text is
-  single-pass (no shadow) for crispness.
+  AD guns, `AP x` for AP guns — never both), attack speed (`AS x`), and
+  cooldown (`CD x`, the reload duration in tics), each on its own row.
+  Transparent background (2026-11-07) — just the text on the status bar,
+  no black box. No gate row: plasma shows no heat entry, and rocket
+  charges are gone (2026-11-07). Text is single-pass (no shadow) for
+  crispness.
 
 ### Five design pillars
 
@@ -882,14 +885,14 @@ equipped), not loot.
 
 | Gun | Type | LoL mechanic | Reload | Identity |
 |-----|------|--------------|-----------|----------|
-| Pistol | AD | **Magazine 10** (1/shot) | cd 12 tics, when empty | Reliable sidearm. |
-| Shotgun | AD | **Magazine 20** (2/shot) | cd 18 tics, when empty | Positioning reward, pellet spread. |
-| Chaingun | AD | **Magazine 10** (1/shot) | cd 30 tics, when empty | point-hungry DPS hose. |
-| Chainsaw | AD | **Magazine 6** (1/shot) + **30% inherent leech** | cd 8 tics, when empty | High risk, constant uptime; leech sustains close-range fighting. |
+| Pistol | AD | **Magazine 10** (1/shot) | cd 24 tics, when empty | Reliable sidearm. |
+| Shotgun | AD | **Magazine 20** (2/shot) | cd 36 tics, when empty | Positioning reward, pellet spread. |
+| Chaingun | AD | **Magazine 10** (1/shot) | cd 60 tics, when empty | point-hungry DPS hose. |
+| Chainsaw | AD | **Magazine 6** (1/shot) + **30% inherent leech** | cd 16 tics, when empty | High risk, constant uptime; leech sustains close-range fighting. |
 | Plasma Rifle | AP | **Ammo** (inverted) | heat drain | The ammo counter represents heat: starts at 0, +20 per shot, fires while the count is below the 125 capacity, and drains at the replenish rate continuously — the drain is the reload period. No separate heat resource (2026-10-22). |
-| Rocket Launcher | AP | **Charges** (3, +1 per 2 s) + **Magazine 20** (10/shot) | cd 24 tics, when empty + charges | Punctuated splash; firing consumes 1 charge. Each regenerated charge also loads one attack's worth of ammo. |
-| Super Shotgun | AP | **Magazine 8** (8/shot) + **knockback** | cd 24 tics, when empty | Breach tool: shoves target 1 tile. One shot empties the magazine; firing sets a 24-tic cooldown, which drives the reload animation, and the magazine refills to full when the reload finishes. |
-| BFG9000 | AP | **Magazine 20** (20/shot) | cd 36 tics, when empty | Ultimate: highest damage. One shot empties the magazine; firing sets a 36-tic cooldown, which drives the reload animation, and the magazine refills to full when the reload finishes. |
+| Rocket Launcher | AP | **Magazine 10** (10/shot) | cd 48 tics, when empty | Punctuated splash. One shot empties the magazine; no charges (removed 2026-11-07) — the small magazine is the limiter. |
+| Super Shotgun | AP | **Magazine 8** (8/shot) + **knockback** | cd 48 tics, when empty | Breach tool: shoves target 1 tile. One shot empties the magazine; firing sets a 48-tic cooldown, which drives the reload animation, and the magazine refills to full when the reload finishes. |
+| BFG9000 | AP | **Magazine 20** (20/shot) | cd 72 tics, when empty | Ultimate: highest damage. One shot empties the magazine; firing sets a 72-tic cooldown, which drives the reload animation, and the magazine refills to full when the reload finishes. |
 
 **Strength requirements (2026-11-04).** Every item has a strength
 requirement from its type, not its tier: guns need strength by weapon
@@ -929,10 +932,12 @@ while the counter runs. The counter is in rounds (1 round = 10 s =
 350 tics); the reload animation is in tics. There is no special
 treatment by weapon class: kits with cooldown 0 (fists) never set the
 counter, so they stay limited by attack speed alone. Current ladder
-(in tics): chainsaw 8 (fastest), pistol 12, plasma 12, shotgun 18,
-rocket 24, SSG 24, chaingun 30, BFG 36 (slowest) — plasma is the fast
-AP weapon with a moderate cooldown (longer bursts want more Energy for
-capacity), chaingun is one of the slowest reloads (comparable to the
+(in tics, 2026-11-07, doubled from the first tics ladder so the
+reload animations read longer): chainsaw 16 (fastest), pistol 24,
+plasma 24, shotgun 36, rocket 48, SSG 48, chaingun 60, BFG 72
+(slowest) — plasma is the fast AP weapon with a moderate cooldown
+(longer bursts want more Energy for capacity), chaingun is one of
+the slowest reloads (comparable to the
 BFG), BFG the slow AP weapon with the longest reload (wants cooldown
 reduction). Firing refreshes the counter. Cooldown never blocks a shot
 — ammo is still the firing limiter (`T_KitCanFire`); it only sets the
@@ -1082,7 +1087,7 @@ preview the counter rising toward capacity instead.
   buffer (e.g. Reaper points refunds). Melee (fists, chainsaw) still costs
   points per attack, reduced by attack speed. Normal magazines trickle
   UP +1 per interval for ALL weapons: cooldown-driven kits 1 per
-  effective `cooldown` × 12 tics (SSG 24, BFG 36 — haste/CDR gear
+  effective `cooldown` in tics (SSG 48, BFG 72 — haste/CDR gear
   speeds the refill), attack-speed kits 1 per `tp_cost` × 2 tics
   (clamped 3–20 tics: pistol 8, shotgun 4, chaingun 3). The rocket
   additionally loads one attack's worth of ammo per regenerated

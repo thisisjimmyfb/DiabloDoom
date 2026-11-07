@@ -1189,7 +1189,7 @@ static int loot_logged_count = 0;
 static void ST_drawTurnKits(void)
 {
     t_combatstats_t st;
-    char dmglab[8], dmgval[16], asval[8], cdval[8], mechlab[8], mechval[16];
+    char dmglab[8], dmgval[16], asval[8], cdval[8];
     const t_kitdef_t *kit;
     int cd, dmg_min, dmg_max;
     // Panel geometry: labels left-aligned, values right-aligned.
@@ -1221,40 +1221,22 @@ static void ST_drawTurnKits(void)
     }
     // AS and CD are always both shown, for AP and AD guns alike
     // (2026-10-22): both attributes affect every gun -- attack
-    // speed paces the fire interval, cooldown drives the ammo
-    // replenish rate -- so neither is hidden behind the other's row.
-    // They share one row: AS on the left half, CD on the right.
+    // speed paces the fire interval, cooldown drives the reload
+    // animation -- so neither is hidden behind the other's row.
+    // CD is on its own row (2026-11-07): the tic values are now
+    // two digits and shared a row with AS they clipped the text.
     snprintf(asval, sizeof(asval), "%d", kit->tp_cost);
     snprintf(cdval, sizeof(cdval), "%d", cd);
-    // Weapon-specific gate attribute: charges for rocket. Plasma
-    // has no panel entry -- its resource is the standard AMMO
-    // readout, like every other magazine (2026-10-22: heat
-    // capacity is not an attribute).
-    if (kit->max_charges > 0)
-    {
-        snprintf(mechlab, sizeof(mechlab), "CHG");
-        snprintf(mechval, sizeof(mechval), "%d/%d",
-                 T_KitCharges(plyr->readyweapon), kit->max_charges);
-    }
-    else
-        mechlab[0] = '\0';
 
-    // Clear the right-side ammo count area (incl. BULL/SHELL/RCKT/CELL
-    // labels), then draw the stat block. Keep the panel narrow (x=250+)
-    // so it doesn't clip the armor% widget at x=221.
+    // Transparent background (2026-11-07): no black box -- just
+    // the AP/AD, AS, and CD text on the status bar.
     // Labels left-aligned, values right-aligned for a clean stat sheet.
-    V_DrawFilledBox(250, 170, 70, 30, 0);
     ST_TurnDrawText(labx, 171, dmglab);
     ST_TurnDrawText(valright - STWepTextWidth(dmgval), 171, dmgval);
     ST_TurnDrawText(labx, 180, "AS");
-    ST_TurnDrawText(283 - STWepTextWidth(asval), 180, asval);
-    ST_TurnDrawText(289, 180, "CD");
-    ST_TurnDrawText(valright - STWepTextWidth(cdval), 180, cdval);
-    if (mechlab[0])
-    {
-        ST_TurnDrawText(labx, 189, mechlab);
-        ST_TurnDrawText(valright - STWepTextWidth(mechval), 189, mechval);
-    }
+    ST_TurnDrawText(valright - STWepTextWidth(asval), 180, asval);
+    ST_TurnDrawText(labx, 189, "CD");
+    ST_TurnDrawText(valright - STWepTextWidth(cdval), 189, cdval);
 }
 
 // Loot alert: while drops are on the map, keep "Loot nearby, press

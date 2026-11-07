@@ -200,8 +200,12 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
    skipped). The reload animation's duration IS the weapon's cooldown
    in tics (2026-11-07: the kit's `cooldown` field is the number of
    tics, so the cooldown is the reload-speed knob -- tune the field
-   to tune the reload). Current ladder (tics): chainsaw 8, pistol 12,
-   plasma 12, shotgun 18, rocket 24, SSG 24, chaingun 30, BFG 36.
+   to tune the reload). Current ladder (tics, 2026-11-07, doubled so
+   the reload animations read longer): chainsaw 16, pistol 24,
+   plasma 24, shotgun 36, rocket 48, SSG 48, chaingun 60, BFG 72.
+   Rocket charges are gone (2026-11-07): no charge gate; the
+   magazine is the limiter (ammo_max 10, ammo_cost 10 = 1 shot
+   per magazine).
    Death exits combat (2026-11-07): when the player dies, the turn
    controller calls T_EnterExplore() at the end of the progress phase
    and at the end of the enemy phase, so a death mid-pulse never
