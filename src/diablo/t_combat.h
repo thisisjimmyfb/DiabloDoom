@@ -96,7 +96,7 @@ unsigned int T_GetCombatSeed(void);
 typedef enum
 {
     REPLENISH_AS,  // attack-speed driven (tp_cost * 2 tics)
-    REPLENISH_CD,  // cooldown driven (effective cooldown * 12 tics)
+    REPLENISH_CD,  // cooldown driven (effective cooldown, in tics)
 } replenish_model_t;
 
 typedef struct
@@ -105,7 +105,13 @@ typedef struct
     int dmg_min;        // base damage range (AD/AP scale on top)
     int dmg_max;
     int tp_cost;        // TP per attack (before AS reduction)
-    int cooldown;       // rounds of cooldown after firing (0 = none)
+    int cooldown;       // reload duration in tics after firing (0 = none).
+                        // The single tunable knob for reload speed:
+                        // the reload animation's total duration IS this
+                        // many tics (2026-11-07, was rounds x 12).
+                        // The live counter (t_cooldowns) is still in
+                        // rounds for the plasma heat-drain pause -- see
+                        // T_KitOnFire, which converts tics to rounds.
     int splash_radius;  // splash radius in map units (0 = none)
     int splash_pct;     // splash damage as % of primary (0 = none)
     int pellets;        // separate hit rolls (shotgun/chaingun)
@@ -134,6 +140,12 @@ const t_kitdef_t *T_KitForWeapon(weapontype_t w);
 int T_AttackInterval(player_t *player, weapontype_t w);
 int T_KitFireSound(weapontype_t w);     // per-gun firing report sfx
 int T_KitCooldown(weapontype_t w);          // current cooldown rounds left
+int T_KitReloadTics(weapontype_t w);      // effective reload duration in
+                                        // tics for a weapon (kit cooldown
+                                        // after Haste/CDR, floored at 1);
+                                        // 0 if the kit has no cooldown.
+                                        // P_FireDiabloWeapon reads this
+                                        // for the reload animation.
 void T_KitSetCooldown(weapontype_t w, int rounds);
 void T_KitResetCadence(void);           // new game: zero cd, full charges
                                         // and magazines (inverted start 0)

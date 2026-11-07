@@ -330,14 +330,17 @@ static const t_kitdef_t t_kits[NUMWEAPONS] = {
     // The replenish model (see replenish_model_t) now only sets
     // the inverted magazine's (plasma) drain rate; for normal
     // magazines the field is inert.
-    // wp_pistol: balanced AD sidearm
-    { "SIDEARM",    2,   4,   4,    0,    0,   0,      1, false,    1,   10, false,   0,   0,   0,  15, REPLENISH_AS },
-    // wp_shotgun: close-range burst, 4 pellets
-    { "SHOTGUN",    2,   3,   5,    0,    0,   0,      4, false,    2,   20, false,   0,   0,   0,  40, REPLENISH_AS },
-    // wp_chaingun: 3-round burst
-    { "CHAINGUN",   1,   3,   5,    0,    0,   0,      3, false,    1,   10, false,   0,   0,   0,  16, REPLENISH_AS },
+    // wp_pistol: balanced AD sidearm. Cooldown 12 tics (2026-11-07):
+    // fast reload, faster than the chaingun.
+    { "SIDEARM",    2,   4,   4,   12,    0,   0,      1, false,    1,   10, false,   0,   0,   0,  15, REPLENISH_AS },
+    // wp_shotgun: close-range burst, 4 pellets. Cooldown 18 tics.
+    { "SHOTGUN",    2,   3,   5,   18,    0,   0,      4, false,    2,   20, false,   0,   0,   0,  40, REPLENISH_AS },
+    // wp_chaingun: 3-round burst. Cooldown 30 tics (2026-11-07): one
+    // of the slowest reloads, comparable to the BFG -- a heavy
+    // rotary weapon takes time to feed a new belt.
+    { "CHAINGUN",   1,   3,   5,   30,    0,   0,      3, false,    1,   10, false,   0,   0,   0,  16, REPLENISH_AS },
     // wp_missile: AP rockets, enemy-targeted splash, charge-gated
-    { "ROCKET",     5,   9,   6,    0,  128,  50,      1, true,   10,   20, false,   3,   0,   0,  80, REPLENISH_AS },
+    { "ROCKET",     5,   9,   6,   24,  128,  50,      1, true,   10,   20, false,   3,   0,   0,  80, REPLENISH_AS },
     // wp_plasma: AP energy, inverted magazine (2026-10-22):
     // the ammo counter represents heat. It starts at 0, each shot
     // adds 20, the weapon fires while the counter is below the 125
@@ -347,17 +350,22 @@ static const t_kitdef_t t_kits[NUMWEAPONS] = {
     // (Tuned same day at the user's word -- a little of both: less per
     // shot than the original 25, more capacity than the original
     // 100, so ~6 shots of runway before the gate closes.)
-    // Cooldown 1 (2026-11-01): the fast AP weapon with a
-    // moderate cooldown — firing pauses the heat drain for one
-    // round, so longer bursts want more Energy (capacity).
-    { "PULSE",      2,   4,   4,    1,    0,   0,      1, true,   20,  125,  true,   0,   0,   0,  16, REPLENISH_AS },
-    // wp_bfg: AP ultimate. Cooldown 3 drives the reload
-    // animation (and the reload refills the magazine at once).
-    { "BFG",       10,  18,   8,    3,  192,  60,      1, true,   20,   20, false,   0,   0,   0,  80, REPLENISH_CD },
-    // wp_chainsaw: AD melee with inherent leech (sustain for close range)
-    { "SAW",        1,   2,   3,    0,    0,   0,      1, false,    1,    6, false,   0,  30,   0,  12, REPLENISH_AS },
-    // wp_supershotgun: AP double-barrel, breach reload, natural knockback
-    { "SSG",        4,   8,   6,    2,    0,   0,      8, true,    8,    8, false,   0,   0,   1,  50, REPLENISH_CD },
+    // Cooldown 12 tics (2026-11-07, was 1 round): the fast AP
+    // weapon with a moderate cooldown — firing pauses the heat
+    // drain for one round, so longer bursts want more Energy
+    // (capacity). The reload animation is 12 tics; the heat-drain
+    // pause stays one round (see T_KitOnFire).
+    { "PULSE",      2,   4,   4,   12,    0,   0,      1, true,   20,  125,  true,   0,   0,   0,  16, REPLENISH_AS },
+    // wp_bfg: AP ultimate. Cooldown 36 tics (2026-11-07, was 3
+    // rounds) drives the reload animation (and the reload refills
+    // the magazine at once).
+    { "BFG",       10,  18,   8,   36,  192,  60,      1, true,   20,   20, false,   0,   0,   0,  80, REPLENISH_CD },
+    // wp_chainsaw: AD melee with inherent leech (sustain for close range).
+    // Cooldown 8 tics (2026-11-07): the fastest reload of any gun.
+    { "SAW",        1,   2,   3,    8,    0,   0,      1, false,    1,    6, false,   0,  30,   0,  12, REPLENISH_AS },
+    // wp_supershotgun: AP double-barrel, breach reload, natural knockback.
+    // Cooldown 24 tics (2026-11-07, was 2 rounds).
+    { "SSG",        4,   8,   6,   24,    0,   0,      8, true,    8,    8, false,   0,   0,   1,  50, REPLENISH_CD },
 };
 
 const t_kitdef_t *T_KitForWeapon(weapontype_t w)
@@ -496,9 +504,13 @@ void T_KitSetCooldown(weapontype_t w, int rounds)
     t_cooldowns[w] = rounds;
 }
 
-// Effective cooldown in rounds for a kit: base, reduced by Haste %
-// then flat CDR, floored at 1. The ONE cooldown number (// 2026-11-01): it sets the live counter on fire (T_KitOnFire) and
-// the drain interval for cooldown-driven inverted kits
+// Effective cooldown in TICS for a kit (2026-11-07: the kit's
+// cooldown field IS the reload duration in tics -- see
+// t_kitdef_t.cooldown): base, reduced by Haste % then flat CDR,
+// floored at 1 tic. The ONE cooldown number: it sets the reload
+// animation duration (T_KitReloadTics, read by P_FireDiabloWeapon)
+// and, converted to rounds, the live counter on fire (T_KitOnFire)
+// and the drain interval for cooldown-driven inverted kits
 // (T_KitReplenishTics). No special treatment by weapon class: a
 // kit with cooldown 0 simply never sets the counter.
 static int T_KitEffectiveCooldown(const t_kitdef_t *kit, player_t *player)
@@ -511,6 +523,20 @@ static int T_KitEffectiveCooldown(const t_kitdef_t *kit, player_t *player)
     if (eff_cd < 1)
         eff_cd = 1;
     return eff_cd;
+}
+
+// Reload duration in tics for a weapon (2026-11-07): the kit's
+// effective cooldown in tics, for P_FireDiabloWeapon's reload
+// animation. 0 if the kit has no cooldown (no reload animation).
+int T_KitReloadTics(weapontype_t w)
+{
+    const t_kitdef_t *kit;
+    if (w < 0 || w >= NUMWEAPONS)
+        return 0;
+    kit = T_KitForWeapon(w);
+    if (kit->cooldown <= 0)
+        return 0;
+    return T_KitEffectiveCooldown(kit, &players[consoleplayer]);
 }
 
 // Called when a weapon fires (native fire path): consumes a charge
@@ -530,14 +556,19 @@ void T_KitOnFire(player_t *player)
     // 2026-11-07: ammo is infinite, a finished reload refills
     // the magazine at once) -- it still gates the inverted
     // magazine's heat drain in T_TickCadence, and
-    // P_FireDiabloWeapon reads it to scale the reload
-    // animation. Firing refreshes the counter. No special
-    // treatment by weapon class: kits with cooldown 0 (all
-    // current AD kits) never set it, so they stay limited by
-    // attack speed alone. Ammo still gates firing
-    // (T_KitCanFire); cooldown never blocks a shot.
+    // P_FireDiabloWeapon reads the reload tics (not this counter)
+    // to scale the reload animation. Firing refreshes the counter.
+    // The counter stays in ROUNDS (2026-11-07): the kit's
+    // cooldown is in tics now, so convert -- 12 tics per round,
+    // rounded up, so the plasma heat-drain pause stays one round
+    // for a 12-tic cooldown (the 2026-11-01 design: firing pauses
+    // the drain for one round, so longer bursts want more Energy).
+    // No special treatment by weapon class: kits with cooldown 0
+    // (fists) never set it, so they stay limited by attack speed
+    // alone. Ammo still gates firing (T_KitCanFire); cooldown
+    // never blocks a shot.
     if (kit->cooldown > 0)
-        t_cooldowns[w] = T_KitEffectiveCooldown(kit, player);
+        t_cooldowns[w] = (T_KitEffectiveCooldown(kit, player) + 11) / 12;
 }
 
 // Magazine capacity: the kit's ammo_max plus, for plasma, the gear
@@ -617,10 +648,10 @@ static int T_KitReplenishTics(const t_kitdef_t *kit, player_t *player)
 {
     if (kit->replenish == REPLENISH_CD)
     {
-        // Cooldown-driven: uses EFFECTIVE cooldown (after Haste %
-        // and flat CDR), so CDR gear speeds up replenish.
-        // BFG (cd=3) -> 36 tics/ammo base.
-        return T_KitEffectiveCooldown(kit, player) * 12;
+        // Cooldown-driven: uses EFFECTIVE cooldown in tics (after
+        // Haste % and flat CDR), so CDR gear speeds up replenish.
+        // BFG (cd=36) -> 36 tics/ammo base.
+        return T_KitEffectiveCooldown(kit, player);
     }
     // REPLENISH_AS: attack speed -- tp_cost scales the interval.
     // Pistol (4) -> 8 tics, Shotgun (2) -> 4, Chaingun (1) -> 3 (min).

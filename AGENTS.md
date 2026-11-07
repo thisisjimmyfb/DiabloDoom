@@ -197,8 +197,11 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
    is called when the reload animation reaches the ready state
    (`P_MovePsprites` / `A_WeaponReady`), or immediately on the
    emptying shot for 0-cooldown weapons (whose reload animation is
-   skipped). The reload animation's speed is the weapon's cooldown
-   (2026-11-06), so the cooldown is the reload-speed knob.
+   skipped). The reload animation's duration IS the weapon's cooldown
+   in tics (2026-11-07: the kit's `cooldown` field is the number of
+   tics, so the cooldown is the reload-speed knob -- tune the field
+   to tune the reload). Current ladder (tics): chainsaw 8, pistol 12,
+   plasma 12, shotgun 18, rocket 24, SSG 24, chaingun 30, BFG 36.
    Inverted magazines (plasma) still drain in `T_TickCadence`'s
    per-weapon loop on every unfrozen game tic, and rocket charges
    regen there too, each loading one attack's worth of ammo. Firing sets
@@ -215,12 +218,13 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
    pickup ever exists in the world; Mana Potions no longer appear in the drop
    pool. Weapon cadence is wall-clock,
    not round-bound: firing sets a weapon's cooldown counter to its
-   effective cooldown, and cooldowns tick down 1 round per 10 s (BFG = 30 s, SSG =
+   effective cooldown converted to rounds (12 tics per round, rounded
+   up), and cooldowns tick down 1 round per 10 s (BFG = 30 s, SSG =
    20 s, plasma = 10 s), rocket charges regen 1 per 3 s (max 3), plasma's inverted
    counter drains at its replenish rate (~43 per 10 s) continuously — all via `T_TickCadence` every game tic, except
    during the planning phase, where the cadence (like the magazine
    trickle) is frozen: nothing replenishes while the player plans. Haste is a
-   cooldown-reduction percent (cap 50%, then flat CDR, min 1 round). The HUD AMMO readout shows the
+   cooldown-reduction percent (cap 50%, then flat CDR, min 1 tic). The HUD AMMO readout shows the
    ready weapon's magazine counter. \"Ammo\" also survives
    as the passive, non-consumable FOCUS paperdoll slot: equippable focus
    items (Piercing Rounds, Incendiary Shells, …) that passively grant stat

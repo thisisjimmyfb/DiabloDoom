@@ -100,8 +100,9 @@ has no magazine — its heat *is* the ammo. Ammo is infinite
 finishes. The reload happens only when the magazine is empty —
 Energy scales the capacity (base +1 per point of gear Energy),
 so Energy sets how many shots fit before the reload animation:
-the reload animation's speed is the weapon's cooldown
-(0-cooldown weapons reload instantly, so their magazine refills
+the reload animation's duration IS the weapon's cooldown in tics
+(2026-11-07: the kit's `cooldown` field is the number of tics,
+so a cooldown of 0 reloads instantly and the magazine refills
 the moment it empties). Plasma's heat still drains over time,
 and rocket charges still regenerate. Ammo pickups are gone entirely: every map-placed
 ammo pickup now spawns a random Diablo item instead, and Mana Potions
@@ -830,7 +831,7 @@ its own movement history.)
 | AD     | Attack Damage        | Scales ballistic, explosive, melee. Strength does NOT feed AD (guns) — it gates equipment and scales fists only. |
 | AP     | Ability Power        | Scales plasma, BFG, status, charged effects. Energy feeds AP. |
 | AS     | Attack Speed         | Reduces melee attack point cost; ranged attacks are point-free (ammo-gated). |
-| Haste  | Cooldown recovery    | Cooldown-reduction percent (cap 50%): applied when a cooldown is set, then flat reduction, minimum 1 round (1 round = 10 s). |
+| Haste  | Cooldown recovery    | Cooldown-reduction percent (cap 50%): applied when a cooldown is set, then flat reduction, minimum 1 tic. |
 | Crit   | Chance + damage      | Gear-inherent (Diablo-style): weapons/items grant crit chance and bonus crit damage. Base crits deal x2; each crit-damage point adds 1%. Chance caps at 50%. Crit is rolled exactly once per attack inside `T_DiabloDamageCallback` (once-per-attack pellet semantics); the legacy `P_DamageMobj` crit hook is bypassed in turn mode so crits can never double-roll. |
 | Defense | Diablo 2-style rating | Sum of the five durability slots' armor values (rescaled into the thousands), plus Dex / 4. Lowers a monster's chance to hit; no damage reduction. |
 | MR     | Magic resistance     | Reduces AP-tagged plasma, occult, status damage.        |
@@ -880,14 +881,14 @@ equipped), not loot.
 
 | Gun | Type | LoL mechanic | Reload | Identity |
 |-----|------|--------------|-----------|----------|
-| Pistol | AD | **Magazine 10** (1/shot) | instant when empty | Reliable sidearm. |
-| Shotgun | AD | **Magazine 20** (2/shot) | instant when empty | Positioning reward, pellet spread. |
-| Chaingun | AD | **Magazine 10** (1/shot) | instant when empty | point-hungry DPS hose. |
-| Chainsaw | AD | **Magazine 6** (1/shot) + **30% inherent leech** | instant when empty | High risk, constant uptime; leech sustains close-range fighting. |
+| Pistol | AD | **Magazine 10** (1/shot) | cd 12 tics, when empty | Reliable sidearm. |
+| Shotgun | AD | **Magazine 20** (2/shot) | cd 18 tics, when empty | Positioning reward, pellet spread. |
+| Chaingun | AD | **Magazine 10** (1/shot) | cd 30 tics, when empty | point-hungry DPS hose. |
+| Chainsaw | AD | **Magazine 6** (1/shot) + **30% inherent leech** | cd 8 tics, when empty | High risk, constant uptime; leech sustains close-range fighting. |
 | Plasma Rifle | AP | **Ammo** (inverted) | heat drain | The ammo counter represents heat: starts at 0, +20 per shot, fires while the count is below the 125 capacity, and drains at the replenish rate continuously — the drain is the reload period. No separate heat resource (2026-10-22). |
-| Rocket Launcher | AP | **Charges** (3, +1 per 2 s) + **Magazine 20** (10/shot) | charges | Punctuated splash; firing consumes 1 charge. Each regenerated charge also loads one attack's worth of ammo. |
-| Super Shotgun | AP | **Magazine 8** (8/shot) + **knockback** | cd 2, when empty | Breach tool: shoves target 1 tile. One shot empties the magazine; firing sets a 2-round cooldown, which drives the reload animation, and the magazine refills to full when the reload finishes. |
-| BFG9000 | AP | **Magazine 20** (20/shot) | cd 3, when empty | Ultimate: highest damage. One shot empties the magazine; firing sets a 3-round cooldown, which drives the reload animation, and the magazine refills to full when the reload finishes. |
+| Rocket Launcher | AP | **Charges** (3, +1 per 2 s) + **Magazine 20** (10/shot) | cd 24 tics, when empty + charges | Punctuated splash; firing consumes 1 charge. Each regenerated charge also loads one attack's worth of ammo. |
+| Super Shotgun | AP | **Magazine 8** (8/shot) + **knockback** | cd 24 tics, when empty | Breach tool: shoves target 1 tile. One shot empties the magazine; firing sets a 24-tic cooldown, which drives the reload animation, and the magazine refills to full when the reload finishes. |
+| BFG9000 | AP | **Magazine 20** (20/shot) | cd 36 tics, when empty | Ultimate: highest damage. One shot empties the magazine; firing sets a 36-tic cooldown, which drives the reload animation, and the magazine refills to full when the reload finishes. |
 
 **Strength requirements (2026-11-04).** Every item has a strength
 requirement from its type, not its tier: guns need strength by weapon
@@ -916,23 +917,25 @@ stored — so equipping strength gear immediately re-enables items
 that now meet their requirement, and unequipping it can disable
 items again.
 
-**Cooldown gates ammo regen (unified, 2026-11-01).** The `cooldown` value in a kit
-definition is one number with one meaning: firing the weapon sets its
-live cooldown counter to the effective cooldown (base minus Haste %,
-then flat CDR, minimum 1 round; 1 round = 10 s), and the weapon's
-magazine does not trickle while that counter is running. When the
-counter reaches 0 the trickle resumes at the kit's replenish rate
-(`REPLENISH_CD`: effective `cooldown` × 12 tics; `REPLENISH_AS`:
-`tp_cost` × 2 tics). The gate applies to inverted magazines too:
-no heat drain while the counter runs. There is no special treatment by weapon class:
-kits with cooldown 0 — all current AD kits — never set the counter,
-so they stay limited by attack speed alone; a fast kit with a slow
-cooldown gates its own regen. Current ladder: AD kits 0, plasma 1,
-SSG 2, BFG 3 — plasma is the fast AP weapon with a moderate cooldown
-(longer bursts want more Energy for capacity), BFG the slow AP weapon
-with a high cooldown (wants cooldown reduction). Firing refreshes the counter.
-Cooldown never blocks a shot — ammo is still the firing limiter
-(`T_KitCanFire`); it only pauses regen. Attack speed is the command execution delay
+**Cooldown is the reload duration, in tics (unified, 2026-11-01; tics 2026-11-07).** The `cooldown` value in a kit
+definition is one number with one meaning: it IS the reload animation's
+duration in tics. Firing the weapon sets its live cooldown counter to
+the effective cooldown (base minus Haste %, then flat CDR, minimum 1
+tic) for the reload animation, and separately to the same value
+converted to rounds (12 tics per round, rounded up) for the live
+counter, which gates the inverted magazine's heat drain: no heat drain
+while the counter runs. The counter is in rounds (1 round = 10 s =
+350 tics); the reload animation is in tics. There is no special
+treatment by weapon class: kits with cooldown 0 (fists) never set the
+counter, so they stay limited by attack speed alone. Current ladder
+(in tics): chainsaw 8 (fastest), pistol 12, plasma 12, shotgun 18,
+rocket 24, SSG 24, chaingun 30, BFG 36 (slowest) — plasma is the fast
+AP weapon with a moderate cooldown (longer bursts want more Energy for
+capacity), chaingun is one of the slowest reloads (comparable to the
+BFG), BFG the slow AP weapon with the longest reload (wants cooldown
+reduction). Firing refreshes the counter. Cooldown never blocks a shot
+— ammo is still the firing limiter (`T_KitCanFire`); it only sets the
+reload length and pauses the heat drain. Attack speed is the command execution delay
 (`attack_tics` in the kit): pistol 15, shotgun 40, chaingun 16, rocket 80,
 plasma 16, BFG 80, chainsaw 12, SSG 50, fists 6 tics (35 tics = 1 second).
 Fists are the unarmed default: no weapon equipped means fists, with very
