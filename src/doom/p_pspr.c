@@ -68,10 +68,12 @@ static boolean t_diablo_chain_fire_suppressed = false;
 // and chaingun have no real reload segment, just a 0-tic ReFire).
 // The scale is stored as two fractions (num/den) applied to each
 // frame's vanilla tics, so the relative timing within a segment is
-// preserved. Attack scale is vanilla speed (1:1) for now -- attack
-// speed is NOT Dexterity-derived (Dexterity gives Block, Defense,
-// and spread tightening, not attack speed); the driver is undefined
-// until specified. Reload scale is the effective cooldown over the
+// preserved. Attack scale is the AS stat -- AS is its own stat in
+// the stats panel, the kit's tp_cost, scaled by tp_cost / 4 (the
+// same normalization T_AttackInterval uses: tp_cost 4 is vanilla
+// speed, lower is faster, higher is slower). NOT Dexterity-derived
+// (Dexterity gives Block, Defense, and spread tightening, not
+// attack speed). Reload scale is the effective cooldown over the
 // vanilla reload-segment total, so the reload segment lasts exactly
 // the cooldown in tics. Shotgun exception: the pump IS the reload,
 // so it scales with cd on every shot. For other weapons, on a
@@ -407,18 +409,18 @@ P_FireDiabloWeapon
     // (vanilla P_FireWeapon behavior, now the single fire path).
     // Attack/reload split (2026-11-07, weapon by weapon): the chain
     // is split at the fire state. Attack frames (atkstate through
-    // the fire state) play at vanilla speed for now -- attack speed
-    // is NOT Dexterity-derived, and its driver is undefined until
-    // specified. Reload frames (after the fire state) scale with
-    // the cooldown -- on a reload shot the reload segment lasts
-    // exactly the cooldown in tics; on a normal shot it plays at
-    // vanilla speed, which makes a real reload visibly slower/longer
-    // than a normal shot's follow-through. The reload flag is set
-    // only when the magazine is empty, so the refill triggers on
-    // chain completion; on a normal shot the chain just plays and
-    // the weapon returns to ready. A cooldown of 0 (fists) means no
-    // reload to time, but the attack chain still plays. Do not
-    // early-return without the animation.
+    // the fire state) scale with the AS stat -- AS is its own stat
+    // in the stats panel, the kit's tp_cost, by tp_cost / 4
+    // (tp_cost 4 is vanilla speed). Reload frames (after the fire
+    // state) scale with the cooldown -- on a reload shot the reload
+    // segment lasts exactly the cooldown in tics; on a normal shot
+    // it plays at vanilla speed, which makes a real reload visibly
+    // slower/longer than a normal shot's follow-through. The reload
+    // flag is set only when the magazine is empty, so the refill
+    // triggers on chain completion; on a normal shot the chain just
+    // plays and the weapon returns to ready. A cooldown of 0
+    // (fists) means no reload to time, but the attack chain still
+    // plays. Do not early-return without the animation.
     // Reload sequence note: vanilla has a reload sequence only for
     // the shotgun (pump, S_SGUN3-8) and SSG (breach, S_DSGUN3-9).
     // The other guns have no reload sequence; their reload is the
@@ -435,14 +437,13 @@ P_FireDiabloWeapon
         t_diablo_chain_fire_state = fire;
         t_diablo_chain_in_reload = false;
 
-        // Attack scale: vanilla speed (1:1) for now. Attack speed
-        // is NOT Dexterity-derived (2026-11-07 correction: Dexterity
-        // gives Block, Defense, and spread tightening, not attack
-        // speed). The attack-speed driver is undefined until
-        // specified; the atk_num/atk_den pair stays so wiring it
-        // in later is a one-line change.
-        t_diablo_atk_num = 1;
-        t_diablo_atk_den = 1;
+        // Attack scale: the AS stat (2026-11-07) -- AS is its own
+        // stat in the stats panel, the kit's tp_cost. The attack
+        // frames scale by tp_cost / 4, the same normalization
+        // T_AttackInterval uses: tp_cost 4 plays at vanilla speed,
+        // lower is faster, higher is slower. NOT Dexterity-derived.
+        t_diablo_atk_num = kit->tp_cost;
+        t_diablo_atk_den = 4;
 
         // Reload scale: the reload segment lasts the cooldown.
         // Shotgun: the pump IS the reload (2026-11-07 rescind --
