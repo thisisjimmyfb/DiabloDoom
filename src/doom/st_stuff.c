@@ -1193,9 +1193,9 @@ static void ST_drawTurnKits(void)
     const t_kitdef_t *kit;
     int cd, dmg_min, dmg_max;
     // Panel geometry: labels left-aligned, values right-aligned.
-    // Three rows at 8px spacing (168, 176, 184) -- the DEF rating
-    // moved out (2026-11-07): it now sits under the ARMOR number,
-    // in parens, instead of a fourth row here.
+    // Three rows at 8px spacing, centered in the 32px status bar
+    // (172, 180, 188) -- with only three rows the old top-aligned
+    // 168/176/184 left a gap at the bottom (2026-11-07).
     const int labx = 254, valright = 316;
 
     if (!T_Active())
@@ -1234,12 +1234,12 @@ static void ST_drawTurnKits(void)
     // Transparent background (2026-11-07): no black box -- just
     // the AP/AD, AS, and CD text on the status bar.
     // Labels left-aligned, values right-aligned for a clean stat sheet.
-    ST_TurnDrawText(labx, 168, dmglab);
-    ST_TurnDrawText(valright - STWepTextWidth(dmgval), 168, dmgval);
-    ST_TurnDrawText(labx, 176, "AS");
-    ST_TurnDrawText(valright - STWepTextWidth(asval), 176, asval);
-    ST_TurnDrawText(labx, 184, "CD");
-    ST_TurnDrawText(valright - STWepTextWidth(cdval), 184, cdval);
+    ST_TurnDrawText(labx, 172, dmglab);
+    ST_TurnDrawText(valright - STWepTextWidth(dmgval), 172, dmgval);
+    ST_TurnDrawText(labx, 180, "AS");
+    ST_TurnDrawText(valright - STWepTextWidth(asval), 180, asval);
+    ST_TurnDrawText(labx, 188, "CD");
+    ST_TurnDrawText(valright - STWepTextWidth(cdval), 188, cdval);
 
     // Armor + DEF (2026-11-07): in turn mode the armor durability
     // and the total Defense rating are drawn here as small text,
@@ -1247,17 +1247,19 @@ static void ST_drawTurnKits(void)
     // is skipped in turn mode (see ST_drawWidgets). Both values are
     // equally important, so both use the same small font. The stack
     // is shifted left to clear the stats panel's CD row.
-    // DEF is the total Defense rating -- gear Defense
-    // (helm+armor+boots+gloves+belt) plus Dex/4, from T_DeriveStats.
+    // DUR is the armor durability (total remaining durability of the
+    // equipped defense pieces). DEF is the total Defense rating --
+    // gear Defense (helm+armor+boots+gloves+belt) plus Dex/4, from
+    // T_DeriveStats.
     {
-        char armorval[8];
+        char armorval[12];
         const int stackx = ST_ARMORX - 4;
-        snprintf(armorval, sizeof(armorval), "%d", st_armordur);
+        snprintf(armorval, sizeof(armorval), "DUR %d", st_armordur);
         ST_TurnDrawText(stackx - STWepTextWidth(armorval) / 2,
-                        168, armorval);
+                        172, armorval);
         snprintf(defval, sizeof(defval), "DEF %d", st.armor);
         ST_TurnDrawText(stackx - STWepTextWidth(defval) / 2,
-                        176, defval);
+                        180, defval);
     }
 }
 
