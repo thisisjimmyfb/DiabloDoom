@@ -2638,6 +2638,14 @@ void T_InvalidateTarget(mobj_t *mo)
         T_ClearContinuousFire();
         printf("[TURN] locked target invalidated (mobj removed)\n");
     }
+    // Clear the pending aim-turn target if it was removed: the shot
+    // is skipped (T_FireAimShot refunds) instead of firing at a
+    // dangling pointer.
+    if (turnctrl.aim_target == mo)
+    {
+        turnctrl.aim_target = NULL;
+        printf("[TURN] aim target invalidated (mobj removed)\n");
+    }
 }
 
 void T_DoAttack(void)
@@ -2741,70 +2749,16 @@ void T_DoAttack(void)
 // A successful shot begins an attack_tics pulse and returns true, so
 // the drain pauses until the fire animation has played out before
 // the next queued entry executes.
-static boolean T_ExecAttack(mobj_t *target, int cost,
-                            boolean from_tick)
+// Fire the shot: the T_ExecAttack fire path (hit/miss resolution,
+// kill handling, attack-interval pulse). Called directly by
+// T_ExecAttack (untargeted / continuous-fire tick) and by
+// T_FireAimShot once the aim-turn aligns (2026-11-07). Assumes the
+// target and ammo were already validated by the caller.
+static boolean T_FireAttackShot(mobj_t *target, int cost,
+                                boolean from_tick)
 {
     player_t *player = &players[consoleplayer];
     boolean untargeted = (target == NULL);
-
-    if (!untargeted)
-    {
-        if (target->health <= 0 || !(target->flags & MF_SHOOTABLE))
-        {
-            players[consoleplayer].message = "Target down - attack skipped.";
-            printf("[TURN] queued attack skipped: target invalid (+%d TP)\n",
-                   cost);
-            turnctrl.tp += cost;
-            T_DumpState("exec-attack-skip");
-            return false;
-        }
-    }
-    // Untargeted attacks (mini-combat, no target) skip validation and fire
-    // in the facing direction. Used for shootable walls/secrets.
-    if (!T_KitCanFire(player->readyweapon))
-    {
-        players[consoleplayer].message = T_KitDenyReason(player->readyweapon);
-        printf("[TURN] queued attack skipped: %s (+%d TP)\n",
-               T_KitDenyReason(player->readyweapon), cost);
-        turnctrl.tp += cost;
-        T_DumpState("exec-attack-skip");
-        return false;
-    }
-
-    // Ammo is spent on firing: applied at execution, not at queue
-    // time. An earlier queued action may have moved the magazine
-    // since validation; skip gracefully with a TP refund like the
-    // other skip paths. Affordability is THE gate's test
-    // (T_HasAmmoForKit) -- direction-aware, so inverted magazines
-    // (plasma) skip at capacity, not at empty. The spend itself
-    // (T_KitSpendAmmo) and the kit setup (T_KitOnFire: charge
-    // consumption, cooldown) happen inside P_FireDiabloWeapon, the
-    // single choke point — not here, or the ammo/cooldown would be
-    // spent twice. (2026-11-06)
-    {
-        const t_kitdef_t *kit = T_KitForWeapon(player->readyweapon);
-        if (kit->ammo_cost > 0)
-        {
-            if (!T_HasAmmoForKit(player->readyweapon))
-            {
-                players[consoleplayer].message = kit->ammo_inverted
-                    ? "Ammo full - skipped."
-                    : "Not enough ammo - skipped.";
-                printf("[TURN] queued attack skipped: ammo %d/%d (%s) (+%d TP)\n",
-                       T_KitAmmo(player->readyweapon),
-                       T_KitMaxAmmo(player->readyweapon),
-                       kit->ammo_inverted ? "full" : "empty", cost);
-                turnctrl.tp += cost;
-                T_DumpState("exec-attack-skip");
-                return false;
-            }
-        }
-    }
-
-    // Face the target (instant for aiming; the smooth visual turn is
-    // a follow-up). Untargeted attacks fire in the current facing.
-    if (!untargeted)
-        T_FaceTarget(target);
 
     // Natural simulation: Doom's hitscan/projectile determines hit/miss.
     // The Diablo damage callback (installed in T_KitResetCadence) computes
@@ -2955,6 +2909,123 @@ static boolean T_ExecAttack(mobj_t *target, int cost,
     // commands, not to the stream.
     T_DumpState("exec-attack");
     return false;
+}
+
+static boolean T_ExecAttack(mobj_t *target, int cost,
+                            boolean from_tick)
+{
+    player_t *player = &players[consoleplayer];
+    boolean untargeted = (target == NULL);
+
+    if (!untargeted)
+    {
+        if (target->health <= 0 || !(target->flags & MF_SHOOTABLE))
+        {
+            players[consoleplayer].message = "Target down - attack skipped.";
+            printf("[TURN] queued attack skipped: target invalid (+%d TP)\n",
+                   cost);
+            turnctrl.tp += cost;
+            T_DumpState("exec-attack-skip");
+            return false;
+        }
+    }
+    // Untargeted attacks (mini-combat, no target) skip validation and fire
+    // in the facing direction. Used for shootable walls/secrets.
+    if (!T_KitCanFire(player->readyweapon))
+    {
+        players[consoleplayer].message = T_KitDenyReason(player->readyweapon);
+        printf("[TURN] queued attack skipped: %s (+%d TP)\n",
+               T_KitDenyReason(player->readyweapon), cost);
+        turnctrl.tp += cost;
+        T_DumpState("exec-attack-skip");
+        return false;
+    }
+
+    // Ammo is spent on firing: applied at execution, not at queue
+    // time. An earlier queued action may have moved the magazine
+    // since validation; skip gracefully with a TP refund like the
+    // other skip paths. Affordability is THE gate's test
+    // (T_HasAmmoForKit) -- direction-aware, so inverted magazines
+    // (plasma) skip at capacity, not at empty. The spend itself
+    // (T_KitSpendAmmo) and the kit setup (T_KitOnFire: charge
+    // consumption, cooldown) happen inside P_FireDiabloWeapon, the
+    // single choke point — not here, or the ammo/cooldown would be
+    // spent twice. (2026-11-06)
+    {
+        const t_kitdef_t *kit = T_KitForWeapon(player->readyweapon);
+        if (kit->ammo_cost > 0)
+        {
+            if (!T_HasAmmoForKit(player->readyweapon))
+            {
+                players[consoleplayer].message = kit->ammo_inverted
+                    ? "Ammo full - skipped."
+                    : "Not enough ammo - skipped.";
+                printf("[TURN] queued attack skipped: ammo %d/%d (%s) (+%d TP)\n",
+                       T_KitAmmo(player->readyweapon),
+                       T_KitMaxAmmo(player->readyweapon),
+                       kit->ammo_inverted ? "full" : "empty", cost);
+                turnctrl.tp += cost;
+                T_DumpState("exec-attack-skip");
+                return false;
+            }
+        }
+    }
+
+    // Aim turning (2026-11-07): a queued attack turns the facing
+    // toward the target at the AS-dependent rate instead of snapping,
+    // and fires only when aligned. Untargeted attacks and the
+    // continuous-fire tick fire in the current facing (no turn).
+    if (!untargeted && !from_tick)
+    {
+        angle_t want = R_PointToAngle2(player->mo->x, player->mo->y,
+                                       target->x, target->y);
+        angle_t rate = T_AimTurnRate(player);
+        angle_t diff = want - player->mo->angle;
+        int32_t sdiff = (int32_t)diff;
+        angle_t adiff = sdiff < 0 ? (angle_t)(-sdiff) : (angle_t)sdiff;
+        int turn_tics = adiff / rate + 1;
+        if (turn_tics < 1)
+            turn_tics = 1;
+        turnctrl.aim_target = target;
+        turnctrl.aim_rate = rate;
+        turnctrl.aim_pending = true;
+        turnctrl.aim_cost = cost;
+        turnctrl.aim_tics = turn_tics + 5; // failsafe margin
+        // Turn pulse: lasts until the facing aligns (T_PulseOneTic
+        // fires the shot and ends it early) or the failsafe cap.
+        T_BeginPulse(turnctrl.aim_tics, true, false);
+        T_DumpState("exec-attack-aim");
+        return true;
+    }
+
+    // Untargeted or continuous-fire tick: face instantly (the lock
+    // already faces the target) and fire now.
+    if (!untargeted)
+        T_FaceTarget(target);
+    return T_FireAttackShot(target, cost, from_tick);
+}
+
+// Fire the pending aim-turn shot (2026-11-07): called by
+// T_PulseOneTic when the facing aligns with the aim target.
+// Re-validates the target; refunds TP and returns false if it died
+// or was removed during the turn.
+boolean T_FireAimShot(void)
+{
+    mobj_t *target = turnctrl.aim_target;
+    int cost = turnctrl.aim_cost;
+    turnctrl.aim_target = NULL;
+    turnctrl.aim_pending = false;
+    turnctrl.aim_tics = 0;
+    if (target == NULL || target->health <= 0
+        || !(target->flags & MF_SHOOTABLE))
+    {
+        players[consoleplayer].message = "Target down - attack skipped.";
+        printf("[TURN] aim attack skipped: target invalid (+%d TP)\n", cost);
+        turnctrl.tp += cost;
+        T_DumpState("exec-attack-aim-skip");
+        return false;
+    }
+    return T_FireAttackShot(target, cost, false);
 }
 
 // ------------------------------------------------------------------

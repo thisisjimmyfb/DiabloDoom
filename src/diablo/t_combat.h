@@ -138,6 +138,10 @@ const t_kitdef_t *T_KitForWeapon(weapontype_t w);
 // attack_tics scaled by the derived attack-speed stat. THE firing
 // rate for both queued attacks and continuous fire.
 int T_AttackInterval(player_t *player, weapontype_t w);
+// Aim-turn rate (2026-11-07): the angular speed (angle units per
+// tic) at which the facing turns toward the attack target, derived
+// from the AS stat (the kit's tp_cost). Faster AS turns faster.
+angle_t T_AimTurnRate(player_t *player);
 int T_KitFireSound(weapontype_t w);     // per-gun firing report sfx
 int T_KitCooldown(weapontype_t w);          // current cooldown rounds left
 int T_KitReloadTics(weapontype_t w);      // effective reload duration in

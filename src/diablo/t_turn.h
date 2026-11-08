@@ -131,6 +131,15 @@ typedef struct
     mobj_t *locked_target;
     boolean cont_fire_active; // continuous weapon locked on and firing
     int cont_fire_tics;       // tics until the next continuous-fire shot
+    // Aim turning (2026-11-07): an attack turns the facing toward its
+    // target at an AS-dependent rate instead of snapping, and fires
+    // only when aligned. Set by T_ExecAttack; advanced by
+    // T_PulseOneTic, which fires the pending shot on alignment.
+    mobj_t *aim_target;      // target mobj to track (NULL = untargeted)
+    angle_t aim_rate;        // turn rate, angle units per tic
+    boolean aim_pending;     // true while the turn is in progress
+    int aim_cost;            // TP cost reserved for the pending shot
+    int aim_tics;            // failsafe tics remaining
 } turnctrl_t;
 
 extern turnctrl_t turnctrl;
@@ -259,6 +268,12 @@ boolean T_IsContinuousWeapon(weapontype_t weapon); // chainsaw/chaingun/plasma
 void T_SetupContinuousFire(mobj_t *target); // arm continuous fire on a target
 void T_TickContinuousFire(void);            // per-tic continuous fire
 void T_ClearContinuousFire(void);           // break the continuous-fire lock
+// Fire the pending aim-turn shot (2026-11-07): called by
+// T_PulseOneTic when the facing aligns with the aim target. Fires
+// the shot (the T_ExecAttack fire path) and begins the attack
+// interval pulse. Re-validates the target; refunds TP and returns
+// false if it died or became invalid during the turn.
+boolean T_FireAimShot(void);
 // HUD: mode indicator + contextual help (called from HU_Drawer).
 void T_DrawHUD(void);
 // True while the turn-combat HUD is on: turn mode armed, level, and

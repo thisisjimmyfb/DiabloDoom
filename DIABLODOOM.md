@@ -588,13 +588,20 @@ through a bounded simulation pulse.
 - Input locks while the queue drains.
 - Dying clears the queue immediately and ends the progress phase.
 
-**Resolution rule:** An attack auto-faces its snapshotted target at
-execution; steps are facing-relative (W/S forward/back, A/D strafe) and
-never change facing. The left/right arrows rotate the view 45 degrees
-for free — that is view control, not aiming: targeting is still numbered
-selection, so the no-aiming contract holds. View turning is immediate
-and never queued. Selection, cancellation, undo, and clear are free;
-Points are reserved at queue time, so browsing targets never changes world
+**Resolution rule:** An attack turns to face its snapshotted target at
+execution — not an instant snap, but an aim turn at an AS-dependent
+rate (2026-11-07): the facing rotates toward the target at
+`T_AimTurnRate` (ANG90 in 10 tics at tp_cost 4, scaled by 4/tp_cost,
+so faster AS turns faster), and the gun fires only when the facing
+is aligned with the target. The turn adds real time (turn time +
+attack interval); a target that dies or is removed mid-turn skips
+the shot with a TP refund. Steps are facing-relative (W/S
+forward/back, A/D strafe) and never change facing. The left/right
+arrows rotate the view 45 degrees for free — that is view control,
+not aiming: targeting is still numbered selection, so the no-aiming
+contract holds. View turning is immediate and never queued.
+Selection, cancellation, undo, and clear are free; Points are
+reserved at queue time, so browsing targets never changes world
 state.
 
 **Inventory rule:** opening the character screen costs no points. Equipping or

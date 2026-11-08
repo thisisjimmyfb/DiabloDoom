@@ -346,6 +346,9 @@ void T_OnLoad(void)
     turnctrl.queue_len = 0;
     turnctrl.queue_tp = 0;
     turnctrl.executing = false;
+    turnctrl.aim_target = NULL;
+    turnctrl.aim_pending = false;
+    turnctrl.aim_tics = 0;
 }
 
 // ------------------------------------------------------------------
@@ -599,6 +602,36 @@ static void T_MaintainView(void)
 
 static void T_EndPulse(void);
 
+// Turn *cur toward target by at most rate angle units (shortest
+// direction). Returns true when *cur reaches target (aligned).
+// angle_t wraps, so the signed difference is the shortest turn.
+static boolean T_TurnToward(angle_t *cur, angle_t target, angle_t rate)
+{
+    angle_t diff = target - *cur;
+    int32_t sdiff = (int32_t)diff;
+    if (sdiff == 0)
+        return true;
+    if (sdiff > 0)
+    {
+        if ((angle_t)sdiff <= rate)
+        {
+            *cur = target;
+            return true;
+        }
+        *cur += rate;
+    }
+    else
+    {
+        if ((angle_t)(-sdiff) <= rate)
+        {
+            *cur = target;
+            return true;
+        }
+        *cur -= rate;
+    }
+    return false;
+}
+
 // One world tic with optional monster freeze. Mirrors P_Ticker's
 // structure; live monsters (MF_COUNTKILL, alive, not the player) are
 // skipped when freeze_monsters is set — XCOM-style, they act on their
@@ -610,6 +643,32 @@ static void T_PulseOneTic(boolean freeze_monsters)
 
     if (paused)
         return;
+
+    // Aim turning (2026-11-07): rotate the facing toward the aim
+    // target at the AS-dependent rate; fire the pending shot on
+    // alignment (or when the failsafe expires). The target angle is
+    // re-derived each tic so a moving target is tracked.
+    if (turnctrl.aim_pending)
+    {
+        player_t *pl = &players[consoleplayer];
+        boolean aligned = false;
+        if (pl->mo != NULL && turnctrl.aim_target != NULL)
+        {
+            angle_t want = R_PointToAngle2(pl->mo->x, pl->mo->y,
+                                           turnctrl.aim_target->x,
+                                           turnctrl.aim_target->y);
+            aligned = T_TurnToward(&pl->mo->angle, want,
+                                   turnctrl.aim_rate);
+        }
+        if (aligned || --turnctrl.aim_tics <= 0)
+        {
+            // Aligned (or failsafe expired): end the turn portion
+            // and fire the pending shot; the attack interval follows.
+            turnctrl.aim_pending = false;
+            turnctrl.pulse_left = 0;
+            T_FireAimShot();
+        }
+    }
 
     // Smooth combat movement: step toward the destination stored by
     // T_ExecMove. Speed eases out as we arrive (keyboard speed when far,

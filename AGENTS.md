@@ -213,6 +213,12 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
    at vanilla speed.
    Shotgun exception (2026-11-07 rescind): the pump IS the reload,
    so it scales with cd on every shot, not just the emptying one.
+   Aim turning (2026-11-07): a queued attack turns the facing toward
+   its target at an AS-dependent rate (`T_AimTurnRate`: ANG90 in 10
+   tics at tp_cost 4, scaled by 4/tp_cost) instead of snapping, and
+   fires only when aligned. The turn adds real time (turn time +
+   attack interval). Untargeted attacks and the continuous-fire tick
+   fire in the current facing (no turn).
    Current ladder (tics, 2026-11-07, vanilla reload-segment totals
    so every gun's reload plays at vanilla speed, 1:1 -- attack +
    reload equals the old chain total at base stats): chainsaw 9,

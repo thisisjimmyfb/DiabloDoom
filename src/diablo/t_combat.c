@@ -1077,6 +1077,26 @@ void T_ResolveKill(player_t *player, mobj_t *victim, int dmg,
 // attack time). This is the ONE firing-rate system: the queued-attack
 // executor pulses for this long per shot, and the continuous-fire
 // tick fires at this interval.
+// Aim-turn rate (2026-11-07): the facing turns toward the attack
+// target at this angular speed, in angle units per tic. Derived from
+// the AS stat (the kit's tp_cost): faster AS turns faster. Baseline
+// is ANG90 in 10 tics at tp_cost 4 (9 deg/tic) -- a 90-degree turn
+// takes 10 tics at baseline, ~3 at tp_cost 1 (fists), ~20 at
+// tp_cost 8 (BFG). My pick (correctable): the base rate.
+angle_t T_AimTurnRate(player_t *player)
+{
+    t_combatstats_t st;
+    angle_t base = ANG90 / 10;
+    angle_t rate;
+    int tp;
+    T_DeriveStats(player, &st);
+    tp = st.attack_tp;
+    if (tp < 1)
+        tp = 1;
+    rate = base * 4 / tp;
+    return rate < 1 ? 1 : rate;
+}
+
 int T_AttackInterval(player_t *player, weapontype_t w)
 {
     const t_kitdef_t *kit = T_KitForWeapon(w);
