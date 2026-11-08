@@ -1241,22 +1241,14 @@ static void ST_drawTurnKits(void)
     ST_TurnDrawText(labx, 188, "CD");
     ST_TurnDrawText(valright - STWepTextWidth(cdval), 188, cdval);
 
-    // Armor durability (2026-11-07): in turn mode the armor
-    // durability is drawn here as small text -- just the number,
-    // no label (the ARMOR label is already baked into the status
-    // bar). The tallnum widget is skipped in turn mode (see
-    // ST_drawWidgets). DEF is NOT shown: the armor panel is too
-    // narrow to fit both DUR and DEF clear of the key slots
-    // (keyboxes at x=239), so DEF is dropped (2026-11-07, per
-    // direction) rather than crammed in. The number is the total
-    // remaining durability of the equipped defense pieces.
-    {
-        char armorval[8];
-        const int durx = ST_ARMORX - 10;
-        snprintf(armorval, sizeof(armorval), "%d", st_armordur);
-        ST_TurnDrawText(durx - STWepTextWidth(armorval) / 2,
-                        180, armorval);
-    }
+    // Armor durability (2026-11-07): just the tallnum widget
+    // (restored -- with DEF dropped and no DUR label, the armor
+    // number is a single value again, so it uses the normal large
+    // digits). DEF is NOT shown: the armor panel is too narrow to
+    // fit both durability and DEF clear of the key slots (keyboxes
+    // at x=239), so DEF is dropped (2026-11-07, per direction)
+    // rather than crammed in. The number is the total remaining
+    // durability of the equipped defense pieces.
 }
 
 // Loot alert: while drops are on the map, keep "Loot nearby, press
@@ -1498,11 +1490,7 @@ void ST_drawWidgets(boolean refresh)
         ST_updateLootAlert();
 
     STlib_updateNum(&w_health, refresh);
-    // In turn mode the armor number is drawn as small text by
-    // ST_drawTurnKits (stacked with DEF), so skip the tallnum
-    // widget here -- otherwise both would draw on top of each other.
-    if (!T_Active())
-        STlib_updateNum(&w_armor, refresh);
+    STlib_updateNum(&w_armor, refresh);
 
     // DiabloDoom: the classic 2-7 arms are replaced by the equipped
     // Diablo weapon (icon + damage).  st_armson keeps the old condition
@@ -1761,9 +1749,6 @@ void ST_createWidgets(void)
 
     // armor readout - DiabloDoom: total remaining durability of the
     // equipped defense pieces (see st_armordur), not vanilla armorpoints.
-    // In turn mode the tallnum widget is skipped (see ST_drawWidgets)
-    // and the number is drawn as small text under ST_drawTurnKits,
-    // stacked with the DEF rating.
     STlib_initNum(&w_armor,
 		      ST_ARMORX,
 		      ST_ARMORY,
