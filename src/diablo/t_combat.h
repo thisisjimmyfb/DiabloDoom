@@ -25,7 +25,7 @@ typedef struct
     int ad_min;       // attack damage range, before crit/mitigation
     int ad_max;
     int ap;           // ability power (Phase 5 abilities)
-    int attack_tp;    // TP cost of ATTACK = the AS stat (kit tp_cost)
+    int attack_tp;    // TP cost of ATTACK = the AS stat (kit attack_speed)
     int crit_chance;  // percent
     int crit_mult;    // percent, 150 = 1.5x
     int armor;        // physical mitigation
@@ -95,7 +95,7 @@ unsigned int T_GetCombatSeed(void);
 // (removed 2026-11-07); they refill when the reload finishes.
 typedef enum
 {
-    REPLENISH_AS,  // attack-speed driven (tp_cost * 2 tics)
+    REPLENISH_AS,  // attack-speed driven (attack_speed * 2 tics)
     REPLENISH_CD,  // cooldown driven (effective cooldown, in tics)
 } replenish_model_t;
 
@@ -104,7 +104,9 @@ typedef struct
     const char *name;   // display name
     int dmg_min;        // base damage range (AD/AP scale on top)
     int dmg_max;
-    int tp_cost;        // TP per attack (before AS reduction)
+    int attack_speed;   // AS stat: 4 = vanilla speed, lower is faster.
+                        // Attacks are TP-free (T_AttackCost returns 0);
+                        // this never charged TP -- the old name was a misnomer.
     int cooldown;       // reload duration in tics after firing (0 = none).
                         // The single tunable knob for reload speed:
                         // the reload animation's total duration IS this
@@ -140,7 +142,7 @@ const t_kitdef_t *T_KitForWeapon(weapontype_t w);
 int T_AttackInterval(player_t *player, weapontype_t w);
 // Aim-turn rate (2026-11-07): the angular speed (angle units per
 // tic) at which the facing turns toward the attack target, derived
-// from the AS stat (the kit's tp_cost). Faster AS turns faster.
+// from the AS stat (the kit's attack_speed). Faster AS turns faster.
 angle_t T_AimTurnRate(player_t *player);
 int T_KitFireSound(weapontype_t w);     // per-gun firing report sfx
 int T_KitCooldown(weapontype_t w);          // current cooldown rounds left

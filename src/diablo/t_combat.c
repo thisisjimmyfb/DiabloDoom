@@ -109,11 +109,11 @@ void T_DeriveStats(player_t *player, t_combatstats_t *out)
     out->ap = ene * 2;
     // NOTE: AP_PCT likewise applies after the kit base (T_ApplyApPct).
 
-    // Attack speed is its own stat (2026-11-07): the kit's tp_cost,
+    // Attack speed is its own stat (2026-11-07): the kit's attack_speed,
     // shown as AS in the stats panel. NOT Dexterity-derived --
     // Dexterity gives Block, Defense, and spread tightening, not
-    // attack speed. T_AttackInterval scales by this (tp_cost / 4).
-    out->attack_tp = T_KitForWeapon(player->readyweapon)->tp_cost;
+    // attack speed. T_AttackInterval scales by this (attack_speed / 4).
+    out->attack_tp = T_KitForWeapon(player->readyweapon)->attack_speed;
 
     // Crit is gear-inherent (Diablo-style): weapons and items grant
     // crit chance and bonus crit damage. No attribute derivation.
@@ -317,7 +317,7 @@ static int T_MonsterArmor(mobjtype_t type)
 static const t_kitdef_t t_kits[NUMWEAPONS] = {
     // wp_fist: unarmed default. Very high attack speed, no ammo:
     // ammo_cost 0 / ammo_max 0 already means no magazine (see
-    // T_HasAmmoForKit). attack_tics and tp_cost are my picks for
+    // T_HasAmmoForKit). attack_tics and attack_speed are my picks for
     // "very high" (fastest kit in the game); correctable on word.
     { "FISTS",      1,   3,   1,    0,    0,   0,      1, false,    0,    0, false,   0,   0,   0,   6, REPLENISH_AS },
     // Base kits are deliberately weak: item stats are the real damage
@@ -667,10 +667,10 @@ static int T_KitReplenishTics(const t_kitdef_t *kit, player_t *player)
         // BFG (cd=36) -> 36 tics/ammo base.
         return T_KitEffectiveCooldown(kit, player);
     }
-    // REPLENISH_AS: attack speed -- tp_cost scales the interval.
+    // REPLENISH_AS: attack speed -- attack_speed scales the interval.
     // Pistol (4) -> 8 tics, Shotgun (2) -> 4, Chaingun (1) -> 3 (min).
     {
-        int interval = kit->tp_cost * 2;
+        int interval = kit->attack_speed * 2;
         if (interval < 3)
             interval = 3;
         if (interval > 20)
@@ -1072,17 +1072,17 @@ void T_ResolveKill(player_t *player, mobj_t *victim, int dmg,
 
 // Effective attack interval in tics for a player's weapon: the kit's
 // base attack_tics at baseline attack speed (attack_tp 4, the AS
-// stat -- the kit's tp_cost), scaled by the AS stat
+// stat -- the kit's attack_speed), scaled by the AS stat
 // (attack_tp 2 = twice as fast). Min 1 tic (0 if the kit has no
 // attack time). This is the ONE firing-rate system: the queued-attack
 // executor pulses for this long per shot, and the continuous-fire
 // tick fires at this interval.
 // Aim-turn rate (2026-11-07): the facing turns toward the attack
 // target at this angular speed, in angle units per tic. Derived from
-// the AS stat (the kit's tp_cost): faster AS turns faster. Baseline
-// is ANG90 in 10 tics at tp_cost 4 (9 deg/tic) -- a 90-degree turn
-// takes 10 tics at baseline, ~3 at tp_cost 1 (fists), ~20 at
-// tp_cost 8 (BFG). My pick (correctable): the base rate.
+// the AS stat (the kit's attack_speed): faster AS turns faster. Baseline
+// is ANG90 in 10 tics at attack_speed 4 (9 deg/tic) -- a 90-degree turn
+// takes 10 tics at baseline, ~3 at attack_speed 1 (fists), ~20 at
+// attack_speed 8 (BFG). My pick (correctable): the base rate.
 angle_t T_AimTurnRate(player_t *player)
 {
     t_combatstats_t st;

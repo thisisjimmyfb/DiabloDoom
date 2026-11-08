@@ -1228,7 +1228,7 @@ static void ST_drawTurnKits(void)
     // animation -- so neither is hidden behind the other's row.
     // CD is on its own row (2026-11-07): the tic values are now
     // two digits and shared a row with AS they clipped the text.
-    snprintf(asval, sizeof(asval), "%d", kit->tp_cost);
+    snprintf(asval, sizeof(asval), "%d", kit->attack_speed);
     snprintf(cdval, sizeof(cdval), "%d", cd);
 
     // Transparent background (2026-11-07): no black box -- just

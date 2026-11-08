@@ -69,8 +69,8 @@ static boolean t_diablo_chain_fire_suppressed = false;
 // The scale is stored as two fractions (num/den) applied to each
 // frame's vanilla tics, so the relative timing within a segment is
 // preserved. Attack scale is the AS stat -- AS is its own stat in
-// the stats panel, the kit's tp_cost, scaled by tp_cost / 4 (the
-// same normalization T_AttackInterval uses: tp_cost 4 is vanilla
+// the stats panel, the kit's attack_speed, scaled by attack_speed / 4 (the
+// same normalization T_AttackInterval uses: attack_speed 4 is vanilla
 // speed, lower is faster, higher is slower). NOT Dexterity-derived
 // (Dexterity gives Block, Defense, and spread tightening, not
 // attack speed). Reload scale is the effective cooldown over the
@@ -410,8 +410,8 @@ P_FireDiabloWeapon
     // Attack/reload split (2026-11-07, weapon by weapon): the chain
     // is split at the fire state. Attack frames (atkstate through
     // the fire state) scale with the AS stat -- AS is its own stat
-    // in the stats panel, the kit's tp_cost, by tp_cost / 4
-    // (tp_cost 4 is vanilla speed). Reload frames (after the fire
+    // in the stats panel, the kit's attack_speed, by attack_speed / 4
+    // (attack_speed 4 is vanilla speed). Reload frames (after the fire
     // state) scale with the cooldown -- on a reload shot the reload
     // segment lasts exactly the cooldown in tics; on a normal shot
     // it plays at vanilla speed, which makes a real reload visibly
@@ -438,11 +438,11 @@ P_FireDiabloWeapon
         t_diablo_chain_in_reload = false;
 
         // Attack scale: the AS stat (2026-11-07) -- AS is its own
-        // stat in the stats panel, the kit's tp_cost. The attack
-        // frames scale by tp_cost / 4, the same normalization
-        // T_AttackInterval uses: tp_cost 4 plays at vanilla speed,
+        // stat in the stats panel, the kit's attack_speed. The attack
+        // frames scale by attack_speed / 4, the same normalization
+        // T_AttackInterval uses: attack_speed 4 plays at vanilla speed,
         // lower is faster, higher is slower. NOT Dexterity-derived.
-        t_diablo_atk_num = kit->tp_cost;
+        t_diablo_atk_num = kit->attack_speed;
         t_diablo_atk_den = 4;
 
         // Reload scale: the reload segment lasts the cooldown.
