@@ -91,6 +91,18 @@ static int t_diablo_atk_den = 1;   // attack-speed scale denominator
 static int t_diablo_rld_num = 1;   // reload scale numerator
 static int t_diablo_rld_den = 1;   // reload scale denominator
 
+// Reload hold for segment-less guns (2026-11-08): the chaingun,
+// rocket and chainsaw have no real reload segment -- the only
+// state after the fire state is a 0-tic ReFire, which P_SetPsprite
+// skips at once, so the chain would reach ready (and refill) right
+// after the fire state, before the cooldown elapses. On the
+// emptying shot the chain instead holds on the fire state for the
+// cooldown (no animation, just the wait); the magazine refills
+// only when the chain reaches ready afterwards.
+static boolean t_diablo_reload_hold = false;      // this chain needs the hold
+static int t_diablo_reload_hold_tics = 0;         // hold duration = cooldown in tics
+static boolean t_diablo_reload_hold_done = false; // hold already applied once
+
 
 
 //
@@ -308,6 +320,25 @@ static int T_DiabloReloadChainTics(weapontype_t w, statenum_t fire)
     return total;
 }
 
+// Raw total tics of a weapon's reload segment, unclamped: 0 means
+// the segment is only 0-tic states (chaingun/rocket/chainsaw
+// ReFire), so no scaled segment can hold the chain out the
+// cooldown. (2026-11-08)
+static int T_DiabloReloadChainRawTics(weapontype_t w, statenum_t fire)
+{
+    statenum_t st = states[fire].nextstate;
+    statenum_t ready = weaponinfo[w].readystate;
+    int total = 0;
+    int guard = 0;
+    while (st != ready && st != S_NULL && guard < 32)
+    {
+        total += states[st].tics;
+        st = states[st].nextstate;
+        guard++;
+    }
+    return total;
+}
+
 
 
 // P_FireDiabloWeapon.
@@ -342,6 +373,9 @@ P_FireDiabloWeapon
     t_diablo_reload_active = false;
     t_diablo_chain_in_reload = false;
     t_diablo_chain_fire_state = S_NULL;
+    t_diablo_reload_hold = false;
+    t_diablo_reload_hold_tics = 0;
+    t_diablo_reload_hold_done = false;
 
     // Gate + spend, exactly as P_FireWeapon's Diablo branch. (The turn
     // executor still validates first for its point-refund skip; this
@@ -466,6 +500,15 @@ P_FireDiabloWeapon
             t_diablo_rld_den = 1;
         }
         t_diablo_reload_active = reloading;
+        // Segment-less hold (2026-11-08): on the emptying shot, a
+        // gun with no real reload segment holds the chain out the
+        // cooldown (see P_MovePsprites). Guns with a real segment
+        // keep their scaled-segment behavior; normal shots never
+        // hold (option A skips the segment outright).
+        t_diablo_reload_hold = (reloading && cd > 0
+            && T_DiabloReloadChainRawTics(player->readyweapon, fire)
+               == 0);
+        t_diablo_reload_hold_tics = cd;
     }
 
     // Suppress the chain re-fire, then play the animation, mirroring
@@ -610,7 +653,15 @@ void A_ReFire
 	 && player->health)
     {
 	player->refire++;
-	P_FireWeapon (player);
+	// Diablo mode: a refire attempt with an empty magazine
+	// must not reach P_FireDiabloWeapon -- it would fail the
+	// gate, but only after clearing the in-flight reload
+	// flags, so the magazine would never refill (the
+	// emptying shot's ReFire state runs while the button
+	// is held). Skip the attempt; the chain reaches ready
+	// and refills as normal. (2026-11-08)
+	if (!T_Active() || T_KitCanFire(player->readyweapon))
+	    P_FireWeapon (player);
     }
     else
     {
@@ -1293,7 +1344,28 @@ void P_MovePsprites (player_t* player)
 		    // (and no weapon change pending) counts the
 		    // next shot as a refire, otherwise the counter
 		    // resets -- exactly what A_ReFire does.
-		    if (leaving_fire && !t_diablo_reload_active)
+		    // Reload hold (2026-11-08): a segment-less gun on
+		    // the emptying shot holds on the fire state for
+		    // the cooldown instead of advancing -- otherwise
+		    // the 0-tic ReFire is skipped at once and the
+		    // chain reaches ready (and refills) before the
+		    // cooldown elapses. One-time: when these tics
+		    // expire the state is still the fire state, so
+		    // without the flag the hold would re-apply
+		    // forever. The hold tics are the cooldown
+		    // exactly (no attack scaling -- the
+		    // frame-scaling below is skipped this tic).
+		    boolean held = false;
+		    if (leaving_fire && t_diablo_reload_active
+			&& t_diablo_reload_hold && !t_diablo_reload_hold_done)
+		    {
+			psp->tics = t_diablo_reload_hold_tics;
+			if (psp->tics < 1)
+			    psp->tics = 1;
+			t_diablo_reload_hold_done = true;
+			held = true;
+		    }
+		    else if (leaving_fire && !t_diablo_reload_active)
 		    {
 			if ((player->cmd.buttons & BT_ATTACK)
 			    && player->pendingweapon == wp_nochange
@@ -1320,7 +1392,7 @@ void P_MovePsprites (player_t* player)
 		    // attack frames by attack speed, reload frames
 		    // by the cooldown, for the whole chain (not just
 		    // on a reload shot).
-		    if (i == ps_weapon && t_diablo_chain_fire_suppressed)
+		    if (i == ps_weapon && t_diablo_chain_fire_suppressed && !held)
 		    {
 			if (psp->state ==
 			    &states[weaponinfo[player->readyweapon]

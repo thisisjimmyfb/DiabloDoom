@@ -1184,8 +1184,13 @@ chain-fire suppression flag before the psprite is set, so the state
 chain's `A_Fire*` call returns early and the shot never
 double-fires; the flag clears when the weapon returns to ready
 (`A_WeaponReady`). The reload flag is set only when the magazine is
-empty, so the refill triggers on chain completion. A cooldown of
-0 (fists) no longer skips the animation — the punch chain plays at
+empty, so the refill triggers on chain completion. Guns with no
+reload segment at all (chaingun, rocket, chainsaw — only a 0-tic
+ReFire after the fire state) hold the chain on the fire state for
+the cooldown on the emptying shot (2026-11-08), so the magazine
+refills only after the cooldown finishes, never before it. A
+cooldown of 0 (fists) no longer skips the animation — the punch
+chain plays at
 vanilla speed. Because the flag is set in both modes, a magazine
 emptied in explore refills when its reload animation completes,
 just as in turn mode — before the unification, explore never set

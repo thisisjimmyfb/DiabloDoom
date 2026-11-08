@@ -200,7 +200,11 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
    is called when the reload animation reaches the ready state
    (`P_MovePsprites` / `A_WeaponReady`), or immediately on the
    emptying shot for 0-cooldown weapons (whose reload animation is
-   skipped). The reload animation's duration IS the weapon's cooldown
+   skipped). Guns with no reload segment at all (chaingun, rocket,
+   chainsaw -- only a 0-tic ReFire after the fire state) hold the
+   chain on the fire state for the cooldown on the emptying shot
+   (2026-11-08), so the magazine refills only after the cooldown
+   finishes, never before it. The reload animation's duration IS the weapon's cooldown
    in tics (2026-11-07: the kit's `cooldown` field is the number of
    tics, so the cooldown is the reload-speed knob -- tune the field
    to tune the reload). Attack/reload split (2026-11-07, weapon by
