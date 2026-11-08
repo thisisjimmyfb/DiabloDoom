@@ -73,9 +73,11 @@ static boolean t_diablo_chain_fire_suppressed = false;
 // and spread tightening, not attack speed); the driver is undefined
 // until specified. Reload scale is the effective cooldown over the
 // vanilla reload-segment total, so the reload segment lasts exactly
-// the cooldown in tics; on a normal (non-emptying) shot the reload
-// segment plays at vanilla speed (1:1), which makes a real reload
-// visibly slower/longer than a normal shot's follow-through. The
+// the cooldown in tics. Shotgun exception: the pump IS the reload,
+// so it scales with cd on every shot. For other weapons, on a
+// normal (non-emptying) shot the reload segment plays at vanilla
+// speed (1:1), which makes a real reload visibly slower/longer
+// than a normal shot's follow-through. The
 // phase flag flips when the chain advances past the fire state.
 // Cleared when the weapon returns to ready (A_WeaponReady) and at
 // the start of P_FireDiabloWeapon.
@@ -442,24 +444,26 @@ P_FireDiabloWeapon
         t_diablo_atk_num = 1;
         t_diablo_atk_den = 1;
 
-        if (reloading)
+        // Reload scale: the reload segment lasts the cooldown.
+        // Shotgun: the pump IS the reload (2026-11-07 rescind --
+        // the pump is a reload animation, not an attack
+        // follow-through), so it scales with cd on EVERY shot, not
+        // just the emptying one. Other weapons: the reload segment
+        // scales with cd only on the emptying (reload) shot; on a
+        // normal shot it plays at vanilla speed. The refill flag is
+        // separate -- it is set only when the magazine is empty,
+        // so the refill triggers on chain completion.
+        if (player->readyweapon == wp_shotgun || reloading)
         {
-            // Reload: the reload segment lasts the cooldown.
-            // Refill on completion (T_KitRefillAmmo is a no-op
-            // for the inverted plasma magazine; its heat drains
-            // on its own).
             t_diablo_rld_num = cd;
             t_diablo_rld_den = vanilla_rld;
-            t_diablo_reload_active = true;
         }
         else
         {
-            // Normal shot: the reload segment plays at vanilla
-            // speed. No refill.
             t_diablo_rld_num = 1;
             t_diablo_rld_den = 1;
-            t_diablo_reload_active = false;
         }
+        t_diablo_reload_active = reloading;
     }
 
     // Suppress the chain re-fire, then play the animation, mirroring

@@ -207,6 +207,8 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
    until specified), reload frames (after the fire state) scale with
    the cooldown, so a reload shot's reload segment lasts exactly
    the cooldown while a normal shot's plays at vanilla speed.
+   Shotgun exception (2026-11-07 rescind): the pump IS the reload,
+   so it scales with cd on every shot, not just the emptying one.
    Current ladder (tics, 2026-11-07, vanilla reload-segment totals
    so every gun's reload plays at vanilla speed, 1:1 -- attack +
    reload equals the old chain total at base stats): chainsaw 9,
