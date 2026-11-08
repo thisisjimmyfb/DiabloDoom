@@ -413,14 +413,14 @@ P_FireDiabloWeapon
     // in the stats panel, the kit's attack_speed, by attack_speed / 4
     // (attack_speed 4 is vanilla speed). Reload frames (after the fire
     // state) scale with the cooldown -- on a reload shot the reload
-    // segment lasts exactly the cooldown in tics; on a normal shot
-    // it plays at vanilla speed, which makes a real reload visibly
-    // slower/longer than a normal shot's follow-through. The reload
-    // flag is set only when the magazine is empty, so the refill
-    // triggers on chain completion; on a normal shot the chain just
-    // plays and the weapon returns to ready. A cooldown of 0
-    // (fists) means no reload to time, but the attack chain still
-    // plays. Do not early-return without the animation.
+    // segment lasts exactly the cooldown in tics. Option A
+    // (2026-11-08): on a normal shot the reload segment is skipped
+    // entirely -- after the fire state the chain goes straight to
+    // the weapon's readystate. The reload flag is set only when the
+    // magazine is empty, so the refill triggers on chain completion.
+    // A cooldown of 0 (fists) means no reload to time, but the
+    // attack chain still plays. Do not early-return without the
+    // animation.
     // Reload sequence note: vanilla has a reload sequence only for
     // the shotgun (pump, S_SGUN3-8) and SSG (breach, S_DSGUN3-9).
     // The other guns have no reload sequence; their reload is the
@@ -448,12 +448,13 @@ P_FireDiabloWeapon
         // Reload scale: the reload segment lasts the cooldown.
         // Shotgun: the pump IS the reload (2026-11-07 rescind --
         // the pump is a reload animation, not an attack
-        // follow-through), so it scales with cd on EVERY shot, not
-        // just the emptying one. Other weapons: the reload segment
-        // scales with cd only on the emptying (reload) shot; on a
-        // normal shot it plays at vanilla speed. The refill flag is
-        // separate -- it is set only when the magazine is empty,
-        // so the refill triggers on chain completion.
+        // follow-through), so it scales with cd. Option A
+        // (2026-11-08): the reload segment plays only on the
+        // emptying shot, so the cd scale only takes effect
+        // there -- on a normal shot the segment is skipped
+        // outright. The refill flag is separate -- it is set
+        // only when the magazine is empty, so the refill
+        // triggers on chain completion.
         if (player->readyweapon == wp_shotgun || reloading)
         {
             t_diablo_rld_num = cd;
@@ -1279,9 +1280,37 @@ void P_MovePsprites (player_t* player)
 			 && t_diablo_chain_fire_suppressed
 			 && psp->state ==
 			    &states[t_diablo_chain_fire_state]);
-		    P_SetPsprite (player, i, psp->state->nextstate);
-		    if (leaving_fire)
-			t_diablo_chain_in_reload = true;
+		    // Option A (2026-11-08): on a normal shot the
+		    // reload segment is skipped -- after the fire
+		    // state the chain goes straight to the weapon's
+		    // readystate. On the emptying shot (reload
+		    // active) the chain plays on into the reload
+		    // segment as before. The skipped ReFire state
+		    // is what increments the refire counter, and
+		    // the pistol/chaingun spread keys off it (first
+		    // shot accurate, refire shots spread), so
+		    // preserve its bookkeeping here: button held
+		    // (and no weapon change pending) counts the
+		    // next shot as a refire, otherwise the counter
+		    // resets -- exactly what A_ReFire does.
+		    if (leaving_fire && !t_diablo_reload_active)
+		    {
+			if ((player->cmd.buttons & BT_ATTACK)
+			    && player->pendingweapon == wp_nochange
+			    && player->health)
+			    player->refire++;
+			else
+			    player->refire = 0;
+			P_SetPsprite (player, i,
+				      weaponinfo[player->readyweapon]
+				      .readystate);
+		    }
+		    else
+		    {
+			P_SetPsprite (player, i, psp->state->nextstate);
+			if (leaving_fire)
+			    t_diablo_chain_in_reload = true;
+		    }
 		    // Diablo reload: when the chain reaches the ready
 		    // state the reload is done (A_WeaponReady also
 		    // clears the flag; this is the safety net) -- and

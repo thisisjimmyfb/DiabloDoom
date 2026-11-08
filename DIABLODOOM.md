@@ -1170,18 +1170,21 @@ directly, so the turn executor's hit resolution still reads the
 result right after the call; the old `T_NativeFire` fired
 synchronously but never set the weapon psprite, so no weapon showed
 its attack animation in turn mode. `P_FireDiabloWeapon` sets the
-psprite to the weapon's attack state, so the attack animation —
-including the SSG's reload frames — plays in both modes, on EVERY
-shot, not just on reload (2026-11-07: previously it returned early
-when the magazine still had ammo, so most shots landed with no
-animation at all — the chaingun drum rotation and the chainsaw
-sawing only ever played as a reload). The direct fire sets a
+psprite to the weapon's attack state, so the attack animation
+plays in both modes, on EVERY shot, not just on reload (2026-11-07:
+previously it returned early when the magazine still had ammo, so
+most shots landed with no animation at all — the chaingun drum
+rotation and the chainsaw sawing only ever played as a reload).
+The reload segment (after the fire state, including the SSG's
+breach frames and the shotgun pump) plays only on the emptying
+shot (2026-11-08, option A): on a normal shot the chain goes
+straight from the fire state to the weapon's readystate, so every
+gun fires faster between shots. The direct fire sets a
 chain-fire suppression flag before the psprite is set, so the state
 chain's `A_Fire*` call returns early and the shot never
 double-fires; the flag clears when the weapon returns to ready
 (`A_WeaponReady`). The reload flag is set only when the magazine is
-empty, so the refill triggers on chain completion; on a normal shot
-the chain just plays and the weapon returns to ready. A cooldown of
+empty, so the refill triggers on chain completion. A cooldown of
 0 (fists) no longer skips the animation — the punch chain plays at
 vanilla speed. Because the flag is set in both modes, a magazine
 emptied in explore refills when its reload animation completes,

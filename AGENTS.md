@@ -209,10 +209,16 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
    its own stat in the stats panel, the kit's tp_cost, by tp_cost /
    4 -- tp_cost 4 is vanilla speed), reload frames (after the fire
    state) scale with the cooldown, so a reload shot's reload
-   segment lasts exactly the cooldown while a normal shot's plays
-   at vanilla speed.
+   segment lasts exactly the cooldown. Option A (2026-11-08): the
+   reload segment plays only on the emptying shot -- on a normal
+   shot the chain goes straight from the fire state to the weapon's
+   readystate. The skipped ReFire state is what increments the
+   refire counter (pistol/chaingun spread keys off it), so the
+   skip replicates its bookkeeping (button held counts the next
+   shot as a refire, otherwise the counter resets).
    Shotgun exception (2026-11-07 rescind): the pump IS the reload,
-   so it scales with cd on every shot, not just the emptying one.
+   so it scales with cd -- under option A it plays (and scales)
+   only on the emptying shot, like every reload segment.
    Aim turning (2026-11-07): a queued attack turns the facing toward
    its target at an AS-dependent rate (`T_AimTurnRate`: ANG90 in 10
    tics at tp_cost 4, scaled by 4/tp_cost) instead of snapping, and
@@ -220,8 +226,9 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
    attack interval). Untargeted attacks and the continuous-fire tick
    fire in the current facing (no turn).
    Current ladder (tics, 2026-11-07, vanilla reload-segment totals
-   so every gun's reload plays at vanilla speed, 1:1 -- attack +
-   reload equals the old chain total at base stats): chainsaw 9,
+   -- the cooldown IS the reload-segment duration, so on the
+   emptying shot attack + reload equals the old chain total at
+   base stats): chainsaw 9,
    chaingun 9, pistol 9, rocket 21, plasma 20, shotgun 34, BFG 20,
    SSG 52.
    Rocket charges are gone (2026-11-07): no charge gate; the
