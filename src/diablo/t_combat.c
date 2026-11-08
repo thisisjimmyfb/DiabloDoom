@@ -330,13 +330,16 @@ static const t_kitdef_t t_kits[NUMWEAPONS] = {
     // The replenish model (see replenish_model_t) now only sets
     // the inverted magazine's (plasma) drain rate; for normal
     // magazines the field is inert.
-    // wp_pistol: balanced AD sidearm. Cooldown 19 tics (2026-11-07):
-    // the vanilla attack-chain total, so the animation plays at
-    // vanilla speed (1:1, no stretch).
-    { "SIDEARM",    2,   4,   4,   19,    0,   0,      1, false,    1,   10, false,   0,   0,   0,  15, REPLENISH_AS },
-    // wp_shotgun: close-range burst, 4 pellets. Cooldown 44 tics
-    // (vanilla chain total).
-    { "SHOTGUN",    2,   3,   5,   44,    0,   0,      4, false,    2,   12, false,   0,   0,   0,  40, REPLENISH_AS },
+    // wp_pistol: balanced AD sidearm. Cooldown 9 tics (2026-11-07):
+    // the vanilla reload-segment total (S_PISTOL3-4), so the reload
+    // plays at vanilla speed (1:1, no stretch); the attack segment
+    // (S_PISTOL1-2, 10 tics) scales with attack speed on top.
+    { "SIDEARM",    2,   4,   4,    9,    0,   0,      1, false,    1,   10, false,   0,   0,   0,  15, REPLENISH_AS },
+    // wp_shotgun: close-range burst, 4 pellets. Cooldown 34 tics
+    // (2026-11-07): the vanilla reload-segment total (S_SGUN3-9,
+    // the pump), so the reload plays at vanilla speed; the attack
+    // segment (S_SGUN1-2, 10 tics) scales with attack speed on top.
+    { "SHOTGUN",    2,   3,   5,   34,    0,   0,      4, false,    2,   12, false,   0,   0,   0,  40, REPLENISH_AS },
     // wp_chaingun: 3-round burst. Cooldown 9 tics (vanilla chain
     // total): the rapid-fire weapon's short chain, so the reload
     // is quick and the barrel spin reads at vanilla speed.
@@ -355,23 +358,30 @@ static const t_kitdef_t t_kits[NUMWEAPONS] = {
     // (Tuned same day at the user's word -- a little of both: less per
     // shot than the original 25, more capacity than the original
     // 100, so ~6 shots of runway before the gate closes.)
-    // Cooldown 23 tics (2026-11-07, vanilla chain total): the fast
-    // AP weapon with a moderate cooldown — firing pauses the heat
-    // drain for two rounds, so longer bursts want more Energy
-    // (capacity). The reload animation is 23 tics; the heat-drain
-    // pause stays in rounds (see T_KitOnFire).
-    { "PULSE",      2,   4,   4,   23,    0,   0,      1, true,   20,  125,  true,   0,   0,   0,  16, REPLENISH_AS },
-    // wp_bfg: AP ultimate. Cooldown 60 tics (2026-11-07, vanilla
-    // chain total) drives the reload animation (and the reload
-    // refills the magazine at once).
-    { "BFG",       10,  18,   8,   60,  192,  60,      1, true,   20,   20, false,   0,   0,   0,  80, REPLENISH_CD },
+    // Cooldown 20 tics (2026-11-07, vanilla reload-segment total:
+    // S_PLASMA2, the long hold): the fast AP weapon with a moderate
+    // cooldown — firing pauses the heat drain for two rounds, so
+    // longer bursts want more Energy (capacity). The reload animation
+    // is 20 tics; the heat-drain pause stays in rounds (see
+    // T_KitOnFire). The attack segment (S_PLASMA1, 3 tics) scales
+    // with attack speed on top.
+    { "PULSE",      2,   4,   4,   20,    0,   0,      1, true,   20,  125,  true,   0,   0,   0,  16, REPLENISH_AS },
+    // wp_bfg: AP ultimate. Cooldown 20 tics (2026-11-07, vanilla
+    // reload-segment total: S_BFG4, the hold after firing) drives
+    // the reload animation (and the reload refills the magazine at
+    // once); the attack segment (S_BFG1-3, 40 tics of wind-up)
+    // scales with attack speed on top.
+    { "BFG",       10,  18,   8,   20,  192,  60,      1, true,   20,   20, false,   0,   0,   0,  80, REPLENISH_CD },
     // wp_chainsaw: AD melee with inherent leech (sustain for close range).
     // Cooldown 9 tics (2026-11-07, vanilla chain total): the fastest
     // reload of any gun.
     { "SAW",        1,   2,   3,    9,    0,   0,      1, false,    1,    6, false,   0,  30,   0,  12, REPLENISH_AS },
     // wp_supershotgun: AP double-barrel, breach reload, natural knockback.
-    // Cooldown 62 tics (2026-11-07, vanilla chain total).
-    { "SSG",        4,   8,   6,   62,    0,   0,      8, true,    8,    8, false,   0,   0,   1,  50, REPLENISH_CD },
+    // Cooldown 52 tics (2026-11-07, vanilla reload-segment total:
+    // S_DSGUN3-10, the breach), so the reload plays at vanilla speed;
+    // the attack segment (S_DSGUN1-2, 10 tics) scales with attack
+    // speed on top.
+    { "SSG",        4,   8,   6,   52,    0,   0,      8, true,    8,    8, false,   0,   0,   1,  50, REPLENISH_CD },
 };
 
 const t_kitdef_t *T_KitForWeapon(weapontype_t w)
