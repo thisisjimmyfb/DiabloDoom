@@ -1242,17 +1242,18 @@ static void ST_drawTurnKits(void)
     ST_TurnDrawText(valright - STWepTextWidth(cdval), 188, cdval);
 
     // Armor durability (2026-11-07): in turn mode the armor
-    // durability is drawn here as small text, labeled DUR -- the
-    // tallnum widget is skipped in turn mode (see ST_drawWidgets).
-    // DEF is NOT shown: the armor panel is too narrow to fit both
-    // DUR and DEF clear of the key slots (keyboxes at x=239), so
-    // DEF is dropped (2026-11-07, per direction) rather than
-    // crammed in. DUR is the total remaining durability of the
-    // equipped defense pieces.
+    // durability is drawn here as small text -- just the number,
+    // no label (the ARMOR label is already baked into the status
+    // bar). The tallnum widget is skipped in turn mode (see
+    // ST_drawWidgets). DEF is NOT shown: the armor panel is too
+    // narrow to fit both DUR and DEF clear of the key slots
+    // (keyboxes at x=239), so DEF is dropped (2026-11-07, per
+    // direction) rather than crammed in. The number is the total
+    // remaining durability of the equipped defense pieces.
     {
-        char armorval[12];
+        char armorval[8];
         const int durx = ST_ARMORX - 10;
-        snprintf(armorval, sizeof(armorval), "DUR %d", st_armordur);
+        snprintf(armorval, sizeof(armorval), "%d", st_armordur);
         ST_TurnDrawText(durx - STWepTextWidth(armorval) / 2,
                         180, armorval);
     }

@@ -345,9 +345,11 @@ one panel at a time. The bar stays; only the panels change.
   (2026-11-07): the armor panel is too narrow to fit both the
   durability and DEF clear of the key slots, so DEF is not shown
   rather than crammed in. In turn mode the armor durability is drawn
-  as small text in `ST_drawTurnKits`, labeled `DUR x` (the tallnum
-  armor widget is skipped in turn mode so the two don't draw on top
-  of each other). In explore mode the armor number stays the tallnum
+  as small text in `ST_drawTurnKits` — just the number, no label
+  (the ARMOR label is already baked into the status bar; the DUR
+  label was tried and removed the same night). The tallnum armor
+  widget is skipped in turn mode so the two don't draw on top of
+  each other. In explore mode the armor number stays the tallnum
   widget. Transparent background (2026-11-07) — just the text on the
   status bar, no black box. No gate row: plasma shows no heat entry,
   and rocket charges are gone (2026-11-07). Text is single-pass (no shadow) for
