@@ -109,13 +109,11 @@ void T_DeriveStats(player_t *player, t_combatstats_t *out)
     out->ap = ene * 2;
     // NOTE: AP_PCT likewise applies after the kit base (T_ApplyApPct).
 
-    // Dexterity feeds attack speed: faster attackers pay less TP.
-    // 4 TP base; -1 per 20 dex above 10, floor 2.
-    out->attack_tp = 4 - (dex - 10) / 20;
-    if (out->attack_tp < 2)
-        out->attack_tp = 2;
-    if (out->attack_tp > 4)
-        out->attack_tp = 4;
+    // Attack speed is its own stat (2026-11-07): the kit's tp_cost,
+    // shown as AS in the stats panel. NOT Dexterity-derived --
+    // Dexterity gives Block, Defense, and spread tightening, not
+    // attack speed. T_AttackInterval scales by this (tp_cost / 4).
+    out->attack_tp = T_KitForWeapon(player->readyweapon)->tp_cost;
 
     // Crit is gear-inherent (Diablo-style): weapons and items grant
     // crit chance and bonus crit damage. No attribute derivation.
@@ -1073,8 +1071,8 @@ void T_ResolveKill(player_t *player, mobj_t *victim, int dmg,
 
 
 // Effective attack interval in tics for a player's weapon: the kit's
-// base attack_tics at baseline attack speed (attack_tp 4, from
-// T_DeriveStats), scaled by the DEX-driven attack-speed stat
+// base attack_tics at baseline attack speed (attack_tp 4, the AS
+// stat -- the kit's tp_cost), scaled by the AS stat
 // (attack_tp 2 = twice as fast). Min 1 tic (0 if the kit has no
 // attack time). This is the ONE firing-rate system: the queued-attack
 // executor pulses for this long per shot, and the continuous-fire

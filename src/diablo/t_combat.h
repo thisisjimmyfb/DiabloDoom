@@ -25,7 +25,7 @@ typedef struct
     int ad_min;       // attack damage range, before crit/mitigation
     int ad_max;
     int ap;           // ability power (Phase 5 abilities)
-    int attack_tp;    // TP cost of ATTACK, from attack speed
+    int attack_tp;    // TP cost of ATTACK = the AS stat (kit tp_cost)
     int crit_chance;  // percent
     int crit_mult;    // percent, 150 = 1.5x
     int armor;        // physical mitigation
