@@ -1189,7 +1189,7 @@ static int loot_logged_count = 0;
 static void ST_drawTurnKits(void)
 {
     t_combatstats_t st;
-    char dmglab[8], dmgval[16], asval[8], cdval[8], defval[8];
+    char dmglab[8], dmgval[16], asval[8], cdval[8];
     const t_kitdef_t *kit;
     int cd, dmg_min, dmg_max;
     // Panel geometry: labels left-aligned, values right-aligned.
@@ -1241,27 +1241,20 @@ static void ST_drawTurnKits(void)
     ST_TurnDrawText(labx, 188, "CD");
     ST_TurnDrawText(valright - STWepTextWidth(cdval), 188, cdval);
 
-    // Armor + DEF (2026-11-07): in turn mode the armor durability
-    // and the total Defense rating are drawn here as small text,
-    // stacked and centered under the armor box -- the tallnum widget
-    // is skipped in turn mode (see ST_drawWidgets). Both values are
-    // equally important, so both use the same small font. The stack
-    // is shifted left to clear the stats panel's CD row.
-    // DUR is the armor durability (total remaining durability of the
-    // equipped defense pieces). DEF is the total Defense rating --
-    // gear Defense (helm+armor+boots+gloves+belt) plus Dex/4, from
-    // T_DeriveStats.
+    // Armor durability (2026-11-07): in turn mode the armor
+    // durability is drawn here as small text, labeled DUR -- the
+    // tallnum widget is skipped in turn mode (see ST_drawWidgets).
+    // DEF is NOT shown: the armor panel is too narrow to fit both
+    // DUR and DEF clear of the key slots (keyboxes at x=239), so
+    // DEF is dropped (2026-11-07, per direction) rather than
+    // crammed in. DUR is the total remaining durability of the
+    // equipped defense pieces.
     {
         char armorval[12];
-        // Shifted left to clear the key slots (keyboxes at x=239):
-        // the stack's right edge stays left of the key column.
-        const int stackx = ST_ARMORX - 16;
+        const int durx = ST_ARMORX - 10;
         snprintf(armorval, sizeof(armorval), "DUR %d", st_armordur);
-        ST_TurnDrawText(stackx - STWepTextWidth(armorval) / 2,
-                        172, armorval);
-        snprintf(defval, sizeof(defval), "DEF %d", st.armor);
-        ST_TurnDrawText(stackx - STWepTextWidth(defval) / 2,
-                        180, defval);
+        ST_TurnDrawText(durx - STWepTextWidth(armorval) / 2,
+                        180, armorval);
     }
 }
 
