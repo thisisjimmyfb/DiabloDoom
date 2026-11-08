@@ -885,14 +885,14 @@ equipped), not loot.
 
 | Gun | Type | LoL mechanic | Reload | Identity |
 |-----|------|--------------|-----------|----------|
-| Pistol | AD | **Magazine 10** (1/shot) | cd 19 tics, when empty | Reliable sidearm. |
-| Shotgun | AD | **Magazine 12** (2/shot) | cd 44 tics, when empty | Positioning reward, pellet spread. |
+| Pistol | AD | **Magazine 10** (1/shot) | cd 9 tics, when empty | Reliable sidearm. |
+| Shotgun | AD | **Magazine 12** (2/shot) | cd 34 tics, when empty | Positioning reward, pellet spread. |
 | Chaingun | AD | **Magazine 10** (1/shot) | cd 9 tics, when empty | point-hungry DPS hose. |
 | Chainsaw | AD | **Magazine 6** (1/shot) + **30% inherent leech** | cd 9 tics, when empty | High risk, constant uptime; leech sustains close-range fighting. |
 | Plasma Rifle | AP | **Ammo** (inverted) | heat drain | The ammo counter represents heat: starts at 0, +20 per shot, fires while the count is below the 125 capacity, and drains at the replenish rate continuously — the drain is the reload period. No separate heat resource (2026-10-22). |
 | Rocket Launcher | AP | **Magazine 10** (10/shot) | cd 21 tics, when empty | Punctuated splash. One shot empties the magazine; no charges (removed 2026-11-07) — the small magazine is the limiter. |
-| Super Shotgun | AP | **Magazine 8** (8/shot) + **knockback** | cd 62 tics, when empty | Breach tool: shoves target 1 tile. One shot empties the magazine; firing sets a 62-tic cooldown, which drives the reload animation, and the magazine refills to full when the reload finishes. |
-| BFG9000 | AP | **Magazine 20** (20/shot) | cd 60 tics, when empty | Ultimate: highest damage. One shot empties the magazine; firing sets a 60-tic cooldown, which drives the reload animation, and the magazine refills to full when the reload finishes. |
+| Super Shotgun | AP | **Magazine 8** (8/shot) + **knockback** | cd 52 tics, when empty | Breach tool: shoves target 1 tile. One shot empties the magazine; firing sets a 52-tic cooldown, which drives the reload animation, and the magazine refills to full when the reload finishes. |
+| BFG9000 | AP | **Magazine 20** (20/shot) | cd 20 tics, when empty | Ultimate: highest damage. One shot empties the magazine; firing sets a 20-tic cooldown, which drives the reload animation, and the magazine refills to full when the reload finishes. |
 
 **Strength requirements (2026-11-04).** Every item has a strength
 requirement from its type, not its tier: guns need strength by weapon
@@ -932,10 +932,12 @@ while the counter runs. The counter is in rounds (1 round = 10 s =
 350 tics); the reload animation is in tics. There is no special
 treatment by weapon class: kits with cooldown 0 (fists) never set the
 counter, so they stay limited by attack speed alone. Current ladder
-(in tics, 2026-11-07, vanilla attack-chain totals so every gun's
-reload animation plays at vanilla speed, 1:1, no stretch): chainsaw
-9 (fastest), chaingun 9, pistol 19, rocket 21, plasma 23, shotgun
-44, BFG 60, SSG 62 (slowest) — plasma is the fast AP weapon with a
+(in tics, 2026-11-07, vanilla reload-segment totals so every gun's
+reload plays at vanilla speed, 1:1, no stretch, with the attack
+segment scaling with attack speed on top -- attack + reload equals
+the old chain total at base stats): chainsaw
+9 (fastest), chaingun 9, pistol 9, rocket 21, plasma 20, shotgun
+34, BFG 20, SSG 52 (slowest) — plasma is the fast AP weapon with a
 moderate cooldown (longer bursts want more Energy for capacity),
 chaingun is one of the fastest reloads (its vanilla chain is short),
 SSG the slowest (its breach reload is the longest chain),
@@ -1088,7 +1090,7 @@ preview the counter rising toward capacity instead.
   buffer (e.g. Reaper points refunds). Melee (fists, chainsaw) still costs
   points per attack, reduced by attack speed. Normal magazines trickle
   UP +1 per interval for ALL weapons: cooldown-driven kits 1 per
-  effective `cooldown` in tics (SSG 62, BFG 60 — haste/CDR gear
+  effective `cooldown` in tics (SSG 52, BFG 20 — haste/CDR gear
   speeds the refill), attack-speed kits 1 per `tp_cost` × 2 tics
   (clamped 3–20 tics: pistol 8, shotgun 4, chaingun 3). The rocket
   additionally loads one attack's worth of ammo per regenerated

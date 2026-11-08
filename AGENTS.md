@@ -200,10 +200,18 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
    skipped). The reload animation's duration IS the weapon's cooldown
    in tics (2026-11-07: the kit's `cooldown` field is the number of
    tics, so the cooldown is the reload-speed knob -- tune the field
-   to tune the reload). Current ladder (tics, 2026-11-07, vanilla
-   attack-chain totals so every gun's reload animation plays at
-   vanilla speed, 1:1): chainsaw 9, chaingun 9, pistol 19, rocket
-   21, plasma 23, shotgun 44, BFG 60, SSG 62.
+   to tune the reload). Attack/reload split (2026-11-07, weapon by
+   weapon): the chain is split at the fire state -- attack frames
+   (atkstate through the fire state) scale with attack speed
+   (attack_tp / 4), reload frames (after the fire state) scale with
+   the cooldown, so a reload shot's reload segment lasts exactly
+   the cooldown while a normal shot's plays at vanilla speed.
+   Current ladder (tics, 2026-11-07, vanilla reload-segment totals
+   so every gun's reload plays at vanilla speed, 1:1, with the
+   attack segment scaling with attack speed on top -- attack +
+   reload equals the old chain total at base stats): chainsaw 9,
+   chaingun 9, pistol 9, rocket 21, plasma 20, shotgun 34, BFG 20,
+   SSG 52.
    Rocket charges are gone (2026-11-07): no charge gate; the
    magazine is the limiter (ammo_max 10, ammo_cost 10 = 1 shot
    per magazine).
