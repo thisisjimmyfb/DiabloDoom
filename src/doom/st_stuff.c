@@ -1005,6 +1005,31 @@ void ST_doPaletteStuff(void)
 // weapon equipped in the Diablo inventory (icon + aggregated damage range).
 // ---------------------------------------------------------------------------
 
+// Half-scale text width (2026-11-07): the pixel width of a string
+// drawn with ST_TurnDrawTextHalf, for right-aligning values.
+static int ST_TurnDrawTextHalfWidth(const char *s)
+{
+    int w = 0;
+    for (; *s; s++)
+    {
+        unsigned char c = (unsigned char)*s;
+        patch_t *p;
+        if (c == ' ')
+        {
+            w += 3;
+            continue;
+        }
+        if (c < '!' || c > '_')
+            continue;
+        p = hu_font[c - '!'];
+        if (p == NULL)
+            w += 2;
+        else
+            w += (SHORT(p->width) + 1) / 2 + 1;
+    }
+    return w;
+}
+
 static int STWepTextWidth(const char *s)
 {
     int w = 0;
@@ -1146,6 +1171,64 @@ static void STWepDrawIcon(int x, int y, int w, int h,
 #define ST_WEPY 169
 #define ST_WEPH 21
 
+// Half-scale text drawer (2026-11-07): draws hu_font glyphs at half
+// size (8px -> 4px tall) so the four-row stats panel fits the 32px
+// status bar with real margins. OR-samples each 2x2 source block --
+// if any of the four source pixels is opaque, the destination pixel
+// is drawn -- so thin strokes survive the downscale (nearest-neighbor
+// would drop them). Same glyph coverage as ST_TurnDrawText ('!'..'_').
+static void ST_TurnDrawTextHalf(int x, int y, const char *s)
+{
+    while (*s)
+    {
+        unsigned char c = (unsigned char)*s++;
+        patch_t *p;
+        int pw, ph, hw, hh, dx, dy;
+        if (c == ' ')
+        {
+            x += 3;
+            continue;
+        }
+        if (c < '!' || c > '_')
+            continue;
+        p = hu_font[c - '!'];
+        if (p == NULL)
+        {
+            x += 2;
+            continue;
+        }
+        pw = SHORT(p->width);
+        ph = SHORT(p->height);
+        hw = (pw + 1) / 2;
+        hh = (ph + 1) / 2;
+        for (dy = 0; dy < hh; ++dy)
+        {
+            int yy = y + dy;
+            pixel_t *dest;
+            if (yy < 0 || yy >= SCREENHEIGHT)
+                continue;
+            dest = I_VideoBuffer + SCREENWIDTH * yy + x;
+            for (dx = 0; dx < hw; ++dx)
+            {
+                int px = -1, sx, sy;
+                if (x + dx < 0 || x + dx >= SCREENWIDTH)
+                {
+                    dest++;
+                    continue;
+                }
+                for (sy = 2 * dy; sy < 2 * dy + 2 && px < 0; ++sy)
+                    for (sx = 2 * dx; sx < 2 * dx + 2 && px < 0; ++sx)
+                        if (sx < pw && sy < ph)
+                            px = STWepPatchPixel(p, sx, sy);
+                if (px >= 0)
+                    *dest = (pixel_t)px;
+                dest++;
+            }
+        }
+        x += hw + 1;
+    }
+}
+
 // Turn-based text drawer (same as T_DrawText: hu_font covers '!'..'_').
 // Skips missing glyphs (e.g. 'L' is absent from the HU font).
 static void ST_TurnDrawText(int x, int y, const char *s)
@@ -1193,9 +1276,10 @@ static void ST_drawTurnKits(void)
     const t_kitdef_t *kit;
     int cd, dmg_min, dmg_max;
     // Panel geometry: labels left-aligned, values right-aligned.
-    // Four rows at 8px spacing (168, 176, 184, 192) -- the 32px
-    // status bar (y=168..200) fits exactly four 8px rows, so the
-    // spacing is tight with no margin top or bottom.
+    // Half-scale font (2026-11-07, 4px tall): four rows at 6px
+    // spacing (173, 179, 185, 191) -- 22px total, centered in the
+    // 32px status bar (y=168..200) with 5px margins top and bottom,
+    // so the stats are contained instead of filling edge to edge.
     const int labx = 254, valright = 316;
 
     if (!T_Active())
@@ -1235,16 +1319,17 @@ static void ST_drawTurnKits(void)
     snprintf(defval, sizeof(defval), "%d", st.armor);
 
     // Transparent background (2026-11-07): no black box -- just
-    // the AP/AD, AS, CD, and DEF text on the status bar.
+    // the AP/AD, AS, CD, and DEF text on the status bar, at half
+    // scale (4px tall).
     // Labels left-aligned, values right-aligned for a clean stat sheet.
-    ST_TurnDrawText(labx, 168, dmglab);
-    ST_TurnDrawText(valright - STWepTextWidth(dmgval), 168, dmgval);
-    ST_TurnDrawText(labx, 176, "AS");
-    ST_TurnDrawText(valright - STWepTextWidth(asval), 176, asval);
-    ST_TurnDrawText(labx, 184, "CD");
-    ST_TurnDrawText(valright - STWepTextWidth(cdval), 184, cdval);
-    ST_TurnDrawText(labx, 192, "DEF");
-    ST_TurnDrawText(valright - STWepTextWidth(defval), 192, defval);
+    ST_TurnDrawTextHalf(labx, 173, dmglab);
+    ST_TurnDrawTextHalf(valright - ST_TurnDrawTextHalfWidth(dmgval), 173, dmgval);
+    ST_TurnDrawTextHalf(labx, 179, "AS");
+    ST_TurnDrawTextHalf(valright - ST_TurnDrawTextHalfWidth(asval), 179, asval);
+    ST_TurnDrawTextHalf(labx, 185, "CD");
+    ST_TurnDrawTextHalf(valright - ST_TurnDrawTextHalfWidth(cdval), 185, cdval);
+    ST_TurnDrawTextHalf(labx, 191, "DEF");
+    ST_TurnDrawTextHalf(valright - ST_TurnDrawTextHalfWidth(defval), 191, defval);
 }
 
 // Loot alert: while drops are on the map, keep "Loot nearby, press

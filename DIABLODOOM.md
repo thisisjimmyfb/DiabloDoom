@@ -341,7 +341,9 @@ one panel at a time. The bar stays; only the panels change.
   AD guns, `AP x` for AP guns — never both), attack speed (`AS x`), and
   cooldown (`CD x`, the reload duration in tics), and defense (`DEF x`,
   the total Defense rating: gear Defense plus Dex/4), each on its own row.
-  Transparent background (2026-11-07) — just the text on the status bar,
+  Half-scale font (2026-11-07, 4px tall, OR-sampled from the 8px HU font):
+  four rows at 6px spacing, centered in the 32px status bar with 5px
+  margins, so the stats are contained. Transparent background (2026-11-07)
   no black box. No gate row: plasma shows no heat entry, and rocket
   charges are gone (2026-11-07). Text is single-pass (no shadow) for
   crispness.
