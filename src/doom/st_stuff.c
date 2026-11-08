@@ -1193,9 +1193,9 @@ static void ST_drawTurnKits(void)
     const t_kitdef_t *kit;
     int cd, dmg_min, dmg_max;
     // Panel geometry: labels left-aligned, values right-aligned.
-    // Four rows at 8px spacing (168, 176, 184, 192) -- the 32px
-    // status bar (y=168..200) fits exactly four 8px rows, so the
-    // spacing is tight with no margin top or bottom.
+    // Three rows at 8px spacing (168, 176, 184) -- the DEF rating
+    // moved out (2026-11-07): it now sits under the ARMOR number,
+    // in parens, instead of a fourth row here.
     const int labx = 254, valright = 316;
 
     if (!T_Active())
@@ -1228,14 +1228,11 @@ static void ST_drawTurnKits(void)
     // animation -- so neither is hidden behind the other's row.
     // CD is on its own row (2026-11-07): the tic values are now
     // two digits and shared a row with AS they clipped the text.
-    // DEF is the total Defense rating (2026-11-07): gear Defense
-    // (helm+armor+boots+gloves+belt) plus Dex/4, from T_DeriveStats.
     snprintf(asval, sizeof(asval), "%d", kit->tp_cost);
     snprintf(cdval, sizeof(cdval), "%d", cd);
-    snprintf(defval, sizeof(defval), "%d", st.armor);
 
     // Transparent background (2026-11-07): no black box -- just
-    // the AP/AD, AS, CD, and DEF text on the status bar.
+    // the AP/AD, AS, and CD text on the status bar.
     // Labels left-aligned, values right-aligned for a clean stat sheet.
     ST_TurnDrawText(labx, 168, dmglab);
     ST_TurnDrawText(valright - STWepTextWidth(dmgval), 168, dmgval);
@@ -1243,8 +1240,14 @@ static void ST_drawTurnKits(void)
     ST_TurnDrawText(valright - STWepTextWidth(asval), 176, asval);
     ST_TurnDrawText(labx, 184, "CD");
     ST_TurnDrawText(valright - STWepTextWidth(cdval), 184, cdval);
-    ST_TurnDrawText(labx, 192, "DEF");
-    ST_TurnDrawText(valright - STWepTextWidth(defval), 192, defval);
+
+    // DEF (2026-11-07): the total Defense rating -- gear Defense
+    // (helm+armor+boots+gloves+belt) plus Dex/4, from T_DeriveStats
+    // -- now sits under the ARMOR durability number, in parens,
+    // right-aligned to the armor number's right edge.
+    snprintf(defval, sizeof(defval), "(%d)", st.armor);
+    ST_TurnDrawText(ST_ARMORX + ST_ARMORWIDTH * 14
+                        - STWepTextWidth(defval), 192, defval);
 }
 
 // Loot alert: while drops are on the map, keep "Loot nearby, press
