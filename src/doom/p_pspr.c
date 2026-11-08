@@ -68,16 +68,17 @@ static boolean t_diablo_chain_fire_suppressed = false;
 // and chaingun have no real reload segment, just a 0-tic ReFire).
 // The scale is stored as two fractions (num/den) applied to each
 // frame's vanilla tics, so the relative timing within a segment is
-// preserved. Attack scale is the derived attack-speed factor
-// (attack_tp / 4: 1.0 at Dex 10, 0.5 at high Dex). Reload scale is
-// the effective cooldown over the vanilla reload-segment total, so
-// the reload segment lasts exactly the cooldown in tics; on a
-// normal (non-emptying) shot the reload segment plays at vanilla
-// speed (1:1), which makes a real reload visibly slower/longer
-// than a normal shot's follow-through. The phase flag flips when
-// the chain advances past the fire state. Cleared when the weapon
-// returns to ready (A_WeaponReady) and at the start of
-// P_FireDiabloWeapon.
+// preserved. Attack scale is vanilla speed (1:1) for now -- attack
+// speed is NOT Dexterity-derived (Dexterity gives Block, Defense,
+// and spread tightening, not attack speed); the driver is undefined
+// until specified. Reload scale is the effective cooldown over the
+// vanilla reload-segment total, so the reload segment lasts exactly
+// the cooldown in tics; on a normal (non-emptying) shot the reload
+// segment plays at vanilla speed (1:1), which makes a real reload
+// visibly slower/longer than a normal shot's follow-through. The
+// phase flag flips when the chain advances past the fire state.
+// Cleared when the weapon returns to ready (A_WeaponReady) and at
+// the start of P_FireDiabloWeapon.
 static boolean t_diablo_reload_active = false;
 static statenum_t t_diablo_chain_fire_state = S_NULL; // pivot, this chain
 static boolean t_diablo_chain_in_reload = false; // past the fire state
@@ -404,18 +405,18 @@ P_FireDiabloWeapon
     // (vanilla P_FireWeapon behavior, now the single fire path).
     // Attack/reload split (2026-11-07, weapon by weapon): the chain
     // is split at the fire state. Attack frames (atkstate through
-    // the fire state) scale with attack speed (attack_tp / 4, from
-    // T_DeriveStats: 1.0 at Dex 10, 0.5 at high Dex). Reload frames
-    // (after the fire state) scale with the cooldown -- on a reload
-    // shot the reload segment lasts exactly the cooldown in tics;
-    // on a normal shot it plays at vanilla speed, which makes a
-    // real reload visibly slower/longer than a normal shot's
-    // follow-through. The reload flag is set only when the magazine
-    // is empty, so the refill triggers on chain completion; on a
-    // normal shot the chain just plays and the weapon returns to
-    // ready. A cooldown of 0 (fists) means no reload to time, but
-    // the attack chain still plays. Do not early-return without
-    // the animation.
+    // the fire state) play at vanilla speed for now -- attack speed
+    // is NOT Dexterity-derived, and its driver is undefined until
+    // specified. Reload frames (after the fire state) scale with
+    // the cooldown -- on a reload shot the reload segment lasts
+    // exactly the cooldown in tics; on a normal shot it plays at
+    // vanilla speed, which makes a real reload visibly slower/longer
+    // than a normal shot's follow-through. The reload flag is set
+    // only when the magazine is empty, so the refill triggers on
+    // chain completion; on a normal shot the chain just plays and
+    // the weapon returns to ready. A cooldown of 0 (fists) means no
+    // reload to time, but the attack chain still plays. Do not
+    // early-return without the animation.
     // Reload sequence note: vanilla has a reload sequence only for
     // the shotgun (pump, S_SGUN3-8) and SSG (breach, S_DSGUN3-9).
     // The other guns have no reload sequence; their reload is the
@@ -428,15 +429,18 @@ P_FireDiabloWeapon
         statenum_t fire = T_DiabloFireState(player->readyweapon);
         int vanilla_rld =
             T_DiabloReloadChainTics(player->readyweapon, fire);
-        t_combatstats_t st;
 
         t_diablo_chain_fire_state = fire;
         t_diablo_chain_in_reload = false;
 
-        // Attack scale: derived attack speed (attack_tp / 4).
-        T_DeriveStats(player, &st);
-        t_diablo_atk_num = st.attack_tp;
-        t_diablo_atk_den = 4;
+        // Attack scale: vanilla speed (1:1) for now. Attack speed
+        // is NOT Dexterity-derived (2026-11-07 correction: Dexterity
+        // gives Block, Defense, and spread tightening, not attack
+        // speed). The attack-speed driver is undefined until
+        // specified; the atk_num/atk_den pair stays so wiring it
+        // in later is a one-line change.
+        t_diablo_atk_num = 1;
+        t_diablo_atk_den = 1;
 
         if (reloading)
         {

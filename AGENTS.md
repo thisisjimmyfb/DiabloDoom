@@ -202,13 +202,13 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
    tics, so the cooldown is the reload-speed knob -- tune the field
    to tune the reload). Attack/reload split (2026-11-07, weapon by
    weapon): the chain is split at the fire state -- attack frames
-   (atkstate through the fire state) scale with attack speed
-   (attack_tp / 4), reload frames (after the fire state) scale with
+   (atkstate through the fire state) play at vanilla speed for now
+   (attack speed is NOT Dexterity-derived; its driver is undefined
+   until specified), reload frames (after the fire state) scale with
    the cooldown, so a reload shot's reload segment lasts exactly
    the cooldown while a normal shot's plays at vanilla speed.
    Current ladder (tics, 2026-11-07, vanilla reload-segment totals
-   so every gun's reload plays at vanilla speed, 1:1, with the
-   attack segment scaling with attack speed on top -- attack +
+   so every gun's reload plays at vanilla speed, 1:1 -- attack +
    reload equals the old chain total at base stats): chainsaw 9,
    chaingun 9, pistol 9, rocket 21, plasma 20, shotgun 34, BFG 20,
    SSG 52.

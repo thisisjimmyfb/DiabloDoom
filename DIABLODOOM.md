@@ -933,9 +933,8 @@ while the counter runs. The counter is in rounds (1 round = 10 s =
 treatment by weapon class: kits with cooldown 0 (fists) never set the
 counter, so they stay limited by attack speed alone. Current ladder
 (in tics, 2026-11-07, vanilla reload-segment totals so every gun's
-reload plays at vanilla speed, 1:1, no stretch, with the attack
-segment scaling with attack speed on top -- attack + reload equals
-the old chain total at base stats): chainsaw
+reload plays at vanilla speed, 1:1, no stretch -- attack + reload
+equals the old chain total at base stats): chainsaw
 9 (fastest), chaingun 9, pistol 9, rocket 21, plasma 20, shotgun
 34, BFG 20, SSG 52 (slowest) — plasma is the fast AP weapon with a
 moderate cooldown (longer bursts want more Energy for capacity),
