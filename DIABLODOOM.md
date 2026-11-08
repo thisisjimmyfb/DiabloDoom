@@ -341,9 +341,13 @@ one panel at a time. The bar stays; only the panels change.
   AD guns, `AP x` for AP guns — never both), attack speed (`AS x`), and
   cooldown (`CD x`, the reload duration in tics), each on its own row.
   The defense rating (the total Defense rating: gear Defense plus Dex/4)
-  moved out of the panel (2026-11-07) — it now sits under the ARMOR
-  durability number, in parens (`(x)`), right-aligned to the armor
-  number's right edge. Transparent background (2026-11-07) — just the
+  moved out of the panel (2026-11-07) — in turn mode it now sits under
+  the ARMOR durability number as `DEF x`. Both are drawn as small text
+  in `ST_drawTurnKits`, stacked and centered under the armor box (the
+  tallnum armor widget is skipped in turn mode so the two don't draw
+  on top of each other); both values are equally important, so both
+  use the same small font. In explore mode the armor number stays the
+  tallnum widget. Transparent background (2026-11-07) — just the
   text on the status bar, no black box. No gate row: plasma shows no
   heat entry, and rocket charges are gone (2026-11-07). Text is single-pass (no shadow) for
   crispness.
