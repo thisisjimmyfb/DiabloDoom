@@ -335,11 +335,12 @@ one panel at a time. The bar stays; only the panels change.
   classic Doom: baked-in `AMMO` label with big red numbers showing the
   ready weapon's Diablo magazine counter (not a vanilla pool), via the
   `w_ready` widget in `src/doom/st_stuff.c`. No custom text rendering.
-- **Right ammo counts → AD/AP/AS/CD panel** (done). The four per-type ammo
+- **Right ammo counts → AD/AP/AS/CD/DEF panel** (done). The four per-type ammo
   counters (and their `BULL`/`SHELL`/`RCKT`/`CELL` labels, painted over)
   are replaced by a stat block, `ST_drawTurnKits`: damage (`AD x-y` for
   AD guns, `AP x` for AP guns — never both), attack speed (`AS x`), and
-  cooldown (`CD x`, the reload duration in tics), each on its own row.
+  cooldown (`CD x`, the reload duration in tics), and defense (`DEF x`,
+  the total Defense rating: gear Defense plus Dex/4), each on its own row.
   Transparent background (2026-11-07) — just the text on the status bar,
   no black box. No gate row: plasma shows no heat entry, and rocket
   charges are gone (2026-11-07). Text is single-pass (no shadow) for

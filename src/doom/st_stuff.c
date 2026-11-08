@@ -1189,10 +1189,13 @@ static int loot_logged_count = 0;
 static void ST_drawTurnKits(void)
 {
     t_combatstats_t st;
-    char dmglab[8], dmgval[16], asval[8], cdval[8];
+    char dmglab[8], dmgval[16], asval[8], cdval[8], defval[8];
     const t_kitdef_t *kit;
     int cd, dmg_min, dmg_max;
     // Panel geometry: labels left-aligned, values right-aligned.
+    // Four rows at 8px spacing (168, 176, 184, 192) -- the 32px
+    // status bar (y=168..200) fits exactly four 8px rows, so the
+    // spacing is tight with no margin top or bottom.
     const int labx = 254, valright = 316;
 
     if (!T_Active())
@@ -1225,18 +1228,23 @@ static void ST_drawTurnKits(void)
     // animation -- so neither is hidden behind the other's row.
     // CD is on its own row (2026-11-07): the tic values are now
     // two digits and shared a row with AS they clipped the text.
+    // DEF is the total Defense rating (2026-11-07): gear Defense
+    // (helm+armor+boots+gloves+belt) plus Dex/4, from T_DeriveStats.
     snprintf(asval, sizeof(asval), "%d", kit->tp_cost);
     snprintf(cdval, sizeof(cdval), "%d", cd);
+    snprintf(defval, sizeof(defval), "%d", st.armor);
 
     // Transparent background (2026-11-07): no black box -- just
-    // the AP/AD, AS, and CD text on the status bar.
+    // the AP/AD, AS, CD, and DEF text on the status bar.
     // Labels left-aligned, values right-aligned for a clean stat sheet.
-    ST_TurnDrawText(labx, 171, dmglab);
-    ST_TurnDrawText(valright - STWepTextWidth(dmgval), 171, dmgval);
-    ST_TurnDrawText(labx, 180, "AS");
-    ST_TurnDrawText(valright - STWepTextWidth(asval), 180, asval);
-    ST_TurnDrawText(labx, 189, "CD");
-    ST_TurnDrawText(valright - STWepTextWidth(cdval), 189, cdval);
+    ST_TurnDrawText(labx, 168, dmglab);
+    ST_TurnDrawText(valright - STWepTextWidth(dmgval), 168, dmgval);
+    ST_TurnDrawText(labx, 176, "AS");
+    ST_TurnDrawText(valright - STWepTextWidth(asval), 176, asval);
+    ST_TurnDrawText(labx, 184, "CD");
+    ST_TurnDrawText(valright - STWepTextWidth(cdval), 184, cdval);
+    ST_TurnDrawText(labx, 192, "DEF");
+    ST_TurnDrawText(valright - STWepTextWidth(defval), 192, defval);
 }
 
 // Loot alert: while drops are on the map, keep "Loot nearby, press
