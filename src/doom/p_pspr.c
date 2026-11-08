@@ -667,7 +667,10 @@ A_Lower
 	return;	
     }
 	
-    player->readyweapon = player->pendingweapon; 
+    player->readyweapon = player->pendingweapon;
+    // Weapon switch resets the magazine (2026-11-07): the new
+    // weapon is always full when switched to.
+    T_KitOnWeaponChange(player->readyweapon);
 
     P_BringUpWeapon (player);
 }

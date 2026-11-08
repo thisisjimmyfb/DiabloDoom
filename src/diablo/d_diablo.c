@@ -781,6 +781,9 @@ void D_SyncDoomWeapon(struct player_s *pl)
     printf("[DIABLO] equip: readyweapon %d -> %d\n", player->readyweapon, w);
     player->readyweapon = w;
     player->pendingweapon = wp_nochange;
+    // Weapon switch resets the magazine (2026-11-07): the new
+    // weapon is always full when switched to.
+    T_KitOnWeaponChange(w);
     // Snap the first-person sprite immediately. Turn mode is frozen
     // during planning, so no lower/raise animation is needed.
     P_SetPsprite(player, ps_weapon, weaponinfo[w].readystate);

@@ -1014,6 +1014,20 @@ void T_KitRefillAmmo(weapontype_t w)
     t_ammo[w] = T_KitMaxAmmo(w);
 }
 
+// Weapon switch: reset the magazine to full, so a weapon is always
+// full when switched to (2026-11-07). The magazine counter is shared
+// between turn and explore mode, so without this a half-empty
+// magazine would carry over from an earlier use of the same weapon.
+// Inverted magazines (plasma) vent heat to 0 -- cold is full.
+void T_KitOnWeaponChange(weapontype_t w)
+{
+    if (w < 0 || w >= NUMWEAPONS)
+        return;
+    if (!t_cadence_inited)
+        T_KitResetCadence();
+    t_ammo[w] = t_kits[w].ammo_inverted ? 0 : T_KitMaxAmmo(w);
+}
+
 // Kill credit + kill-triggered affix mechanics for one victim.
 void T_ResolveKill(player_t *player, mobj_t *victim, int dmg,
                           const char *kitname)

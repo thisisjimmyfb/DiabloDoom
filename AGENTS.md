@@ -191,7 +191,10 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
    There is no per-round ammo grant (removed 2026-10-22), and no
    over-time trickle (removed 2026-11-07): a normal magazine refills
    to full at once when its reload finishes — and the reload happens
-   only when the magazine is empty (2026-11-07). Energy scales the
+   only when the magazine is empty (2026-11-07). The magazine counter
+   (`t_ammo`) is shared between turn and explore mode, and resets to
+   full when changing weapons (2026-11-07, `T_KitOnWeaponChange`): a
+   weapon is always full when switched to. Energy scales the
    capacity (base +1 per point of gear Energy, `T_KitMaxAmmo`), so
    Energy sets how many shots fit before the reload: `T_KitRefillAmmo`
    is called when the reload animation reaches the ready state

@@ -185,6 +185,10 @@ void T_KitRefillAllAmmo(void);          // mana potion: full mags
 void T_KitRefillAmmo(weapontype_t w);   // reload done: full mag
                                         // (inverted: no-op, heat
                                         // drains on its own)
+void T_KitOnWeaponChange(weapontype_t w); // weapon switch: reset the
+                                        // magazine to full (inverted:
+                                        // vent heat to 0), so a weapon
+                                        // is always full when switched to
                                         // charges, zero Lucky counters
 // The heat array in the cadence snapshot is a save-format compat slot:
 // it carries plasma's counter (an alias of its ammo) so savegames
