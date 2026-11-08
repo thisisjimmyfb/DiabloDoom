@@ -1253,7 +1253,9 @@ static void ST_drawTurnKits(void)
     // T_DeriveStats.
     {
         char armorval[12];
-        const int stackx = ST_ARMORX - 4;
+        // Shifted left to clear the key slots (keyboxes at x=239):
+        // the stack's right edge stays left of the key column.
+        const int stackx = ST_ARMORX - 16;
         snprintf(armorval, sizeof(armorval), "DUR %d", st_armordur);
         ST_TurnDrawText(stackx - STWepTextWidth(armorval) / 2,
                         172, armorval);
