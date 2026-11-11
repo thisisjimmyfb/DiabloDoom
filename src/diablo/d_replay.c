@@ -656,7 +656,12 @@ static void *replay_encode_worker(void *arg)
         param.i_csp = X264_CSP_I420;
         param.b_annexb = 0;          // length-prefixed NALs (MP4 style)
         param.b_repeat_headers = 1;  // SPS/PPS before each IDR
-        param.i_threads = 0;         // auto-detect: use all cores for faster encode
+        param.i_threads = 2;         // cap: the encoder runs concurrently with
+                                     // the next segment's capture, and all-cores
+                                     // starves the SDL audio thread (its
+                                     // starved intervals become silence gaps
+                                     // in the replay audio); 2 threads leaves
+                                     // the audio thread room to keep up
         param.i_log_level = X264_LOG_WARNING;
         param.rc.i_rc_method = X264_RC_CRF;
         param.rc.f_rf_constant = 23;
