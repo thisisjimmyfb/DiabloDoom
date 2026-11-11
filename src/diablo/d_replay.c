@@ -318,6 +318,10 @@ static void rgb_to_yuv420p(byte *rgb, x264_picture_t *pic, int w, int h)
 // genuinely produced nothing there, so the music gets micro-dropouts
 // instead of being time-compressed. No sample is repeated,
 // stretched, or interpolated — this is placement, not resampling.
+// Placement is by stereo frame (L+R together at one output frame
+// index), not by int16: mapping int16s one at a time breaks the
+// L/R alignment whenever the true rate is below nominal, flipping
+// the channels (fixed 2026-11-11 — that was the garbled audio).
 // The tail past the last frame's timestamp uses the last interval's
 // local rate (tail_rate). Samples already overwritten in the ring,
 // or not yet mixed, come out as silence. Returns NULL when audio
@@ -333,6 +337,7 @@ static int16_t *replay_snapshot_pcm_wallclock(
 {
     const double nominal = (double)(REPLAY_AUDIO_RATE
                                     * REPLAY_AUDIO_CHANNELS) / 1000.0; // 88.2 int16/ms
+    const double nominal_frames = (double)REPLAY_AUDIO_RATE / 1000.0; // 44.1 frames/ms
     int total = REPLAY_AUDIO_SAMPLES * REPLAY_AUDIO_CHANNELS; // int16 count
     int wpos;
     int16_t *pcm;
@@ -340,7 +345,7 @@ static int16_t *replay_snapshot_pcm_wallclock(
     int out_len; // int16 count
     int audio_start, audio_end;
     int seg; // interval index: p lies in [aud[seg], aud[seg+1])
-    int p;
+    int f;   // input stereo frame index (2 int16s per frame)
 
     *samples_per_chan_out = 0;
     if (!replay_audio_buf || n < 1)
@@ -356,13 +361,29 @@ static int16_t *replay_snapshot_pcm_wallclock(
     memset(pcm, 0, (size_t)out_len * 2);
     wpos = replay_audio_write;
 
-    audio_start = aud[0];
+    // Stereo frames, not int16s: the ring and the output are both
+    // interleaved stereo (L, R, L, R, ...), so an L sample must land
+    // on an even output index and its R on the next odd one. Placing
+    // int16s one at a time with k = t_ms * 88.2 breaks that whenever
+    // the true rate is below nominal: k then advances by more than 1
+    // per input sample and periodically jumps by 2, flipping the L/R
+    // assignment for all following samples (heard as garbled,
+    // phasing distortion). Placing whole frames at the output frame
+    // index keeps L and R together at every rate. aud[] counts
+    // int16s, so align the window to frame boundaries: audio_start
+    // down to the nearest even index, audio_end up to the nearest
+    // even index (exclusive).
+    audio_start = aud[0] & ~1;
     audio_end = aud[n - 1] + (int)(prev_dur_ms * tail_rate);
+    if (audio_end & 1)
+        audio_end++;
     seg = 0;
-    for (p = audio_start; p < audio_end; p++) {
-        double t_ms; // wall-clock time of this sample, relative to ts[0]
-        int k;       // output int16 index
-        int age, idx;
+    for (f = audio_start / 2; f < audio_end / 2; f++) {
+        double t_ms; // wall-clock time of this frame, relative to ts[0]
+        int out_frame; // output stereo frame index
+        int p;         // this frame's L int16 index in the ring counter
+        int age, idx, idx_r;
+        p = f * 2;
         // Advance to the interval containing p. Intervals between
         // frames are [aud[seg], aud[seg+1]); seg == n-1 is the tail.
         while (seg < n - 1 && p >= aud[seg + 1])
@@ -386,8 +407,8 @@ static int16_t *replay_snapshot_pcm_wallclock(
             t_ms = (double)(ts[n - 1] - ts[0])
                  + (double)(p - aud[n - 1]) / tail_rate;
         }
-        k = (int)(t_ms * nominal + 0.5);
-        if (k < 0 || k >= out_len)
+        out_frame = (int)(t_ms * nominal_frames + 0.5);
+        if (out_frame < 0 || out_frame >= (int)samples_per_chan)
             continue;
         age = wpos - p; // 0 = just written, positive = older
         if (age < 0 || age >= total)
@@ -395,7 +416,11 @@ static int16_t *replay_snapshot_pcm_wallclock(
         idx = p % total;
         if (idx < 0)
             idx += total;
-        pcm[k] = replay_audio_buf[idx];
+        idx_r = idx + 1;
+        if (idx_r >= total)
+            idx_r -= total;
+        pcm[out_frame * REPLAY_AUDIO_CHANNELS] = replay_audio_buf[idx];
+        pcm[out_frame * REPLAY_AUDIO_CHANNELS + 1] = replay_audio_buf[idx_r];
     }
     *samples_per_chan_out = samples_per_chan;
     return pcm;
