@@ -353,168 +353,12 @@ static int16_t *replay_snapshot_pcm_window(int start_pos, int end_pos,
     return pcm;
 }
 
-// Resample an interleaved-stereo PCM snapshot by linear
-// interpolation, per channel. in_per_chan is the input per-channel
-// frame count; out_per_chan is the target. Returns a fresh malloc'd
-// buffer (caller owns) or NULL on failure. Used to stretch audio
-// captured at a slower-than-nominal write rate back to the video
-// window at 44100 Hz: the SDL audio thread can starve under CPU
-// load (game + x264 encode + Xvfb), so the write position advances
-// slower than REPLAY_AUDIO_RATE and the snapshot comes out short --
-// the AAC track would otherwise be time-compressed and lead the
-// picture. Linear interpolation is adequate for game audio.
-static int16_t *replay_resample_pcm_linear(const int16_t *pcm,
-                                           uint32_t in_per_chan,
-                                           uint32_t out_per_chan)
-{
-    int16_t *out;
-    uint32_t j;
-    if (!pcm || in_per_chan == 0 || out_per_chan == 0)
-        return NULL;
-    out = malloc((size_t)out_per_chan * REPLAY_AUDIO_CHANNELS * 2);
-    if (!out)
-        return NULL;
-    if (out_per_chan == 1 || in_per_chan == 1) {
-        // Degenerate: fill with the first frame (or silence).
-        for (j = 0; j < out_per_chan; j++) {
-            out[j * REPLAY_AUDIO_CHANNELS] =
-                in_per_chan > 0 ? pcm[0] : 0;
-            out[j * REPLAY_AUDIO_CHANNELS + 1] =
-                in_per_chan > 0 ? pcm[1] : 0;
-        }
-        return out;
-    }
-    for (j = 0; j < out_per_chan; j++) {
-        // Input position in per-channel frames, endpoints preserved.
-        double pos = (double)j * (double)(in_per_chan - 1)
-                     / (double)(out_per_chan - 1);
-        uint32_t i0 = (uint32_t)pos;
-        uint32_t i1 = i0 + 1;
-        double frac = pos - (double)i0;
-        int ch;
-        if (i1 >= in_per_chan) {
-            i1 = in_per_chan - 1;
-            frac = 0.0;
-        }
-        for (ch = 0; ch < REPLAY_AUDIO_CHANNELS; ch++) {
-            double s0 = (double)pcm[i0 * REPLAY_AUDIO_CHANNELS + ch];
-            double s1 = (double)pcm[i1 * REPLAY_AUDIO_CHANNELS + ch];
-            double s = s0 + (s1 - s0) * frac;
-            int v = (int)(s + (s >= 0 ? 0.5 : -0.5));
-            if (v > 32767) v = 32767;
-            if (v < -32768) v = -32768;
-            out[j * REPLAY_AUDIO_CHANNELS + ch] = (int16_t)v;
-        }
-    }
-    return out;
-}
-
-// Piecewise resample: warp the audio snapshot onto the video
-// timeline using the per-frame (ts, aud) pairs. The pairs are a
-// wall-clock timestamp and an audio write position captured
-// together in D_ReplayTick, so the slope between consecutive
-// pairs is the TRUE write rate over that frame's interval -- and
-// that rate can wander inside a segment (the SDL audio thread
-// starves more or less as CPU load changes), so a single constant
-// rate fixes the average compression but not the local warp. This
-// maps each output frame (uniform 44100 Hz grid over the video
-// window) back to its write position through the piecewise-linear
-// (ts -> aud) mapping, then linearly interpolates the PCM there.
-// pcm is the interleaved-stereo snapshot of write positions
-// [audio_start, audio_start + in_per_chan*2); ts/aud are the
-// per-frame pairs (n frames); tail_rate is the local rate past
-// the last frame's timestamp; true_rate is the average int16/ms,
-// used when an interval is degenerate. Returns a fresh malloc'd
-// buffer (caller owns) or NULL on failure. Falls back to a
-// uniform linear stretch when the pairs are unusable (n < 2,
-// timestamps or audio not increasing).
-static int16_t *replay_resample_pcm_piecewise(const int16_t *pcm,
-                                              uint32_t in_per_chan,
-                                              int audio_start,
-                                              const uint32_t *ts,
-                                              const int *aud,
-                                              int n,
-                                              double tail_rate,
-                                              double true_rate,
-                                              uint32_t out_per_chan)
-{
-    int16_t *out;
-    uint32_t j;
-    int i; // current interval: ts[i] <= t < ts[i+1], or the tail
-    if (!pcm || in_per_chan == 0 || out_per_chan == 0)
-        return NULL;
-    if (n < 2 || ts[n - 1] <= ts[0] || aud[n - 1] <= aud[0])
-        return replay_resample_pcm_linear(pcm, in_per_chan,
-                                          out_per_chan);
-    out = malloc((size_t)out_per_chan * REPLAY_AUDIO_CHANNELS * 2);
-    if (!out)
-        return NULL;
-    if (out_per_chan == 1) {
-        // Single output frame: the window start.
-        out[0] = pcm[0];
-        out[1] = pcm[1];
-        return out;
-    }
-    i = 0;
-    for (j = 0; j < out_per_chan; j++) {
-        // Video time of this output frame (ms).
-        double t = (double)ts[0]
-                   + (double)j * 1000.0 / (double)REPLAY_AUDIO_RATE;
-        double p; // write position (interleaved int16)
-        double f; // per-channel frame index into pcm
-        uint32_t f0;
-        double frac;
-        int ch;
-        // Advance to the interval containing t (t is monotonic).
-        // A zero timestamp gap is skipped: ts[i+1] <= t advances.
-        while (i + 1 < n - 1 && (double)ts[i + 1] <= t)
-            i++;
-        if (t >= (double)ts[n - 1]) {
-            // Tail: past the last frame's timestamp, use the
-            // last interval's local rate.
-            p = (double)aud[n - 1]
-                + (t - (double)ts[n - 1]) * tail_rate;
-        } else if (ts[i + 1] > ts[i] && aud[i + 1] > aud[i]) {
-            // Interior interval: piecewise-linear (ts -> aud).
-            p = (double)aud[i]
-                + (double)(aud[i + 1] - aud[i])
-                  * (t - (double)ts[i])
-                  / (double)(ts[i + 1] - ts[i]);
-        } else {
-            // Degenerate interval (stalled audio thread): fall
-            // back to the average rate, anchored at this frame.
-            p = (double)aud[i] + (t - (double)ts[i]) * true_rate;
-        }
-        // Sample the snapshot at write position p. The snapshot
-        // covers write positions [audio_start, ...); per-channel
-        // frame f = (p - audio_start) / 2. Clamp to the snapshot
-        // (the tail can run slightly past it when the local rate
-        // exceeds the average used for the window end).
-        f = (p - (double)audio_start) / (double)REPLAY_AUDIO_CHANNELS;
-        if (f < 0.0)
-            f = 0.0;
-        if (f > (double)(in_per_chan - 1))
-            f = (double)(in_per_chan - 1);
-        f0 = (uint32_t)f;
-        frac = f - (double)f0;
-        if (f0 >= in_per_chan - 1) {
-            f0 = in_per_chan - 1;
-            frac = 0.0;
-        }
-        for (ch = 0; ch < REPLAY_AUDIO_CHANNELS; ch++) {
-            double s0 = (double)pcm[f0 * REPLAY_AUDIO_CHANNELS + ch];
-            double s1 = (double)pcm[(f0 + 1 < in_per_chan
-                                     ? f0 + 1 : f0)
-                                    * REPLAY_AUDIO_CHANNELS + ch];
-            double s = s0 + (s1 - s0) * frac;
-            int v = (int)(s + (s >= 0 ? 0.5 : -0.5));
-            if (v > 32767) v = 32767;
-            if (v < -32768) v = -32768;
-            out[j * REPLAY_AUDIO_CHANNELS + ch] = (int16_t)v;
-        }
-    }
-    return out;
-}
+// NOTE: the replay audio resample (replay_resample_pcm_linear and
+// replay_resample_pcm_piecewise) was removed 2026-11-11 at the user's
+// order ("I want the resample removed so that audio sounds like the
+// original"). The recorded audio is written to the MP4 as-is; the
+// audio track may be slightly shorter than the video. Do not add
+// another resampler here without the user's word.
 
 // Encode a PCM snapshot to AAC frames. Does NOT free pcm (caller owns).
 // samples_per_chan_in is the snapshot's per-channel length (the video
@@ -1515,14 +1359,16 @@ int D_ReplaySaveMP4(const char *filename)
         // assuming 44.1kHz stereo. The pairs are a wall-clock
         // timestamp and a write position captured together in
         // D_ReplayTick, so their slope is the true samples/ms.
-        // The rate can wander INSIDE a segment, so a single
-        // constant rate fixes the average compression but not
-        // the local warp: the snapshot is resampled PIECEWISE,
-        // mapping each output frame back to its write position
-        // through the piecewise-linear (ts -> aud) mapping, so
-        // the audio aligns with the video timeline locally, not
-        // just on average. The tail (past the last frame's
-        // timestamp) uses the last interval's local rate.
+        // The snapshot is written to the MP4 AS RECORDED, with
+        // no resampling: the resample (piecewise + linear
+        // interpolation) was removed 2026-11-11 at the user's
+        // order, so the audio sounds like the original. The
+        // audio track is therefore usually a little shorter
+        // than the video window (~2.5% on the farm) and ends
+        // slightly before the picture; that drift is the
+        // accepted tradeoff for undistorted sound. The tail
+        // (past the last frame's timestamp) uses the last
+        // interval's local rate.
         {
             double true_rate; // int16 samples (interleaved) per ms
             double tail_rate; // local rate over the last interval
@@ -1562,22 +1408,7 @@ int D_ReplaySaveMP4(const char *filename)
                 + (int)(prev_dur_ms * tail_rate);
             job->pcm = replay_snapshot_pcm_window(
                 audio_start, audio_end, &job->audio_samples_per_chan);
-            if (job->pcm && job->audio_samples_per_chan > 0) {
-                uint32_t target_per_chan =
-                    (uint32_t)(video_window_ms * REPLAY_AUDIO_RATE
-                               / 1000 + 0.5);
-                if (target_per_chan > 0) {
-                    int16_t *warped = replay_resample_pcm_piecewise(
-                        job->pcm, job->audio_samples_per_chan,
-                        audio_start, ts, aud, n, tail_rate, true_rate,
-                        target_per_chan);
-                    if (warped) {
-                        free(job->pcm);
-                        job->pcm = warped;
-                        job->audio_samples_per_chan = target_per_chan;
-                    }
-                }
-            }
+            // No resample: the snapshot goes to the MP4 as recorded.
             printf("[REPLAY] video window %u ms, audio %u samples/chan (rate %.2f)\n",
                    (unsigned int)video_window_ms,
                    job->audio_samples_per_chan, true_rate);
