@@ -84,6 +84,29 @@ static int opl_opl3mode;
 
 static uint8_t *mix_buffer = NULL;
 
+// ---- Decoupled OPL rendering ----
+// The OPL music render (OPL3_GenerateStream) used to run inside the SDL
+// audio callback (OPL_Mix_Callback). That costs ~12% CPU in the callback,
+// and the SDL dummy audio driver sleeps for the full buffer period after
+// the callback returns, so the callback's CPU time directly reduces the
+// effective audio write rate (measured ~73-78 int16/ms vs nominal 88.2).
+// A dedicated render thread now renders OPL audio ahead of time into a
+// ring buffer; the audio callback just mixes pre-rendered samples out of
+// the ring (cheap, ~0% CPU), so the write rate stays full.
+// Ring buffer: stereo int16, power-of-two frame count. The render thread
+// is the sole writer, the audio callback the sole reader; indices are
+// guarded by opl_ring_mutex (the callback uses SDL_TryLockMutex so it
+// never blocks).
+#define OPL_RING_FRAMES 16384
+#define OPL_RENDER_CHUNK_FRAMES 1024
+static int16_t *opl_ring_buf = NULL;
+static unsigned int opl_ring_read = 0;   // frames consumed by callback
+static unsigned int opl_ring_write = 0;  // frames produced by render thread
+static SDL_mutex *opl_ring_mutex = NULL;
+static unsigned int opl_ring_underruns = 0;
+static SDL_Thread *opl_render_thread = NULL;
+static SDL_atomic_t opl_render_running;
+
 // Register number that was written.
 
 static int register_num = 0;
@@ -160,48 +183,25 @@ static void AdvanceTime(unsigned int nsamples)
     SDL_UnlockMutex(callback_queue_mutex);
 }
 
-// Call the OPL emulator code to fill the specified buffer.
-
-static void FillBuffer(uint8_t *buffer, unsigned int nsamples)
+// Render up to max_frames of OPL audio into out (linear stereo int16).
+// Advances MIDI time and invokes due callbacks, exactly like the old
+// in-callback loop. Returns frames rendered. Called only by the render
+// thread (and by OPL_Mix_Callback as a synchronous fallback when the
+// render thread could not be started).
+static unsigned int OPL_RenderChunk(int16_t *out, unsigned int max_frames)
 {
-    // This seems like a reasonable assumption.  mix_buffer is
-    // 1 second long, which should always be much longer than the
-    // SDL mix buffer.
-    assert(nsamples < mixing_freq);
+    unsigned int filled = 0;
 
-    // OPL output is generated into temporary buffer and then mixed
-    // (to avoid overflows etc.)
-    OPL3_GenerateStream(&opl_chip, (int16_t *) mix_buffer, nsamples);
-    SDL_MixAudioFormat(buffer, mix_buffer, AUDIO_S16SYS, nsamples * 4,
-                       SDL_MIX_MAXVOLUME);
-}
-
-// Callback function to fill a new sound buffer:
-
-static void OPL_Mix_Callback(int chan, void *stream, int len, void *udata)
-{
-    unsigned int filled, buffer_samples;
-    Uint8 *buffer = (Uint8*)stream;
-
-    // Repeatedly call the OPL emulator update function until the buffer is
-    // full.
-    filled = 0;
-    buffer_samples = len / 4;
-
-    while (filled < buffer_samples)
+    while (filled < max_frames)
     {
         uint64_t next_callback_time;
-        uint64_t nsamples;
+        unsigned int nsamples;
 
         SDL_LockMutex(callback_queue_mutex);
 
-        // Work out the time until the next callback waiting in
-        // the callback queue must be invoked.  We can then fill the
-        // buffer with this many samples.
-
         if (opl_sdl_paused || OPL_Queue_IsEmpty(callback_queue))
         {
-            nsamples = buffer_samples - filled;
+            nsamples = max_frames - filled;
         }
         else
         {
@@ -210,28 +210,177 @@ static void OPL_Mix_Callback(int chan, void *stream, int len, void *udata)
             nsamples = (next_callback_time - current_time) * mixing_freq;
             nsamples = (nsamples + OPL_SECOND - 1) / OPL_SECOND;
 
-            if (nsamples > buffer_samples - filled)
+            if (nsamples > max_frames - filled)
             {
-                nsamples = buffer_samples - filled;
+                nsamples = max_frames - filled;
             }
         }
 
         SDL_UnlockMutex(callback_queue_mutex);
 
-        // Add emulator output to buffer.
+        if (nsamples == 0)
+        {
+            // A callback is due right now; advance time (with 0 samples)
+            // so it fires, then loop to recompute.
+            AdvanceTime(0);
+            continue;
+        }
 
-        FillBuffer(buffer + filled * 4, nsamples);
+        OPL3_GenerateStream(&opl_chip, out + filled * 2, nsamples);
         filled += nsamples;
 
-        // Invoke callbacks for this point in time.
-
         AdvanceTime(nsamples);
+    }
+
+    return filled;
+}
+
+// Render thread: renders OPL audio ahead of time into the ring buffer.
+// Renders a chunk into mix_buffer (render-thread-only temp), then copies
+// the chunk into the ring. Sleeps briefly when the ring is full.
+static int OPL_RenderThread(void *data)
+{
+    (void) data;
+
+    while (SDL_AtomicGet(&opl_render_running))
+    {
+        unsigned int used, space, frames;
+        unsigned int wpos, first;
+
+        SDL_LockMutex(opl_ring_mutex);
+        used = opl_ring_write - opl_ring_read;
+        space = OPL_RING_FRAMES - used;
+        SDL_UnlockMutex(opl_ring_mutex);
+
+        if (space < OPL_RENDER_CHUNK_FRAMES)
+        {
+            SDL_Delay(1);
+            continue;
+        }
+
+        frames = OPL_RenderChunk((int16_t *) mix_buffer,
+                                 OPL_RENDER_CHUNK_FRAMES);
+
+        SDL_LockMutex(opl_ring_mutex);
+        // Space can only have grown since the check (the callback
+        // consumes), and only this thread writes, so frames always fit.
+        wpos = opl_ring_write & (OPL_RING_FRAMES - 1);
+        first = OPL_RING_FRAMES - wpos;
+        if (first > frames)
+            first = frames;
+        memcpy(opl_ring_buf + wpos * 2, mix_buffer, first * 4);
+        if (first < frames)
+        {
+            memcpy(opl_ring_buf,
+                   (uint8_t *) mix_buffer + first * 4,
+                   (frames - first) * 4);
+        }
+        opl_ring_write += frames;
+        SDL_UnlockMutex(opl_ring_mutex);
+    }
+
+    return 0;
+}
+
+// Callback function to mix OPL music into a new sound buffer.
+// This runs in the SDL audio thread, so it must stay cheap: it only
+// mixes pre-rendered samples out of the ring buffer (rendered ahead of
+// time by OPL_RenderThread). It never blocks, never touches OPL state,
+// and never waits on the render thread. If the ring is empty (underrun)
+// the OPL contribution is silence for those frames; the stream already
+// holds the SDL_mixer mix, so nothing is zeroed here.
+static void OPL_Mix_Callback(int chan, void *stream, int len, void *udata)
+{
+    unsigned int filled, buffer_samples;
+    Uint8 *buffer = (Uint8*)stream;
+    (void) chan;
+    (void) udata;
+
+    filled = 0;
+    buffer_samples = len / 4;
+
+    if (opl_render_thread == NULL)
+    {
+        // No render thread (thread creation failed at init): render
+        // synchronously, the old behaviour. Keeps music working.
+        unsigned int frames = OPL_RenderChunk((int16_t *) mix_buffer,
+                                              buffer_samples);
+        SDL_MixAudioFormat(buffer, mix_buffer, AUDIO_S16SYS, frames * 4,
+                           SDL_MIX_MAXVOLUME);
+        return;
+    }
+
+    while (filled < buffer_samples)
+    {
+        unsigned int avail, nframes, rpos, first;
+
+        if (SDL_TryLockMutex(opl_ring_mutex) != 0)
+            break;
+
+        avail = opl_ring_write - opl_ring_read;
+        if (avail == 0)
+        {
+            SDL_UnlockMutex(opl_ring_mutex);
+            break;
+        }
+        nframes = avail;
+        if (nframes > buffer_samples - filled)
+            nframes = buffer_samples - filled;
+
+        rpos = opl_ring_read & (OPL_RING_FRAMES - 1);
+        first = OPL_RING_FRAMES - rpos;
+        if (first > nframes)
+            first = nframes;
+        SDL_MixAudioFormat(buffer + filled * 4,
+                           (Uint8 *) (opl_ring_buf + rpos * 2),
+                           AUDIO_S16SYS, first * 4, SDL_MIX_MAXVOLUME);
+        if (first < nframes)
+        {
+            SDL_MixAudioFormat(buffer + (filled + first) * 4,
+                               (Uint8 *) opl_ring_buf,
+                               AUDIO_S16SYS, (nframes - first) * 4,
+                               SDL_MIX_MAXVOLUME);
+        }
+        opl_ring_read += nframes;
+        SDL_UnlockMutex(opl_ring_mutex);
+        filled += nframes;
+    }
+
+    if (filled < buffer_samples)
+    {
+        // Ring underrun: OPL contributes silence for the missing
+        // frames (the stream already holds the SDL_mixer mix).
+        ++opl_ring_underruns;
+        if (opl_ring_underruns <= 3 || (opl_ring_underruns % 200) == 0)
+        {
+            fprintf(stderr,
+                    "OPL_Mix_Callback: ring underrun #%u (%u frames silent)\n",
+                    opl_ring_underruns, buffer_samples - filled);
+        }
     }
 }
 
 static void OPL_SDL_Shutdown(void)
 {
+    // Stop the render thread first: it uses the OPL chip, the callback
+    // queue and the mutexes, which are destroyed below.
+    if (opl_render_thread != NULL)
+    {
+        SDL_AtomicSet(&opl_render_running, 0);
+        SDL_WaitThread(opl_render_thread, NULL);
+        opl_render_thread = NULL;
+    }
+
+    // Unregister the postmix effect (the symmetric call to the
+    // Mix_RegisterEffect in OPL_SDL_Init).
+    Mix_UnregisterEffect(MIX_CHANNEL_POST, OPL_Mix_Callback);
     Mix_HookMusic(NULL, NULL);
+
+    if (opl_ring_underruns > 0)
+    {
+        fprintf(stderr, "OPL_SDL: %u ring underruns total\n",
+                opl_ring_underruns);
+    }
 
     if (sdl_was_initialized)
     {
@@ -260,6 +409,18 @@ static void OPL_SDL_Shutdown(void)
     {
         SDL_DestroyMutex(callback_queue_mutex);
         callback_queue_mutex = NULL;
+    }
+
+    if (opl_ring_mutex != NULL)
+    {
+        SDL_DestroyMutex(opl_ring_mutex);
+        opl_ring_mutex = NULL;
+    }
+
+    if (opl_ring_buf != NULL)
+    {
+        free(opl_ring_buf);
+        opl_ring_buf = NULL;
     }
 }
 
@@ -354,6 +515,50 @@ static int OPL_SDL_Init(unsigned int port_base)
 
     callback_mutex = SDL_CreateMutex();
     callback_queue_mutex = SDL_CreateMutex();
+
+    // Ring buffer + render thread for decoupled OPL rendering.
+    // The render thread renders OPL audio ahead of time into the ring;
+    // the audio callback (OPL_Mix_Callback) just mixes pre-rendered
+    // samples out of it, so the callback stays cheap and the dummy
+    // audio driver's rate stays full. If the ring or thread cannot be
+    // set up, the callback renders synchronously (old behaviour).
+    opl_ring_buf = malloc(OPL_RING_FRAMES * 4);
+    opl_ring_mutex = SDL_CreateMutex();
+    if (opl_ring_buf == NULL || opl_ring_mutex == NULL)
+    {
+        fprintf(stderr, "OPL_SDL: failed to allocate ring buffer\n");
+        free(opl_ring_buf);
+        opl_ring_buf = NULL;
+        if (opl_ring_mutex != NULL)
+        {
+            SDL_DestroyMutex(opl_ring_mutex);
+            opl_ring_mutex = NULL;
+        }
+    }
+    else
+    {
+        opl_ring_read = 0;
+        opl_ring_write = 0;
+        opl_ring_underruns = 0;
+        SDL_AtomicSet(&opl_render_running, 1);
+        opl_render_thread = SDL_CreateThread(OPL_RenderThread,
+                                             "OPLRender", NULL);
+        if (opl_render_thread == NULL)
+        {
+            fprintf(stderr, "OPL_SDL: failed to start render thread (%s); "
+                            "falling back to in-callback rendering\n",
+                    SDL_GetError());
+            SDL_DestroyMutex(opl_ring_mutex);
+            opl_ring_mutex = NULL;
+            free(opl_ring_buf);
+            opl_ring_buf = NULL;
+        }
+        else
+        {
+            printf("OPL_SDL: decoupled render thread started "
+                   "(ring %u frames)\n", OPL_RING_FRAMES);
+        }
+    }
 
     // Set postmix that adds the OPL music. This is deliberately done
     // as a postmix and not using Mix_HookMusic() as the latter disables
