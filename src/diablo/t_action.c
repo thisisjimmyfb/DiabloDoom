@@ -2794,6 +2794,17 @@ static boolean T_FireAttackShot(mobj_t *target, int cost,
     }
     d_diablo_hitscan_weapon = -1;
 
+    // Enemy health bars: a targeted attack records its target in the
+    // most-recently-attacked window even when the shot misses — the
+    // player shot AT it, so its bar shows (at full HP). A hit is
+    // already recorded by the damage callback (synchronously for
+    // hitscan, on impact for projectiles); recording here covers the
+    // miss, and the projectile case, which has no miss resolution at
+    // fire time. Barrels stay excluded: T_RecordHealthBar drops
+    // MT_BARREL. Untargeted attacks have no target to record.
+    if (!untargeted)
+        T_RecordHealthBar(target);
+
     // For hitscan, the callback ran synchronously; t_last_damage > 0 means hit.
     // For projectiles, the hit happens later (callback fires on impact).
     {

@@ -166,7 +166,9 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
    `P_Ticker()`; it pauses (does not cancel) a running GOTO/WALK,
    and cannot fire during planning or the progress phase.
    Enemy health bars (2026-11-11): attacking a monster records it in a
-   32-entry most-recently-attacked window; the lowest 4 by absolute HP
+   32-entry most-recently-attacked window — including a monster shot
+   at but missed (its bar shows at full HP); barrels are never
+   recorded and never get a bar. The lowest 4 by absolute HP
    get a world-space bar above the head in both modes, fading 10 s
    after combat ends (`T_RecordHealthBar` / `T_DrawHealthBars` in
    `t_turn.c`, drawn from `HU_Drawer`). Window entries are validated

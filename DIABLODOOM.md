@@ -161,7 +161,8 @@ while exploring).
 ## Enemy health bars
 
 Attacking a monster puts it in a 32-entry window of the most recently
-attacked monsters. The **lowest 4 by absolute HP** get a health bar
+attacked monsters — including one the player shot at but missed (its
+bar shows at full HP, since no damage was dealt). The **lowest 4 by absolute HP** get a health bar
 drawn **above the monster's head** in the game view — a dark box with
 a fill proportional to HP (green above 50%, yellow 25–50%, red below
 25%). Bars show in **both turn and explore mode**, and disappear
