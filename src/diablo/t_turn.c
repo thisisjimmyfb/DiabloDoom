@@ -2202,12 +2202,11 @@ void T_Ticker(void)
     // Floating combat text (MISS, etc.) ticks down.
     T_TickFloatText();
 
-    // World-space damage/MISS numbers (old target-marker system) tick down.
+    // World-space MISS numbers (old target-marker system) tick down.
+    // (The old single damage number is gone; hit damage uses the
+    // floating combat text system, ticked above.)
     {
-        extern int t_last_hit_tics;
         extern int t_last_miss_tics;
-        if (t_last_hit_tics > 0)
-            t_last_hit_tics--;
         if (t_last_miss_tics > 0)
             t_last_miss_tics--;
     }
@@ -2482,13 +2481,19 @@ static boolean T_ProjectTarget(mobj_t *mo, int *sx, int *sy)
     return true;
 }
 
-// Floating combat text (e.g. "MISS" above an enemy). Spawned by combat
-// events, drawn at the target's projected head position, rises and fades.
+// Floating combat text (hit damage numbers above the enemy's health
+// bar). Spawned by combat events (the Diablo damage callback), drawn
+// at the target's projected head position, rising and fading over
+// ~1 second. Each hit gets its own number; multiple hits on the same
+// monster stack upward so they never overlap.
 #define T_MAXFLOAT 8
+#define T_FLOATTEXT_TICS 35 // 1 second at 35 tics/sec
+#define T_FLOATTEXT_STACK 10 // px between stacked numbers on one monster
 typedef struct {
     mobj_t *mo;          // target (may become NULL if died/removed)
     char text[16];
-    int tics;            // remaining (35 = 1 sec)
+    int tics;            // remaining
+    int yoff;            // vertical stagger (0, -10, -20...) for same-monster stacks
 } t_floattext_t;
 static t_floattext_t t_floattexts[T_MAXFLOAT];
 void T_TickFloatText(void);
@@ -2496,7 +2501,7 @@ void T_DrawFloatText(void);
 
 void T_SpawnFloatText(mobj_t *mo, const char *text)
 {
-    int i, oldest = 0;
+    int i, oldest = 0, stack = 0;
     if (mo == NULL || text == NULL)
         return;
     // Find free slot, or reuse oldest.
@@ -2510,9 +2515,20 @@ void T_SpawnFloatText(mobj_t *mo, const char *text)
         if (t_floattexts[i].tics < t_floattexts[oldest].tics)
             oldest = i;
     }
+    // Stack above earlier live numbers on the same monster so a
+    // multi-pellet hit (shotgun/chaingun) shows separate numbers
+    // instead of one overlapped blob. The slot being reused is not
+    // counted (it is about to be overwritten).
+    for (i = 0; i < T_MAXFLOAT; i++)
+    {
+        if (i != oldest && t_floattexts[i].tics > 0
+            && t_floattexts[i].mo == mo)
+            stack++;
+    }
     t_floattexts[oldest].mo = mo;
     M_snprintf(t_floattexts[oldest].text, sizeof(t_floattexts[oldest].text), "%s", text);
-    t_floattexts[oldest].tics = 70; // 2 seconds (survives queue drain)
+    t_floattexts[oldest].tics = T_FLOATTEXT_TICS;
+    t_floattexts[oldest].yoff = -stack * T_FLOATTEXT_STACK;
 }
 
 void T_TickFloatText(void)
@@ -2525,24 +2541,61 @@ void T_TickFloatText(void)
     }
 }
 
+// A float text's target is safe to draw only while it is a live
+// thinker with health > 0. A freed mobj pointer must never be
+// dereferenced on health alone (same rule as the health-bar window):
+// the thinker-list check makes the pointer safe, and the health
+// check drops the text when the monster dies instead of lingering
+// on the corpse.
+static boolean T_FloatTextLive(mobj_t *mo)
+{
+    thinker_t *th;
+    if (mo == NULL || mo->health <= 0)
+        return false;
+    for (th = thinkercap.next; th != &thinkercap; th = th->next)
+    {
+        if (th->function.acp1 != (actionf_p1)P_MobjThinker)
+            continue;
+        if ((mobj_t *)th == mo)
+            return true;
+    }
+    return false;
+}
+
 void T_DrawFloatText(void)
 {
     int i, sx, sy;
+    player_t *player = &players[consoleplayer];
+
+    if (!T_Active())
+        return;
+    if (player->mo == NULL || player->mo->health <= 0)
+        return;
+    if (automapactive)
+        return;
     for (i = 0; i < T_MAXFLOAT; i++)
     {
         if (t_floattexts[i].tics <= 0)
             continue;
-        if (t_floattexts[i].mo == NULL)
+        if (!T_FloatTextLive(t_floattexts[i].mo))
+        {
+            // Target gone or dead: drop the text.
+            t_floattexts[i].tics = 0;
+            t_floattexts[i].mo = NULL;
             continue;
-        // Skip if target died and was removed (health check).
-        // Note: mobj pointer may dangle; we check health but the
-        // pointer itself could be freed. For safety, we only draw
-        // if tics are fresh (< 35, i.e. spawned this second).
+        }
         if (!T_ProjectTarget(t_floattexts[i].mo, &sx, &sy))
             continue;
-        // Rise as it fades: offset up by (70 - tics) / 2 pixels.
-        // tics starts at 70, ends at 0.
-        sy -= (70 - t_floattexts[i].tics) / 2;
+        // Above the health bar: the bar sits at sy - 2 (3 px tall),
+        // so the text starts with its bottom 2 px above the bar top
+        // (8 px font + 2 px gap), then rises as it fades. Clamp to
+        // the top of the screen: at point-blank range the monster's
+        // head is at the top edge and the text would otherwise draw
+        // off-screen (T_DrawTextF skips y < 0 entirely).
+        sy -= 12 + (T_FLOATTEXT_TICS - t_floattexts[i].tics) / 2;
+        sy += t_floattexts[i].yoff;
+        if (sy < 0)
+            sy = 0;
         T_DrawTextHi(sx - T_TextWidth(t_floattexts[i].text) / 2, sy,
                      t_floattexts[i].text);
     }
@@ -3018,28 +3071,11 @@ void T_DrawHUD(void)
     // (Targeting is via Ctrl hold/release; the target list on the
     // right side shows options during targeting.)
 
-    // Floating combat text (MISS, damage numbers, etc.).
-    T_DrawFloatText();
-
-    // Last-hit damage number: projected above the target's head in
-    // world space, using the old target-marker projection system.
-    // Tracks the target as it moves.
+    // Hit damage numbers now use the floating combat text system
+    // (T_DrawFloatText, called from HU_Drawer so it shows in both
+    // modes, above the health bar). The old single-number display
+    // below is gone; MISS stays on the old system.
     {
-        extern int t_last_damage;
-        extern mobj_t *t_last_hit_mobj;
-        extern int t_last_hit_tics;
-        if (t_last_hit_mobj != NULL && t_last_damage > 0 && t_last_hit_tics > 0)
-        {
-            int sx, sy;
-            char line[16];
-            if (T_ProjectTarget(t_last_hit_mobj, &sx, &sy))
-            {
-                M_snprintf(line, sizeof(line), "%d", t_last_damage);
-                // Rise as it fades.
-                sy -= (25 - t_last_hit_tics) / 2;
-                T_DrawTextHi(sx - T_TextWidth(line) / 2, sy, line);
-            }
-        }
         // MISS text: same system.
         {
             extern mobj_t *t_last_miss_mobj;

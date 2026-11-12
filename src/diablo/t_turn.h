@@ -338,6 +338,7 @@ void T_KillBanner(const char *title, const char *sub);
 
 // Floating combat text (e.g. "MISS" above an enemy).
 void T_SpawnFloatText(mobj_t *mo, const char *text);
+void T_DrawFloatText(void);
 
 // Enemy health bars (2026-11-11): a 32-entry window of the most
 // recently attacked monsters; bars for the lowest 4 by absolute HP,

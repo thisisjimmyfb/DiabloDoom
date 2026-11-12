@@ -2831,14 +2831,8 @@ static boolean T_FireAttackShot(mobj_t *target, int cost,
                     player->message = "CRITICAL HIT!";
                 else
                     player->message = "HIT!";
-                // World-space floating damage number (old target-marker system).
-                {
-                    extern int t_last_hit_tics;
-                    extern mobj_t *t_last_hit_mobj;
-                    // t_last_hit_mobj is set by the damage callback.
-                    if (t_last_hit_mobj != NULL)
-                        t_last_hit_tics = 25;
-                }
+                // (The floating damage number is spawned by the
+                // damage callback itself, so it shows in both modes.)
                 // Untargeted attacks: use the mobj actually hit (tracked by
                 // the damage callback). If it died, resolve the kill for
                 // loot. Walls have no mobj, so no kill resolution.

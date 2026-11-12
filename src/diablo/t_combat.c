@@ -13,7 +13,6 @@ int t_last_hit = -1;
 int t_last_damage = 0;
 int t_last_crit = 0;
 mobj_t *t_last_hit_mobj = NULL; // mobj hit by the last Diablo damage callback
-int t_last_hit_tics = 0; // countdown for floating damage number
 mobj_t *t_last_miss_mobj = NULL; // mobj missed by the last attack
 int t_last_miss_tics = 0; // countdown for floating MISS text
 static int t_last_kill = 0; // set when the resolved attack killed anything
@@ -497,6 +496,19 @@ static int T_DiabloDamageCallback(player_t *pl, mobj_t *target, int weapon)
 
     t_last_damage = dmg;
     t_last_hit_mobj = target;
+    // Floating hit damage text: one number per hit, drawn above the
+    // health bar, rising and fading over ~1 second. Spawned here (the
+    // damage callback runs in both modes, for hitscan and projectiles).
+    // Barrels get no number (they get no health bar either). The
+    // callback runs once per pellet for multi-pellet weapons, so a
+    // shotgun blast spawns one number per pellet; the float-text
+    // system stacks them so they stay readable.
+    if (target->type != MT_BARREL)
+    {
+        char num[16];
+        M_snprintf(num, sizeof(num), "%d", dmg);
+        T_SpawnFloatText(target, num);
+    }
     return dmg;
 }
 

@@ -450,6 +450,7 @@ void HU_Drawer(void)
 
     T_DrawHUD();  // turn-based mode indicator (no-op in real-time)
     T_DrawHealthBars();  // enemy health bars (both modes, 10 s fade)
+    T_DrawFloatText();  // floating hit damage text, above the health bar
 }
 
 void HU_Erase(void)

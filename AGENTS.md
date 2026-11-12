@@ -171,7 +171,12 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
    after combat ends (`T_RecordHealthBar` / `T_DrawHealthBars` in
    `t_turn.c`, drawn from `HU_Drawer`). Window entries are validated
    against the thinker list before use — a freed mobj pointer must
-   never be dereferenced on health alone.
+   never be dereferenced on health alone. Floating hit damage text
+   (2026-11-11): when the player damages a monster, the damage number
+   floats up and fades over ~1 s above its health bar
+   (`T_SpawnFloatText` / `T_DrawFloatText` in `t_turn.c`, spawned from
+   `T_DiabloDamageCallback`); each hit shows its own number, only for
+   monsters the player damaged, and it disappears when the monster dies.
 2. **No scalar input, ever** (the user's words: *"We shouldn't have actions
    that require scalar input because that will be too difficult to aim."*).
    Turn-mode actions are discrete: directions and actor IDs only. No

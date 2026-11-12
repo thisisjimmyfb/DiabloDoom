@@ -168,6 +168,13 @@ a fill proportional to HP (green above 50%, yellow 25–50%, red below
 **10 seconds after combat ends**. Killing a monster removes its bar;
 bars never show on barrels.
 
+When the player damages a monster, the damage number also appears
+as **floating text above the health bar**: it rises and fades out
+over about a second. Each hit shows its own number, so quick
+successive hits show separate numbers. Like the bar, the number only
+appears for monsters the player damaged, and it disappears when the
+monster dies.
+
 ## Essence (salvage / repair)
 
 Junk loot is salvage fuel. **S** in the character screen salvages the
