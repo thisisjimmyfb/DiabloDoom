@@ -303,127 +303,73 @@ static void rgb_to_yuv420p(byte *rgb, x264_picture_t *pic, int w, int h)
 // fills outputs; the caller owns each aframes[i].data, the aframes array,
 // and the asc copy. Returns 0 when no audio is available or encoding
 // failed (caller should fall back to video-only).
-// Wall-clock placement of the audio ring for one video window
-// (2026-11-11). The per-frame (ts, aud) pairs captured together in
-// D_ReplayTick are a wall-clock <-> ring-position map: at wall-clock
-// ts[i] the audio write position was aud[i]. The audio thread can
-// starve (x264 encode running during the next segment's capture),
-// so the true production rate runs below the nominal 88.2 int16/ms
-// and a raw ring slice is shorter than the video window — and its
-// events play early, by T*(1 - true_rate/88.2). Instead of copying
-// the raw slice, this builds a PCM buffer exactly video_window_ms
-// long at 44.1kHz and places each recorded sample at its wall-clock
-// position, found by inverting the piecewise-linear (ts, aud) map.
-// Output slots with no recorded sample stay silence: the mixer
-// genuinely produced nothing there, so the music gets micro-dropouts
-// instead of being time-compressed. No sample is repeated,
-// stretched, or interpolated — this is placement, not resampling.
-// Placement is by stereo frame (L+R together at one output frame
-// index), not by int16: mapping int16s one at a time breaks the
-// L/R alignment whenever the true rate is below nominal, flipping
-// the channels (fixed 2026-11-11 — that was the garbled audio).
-// The tail past the last frame's timestamp uses the last interval's
-// local rate (tail_rate). Samples already overwritten in the ring,
-// or not yet mixed, come out as silence. Returns NULL when audio
-// capture is not running. Caller owns the buffer;
-// *samples_per_chan_out is the per-channel sample count
-// (video_window_ms * 44.1). Differences are computed in signed int
-// arithmetic so they stay correct across the write counter wrapping.
-static int16_t *replay_snapshot_pcm_wallclock(
-    const uint32_t *ts, const int *aud, int n,
+// Raw ring slice: play the audio back properly (2026-11-11, at the
+// user's direction). The recorded audio is copied verbatim from the
+// ring buffer, in order, at its natural 44100 Hz rate — no remapping
+// to wall-clock, no interpolation, no silence padding, no resampling.
+// The per-frame (ts, aud) pairs captured together in D_ReplayTick
+// are used ONLY to compute the audio track's start offset (see
+// D_ReplaySaveMP4), never to move individual samples: the timestamps
+// synchronize the track with in-game events, the samples themselves
+// stay untouched. The slice runs from aud[0] (the write position
+// when the first video frame was captured) to aud[n-1] plus a tail
+// covering the last frame's duration at the local rate (tail_rate).
+// The tail is clamped to the current write position so no unwritten
+// sample is read. Samples already overwritten in the ring come out
+// as silence (should not happen: the ring is 30s, the window 15s).
+// Returns NULL when audio capture is not running. Caller owns the
+// buffer; *samples_per_chan_out is the per-channel sample count.
+// Differences are computed in signed int arithmetic so they stay
+// correct across the write counter wrapping.
+static int16_t *replay_snapshot_pcm_raw(
+    const int *aud, int n,
     uint32_t prev_dur_ms, double tail_rate,
-    uint32_t video_window_ms,
     uint32_t *samples_per_chan_out)
 {
-    const double nominal = (double)(REPLAY_AUDIO_RATE
-                                    * REPLAY_AUDIO_CHANNELS) / 1000.0; // 88.2 int16/ms
-    const double nominal_frames = (double)REPLAY_AUDIO_RATE / 1000.0; // 44.1 frames/ms
     int total = REPLAY_AUDIO_SAMPLES * REPLAY_AUDIO_CHANNELS; // int16 count
     int wpos;
     int16_t *pcm;
-    uint32_t samples_per_chan;
-    int out_len; // int16 count
     int audio_start, audio_end;
-    int seg; // interval index: p lies in [aud[seg], aud[seg+1])
-    int f;   // input stereo frame index (2 int16s per frame)
+    int i;
 
     *samples_per_chan_out = 0;
     if (!replay_audio_buf || n < 1)
         return NULL;
-    samples_per_chan = (uint32_t)(
-        ((uint64_t)video_window_ms * REPLAY_AUDIO_RATE + 500) / 1000);
-    if (samples_per_chan == 0)
-        return NULL;
-    out_len = (int)(samples_per_chan * REPLAY_AUDIO_CHANNELS);
-    pcm = malloc((size_t)out_len * 2);
-    if (!pcm)
-        return NULL;
-    memset(pcm, 0, (size_t)out_len * 2);
     wpos = replay_audio_write;
 
-    // Stereo frames, not int16s: the ring and the output are both
-    // interleaved stereo (L, R, L, R, ...), so an L sample must land
-    // on an even output index and its R on the next odd one. Placing
-    // int16s one at a time with k = t_ms * 88.2 breaks that whenever
-    // the true rate is below nominal: k then advances by more than 1
-    // per input sample and periodically jumps by 2, flipping the L/R
-    // assignment for all following samples (heard as garbled,
-    // phasing distortion). Placing whole frames at the output frame
-    // index keeps L and R together at every rate. aud[] counts
-    // int16s, so align the window to frame boundaries: audio_start
-    // down to the nearest even index, audio_end up to the nearest
-    // even index (exclusive).
+    // Stereo frame boundaries: the ring is interleaved stereo
+    // (L, R, L, R, ...), so align the window to even int16 indices.
     audio_start = aud[0] & ~1;
     audio_end = aud[n - 1] + (int)(prev_dur_ms * tail_rate);
     if (audio_end & 1)
         audio_end++;
-    seg = 0;
-    for (f = audio_start / 2; f < audio_end / 2; f++) {
-        double t_ms; // wall-clock time of this frame, relative to ts[0]
-        int out_frame; // output stereo frame index
-        int p;         // this frame's L int16 index in the ring counter
-        int age, idx, idx_r;
-        p = f * 2;
-        // Advance to the interval containing p. Intervals between
-        // frames are [aud[seg], aud[seg+1]); seg == n-1 is the tail.
-        while (seg < n - 1 && p >= aud[seg + 1])
-            seg++;
-        if (seg < n - 1) {
-            int32_t dts = (int32_t)(ts[seg + 1] - ts[seg]);
-            int32_t daud = aud[seg + 1] - aud[seg];
-            if (dts > 0 && daud > 0) {
-                t_ms = (double)(ts[seg] - ts[0])
-                     + (double)(p - aud[seg]) * (double)dts / (double)daud;
-            } else if (daud > 0) {
-                // Same (or non-increasing) timestamp: spread the
-                // interval's samples at nominal rate from ts[seg].
-                t_ms = (double)(ts[seg] - ts[0])
-                     + (double)(p - aud[seg]) / nominal;
-            } else {
-                continue; // empty interval; no sample lives here
+    // Never read past what the mixer has actually produced.
+    if (audio_end > (wpos & ~1))
+        audio_end = wpos & ~1;
+    if (audio_end <= audio_start)
+        return NULL;
+    {
+        uint32_t samples_per_chan = (uint32_t)((audio_end - audio_start) / 2);
+        int out_len = (int)(samples_per_chan * REPLAY_AUDIO_CHANNELS);
+        pcm = malloc((size_t)out_len * 2);
+        if (!pcm)
+            return NULL;
+        for (i = 0; i < out_len; i++) {
+            int p = audio_start + i;
+            int age = wpos - p; // 0 = just written, positive = older
+            int idx;
+            if (age < 0 || age >= total) {
+                pcm[i] = 0; // not yet written, or already overwritten
+                continue;
             }
-        } else {
-            // Tail past the last frame: local rate of the last interval.
-            t_ms = (double)(ts[n - 1] - ts[0])
-                 + (double)(p - aud[n - 1]) / tail_rate;
+            idx = p % total;
+            if (idx < 0)
+                idx += total;
+            pcm[i] = replay_audio_buf[idx];
         }
-        out_frame = (int)(t_ms * nominal_frames + 0.5);
-        if (out_frame < 0 || out_frame >= (int)samples_per_chan)
-            continue;
-        age = wpos - p; // 0 = just written, positive = older
-        if (age < 0 || age >= total)
-            continue; // not yet written, or already overwritten
-        idx = p % total;
-        if (idx < 0)
-            idx += total;
-        idx_r = idx + 1;
-        if (idx_r >= total)
-            idx_r -= total;
-        pcm[out_frame * REPLAY_AUDIO_CHANNELS] = replay_audio_buf[idx];
-        pcm[out_frame * REPLAY_AUDIO_CHANNELS + 1] = replay_audio_buf[idx_r];
+        *samples_per_chan_out = samples_per_chan;
+        return pcm;
     }
-    *samples_per_chan_out = samples_per_chan;
-    return pcm;
 }
 
 // NOTE: the replay audio resample (replay_resample_pcm_linear and
@@ -587,6 +533,7 @@ typedef struct {
     int16_t *pcm;         // audio snapshot, owned (may be NULL)
     uint32_t *frame_durs; // per-frame durations, movie timescale (90000)
     uint32_t audio_samples_per_chan; // pcm length, per channel
+    uint32_t audio_start_delay_movie; // audio track start delay, movie timescale (90000)
     byte palette[256 * 3];
     char filename[256];
     char tmpname[264];
@@ -618,6 +565,8 @@ static void *replay_encode_worker(void *arg)
     uint32_t audio_asc_len = 0;
     uint32_t audio_samples = 0;      // samples per channel
     unsigned int audio_movie_dur = 0; // audio duration in movie timescale
+    unsigned int audio_track_dur = 0; // audio track duration in movie
+                                      // timescale: delay + media
     x264_t *enc = NULL;
     x264_picture_t pic_in;
     int pic_allocated = 0;
@@ -884,6 +833,11 @@ static void *replay_encode_worker(void *arg)
         aframes = NULL;
     }
 
+    // Audio track duration in the movie timeline is the start
+    // delay (edit list, from the (ts, aud) sync offset) plus the
+    // media duration.
+    audio_track_dur = audio_movie_dur + job->audio_start_delay_movie;
+
     // moov
     {
         long moov_pos = ftell(f); mp4_w32(f,0); fwrite("moov",1,4,f);
@@ -895,8 +849,8 @@ static void *replay_encode_worker(void *arg)
             mp4_w32(f,(unsigned int)timescale);
             {
                 unsigned int dur = video_movie_dur;
-                if (has_audio && audio_movie_dur > dur)
-                    dur = audio_movie_dur;
+                if (has_audio && audio_track_dur > dur)
+                    dur = audio_track_dur;
                 mp4_w32(f, dur);
             }
             mp4_w32(f,0x00010000); mp4_w16(f,0x0100); mp4_w16(f,0);
@@ -1131,7 +1085,7 @@ static void *replay_encode_worker(void *arg)
                 long pos = ftell(f); mp4_w32(f,0); fwrite("tkhd",1,4,f);
                 mp4_w32(f,7); mp4_w32(f,0); mp4_w32(f,0);
                 mp4_w32(f,2); mp4_w32(f,0);
-                mp4_w32(f,audio_movie_dur);
+                mp4_w32(f,audio_track_dur);
                 mp4_w32(f,0); mp4_w32(f,0);
                 mp4_w16(f,0); mp4_w16(f,0); mp4_w16(f,0x0100); mp4_w16(f,0);
                 mp4_w32(f,0x00010000); mp4_w32(f,0); mp4_w32(f,0);
@@ -1140,6 +1094,36 @@ static void *replay_encode_worker(void *arg)
                 mp4_w32(f,0); mp4_w32(f,0);
                 long end = ftell(f); fseek(f,pos,SEEK_SET);
                 mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+            }
+
+            // edts: edit list delaying the audio track by the
+            // (ts, aud) sync offset. The audio itself is played
+            // back properly (clean continuous stream); the
+            // timestamps only set this start offset, so events
+            // land with their video frames on average. An empty
+            // edit (media_time -1) dwells for the delay, then
+            // the media plays from time 0. Skipped entirely
+            // when the delay is zero.
+            if (job->audio_start_delay_movie > 0)
+            {
+                long edts_pos = ftell(f); mp4_w32(f,0); fwrite("edts",1,4,f);
+                {
+                    long pos = ftell(f); mp4_w32(f,0); fwrite("elst",1,4,f);
+                    mp4_w32(f,0); // version + flags
+                    mp4_w32(f,2); // entry_count
+                    // Entry 1: empty edit (dwell) for the delay.
+                    mp4_w32(f, job->audio_start_delay_movie);
+                    mp4_w32(f, 0xFFFFFFFF); // media_time = -1 (empty)
+                    mp4_w16(f, 1); mp4_w16(f, 0); // media_rate = 1.0
+                    // Entry 2: the audio media, from time 0.
+                    mp4_w32(f, audio_movie_dur);
+                    mp4_w32(f, 0); // media_time = 0
+                    mp4_w16(f, 1); mp4_w16(f, 0);
+                    long end = ftell(f); fseek(f,pos,SEEK_SET);
+                    mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                }
+                long end = ftell(f); fseek(f,edts_pos,SEEK_SET);
+                mp4_w32(f,(unsigned int)(end-edts_pos)); fseek(f,end,SEEK_SET);
             }
 
             // mdia
@@ -1428,25 +1412,26 @@ int D_ReplaySaveMP4(const char *filename)
             job->frame_durs[i] = dur_ms * 90;
         }
 #ifndef NO_FAAC
-        // Audio window: the per-frame (ts, aud) pairs are a
-        // wall-clock timestamp and an audio write position
-        // captured together in D_ReplayTick, so their slope is
-        // the true samples/ms. The SDL audio thread can starve
-        // under CPU load (game + x264 encode + Xvfb), so the
-        // true rate runs below the nominal 88.2 int16/ms and a
-        // raw ring slice is shorter than the video window — and
-        // its events play early, by T*(1 - true_rate/88.2).
-        // replay_snapshot_pcm_wallclock therefore places each
-        // recorded sample at its wall-clock position (piecewise-
-        // linear map over the pairs, silence where the mixer
-        // produced nothing), so the audio track is exactly the
-        // video window's length and events land with their
-        // video frames. No resampling: the resample (piecewise
-        // + linear interpolation) was removed 2026-11-11 at the
-        // user's order, so the audio sounds like the original —
-        // samples are placed, never stretched or interpolated.
-        // The tail (past the last frame's timestamp) uses the
-        // last interval's local rate.
+        // Audio: play it back properly. The per-frame (ts, aud)
+        // pairs are a wall-clock timestamp and an audio write
+        // position captured together in D_ReplayTick. The SDL
+        // audio thread can starve under CPU load (game + x264
+        // encode + Xvfb), so the true rate runs below the nominal
+        // 88.2 int16/ms and a raw ring slice is shorter than the
+        // video window. The audio is therefore copied verbatim
+        // (replay_snapshot_pcm_raw): the clean continuous recorded
+        // stream at its natural 44100 Hz, original sample timing
+        // preserved, no remapping to wall-clock, no interpolation,
+        // no resampling. The (ts, aud) pairs are used ONLY to
+        // synchronize the track with in-game events: they give a
+        // least-squares start offset (a constant delay of the
+        // whole track, set via an edit list in the audio trak),
+        // so events land with their video frames on average. No
+        // resampling: the resample (piecewise + linear
+        // interpolation) was removed 2026-11-11 at the user's
+        // order, so the audio sounds like the original. The tail
+        // (past the last frame's timestamp) uses the last
+        // interval's local rate.
         {
             double true_rate; // int16 samples (interleaved) per ms
             double tail_rate; // local rate over the last interval
@@ -1480,15 +1465,52 @@ int D_ReplaySaveMP4(const char *filename)
                     tail_rate = 1.0;
             }
             video_window_ms = ts[n - 1] - ts[0] + prev_dur_ms;
-            job->pcm = replay_snapshot_pcm_wallclock(
-                ts, aud, n, prev_dur_ms, tail_rate, video_window_ms,
+            // Start offset (seconds): the delay D that best aligns
+            // the audio track with the video. Audio sample aud[i]
+            // was current at wall-clock ts[i], so it should play
+            // at video time (ts[i]-ts[0])/1000. If the track starts
+            // at movie time D, sample aud[i] plays at D +
+            // (aud[i]-aud[0])/88200. Least-squares D is the mean
+            // of (ts[i]-ts[0])/1000 - (aud[i]-aud[0])/88200 over
+            // the frames. This is a constant shift of the whole
+            // track (positioning, not resampling); the residual
+            // is the drift from the starved production rate, which
+            // no constant offset can remove.
+            {
+                double sum = 0.0;
+                int cnt = 0;
+                int k;
+                for (k = 0; k < n; k++) {
+                    int32_t dts = (int32_t)(ts[k] - ts[0]);
+                    int32_t daud = aud[k] - aud[0];
+                    double dk;
+                    if (dts < 0 || daud < 0)
+                        continue;
+                    dk = (double)dts / 1000.0 - (double)daud / 88200.0;
+                    sum += dk;
+                    cnt++;
+                }
+                job->audio_start_delay_movie = 0;
+                if (cnt > 0) {
+                    double off = sum / cnt;
+                    double max_off = (double)video_window_ms / 1000.0;
+                    if (off < 0.0)
+                        off = 0.0;
+                    if (off > max_off)
+                        off = max_off;
+                    job->audio_start_delay_movie =
+                        (uint32_t)(off * 90000.0 + 0.5);
+                }
+            }
+            job->pcm = replay_snapshot_pcm_raw(
+                aud, n, prev_dur_ms, tail_rate,
                 &job->audio_samples_per_chan);
-            // No resample: each recorded sample is placed at its
-            // wall-clock position (see replay_snapshot_pcm_wallclock);
-            // starved intervals stay silence.
-            printf("[REPLAY] video window %u ms, audio %u samples/chan (rate %.2f)\n",
+            // No resample: the recorded audio is copied verbatim;
+            // the (ts, aud) pairs only set the track start offset.
+            printf("[REPLAY] video window %u ms, audio %u samples/chan (rate %.2f, delay %u/90000)\n",
                    (unsigned int)video_window_ms,
-                   job->audio_samples_per_chan, true_rate);
+                   job->audio_samples_per_chan, true_rate,
+                   job->audio_start_delay_movie);
         }
 #endif
     }
