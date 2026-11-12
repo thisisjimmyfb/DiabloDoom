@@ -2455,12 +2455,36 @@ static void T_DrawTextCentered(int y, const char *s)
     T_DrawText((320 - T_TextWidth(s)) / 2, y, s);
 }
 
+// Depth scale for world-space overlays (health bars, floating text,
+// MISS text): the overlay shrinks as the monster gets farther from
+// the camera, like the sprite itself. Full size at T_DEPTH_REF map
+// units; clamped so it never becomes unreadably small or absurdly
+// large. (My picks — correctable.)
+#define T_DEPTH_REF 256.0
+#define T_DEPTH_MIN_SCALE 0.5
+#define T_DEPTH_MAX_SCALE 1.5
+static double T_DepthScale(double tz)
+{
+    double s;
+    if (tz <= 0.0)
+        return T_DEPTH_MAX_SCALE;
+    s = T_DEPTH_REF / tz;
+    if (s < T_DEPTH_MIN_SCALE)
+        s = T_DEPTH_MIN_SCALE;
+    if (s > T_DEPTH_MAX_SCALE)
+        s = T_DEPTH_MAX_SCALE;
+    return s;
+}
+
 // Project a target's head to 320x200 screen space. False if behind.
 // Matches the engine's own R_ProjectSprite math (r_things.c): tx is
 // tr_x*sin - tr_y*cos (NOT its negation — the mirror bug), and the
 // vertical center is the real centery (viewheight/2 = 84 with the
 // status bar), not the hardcoded 100.
-static boolean T_ProjectTarget(mobj_t *mo, int *sx, int *sy)
+// Returns the raw head-top position (no fixed offset); callers apply
+// their own depth-scaled offset above the head. If depth is non-NULL,
+// stores the forward distance (tz) in map units for depth scaling.
+static boolean T_ProjectTarget(mobj_t *mo, int *sx, int *sy, double *depth)
 {
     double dx, dy, dz, tz, tx;
     double va, rad;
@@ -2476,8 +2500,10 @@ static boolean T_ProjectTarget(mobj_t *mo, int *sx, int *sy)
     tx = dx * sin(rad) - dy * cos(rad);
     if (tz < 16.0)
         return false;
+    if (depth != NULL)
+        *depth = tz;
     *sx = (int)(160.0 + (tx / tz) * 160.0);
-    *sy = (int)((double)centery - (dz / tz) * 160.0) - 8;
+    *sy = (int)((double)centery - (dz / tz) * 160.0);
     return true;
 }
 
@@ -2565,6 +2591,7 @@ static boolean T_FloatTextLive(mobj_t *mo)
 void T_DrawFloatText(void)
 {
     int i, sx, sy;
+    double depth, scale;
     player_t *player = &players[consoleplayer];
 
     if (!T_Active())
@@ -2584,15 +2611,19 @@ void T_DrawFloatText(void)
             t_floattexts[i].mo = NULL;
             continue;
         }
-        if (!T_ProjectTarget(t_floattexts[i].mo, &sx, &sy))
+        if (!T_ProjectTarget(t_floattexts[i].mo, &sx, &sy, &depth))
             continue;
-        // Above the health bar: the bar sits at sy - 2 (3 px tall),
-        // so the text starts with its bottom 2 px above the bar top
-        // (8 px font + 2 px gap), then rises as it fades. Clamp to
-        // the top of the screen: at point-blank range the monster's
-        // head is at the top edge and the text would otherwise draw
-        // off-screen (T_DrawTextF skips y < 0 entirely).
-        sy -= 12 + (T_FLOATTEXT_TICS - t_floattexts[i].tics) / 2;
+        // Above the health bar: the bar sits 10*scale above the head
+        // top (3*scale px tall), so the text starts with its bottom
+        // 2*scale px above the bar top, then rises as it fades. The
+        // 12 px (2 gap + 10 bar offset) scales with depth so the text
+        // stays glued above the bar; the 8 px font height is fixed
+        // (the font is fixed-size, so the text itself does not shrink).
+        // Clamp to the top of the screen: at point-blank range the
+        // monster's head is at the top edge and the text would
+        // otherwise draw off-screen (T_DrawTextF skips y < 0 entirely).
+        scale = T_DepthScale(depth);
+        sy -= (int)(12 * scale) + 8 + (T_FLOATTEXT_TICS - t_floattexts[i].tics) / 2;
         sy += t_floattexts[i].yoff;
         if (sy < 0)
             sy = 0;
@@ -2729,26 +2760,36 @@ void T_DrawHealthBars(void)
             lowest[k] = mo;
         }
     }
-    // Draw each bar above its monster's head (T_ProjectTarget already
-    // offsets -8 above the sprite top; the bar sits just a little higher
-    // so it clears the damage numbers without floating far from the head).
+    // Draw each bar above its monster's head. T_ProjectTarget returns
+    // the raw head-top position; the bar sits 10*scale above it (8
+    // from the old projection offset + 2), and its width/height scale
+    // with depth so it shrinks as the monster gets farther away,
+    // like the sprite itself.
     for (i = 0; i < n; i++)
     {
         mobj_t *mo = lowest[i];
-        int sx, sy, fill, c, frac;
-        if (!T_ProjectTarget(mo, &sx, &sy))
+        int sx, sy, barw, barh, fill, c, frac;
+        double depth, scale;
+        if (!T_ProjectTarget(mo, &sx, &sy, &depth))
             continue;
-        sy -= 2;
+        scale = T_DepthScale(depth);
+        sy -= (int)(10 * scale);
+        barw = (int)(T_HEALTHBAR_W * scale);
+        if (barw < 1)
+            barw = 1;
+        barh = (int)(T_HEALTHBAR_H * scale);
+        if (barh < 1)
+            barh = 1;
         frac = mo->health * 100 / mo->info->spawnhealth;
         if (frac > 100)
             frac = 100;
         if (frac < 0)
             frac = 0;
-        fill = (T_HEALTHBAR_W * frac) / 100;
+        fill = (barw * frac) / 100;
         if (mo->health > 0 && fill <= 0)
             fill = 1; // a living monster always shows at least 1 px
-        V_DrawFilledBox(sx - T_HEALTHBAR_W / 2, sy,
-                        T_HEALTHBAR_W, T_HEALTHBAR_H, t_hb_bg);
+        V_DrawFilledBox(sx - barw / 2, sy,
+                        barw, barh, t_hb_bg);
         if (fill > 0)
         {
             if (frac > 50)
@@ -2757,8 +2798,8 @@ void T_DrawHealthBars(void)
                 c = t_hb_yellow;
             else
                 c = t_hb_red;
-            V_DrawFilledBox(sx - T_HEALTHBAR_W / 2, sy,
-                            fill, T_HEALTHBAR_H, c);
+            V_DrawFilledBox(sx - barw / 2, sy,
+                            fill, barh, c);
         }
     }
 }
@@ -3083,9 +3124,10 @@ void T_DrawHUD(void)
             if (t_last_miss_mobj != NULL && t_last_miss_tics > 0)
             {
                 int sx, sy;
-                if (T_ProjectTarget(t_last_miss_mobj, &sx, &sy))
+                double depth;
+                if (T_ProjectTarget(t_last_miss_mobj, &sx, &sy, &depth))
                 {
-                    sy -= (25 - t_last_miss_tics) / 2;
+                    sy -= (int)(8 * T_DepthScale(depth)) + (25 - t_last_miss_tics) / 2;
                     T_DrawTextHi(sx - T_TextWidth("MISS") / 2, sy, "MISS");
                 }
             }

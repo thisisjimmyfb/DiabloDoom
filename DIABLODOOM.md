@@ -166,7 +166,10 @@ drawn **above the monster's head** in the game view — a dark box with
 a fill proportional to HP (green above 50%, yellow 25–50%, red below
 25%). Bars show in **both turn and explore mode**, and disappear
 **10 seconds after combat ends**. Killing a monster removes its bar;
-bars never show on barrels.
+bars never show on barrels. The bar **shrinks with distance** — it
+scales with the monster's depth from the camera, like the sprite
+itself, so it reads as a 3D object rather than a fixed-size overlay,
+and its gap above the head scales with it.
 
 When the player damages a monster, the damage number also appears
 as **floating text above the health bar**: it rises and fades out

@@ -177,6 +177,11 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
    (`T_SpawnFloatText` / `T_DrawFloatText` in `t_turn.c`, spawned from
    `T_DiabloDamageCallback`); each hit shows its own number, only for
    monsters the player damaged, and it disappears when the monster dies.
+   Depth scaling (2026-11-11): the bar shrinks with distance from the
+   camera (full size at 256 map units, clamped 0.5×–1.5×;
+   `T_DepthScale` in `t_turn.c`), and its gap above the head scales
+   with it; the damage number's position scales with the bar but the
+   number itself stays fixed-size so it remains readable.
 2. **No scalar input, ever** (the user's words: *"We shouldn't have actions
    that require scalar input because that will be too difficult to aim."*).
    Turn-mode actions are discrete: directions and actor IDs only. No
