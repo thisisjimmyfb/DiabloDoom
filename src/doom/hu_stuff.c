@@ -449,6 +449,7 @@ void HU_Drawer(void)
 	HUlib_drawTextLine(&w_title, false);
 
     T_DrawHUD();  // turn-based mode indicator (no-op in real-time)
+    T_DrawHealthBars();  // enemy health bars (both modes, 10 s fade)
 }
 
 void HU_Erase(void)

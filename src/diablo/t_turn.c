@@ -36,6 +36,7 @@
 #include "m_random.h"
 #include "r_state.h"
 #include "v_video.h"
+#include "i_video.h"
 #include "w_wad.h"
 #include "z_zone.h"
 
@@ -249,6 +250,17 @@ void T_ExploreTick(void)
 
 turnctrl_t turnctrl;
 
+// Enemy health bars (2026-11-11): a window of the most recently
+// attacked monsters. t_combat_end_tic is the gametic when combat
+// last ended (set in T_EnterExplore); bars hide once more than
+// T_HEALTHBAR_FADE_TICS have passed in explore mode. Initialised
+// far in the past so no bars show before the first fight.
+#define T_MAXHEALTHBAR 32
+#define T_HEALTHBAR_FADE_TICS 350 // 10 seconds at 35 tics/sec
+static mobj_t *t_healthbars[T_MAXHEALTHBAR];
+static int t_healthbar_count = 0;
+static int t_combat_end_tic = -1000000;
+
 // Forward declaration (definition lives with the targeting code below).
 static int t_numtargets;
 
@@ -323,6 +335,7 @@ void T_NewGame(void)
     if (!t_ready)
         return;
     passive_last_hp = -1;
+    t_healthbar_count = 0; // fresh window for the new game
     memset(&turnctrl, 0, sizeof(turnctrl));
     turnctrl.tp_max = 10;
     turnctrl.tp = turnctrl.tp_max;
@@ -341,6 +354,7 @@ void T_OnLoad(void)
     if (!T_Active())
         return;
     passive_last_hp = -1;
+    t_healthbar_count = 0; // old window points at the previous level
     turnctrl.state = TS_EXPLORE;
     turnctrl.pulse_left = 0;
     turnctrl.queue_len = 0;
@@ -406,6 +420,11 @@ void T_EnterExplore(void)
     thinker_t *th;
     int i;
 
+    // Health bars: combat just ended; bars stay visible for 10 s.
+    {
+        extern int gametic;
+        t_combat_end_tic = gametic;
+    }
     turnctrl.state = TS_EXPLORE;
     turnctrl.queue_len = 0;
     turnctrl.queue_tp = 0;
@@ -2526,6 +2545,168 @@ void T_DrawFloatText(void)
         sy -= (70 - t_floattexts[i].tics) / 2;
         T_DrawTextHi(sx - T_TextWidth(t_floattexts[i].text) / 2, sy,
                      t_floattexts[i].text);
+    }
+}
+
+// ------------------------------------------------------------------
+// Enemy health bars (2026-11-11)
+// ------------------------------------------------------------------
+// A 32-entry window of the most recently attacked monsters; bars for
+// the lowest 4 by absolute HP, drawn world-space above the monster's
+// head, in both turn and explore mode, fading 10 s after combat ends.
+// The bar fill is the HP fraction (health / spawnhealth); the RANKING
+// is by absolute HP. Barrels are not monsters and never get a bar.
+
+#define T_HEALTHBAR_SHOW 4
+#define T_HEALTHBAR_W 24
+#define T_HEALTHBAR_H 3
+
+static int t_hb_bg = -1, t_hb_green = -1, t_hb_yellow = -1, t_hb_red = -1;
+
+static void T_ResolveHealthBarColors(void)
+{
+    if (t_hb_bg >= 0)
+        return;
+    t_hb_bg = I_GetPaletteIndex(32, 32, 32);
+    t_hb_green = I_GetPaletteIndex(0, 200, 0);
+    t_hb_yellow = I_GetPaletteIndex(255, 220, 0);
+    t_hb_red = I_GetPaletteIndex(220, 40, 40);
+}
+
+// Record a monster just attacked: move it to the front of the window
+// (most recent), dropping the least recently attacked if full.
+// Called by the Diablo damage callback; the monster is alive here
+// (it is being damaged), so the pointer is safe to store.
+void T_RecordHealthBar(mobj_t *mo)
+{
+    int i, j;
+    if (mo == NULL || mo->health <= 0)
+        return;
+    if (mo->type == MT_BARREL)
+        return; // barrels are not monsters
+    for (i = 0; i < t_healthbar_count; i++)
+    {
+        if (t_healthbars[i] == mo)
+        {
+            for (j = i; j > 0; j--)
+                t_healthbars[j] = t_healthbars[j - 1];
+            t_healthbars[0] = mo;
+            return;
+        }
+    }
+    if (t_healthbar_count < T_MAXHEALTHBAR)
+        t_healthbar_count++;
+    for (j = t_healthbar_count - 1; j > 0; j--)
+        t_healthbars[j] = t_healthbars[j - 1];
+    t_healthbars[0] = mo;
+}
+
+// Drop window entries whose monster is gone or dead. The thinker
+// check makes the pointer safe to dereference: a freed mobj's memory
+// could be reused for another allocation, so a health check alone is
+// not enough. A dead monster (health <= 0) is also dropped, so its
+// bar disappears when it dies instead of lingering on the corpse.
+static void T_PruneHealthBars(void)
+{
+    int i, w = 0;
+    for (i = 0; i < t_healthbar_count; i++)
+    {
+        mobj_t *mo = t_healthbars[i];
+        thinker_t *th;
+        boolean live = false;
+        if (mo == NULL)
+            continue;
+        for (th = thinkercap.next; th != &thinkercap; th = th->next)
+        {
+            if (th->function.acp1 != (actionf_p1)P_MobjThinker)
+                continue;
+            if ((mobj_t *)th == mo)
+            {
+                live = true;
+                break;
+            }
+        }
+        if (!live || mo->health <= 0)
+            continue;
+        t_healthbars[w++] = mo;
+    }
+    t_healthbar_count = w;
+}
+
+void T_DrawHealthBars(void)
+{
+    int i, n = 0;
+    mobj_t *lowest[T_HEALTHBAR_SHOW];
+    player_t *player = &players[consoleplayer];
+
+    if (!T_Active())
+        return;
+    if (player->mo == NULL || player->mo->health <= 0)
+        return;
+    if (automapactive)
+        return;
+    // Visible in combat, and for 10 s after combat ends.
+    if (!T_InCombat())
+    {
+        extern int gametic;
+        if (!T_InExplore()
+            || gametic - t_combat_end_tic >= T_HEALTHBAR_FADE_TICS)
+            return;
+    }
+    T_ResolveHealthBarColors();
+    T_PruneHealthBars();
+    if (t_healthbar_count <= 0)
+        return;
+    // Select the lowest 4 by absolute HP (insertion into a sorted list).
+    for (i = 0; i < t_healthbar_count; i++)
+    {
+        mobj_t *mo = t_healthbars[i];
+        int k, m;
+        for (k = 0; k < n; k++)
+        {
+            if (mo->health < lowest[k]->health)
+                break;
+        }
+        if (k < T_HEALTHBAR_SHOW)
+        {
+            if (n < T_HEALTHBAR_SHOW)
+                n++;
+            for (m = n - 1; m > k; m--)
+                lowest[m] = lowest[m - 1];
+            lowest[k] = mo;
+        }
+    }
+    // Draw each bar above its monster's head (T_ProjectTarget already
+    // offsets -8 above the sprite top; the bar sits a little higher so
+    // it clears the damage numbers).
+    for (i = 0; i < n; i++)
+    {
+        mobj_t *mo = lowest[i];
+        int sx, sy, fill, c, frac;
+        if (!T_ProjectTarget(mo, &sx, &sy))
+            continue;
+        sy -= 6;
+        frac = mo->health * 100 / mo->info->spawnhealth;
+        if (frac > 100)
+            frac = 100;
+        if (frac < 0)
+            frac = 0;
+        fill = (T_HEALTHBAR_W * frac) / 100;
+        if (mo->health > 0 && fill <= 0)
+            fill = 1; // a living monster always shows at least 1 px
+        V_DrawFilledBox(sx - T_HEALTHBAR_W / 2, sy,
+                        T_HEALTHBAR_W, T_HEALTHBAR_H, t_hb_bg);
+        if (fill > 0)
+        {
+            if (frac > 50)
+                c = t_hb_green;
+            else if (frac >= 25)
+                c = t_hb_yellow;
+            else
+                c = t_hb_red;
+            V_DrawFilledBox(sx - T_HEALTHBAR_W / 2, sy,
+                            fill, T_HEALTHBAR_H, c);
+        }
     }
 }
 

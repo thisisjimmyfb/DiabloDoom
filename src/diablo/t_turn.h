@@ -339,4 +339,12 @@ void T_KillBanner(const char *title, const char *sub);
 // Floating combat text (e.g. "MISS" above an enemy).
 void T_SpawnFloatText(mobj_t *mo, const char *text);
 
+// Enemy health bars (2026-11-11): a 32-entry window of the most
+// recently attacked monsters; bars for the lowest 4 by absolute HP,
+// drawn world-space above the monster's head, in both turn and
+// explore mode, fading 10 s after combat ends. Recorded by the
+// Diablo damage callback; drawn by the HUD.
+void T_RecordHealthBar(mobj_t *mo);
+void T_DrawHealthBars(void);
+
 #endif

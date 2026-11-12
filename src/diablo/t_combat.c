@@ -439,6 +439,10 @@ static int T_DiabloDamageCallback(player_t *pl, mobj_t *target, int weapon)
 
     if (!pl || !target || weapon < 0 || weapon >= NUMWEAPONS)
         return 1;
+    // Enemy health bars: record the monster just attacked (most
+    // recently attacked window; the bar itself reads health at draw
+    // time, so recording here is before the damage is applied).
+    T_RecordHealthBar(target);
     kit = T_KitForWeapon((weapontype_t)weapon);
     mech = D_EquippedWeaponMech((struct player_s *)pl);
     T_DeriveStats(pl, &st);

@@ -165,6 +165,13 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
    queued, no autosave, and no spotter message, damage-first after
    `P_Ticker()`; it pauses (does not cancel) a running GOTO/WALK,
    and cannot fire during planning or the progress phase.
+   Enemy health bars (2026-11-11): attacking a monster records it in a
+   32-entry most-recently-attacked window; the lowest 4 by absolute HP
+   get a world-space bar above the head in both modes, fading 10 s
+   after combat ends (`T_RecordHealthBar` / `T_DrawHealthBars` in
+   `t_turn.c`, drawn from `HU_Drawer`). Window entries are validated
+   against the thinker list before use — a freed mobj pointer must
+   never be dereferenced on health alone.
 2. **No scalar input, ever** (the user's words: *"We shouldn't have actions
    that require scalar input because that will be too difficult to aim."*).
    Turn-mode actions are discrete: directions and actor IDs only. No

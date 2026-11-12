@@ -158,6 +158,16 @@ exploring. Barrels never start combat but can still be targeted with
 Tab. **G** auto-paths to the nearest loot during combat (walk to loot
 while exploring).
 
+## Enemy health bars
+
+Attacking a monster puts it in a 32-entry window of the most recently
+attacked monsters. The **lowest 4 by absolute HP** get a health bar
+drawn **above the monster's head** in the game view — a dark box with
+a fill proportional to HP (green above 50%, yellow 25–50%, red below
+25%). Bars show in **both turn and explore mode**, and disappear
+**10 seconds after combat ends**. Killing a monster removes its bar;
+bars never show on barrels.
+
 ## Essence (salvage / repair)
 
 Junk loot is salvage fuel. **S** in the character screen salvages the
