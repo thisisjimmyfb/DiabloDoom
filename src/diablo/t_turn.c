@@ -2677,15 +2677,15 @@ void T_DrawHealthBars(void)
         }
     }
     // Draw each bar above its monster's head (T_ProjectTarget already
-    // offsets -8 above the sprite top; the bar sits a little higher so
-    // it clears the damage numbers).
+    // offsets -8 above the sprite top; the bar sits just a little higher
+    // so it clears the damage numbers without floating far from the head).
     for (i = 0; i < n; i++)
     {
         mobj_t *mo = lowest[i];
         int sx, sy, fill, c, frac;
         if (!T_ProjectTarget(mo, &sx, &sy))
             continue;
-        sy -= 6;
+        sy -= 2;
         frac = mo->health * 100 / mo->info->spawnhealth;
         if (frac > 100)
             frac = 100;
