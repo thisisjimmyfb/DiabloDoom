@@ -2613,11 +2613,11 @@ void T_DrawFloatText(void)
         }
         if (!T_ProjectTarget(t_floattexts[i].mo, &sx, &sy, &depth))
             continue;
-        // Above the health bar: the bar sits 10*scale above the head
+        // Above the health bar: the bar sits 2*scale above the head
         // top (3*scale px tall), so the text starts with its bottom
-        // 2*scale px above the bar top, then rises as it fades. The
-        // 12 px (2 gap + 10 bar offset) scales with depth so the text
-        // stays glued above the bar; the 8 px font height is fixed
+        // 10*scale px above the bar top, then rises as it fades. The
+        // 12 px (10 text gap + 2 bar offset) scales with depth so the
+        // text stays above the bar; the 8 px font height is fixed
         // (the font is fixed-size, so the text itself does not shrink).
         // Clamp to the top of the screen: at point-blank range the
         // monster's head is at the top edge and the text would
@@ -2761,9 +2761,9 @@ void T_DrawHealthBars(void)
         }
     }
     // Draw each bar above its monster's head. T_ProjectTarget returns
-    // the raw head-top position; the bar sits 10*scale above it (8
-    // from the old projection offset + 2), and its width/height scale
-    // with depth so it shrinks as the monster gets farther away,
+    // the raw head-top position; the bar sits 2*scale above it (my
+    // pick, correctable — tight against the head), and its width/height
+    // scale with depth so it shrinks as the monster gets farther away,
     // like the sprite itself.
     for (i = 0; i < n; i++)
     {
@@ -2773,7 +2773,7 @@ void T_DrawHealthBars(void)
         if (!T_ProjectTarget(mo, &sx, &sy, &depth))
             continue;
         scale = T_DepthScale(depth);
-        sy -= (int)(10 * scale);
+        sy -= (int)(2 * scale);
         barw = (int)(T_HEALTHBAR_W * scale);
         if (barw < 1)
             barw = 1;
