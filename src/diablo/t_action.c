@@ -1221,6 +1221,11 @@ static void T_WalkBegin(fixed_t step_target)
            pl->mo->x >> 16, pl->mo->y >> 16, pl->mo->floorz >> 16);
 }
 
+boolean T_WalkActive(void)
+{
+    return walk_active;
+}
+
 void T_WalkStart(void)
 {
     T_WalkBegin(0);

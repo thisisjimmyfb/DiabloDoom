@@ -200,6 +200,7 @@ void T_Ticker(void);
 
 // Explore/combat mode split: free real-time movement while exploring,
 // turn-based combat when an enemy AI acquires the player as its target.
+void T_DriverTick(void);    // -rlenv: driver step outside GS_LEVEL
 boolean T_InExplore(void);   // true while in TS_EXPLORE
 void T_EnterExplore(void);   // leave combat -> free movement
 void T_EnterCombat(mobj_t *spotter); // an enemy acquired the player

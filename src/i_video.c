@@ -871,6 +871,20 @@ void I_SetPalette (byte *doompalette)
     palette_to_set = true;
 }
 
+// Copy the current (gamma-corrected) palette as 256 RGB triples.
+// Used by -rlenv to publish frames exactly as displayed.
+void I_GetPaletteRGB(byte *rgb)
+{
+    int i;
+
+    for (i=0; i<256; ++i)
+    {
+        *rgb++ = palette[i].r;
+        *rgb++ = palette[i].g;
+        *rgb++ = palette[i].b;
+    }
+}
+
 // Given an RGB value, find the closest matching palette index.
 
 int I_GetPaletteIndex(int r, int g, int b)

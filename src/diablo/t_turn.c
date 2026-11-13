@@ -12,6 +12,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
+#include <poll.h>
 
 #include "hu_stuff.h"
 #include "m_controls.h"
@@ -1126,7 +1127,7 @@ static boolean cmd_is_diagnostic(const char *cmd)
 {
     static const char *diag[] = {
         "SCREENSHOT", "REPLAY", "CAPTURE", "VERSION",
-        "INVENTORY", "KEYS", "SECTORS", NULL
+        "INVENTORY", "KEYS", "SECTORS", "STATE", NULL
     };
     int i;
     for (i = 0; diag[i] != NULL; i++)
@@ -1240,17 +1241,8 @@ static void cmd_init(void)
 // partial bytes wait in the line assembler and the line resumes
 // next tick -- still ahead of any later line, so order holds.)
 
-// Per-tick driver step: read complete lines from the FIFO into the
-// in-memory queue (see the line protocol above), then execute
-// exactly ONE queued command. One per tick lets the world respond
-// between commands, the way it responds between key presses.
-static void cmd_drain(void (*dispatch)(const char *))
+static void cmd_ingest(void)
 {
-    if (cmdfd == -2)
-        cmd_init();
-    if (cmdfd < 0)
-        return;
-
     // Ingest lines while the queue has room. A line is started only
     // when a slot is free for it (that slot is then spoken for:
     // nothing else pushes during ingest, so the newline's push
@@ -1277,6 +1269,109 @@ static void cmd_drain(void (*dispatch)(const char *))
         if (!line_done)
             break; // ran dry mid-line: resume it next tick
     }
+}
+
+// ------------------------------------------------------------------
+// -rlenv decision points (agent/training/SPEC.md). A decision is due
+// when the driver is idle and the game is waiting on its next input:
+// - EXPLORE: no queued command, no WAIT/turn/survey gate, no
+//   walk/GOTO/COLLECT running, and the player has stopped sliding
+//   (momentum zero) or RL_SETTLE_MAX tics have passed since the
+//   driver went idle (a conveyor or a slope must not stall a step);
+// - PLANNING / TARGETING / CONFIRM: waiting for planning input;
+// - the player is dead, or the game is between levels.
+// At a decision the engine publishes the frame, sends one "decision"
+// STATE line, and blocks on the command pipe until a line arrives.
+// ------------------------------------------------------------------
+#define RL_SETTLE_MAX 35
+static void cmd_drain(void (*dispatch)(const char *));
+static void cmd_dispatch(const char *cmd);
+static int rl_last_decision_tic = 0;
+static int rl_settle_tics = 0;
+
+static boolean rl_decision_due(void)
+{
+    player_t *pl = &players[consoleplayer];
+    extern boolean T_WalkActive(void);
+    extern boolean T_GotoActive(void);
+    extern boolean T_CollectActive(void);
+
+    if (gamestate != GS_LEVEL)
+        return true;
+    // Nothing is drawn until the first level tic has run: the frame
+    // published with a decision is the one rendered after the
+    // previous tic.
+    if (gametic < 1)
+        return false;
+    if (pl->mo == NULL || pl->playerstate == PST_DEAD || pl->health <= 0)
+        return true;
+    if (cmd_wait_tics > 0 || cmd_turn_tics_left > 0 || cmd_survey_log_pending)
+    {
+        rl_settle_tics = 0;
+        return false;
+    }
+    if (T_InExplore())
+    {
+        if (T_WalkActive() || T_GotoActive() || T_CollectActive())
+        {
+            rl_settle_tics = 0;
+            return false;
+        }
+        if ((pl->mo->momx == 0 && pl->mo->momy == 0)
+         || rl_settle_tics >= RL_SETTLE_MAX)
+            return true;
+        rl_settle_tics++;
+        return false;
+    }
+    if ((turnctrl.state == TS_PLANNING || turnctrl.state == TS_TARGETING
+         || turnctrl.state == TS_CONFIRM) && !turnctrl.executing)
+        return true;
+    return false;
+}
+
+// Called with the command queue empty. If a decision is due, publish
+// it and block until the env sends the next line.
+static void rl_decision_point(void)
+{
+    struct pollfd pfd;
+
+    if (!rl_decision_due())
+        return;
+    RL_PublishFrame();
+    RL_EmitState("decision", gametic - rl_last_decision_tic);
+    rl_last_decision_tic = gametic;
+    rl_settle_tics = 0;
+    pfd.fd = cmdfd;
+    pfd.events = POLLIN;
+    while (cmd_q_count == 0)
+    {
+        pfd.revents = 0;
+        if (poll(&pfd, 1, -1) < 0 && errno != EINTR)
+            break;
+        cmd_ingest();
+    }
+}
+
+// Driver step for game states without T_Ticker (intermission,
+// finale) under -rlenv, so LOAD and QUIT still work between levels.
+void T_DriverTick(void)
+{
+    if (rlenv)
+        cmd_drain(cmd_dispatch);
+}
+
+// Per-tick driver step: read complete lines from the FIFO into the
+// in-memory queue (see the line protocol above), then execute
+// exactly ONE queued command. One per tick lets the world respond
+// between commands, the way it responds between key presses.
+static void cmd_drain(void (*dispatch)(const char *))
+{
+    if (cmdfd == -2)
+        cmd_init();
+    if (cmdfd < 0)
+        return;
+
+    cmd_ingest();
 
     // Async screenshot drain: print a pending SURVEY log line once
     // its frames are actually on disk. Ingest above already ran,
@@ -1415,6 +1510,9 @@ static void cmd_drain(void (*dispatch)(const char *))
             printf("[WAIT] elapsed\n");
         return;
     }
+
+    if (rlenv && cmd_q_count == 0)
+        rl_decision_point();
 
     if (cmd_q_count > 0)
     {
@@ -2065,6 +2163,12 @@ static void cmd_dispatch(const char *cmd)
         printf("[VERSION] " GIT_COMMIT_HASH "\n");
         RL_Emit("{\"event\":\"version\",\"commit\":\"%s\",\"gametic\":%d}",
                 GIT_COMMIT_HASH, gametic);
+    }
+    else if (!strcmp(cmd, "STATE"))
+    {
+        // One STATE line now (the regular decision line still follows
+        // at the next decision point).
+        RL_EmitState("state", gametic - rl_last_decision_tic);
     }
     else if (!strncmp(cmd, "SEED ", 5))
     {

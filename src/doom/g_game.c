@@ -26,6 +26,7 @@
 #include "doomkeys.h"
 #include "doomstat.h"
 #include "t_turn.h"
+#include "d_rlenv.h"
 
 #include "deh_main.h"
 #include "deh_misc.h"
@@ -1213,10 +1214,12 @@ void G_Ticker (void)
 	break; 
 	 
       case GS_INTERMISSION: 
+	T_DriverTick ();         // -rlenv only: LOAD/QUIT between levels
 	WI_Ticker (); 
 	break; 
 			 
       case GS_FINALE: 
+	T_DriverTick ();
 	F_Ticker (); 
 	break; 
  
@@ -1603,6 +1606,10 @@ void G_SecretExitLevel (void)
 void G_DoCompleted (void) 
 { 
     int             i; 
+
+    // -rlenv: the level's exit was reached (reward + rollout end).
+    RL_Emit("{\"event\":\"exit\",\"episode\":%d,\"map\":%d,\"secret\":%s,\"gametic\":%d}",
+            gameepisode, gamemap, secretexit ? "true" : "false", gametic);
 
     // Phase 8: atomic profile save on level exit. Never from a demo
     // or a netgame (2026-10-22): the state being saved is the

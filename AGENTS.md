@@ -115,6 +115,22 @@ Replay MP4s land under `/tmp/doomshots/`. The farm driver is
 `agent/SYSTEM_PROMPT.md` (agent rules) and `agent/PROMPT.md`
 (strategy).
 
+RL environment mode (`-rlenv`, 2026-11-12; design in
+`agent/training/SPEC.md`, code in `src/diablo/d_rlenv.c`): enables the
+same driver anywhere, on a per-instance `-cmdpipe <path>`, with JSON
+event lines on `-statepipe <path>` and the frame (320x200 indices +
+palette) in a `-shm <name>` segment. It runs `singletics` (as fast as
+possible) and turns off wipes, ENDOOM, replay capture, the CMD echo, the
+idle Zug Zug timer, config save, and saving on QUIT. Stepping is
+decision-driven: when the driver is idle and the game is waiting for
+input (explore with the player settled, planning, dead, or between
+levels), the engine publishes the frame, sends one `decision` line, and
+blocks on the pipe until the next command. `STATE` sends a state line
+on demand; `SEED n` sets `prndindex` (send it after `LOAD`; saves don't
+store it); level completion sends an `exit` event. Give each instance
+its own working directory and `-savedir` (the turn profile and
+autosaves are written there).
+
 ## Repo map
 
 - `src/diablo/` — the whole Diablo system, moved out of `src/doom/` 2026-10-23: the item/equipment backend, character screen, turn engine, progress saves, and replay capture. Vanilla Doom files with Diablo hooks stay in `src/doom/`.
