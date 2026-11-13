@@ -5,7 +5,7 @@ Level: <level, e.g. E1M1>
 IN-GAME DECISIONS ONLY — areas, goals, leads, mechanism states, and what to do next. No system, driver, crash, setup, or tooling notes — those go in the run's agent log. Not loot, corpses, or enemies.
 
 Last updated: YYYY-MM-DD ~HH:MM PDT
-Save anchor (QUIT save): (x,y) <area>, <level>, <HP>% HP, <kit>. No corpse pending. / Corpse pending at (x,y).
+Save anchor: (x,y) <area>, <level>, <HP>% HP, <kit>. No corpse pending. / Corpse pending at (x,y).
 
 ## Goals
 Level goal: reach the exit.

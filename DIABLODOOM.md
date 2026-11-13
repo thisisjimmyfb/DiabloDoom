@@ -268,6 +268,8 @@ These work in turn-based combat (when `T_Active()`). They queue actions (1 point
 | `SCREENSHOT` | Capture a timestamped screenshot (`diablodoom_<ts>_NN.png` under `doomshots/`) from the game framebuffer. |
 | `INVENTORY` | Toggle character/inventory screen (C key equivalent). |
 | `RESPAWN` | Confirm respawn after death (manual corpse-run). Player stays dead at 0% until this is sent. |
+| `SAVE` | Save the game. `SAVE` (or `SAVE 0`) writes the autosave slot 0 (`progress_auto1.dat` + `doomsav0.dsg`); `SAVE n` with n = 3–5 writes manual Doom savegame slot n (only inside a level). Other slots are refused with a log line. The autosave is skipped when there is nothing to save — outside a level (intermission, finale, title) or during a load. |
+| `QUIT` | Quit without saving: a clean shutdown from inside the game (use it instead of killing the process, which throws away the buffered log). It flushes the log and any queued screenshots and exits, skipping the ENDOOM screen (which would wait forever for a keypress). To save first, send `SAVE` (or `SAVE n`) before `QUIT`: the driver runs one command per tic, so the save lands before the quit. The old `QUIT n` form still quits, but saves nothing and logs that `SAVE n` must come first. Under `-rlenv` a capturing instance writes its last replay segment first. |
 
 ### Combat Movement (Kiting)
 
@@ -300,6 +302,14 @@ END
 # Death: screenshot, then respawn
 SCREENSHOT
 RESPAWN
+
+# End of session: save slot 0, then quit
+SAVE
+QUIT
+
+# Save manual slot 3, then quit
+SAVE 3
+QUIT
 ```
 
 ### Implementation

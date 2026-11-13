@@ -2286,42 +2286,33 @@ static void cmd_dispatch(const char *cmd)
     }
     else if (!strcmp(cmd, "QUIT") || !strncmp(cmd, "QUIT ", 5))
     {
-        // Save + clean shutdown from inside the game (the user's order,
+        // Clean shutdown from inside the game (the user's order,
         // replacing the pkill -9 the farm used to rely on: SIGKILL
-        // throws away the buffered log and can lose state, while a
-        // clean exit flushes both). "QUIT" saves autosave slot 0;
-        // "QUIT n" (3-5) saves manual slot n instead.
+        // throws away the buffered log, while a clean exit flushes
+        // it). QUIT never saves (2026-11-13: the save moved out into
+        // SAVE, so a save is always an explicit command); the farm
+        // sends SAVE then QUIT. The old "QUIT n" form still quits,
+        // but says so, so a caller relying on its save sees why
+        // nothing was written.
         //
         // show_endoom must be off before I_Quit: the ENDOOM exit
         // screen waits for a keypress (I_Endoom loops on TXT_GetChar),
         // which a driver-run game never gets -- I_Quit would hang in
         // its exit chain forever. A human quitting from the menu
         // still sees ENDOOM; only this driver quit skips it.
-        extern void D_AutoSaveGame(void);
-        extern void G_DoSaveGameSlot(int slot, const char *desc);
         extern void I_Quit(void);
         extern int show_endoom;
-        int n = 0;
-        if (cmd[4] == ' ' && sscanf(cmd + 5, "%d", &n) != 1)
-            n = 0;
+        if (cmd[4] == ' ')
+            printf("[QUIT] QUIT no longer saves; send SAVE %s before QUIT\n",
+                   cmd + 5);
         if (rlenv)
         {
-            // The env owns its save slots; instances never write
-            // saves on exit. A capturing instance flushes its
-            // partial segment and waits for the encodes first.
+            // A capturing instance flushes its partial segment and
+            // waits for the encodes first.
             extern void D_ReplayFlushCapture(void);
-            printf("[QUIT] rlenv: shutting down without saving\n");
             D_ReplayFlushCapture();
         }
-        else
-        {
-            printf("[QUIT] saving slot %d and shutting down\n", n);
-            if (n >= 3 && n <= 5 && gamestate == GS_LEVEL)
-                G_DoSaveGameSlot(n, "DRIVER QUIT");
-            else
-                D_AutoSaveGame();
-            printf("[QUIT] save complete, goodbye\n");
-        }
+        printf("[QUIT] shutting down (no save)\n");
         fflush(NULL);
         // Async screenshots: drain the PNG queue before exiting,
         // so a final screenshot (or pending survey frames) queued

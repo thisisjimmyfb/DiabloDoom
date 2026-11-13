@@ -208,17 +208,18 @@ launch_game() {
     sleep 15
 }
 
-# Ask any running game to save + shut itself down via the QUIT
-# driver command (the save lands and the buffered log is flushed --
-# a SIGKILL throws both away). SIGKILL remains only as the fallback
-# for a game too wedged to read its FIFO. Returns non-zero if a game
-# is still alive at the end.
+# Ask any running game to save and shut itself down: SAVE (slot 0,
+# the autosave pair), then QUIT (clean exit, buffered log flushed --
+# a SIGKILL throws both away). QUIT itself never saves; the driver
+# runs one command per tic, so the save lands before the quit.
+# SIGKILL remains only as the fallback for a game too wedged to read
+# its FIFO. Returns non-zero if a game is still alive at the end.
 stop_all_games() {
     if ! pgrep -f "chocolate-doo[m]" > /dev/null; then
         return 0
     fi
     if [ -p "$CMDFILE" ]; then
-        timeout 3 bash -c 'printf "QUIT\n" >> "$1"' _ "$CMDFILE" 2>/dev/null || true
+        timeout 3 bash -c 'printf "SAVE\nQUIT\n" >> "$1"' _ "$CMDFILE" 2>/dev/null || true
         local waits=0
         while pgrep -f "chocolate-doo[m]" > /dev/null && [ $waits -lt 25 ]; do
             sleep 1
@@ -543,8 +544,8 @@ subagent_setup() {
     if [ "$game_count" -gt 0 ]; then
         # A game is already running (possibly stale: stuck pre-GS_LEVEL or
         # holding a deleted FIFO). Ask it to save + quit itself via the
-        # QUIT driver command (stop_all_games falls back to SIGKILL only
-        # if the game ignores QUIT). Poll until actually dead before
+        # SAVE and QUIT driver commands (stop_all_games falls back to
+        # SIGKILL only if the game ignores QUIT). Poll until actually dead before
         # touching the FIFO.
         if ! stop_all_games; then
             echo '{"ok": false, "error": "could not kill existing game"}'
@@ -682,7 +683,7 @@ subagent_act() {
     fi
     # Run-end auto-QUIT: enforced here, never mentioned to the agent.
     # If the caller passed --start-ms, end the run (final screenshot,
-    # then QUIT) instead of the file's commands once the limit is
+    # SAVE, then QUIT) instead of the file's commands once the limit is
     # exceeded. The agent never sends QUIT itself.
     local quit_auto=0
     if [ -n "${START_MS:-}" ]; then
@@ -692,9 +693,9 @@ subagent_act() {
         local elapsed_ms=$(( $(now_ms) - START_MS ))
         if [ "$elapsed_ms" -gt $(( eff_limit_s * 1000 )) ]; then
             quit_auto=1
-            stage_log "act mark time-limit reached elapsed_ms=$elapsed_ms limit_s=$eff_limit_s, sending SCREENSHOT+QUIT instead of file commands"
+            stage_log "act mark time-limit reached elapsed_ms=$elapsed_ms limit_s=$eff_limit_s, sending SCREENSHOT+SAVE+QUIT instead of file commands"
             local quit_file="/tmp/doom_quit.$$.txt"
-            printf 'SCREENSHOT\nQUIT\n' > "$quit_file"
+            printf 'SCREENSHOT\nSAVE\nQUIT\n' > "$quit_file"
             ACT_FILE="$quit_file"
         fi
     fi

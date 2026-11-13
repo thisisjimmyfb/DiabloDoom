@@ -102,9 +102,11 @@ dropped, so no segment ever straddles a load cut (2026-10-24) — only
 driver loads need this, because a driver load shows no UI, so the cut
 looks abrupt in the video; menu loads show the menu. `SAVE n`/`LOAD n` drive the save slots (0 = the autosave pair,
 progress_auto1.dat + doomsav0.dsg; 3–5 = plain Doom savegames, mirroring
-the load menu), and `QUIT` saves slot 0, flushes the log, and shuts the
-game down cleanly from inside — the farm uses QUIT instead of killing
-the process (SIGKILL discards the buffered log). QUIT skips the ENDOOM
+the load menu), and `QUIT` flushes the log and shuts the game down
+cleanly from inside. QUIT never saves (2026-11-13: the save was split
+out into SAVE): the farm sends `SAVE` then `QUIT` instead of killing the
+process (SIGKILL discards the buffered log), and the driver's one command
+per tic lands the save before the quit. QUIT skips the ENDOOM
 exit screen, which otherwise waits forever for a keypress nobody sends.
 Every executed driver command is also shown as an on-screen status message (`CMD <command>`, vanilla message pipeline, 4 s) so screenshots and replay segments show what the agent sent, not just the log. Screenshots come from the game's own framebuffer
 (`SCREENSHOT` driver command), so no tearing — files land
