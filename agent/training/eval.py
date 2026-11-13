@@ -34,7 +34,7 @@ from torch.distributions import Categorical
 
 from model import (BATCH_DIR, DONE_FILE, WARMUP_ACTIONS, Policy, add_env_args, allocate_groups,
                    check_slots, env_label, iwad_label, make_env, pack_rollouts, parse_list,
-                   privileged, read_weights, resolve_iwads)
+                   init_weights_if_absent, privileged, read_weights, resolve_iwads)
 from env import cleanup_stale  # noqa: E402  (model.py put env on sys.path)
 from env.vector import GroupVecEnv  # noqa: E402
 
@@ -197,29 +197,35 @@ def main():
             time.sleep(args.poll)
 
     policy = Policy().to(device)
-    version = -1
+    version, run_id = -1, None
 
-    def wait_for_weights(newer_than: int) -> None:
-        nonlocal version
+    def is_new(w: dict | None) -> bool:
+        # A newer version of the same run, or another run altogether (a
+        # learner that started over, or adopted other weights).
+        return w is not None and (w.get("run_id") != run_id or w["version"] > version)
+
+    def load(w: dict) -> None:
+        nonlocal version, run_id
+        policy.load_state_dict(w["policy"])
+        version, run_id = w["version"], w.get("run_id")
+
+    def wait_for_weights() -> None:
         holder = {}
 
         def got() -> bool:
             w = read_weights(spool)
-            if w is not None and w["version"] > newer_than:
+            if is_new(w):
                 holder["w"] = w
                 return True
             return False
         wait(got)
-        policy.load_state_dict(holder["w"]["policy"])
-        version = holder["w"]["version"]
+        load(holder["w"])
 
     def refresh_weights() -> None:
-        """Load newer weights if the learner published some; never waits."""
-        nonlocal version
+        """Load new weights if the learner published some; never waits."""
         w = read_weights(spool)
-        if w is not None and w["version"] > version:
-            policy.load_state_dict(w["policy"])
-            version = w["version"]
+        if is_new(w):
+            load(w)
 
     vec = None
     try:
@@ -233,7 +239,7 @@ def main():
             print(f"[{tag}] {len(labels)} envs: {sorted(set(labels))}, device {device}")
             with open(run_dir / "eval.jsonl", "a") as f:
                 while True:
-                    wait_for_weights(version)
+                    wait_for_weights()
                     out = {"iteration": version, "kind": "eval", **heldout_eval(vec, labels, policy, device)}
                     f.write(json.dumps(out) + "\n")
                     f.flush()
@@ -256,20 +262,26 @@ def main():
         print(f"[{tag}] {G * groups} envs ({groups} groups x {G}), stage {args.stage}, device {device}; "
               f"groups: {[env_label(w, m, iwads) for w, m in group_pairs]}")
 
-        wait_for_weights(-1)
-        print(f"[{tag}] weights version {version}")
+        # No learner has published yet: start from random weights (a
+        # fresh learner adopts them, so no rollout is wasted).
+        torch.manual_seed(args.seed)
+        if init_weights_if_absent(spool, Policy(), f"init-{args.actor_id}"):
+            print(f"[{tag}] no weights in the spool: published new random weights as version 0")
+        wait_for_weights()
+        print(f"[{tag}] weights version {version} (run {run_id})")
         n = 0
         while True:
             batch_dir.mkdir(parents=True, exist_ok=True)
             wait(lambda: len(list(batch_dir.glob(f"{args.actor_id}_*.npz"))) < args.max_pending)
             refresh_weights()
-            played_with = version
+            played_with, played_run = version, run_id
             t0 = time.time()
             recs = run_rollouts(vec, policy, device,
                                 sample_group_options(sampler, groups, G, slots, args.warmup_max))
             t_roll = time.time() - t0
             arrays = pack_rollouts(recs, ro_group, ro_iwad)
-            meta = {"actor": args.actor_id, "version": played_with, "groups": groups, "group_size": G,
+            meta = {"actor": args.actor_id, "version": played_with, "run_id": played_run,
+                    "groups": groups, "group_size": G,
                     "iwads": iwad_labels, "group_labels": [env_label(w, m, iwads) for w, m in group_pairs],
                     "rollout_s": t_roll, "created": time.time()}
             path = write_batch(batch_dir, args.actor_id, arrays, meta)

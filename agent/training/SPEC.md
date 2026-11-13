@@ -213,7 +213,7 @@ The game instances are the cost, and they are CPU-bound on every machine; the 1.
 - **`train.py`:** the single-box driver, kept: rollouts and update in one process, strictly alternating, no spool. It's the reference for the split's math and the cheapest local run.
 
 **Spool** (a directory; the only interface between the two sides):
-- `weights.pt`: `{version, policy}`, written atomically by the learner at startup (version of the resumed or initial weights) and after every update (version = updates done). Workers reload it when the version changes.
+- `weights.pt`: `{version, run_id, policy}`, written atomically by the learner at startup (version of the resumed or initial weights) and after every update (version = updates done). Workers reload it when the version or the run changes. A worker that finds no `weights.pt` creates random version-0 weights itself (create-if-absent, so of several workers starting at once exactly one writes) and plays with them; a fresh learner (no checkpoint, no `--init`) adopts the spool's weights and, for version 0, their run id, so those batches count.
 - `batches/<actor>_<time_ns>.npz`: one file per worker iteration, written atomically (temp file, `fsync`, `os.replace`), deleted by the learner once consumed.
 - `DONE`: written by the learner when it finishes its iterations; workers exit when they see it.
 
@@ -221,10 +221,10 @@ The game instances are the cost, and they are CPU-bound on every machine; the 1.
 - Frames deduplicated: each new decision pushes one frame onto the 4-frame stack, so a batch stores every distinct 84×84 frame once plus a 4-index stack per decision, and the learner rebuilds the stacks exactly. About 7 KB per decision instead of 28 KB, before compression.
 - `priv` (HP, exit distance), `act`, `logp` (under the acting weights, for the clipped ratio), `rew`, `tics`.
 - Per rollout: length, group id, IWAD, rollout tics, sectors gained, exit, death, terminated (metrics only; the learner recomputes everything it trains on).
-- Meta: actor id, weights version the rollouts were played with, group labels (IWAD:map), timing.
+- Meta: actor id, weights version and run id the rollouts were played with, group labels (IWAD:map), timing.
 
 **Staleness and flow control:**
-- The clipped ratio uses the acting policy's log-probs, so rollouts a version or two old are still valid. Batches more than `--max-lag` versions (2) behind the learner are dropped and counted.
+- The clipped ratio uses the acting policy's log-probs, so rollouts a version or two old are still valid. Batches more than `--max-lag` versions (2) behind the learner, or played with another run's weights, are dropped and counted.
 - The learner updates once it holds at least `--min-groups` groups (4), taking every fresh batch in the spool at that moment, so the batch size grows with the number of workers.
 - A worker pauses while `--max-pending` (2) of its own batches are unconsumed, so a fast worker can't fill the disk or train the learner on its own starts only.
 - Groups are normalized within themselves, so groups from different workers, IWADs and maps mix freely in one update.

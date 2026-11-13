@@ -153,19 +153,23 @@ Or directly:
 ```
 
 - **Spool** (`<run-dir>/spool` by default): the learner publishes
-  `weights.pt` (with its version) at startup and after every update;
+  `weights.pt` (with its version and run id) at startup and after every
+  update. A worker that finds no `weights.pt` creates random version-0
+  weights there itself and plays with them, so a worker can start before
+  (or without) a learner; a fresh learner (no checkpoint, no `--init`)
+  adopts them, so those batches still count;
   workers write `batches/<actor>_<time>.npz` (each distinct frame once,
   about 5-7 KB per decision); the learner deletes what it consumes and
   writes `DONE` when it finishes, and the workers exit.
 - **Learner:** updates once it holds `--min-groups` (4) groups, taking
   every fresh batch; drops batches more than `--max-lag` (2) versions
-  old. Checkpoints, `--keep`, `--outpath` and resuming work as in
+  old, and batches played with another run's weights. Checkpoints, `--keep`, `--outpath` and resuming work as in
   `train.py`; `metrics.jsonl` adds the version, the actors, the lag and
   per-IWAD numbers.
 - **Workers** are stateless: they take the env arguments (`--iwads`,
   `--maps`, `--groups`, `--stage`, …), pause while `--max-pending` (2) of
-  their own batches are unconsumed, and need a unique `--actor-id` (no
-  `_`). Replay capture is off unless `--capture-envs` is set.
+  their own batches are unconsumed, reload `weights.pt` when its version
+  or run changes, and need a unique `--actor-id` (no `_`). Replay capture is off unless `--capture-envs` is set.
 - **Across machines:** sync batches to the learner's spool and
   `weights.pt` back (rsync/scp, or a shared mount).
 

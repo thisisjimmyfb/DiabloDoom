@@ -248,6 +248,33 @@ def publish_weights(spool: Path, version: int, policy: nn.Module, run_id: str) -
     atomic_torch_save({"version": version, "run_id": run_id, "policy": state}, spool / WEIGHTS_FILE)
 
 
+def init_weights_if_absent(spool: Path, policy: nn.Module, run_id: str) -> bool:
+    """Publish `policy` as version 0 unless the spool already has weights:
+    a worker started before any learner begins from random weights, and a
+    fresh learner then adopts them (learn.setup_learner). Create-if-absent
+    is atomic (a hard link fails if the name exists), so when several
+    workers start at once exactly one writes and all load the same file.
+    True if this call created weights.pt."""
+    spool.mkdir(parents=True, exist_ok=True)
+    path = spool / WEIGHTS_FILE
+    if path.exists():
+        return False
+    state = {k: v.detach().cpu() for k, v in policy.state_dict().items()}
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.init.tmp")
+    with open(tmp, "wb") as f:
+        torch.save({"version": 0, "run_id": run_id, "policy": state}, f)
+        f.flush()
+        os.fsync(f.fileno())
+    try:
+        os.link(tmp, path)
+    except FileExistsError:
+        return False
+    finally:
+        tmp.unlink(missing_ok=True)
+    _fsync_dir(spool)
+    return True
+
+
 def read_weights(spool: Path) -> dict | None:
     """The published {version, run_id, policy}, or None if there is none yet."""
     path = spool / WEIGHTS_FILE

@@ -11,7 +11,7 @@ import numpy as np
 import torch
 
 from model import (BATCH_DIR, Policy, allocate_groups, export_latest_checkpoint,
-                   load_latest_checkpoint, pack_rollouts, publish_weights, read_weights,
+                   init_weights_if_absent, load_latest_checkpoint, pack_rollouts, publish_weights, read_weights,
                    restore_rng, rng_state, save_checkpoint, unpack_rollouts)
 
 MAPS = ["1 1", "1 2", "1 3", "1 4"]
@@ -116,3 +116,18 @@ def test_batch_file(tmp_path, make_batch):
     back = unpack_rollouts(z, meta["iwads"])
     assert meta["version"] == 4 and [b["group"] for b in back] == [0, 0, 0, 1, 1, 1]
     assert path.name.startswith("vm0_") and not list(bd.glob("*.tmp"))
+
+
+def test_init_weights_if_absent(tmp_path):
+    """Random version-0 weights are created once, never over existing ones."""
+    spool = tmp_path / "spool"
+    first, second = Policy(), Policy()
+    assert init_weights_if_absent(spool, first, "init-a") is True
+    assert init_weights_if_absent(spool, second, "init-b") is False, "never overwrites"
+    w = read_weights(spool)
+    assert w["version"] == 0 and w["run_id"] == "init-a"
+    assert all(torch.equal(a, b) for a, b in zip(first.state_dict().values(), w["policy"].values()))
+    assert sorted(p.name for p in spool.iterdir()) == ["weights.pt"], "no temp files left"
+    publish_weights(spool, 3, second, "learner")      # a learner's weights are never replaced
+    assert init_weights_if_absent(spool, Policy(), "init-c") is False
+    assert read_weights(spool)["run_id"] == "learner"

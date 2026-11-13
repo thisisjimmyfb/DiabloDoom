@@ -18,7 +18,8 @@ import pytest
 import torch
 
 from learn import build_batch, collect, group_advantages, train_metrics, update, value_targets
-from model import BATCH_DIR, DONE_FILE, Policy, pack_rollouts, unpack_rollouts
+from model import (BATCH_DIR, DONE_FILE, Policy, init_weights_if_absent, pack_rollouts,
+                   read_weights, unpack_rollouts)
 
 HERE = Path(__file__).resolve().parents[1]
 PY = sys.executable
@@ -136,6 +137,18 @@ def test_collect_waits_for_min_groups(batch_dir, make_batch):
             make_batch(batch_dir, "local", 5, groups=3)
     gs, intake = collect(batch_dir, 5, args, poll)
     assert len(polls) == 1 and len(gs) == 4 and intake["batches"] == 2
+
+
+def test_collect_drops_other_run(batch_dir, make_batch):
+    """Batches played with another run's weights are dropped, even when their
+    version looks current; batches without a run id are accepted."""
+    args = types.SimpleNamespace(min_groups=4, max_lag=2)
+    make_batch(batch_dir, "vm0", 5, run_id="init-vm0")         # other weights
+    make_batch(batch_dir, "vm1", 5, run_id="run1")
+    make_batch(batch_dir, "vm2", 5)                            # no run id
+    gs, intake = collect(batch_dir, 5, args, never_poll, run_id="run1")
+    assert len(gs) == 4 and intake["dropped_batches"] == 1
+    assert intake["actors"] == ["vm1", "vm2"] and not list(batch_dir.glob("*.npz"))
 
 
 def test_collect_skips_half_written(batch_dir, make_batch):
@@ -264,3 +277,30 @@ def test_split(tmp_path, popen):
     assert all(f.suffix == ".npz" for f in left) and len(left) <= 2, [f.name for f in left]
     ev = metrics(run_dir / "eval.jsonl")
     assert ev and all("eval_sectors" in r for r in ev)
+
+
+def test_learner_adopts_spool_weights(tmp_path, popen, make_batch):
+    """A fresh learn.py (no checkpoint, no --init) adopts the version-0
+    weights a worker published, keeps their run id, and trains on the
+    worker's batches. No game."""
+    run_dir = tmp_path / "run"
+    spool = run_dir / "spool"
+    worker_policy = Policy()
+    assert init_weights_if_absent(spool, worker_policy, "init-vm0")
+    (spool / BATCH_DIR).mkdir()
+    make_batch(spool / BATCH_DIR, "vm0", 0, groups=2, run_id="init-vm0")
+    proc = popen([PY, "learn.py", "--run-dir", str(run_dir), "--min-groups", "2", "--iterations", "1",
+                  "--poll", "0.1", "--device", "cpu"])
+    o, _ = proc.communicate(timeout=120)
+    assert proc.returncode == 0, o[-3000:]
+    assert "adopted the spool's weights" in o
+    (m,) = metrics(run_dir / "metrics.jsonl")
+    assert m["actors"] == ["vm0"] and m["dropped_batches"] == 0, "the worker's batch was trained on"
+    ckpt = torch.load(run_dir / "ckpt_000000.pt", weights_only=False)
+    assert ckpt["run_id"] == "init-vm0"
+    w = read_weights(spool)
+    assert (w["version"], w["run_id"]) == (1, "init-vm0")
+    # The update started from the worker's weights: one update moves them
+    # only slightly, while a new random network would differ everywhere.
+    start = worker_policy.state_dict()["trunk.0.weight"]
+    assert torch.allclose(start, w["policy"]["trunk.0.weight"], atol=0.05)

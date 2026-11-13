@@ -17,7 +17,7 @@ import pytest
 from env import ACTIONS, CONSULT
 from eval import sample_group_options, write_batch
 from model import (BATCH_DIR, DONE_FILE, MAP_ACTION, WARMUP_ACTIONS, Policy, pack_rollouts,
-                   publish_weights, unpack_rollouts)
+                   publish_weights, read_weights, unpack_rollouts)
 
 HERE = Path(__file__).resolve().parents[1]
 PY = sys.executable
@@ -150,6 +150,21 @@ def test_worker(tmp_path, start_eval):
     second = wait_until(batches, proc, "a batch after consumption")[0]
     assert json.loads(str(np.load(second, allow_pickle=False)["meta"]))["version"] == 1, \
         "plays with the newest weights"
+    finish(proc, spool)
+
+
+@pytest.mark.game
+def test_worker_from_scratch(tmp_path, start_eval):
+    """With no learner and an empty spool, the worker publishes random
+    version-0 weights itself, plays with them and stamps their run id."""
+    spool = tmp_path / "spool"
+    proc = start_eval("--spool", str(spool), "--actor-id", "t0", "--max-pending", "1")
+    batch = wait_until(lambda: sorted((spool / BATCH_DIR).glob("t0_*.npz")) if (spool / BATCH_DIR).exists()
+                       else [], proc, "a batch from self-initialized weights")[0]
+    w = read_weights(spool)
+    assert (w["version"], w["run_id"]) == (0, "init-t0")
+    meta = json.loads(str(np.load(batch, allow_pickle=False)["meta"]))
+    assert (meta["version"], meta["run_id"]) == (0, "init-t0")
     finish(proc, spool)
 
 

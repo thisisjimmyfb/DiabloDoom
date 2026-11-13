@@ -50,14 +50,18 @@ def make_rollout(rng):
 
 @pytest.fixture
 def make_batch(rng, make_rollout):
-    """make_batch(batch_dir, actor, version, groups=2, G=3) -> path of a
-    batch file written the way an eval.py worker writes it."""
+    """make_batch(batch_dir, actor, version, groups=2, G=3, run_id=None) ->
+    path of a batch file written the way an eval.py worker writes it
+    (run_id None: a batch from before batches carried one)."""
     from eval import write_batch
 
-    def make(batch_dir: Path, actor: str, version: int, groups: int = 2, G: int = 3) -> Path:
+    def make(batch_dir: Path, actor: str, version: int, groups: int = 2, G: int = 3,
+             run_id: str | None = None) -> Path:
         recs = [make_rollout(int(n)) for n in rng.integers(2, 20, groups * G)]
         arrays = pack_rollouts(recs, [i // G for i in range(groups * G)], [0] * (groups * G))
         meta = {"actor": actor, "version": version, "groups": groups, "group_size": G,
                 "iwads": ["FREEDOOM1"], "group_labels": [], "rollout_s": 1.0, "created": 0}
+        if run_id is not None:
+            meta["run_id"] = run_id
         return write_batch(batch_dir, actor, arrays, meta)
     return make

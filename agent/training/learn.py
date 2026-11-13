@@ -35,8 +35,8 @@ import torch.nn as nn
 from torch.distributions import Categorical
 
 from model import (ACTIONS, BATCH_DIR, DONE_FILE, Policy, export_latest_checkpoint,
-                   load_latest_checkpoint, load_weights, publish_weights, restore_rng, rng_state,
-                   save_checkpoint, unpack_rollouts)
+                   load_latest_checkpoint, load_weights, publish_weights, read_weights, restore_rng,
+                   rng_state, save_checkpoint, unpack_rollouts)
 
 
 # ---------------------------------------------------------------------------
@@ -201,10 +201,14 @@ def add_learn_args(p) -> None:
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
 
 
-def setup_learner(args, run_dir: Path, device: torch.device, sampler: np.random.Generator | None = None):
+def setup_learner(args, run_dir: Path, device: torch.device, sampler: np.random.Generator | None = None,
+                  spool: Path | None = None):
     """Policy, optimizer and reference policy, resumed from the newest
-    checkpoint in run_dir or initialized from --init. Returns (policy,
-    optimizer, ref, start_it, total_steps, total_tics, run_id)."""
+    checkpoint in run_dir, initialized from --init, or (learn.py, a fresh
+    run) adopted from the spool's weights.pt: workers that started first
+    published random weights there and played with them, so their batches
+    stay valid. Returns (policy, optimizer, ref, start_it, total_steps,
+    total_tics, run_id)."""
     policy = Policy().to(device)
     optimizer = torch.optim.Adam(policy.parameters(), lr=args.lr, eps=1e-5)
     random.seed(args.seed)
@@ -225,6 +229,14 @@ def setup_learner(args, run_dir: Path, device: torch.device, sampler: np.random.
     elif args.init:
         policy.load_state_dict(load_weights(args.init))
         print(f"[init] weights from {args.init}")
+    elif spool is not None and (w := read_weights(spool)) is not None:
+        policy.load_state_dict(w["policy"])
+        if w["version"] == 0 and w.get("run_id"):
+            # Version-0 weights from a worker: keep their run id, so the
+            # batches already played with them are accepted.
+            run_id = w["run_id"]
+        print(f"[init] adopted the spool's weights (run {w.get('run_id')}, version {w['version']}) "
+              f"as run {run_id}")
     ref = None
     if args.ref:
         ref = Policy().to(device)
@@ -239,10 +251,12 @@ def setup_learner(args, run_dir: Path, device: torch.device, sampler: np.random.
 # Spool intake
 # ---------------------------------------------------------------------------
 
-def collect(batch_dir: Path, version: int, args, stop_poll) -> tuple[list[list[dict]], dict]:
+def collect(batch_dir: Path, version: int, args, stop_poll,
+            run_id: str | None = None) -> tuple[list[list[dict]], dict]:
     """Block until at least --min-groups fresh groups are in the spool, then
-    take every fresh batch there. Stale batches are deleted after reading
-    only their meta. Returns (groups, intake stats)."""
+    take every fresh batch there. Stale batches (too old, or played with
+    another run's weights) are deleted after reading only their meta.
+    Returns (groups, intake stats)."""
     taken: dict[Path, tuple[dict, object]] = {}
     n_groups, dropped = 0, 0
     while True:
@@ -255,7 +269,8 @@ def collect(batch_dir: Path, version: int, args, stop_poll) -> tuple[list[list[d
             except Exception as e:  # half-synced copy: try again next poll
                 print(f"[learn] cannot read {path.name}: {e}")
                 continue
-            if meta["version"] < version - args.max_lag:
+            other_run = run_id is not None and meta.get("run_id") not in (None, run_id)
+            if other_run or meta["version"] < version - args.max_lag:
                 dropped += 1
                 z.close()
                 path.unlink(missing_ok=True)
@@ -311,7 +326,8 @@ def main():
         raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, on_sigterm)
 
-    policy, optimizer, ref, start_it, total_steps, total_tics, run_id = setup_learner(args, run_dir, device)
+    policy, optimizer, ref, start_it, total_steps, total_tics, run_id = \
+        setup_learner(args, run_dir, device, spool=spool)
     (run_dir / "config.json").write_text(json.dumps({**vars(args), "run_id": run_id}, indent=2))
     n_params = sum(p.numel() for p in policy.parameters())
     # Version = updates done; the workers play with the newest one.
@@ -325,7 +341,7 @@ def main():
     try:
         for it in range(start_it, args.iterations):
             t_wait = time.time()
-            groups, intake = collect(batch_dir, version, args, lambda: time.sleep(args.poll))
+            groups, intake = collect(batch_dir, version, args, lambda: time.sleep(args.poll), run_id)
             t0 = time.time()
             recs = [r for grp in groups for r in grp]
             advs, collapsed = group_advantages(groups, args.advantage)
