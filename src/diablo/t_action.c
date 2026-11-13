@@ -1095,6 +1095,14 @@ static void T_TrackResetIfLevelChanged(void)
     }
 }
 
+// Unconditional reset (-rlenv calls it at every level setup).
+void T_TrackReset(void)
+{
+    track_sector_base = sectors;
+    memset(visited_sectors, 0, sizeof(visited_sectors));
+    visited_count = 0;
+}
+
 // Mark the player's current sector visited. Called every tick from
 // the turn driver (explore and combat alike: presence is presence).
 void T_TrackTick(void)

@@ -815,6 +815,17 @@ P_SetupLevel
 
     //printf ("free memory: 0x%x\n", Z_FreeMemory());
 
+    // -rlenv: every level setup (new level or a loaded save) starts
+    // the visited-sector count from zero. The pointer check in
+    // T_TrackResetIfLevelChanged misses a reload of the same level
+    // when the zone hands back the same sectors address, which would
+    // carry sector rewards over between episodes.
+    {
+        extern boolean rlenv;
+        extern void T_TrackReset(void);
+        if (rlenv)
+            T_TrackReset();
+    }
 }
 
 
