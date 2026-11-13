@@ -1,0 +1,16 @@
+[project]
+name = "env"
+version = "0.1.0"
+description = "Gymnasium environment for DiabloDoom (-rlenv); see SPEC.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.26",
+    "gymnasium>=1.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["env"]
