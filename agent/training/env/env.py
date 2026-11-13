@@ -161,6 +161,16 @@ class DiabloDoomEnv(gym.Env):
         self.engine.command(f"LOAD {slot}")
         d, _ = self.engine.command(f"SEED {int(rng_seed) % 256}")
 
+        # Optional warm-up: explore actions played after LOAD + SEED and
+        # before the rollout starts (not scored, not counted against
+        # max_tics). Deterministic, so a GRPO group given the same list
+        # starts from the same varied state. Stops early if the player
+        # leaves explore mode or dies.
+        for wa in opts.get("warmup") or []:
+            if d.get("mode") != EXPLORE or d.get("dead") or int(wa) == CONSULT:
+                break
+            d, _ = self.engine.command(ACTIONS[int(wa)])
+
         self.state = d
         self._group = opts.get("group")
         self._slot, self._seed = slot, int(rng_seed) % 256

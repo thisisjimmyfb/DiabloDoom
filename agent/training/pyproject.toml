@@ -8,6 +8,11 @@ dependencies = [
     "gymnasium>=1.0",
 ]
 
+[project.optional-dependencies]
+# train.py. On the RTX 5080 (Blackwell) install the CUDA 12.8 build:
+#   uv pip install --python .venv/bin/python torch --index-url https://download.pytorch.org/whl/cu128
+train = ["torch>=2.7"]
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
