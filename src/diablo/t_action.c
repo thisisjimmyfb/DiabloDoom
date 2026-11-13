@@ -1135,6 +1135,11 @@ static fixed_t walk_start_z = 0;
 static fixed_t walk_step_target = 0;
 #define WALK_STEP_DIST 96   // units: a small step, 3 grid cells
 
+// Strafe step (-rlenv explore strafes, 2026-11-12): thrust direction
+// offset from the facing, so a step moves sideways without turning.
+// 0 for every forward walk; set only by T_WalkStartStrafe.
+static angle_t walk_thrust_off = 0;
+
 // Stop-once set (2026-10-20): WALK stops for a given item
 // exactly once; the item is then ignored by later walks until it is
 // collected or removed. One stray drop (a zombie's ammo clip) must
@@ -1212,6 +1217,7 @@ static void T_WalkBegin(fixed_t step_target)
     walk_active = true;
     walk_blocked_tics = 0;
     walk_step_target = step_target;
+    walk_thrust_off = 0;
     walk_last_x = pl->mo->x;
     walk_last_y = pl->mo->y;
     walk_start_x = pl->mo->x;
@@ -1255,6 +1261,20 @@ void T_WalkStartStep(int degrees)
            deg, deg < 0 ? "left" : "right", WALK_STEP_DIST);
 }
 
+// Explore strafe (-rlenv, SPEC.md §4): a fixed sideways step of the
+// same distance as WALK <angle>, without turning. dir < 0 = left,
+// dir > 0 = right.
+void T_WalkStartStrafe(int dir)
+{
+    player_t *pl = &players[consoleplayer];
+    if (pl->mo == NULL || !T_InExplore())
+        return;
+    T_WalkBegin(WALK_STEP_DIST * FRACUNIT);
+    walk_thrust_off = dir < 0 ? ANG90 : (angle_t) -ANG90;
+    printf("[WALK] strafing %s, stepping %d units\n",
+           dir < 0 ? "left" : "right", WALK_STEP_DIST);
+}
+
 void T_WalkCancel(void)
 {
     if (walk_active)
@@ -1277,6 +1297,7 @@ void T_WalkCancel(void)
     walk_active = false;
     walk_blocked_tics = 0;
     walk_step_target = 0;
+    walk_thrust_off = 0;
 }
 
 // Called each tick in explore mode. Moves forward until stop condition.
@@ -1375,7 +1396,7 @@ void T_WalkTick(void)
     // Keep moving forward: inject momentum in facing direction,
     // scaled by the shared movespeed displacement scaling.
     {
-        angle_t ang = mo->angle;
+        angle_t ang = mo->angle + walk_thrust_off;
         fixed_t thrust = D_ScaleDisplacement(pl, FRACUNIT / 2);
         mo->momx += FixedMul(thrust, finecosine[ang >> ANGLETOFINESHIFT]);
         mo->momy += FixedMul(thrust, finesine[ang >> ANGLETOFINESHIFT]);

@@ -1923,17 +1923,19 @@ static void cmd_dispatch(const char *cmd)
         extern void T_DoMove(int dir);
         T_DoMove(2);
     }
-    else if (!strcmp(cmd, "STRAFE_L"))
+    else if (!strcmp(cmd, "STRAFE_L") || !strcmp(cmd, "STRAFE_R"))
     {
-        // Combat movement: strafe left (1 TP). Works in combat.
+        // Combat movement: strafe (1 TP). Works in combat.
+        // -rlenv in explore (SPEC.md §4): a fixed sideways step
+        // without turning, like WALK <angle>, instead of queueing a
+        // TP-costing combat move that only previews until END TURN.
         extern void T_DoMove(int dir);
-        T_DoMove(3);
-    }
-    else if (!strcmp(cmd, "STRAFE_R"))
-    {
-        // Combat movement: strafe right (1 TP). Works in combat.
-        extern void T_DoMove(int dir);
-        T_DoMove(1);
+        extern void T_WalkStartStrafe(int dir);
+        boolean left = !strcmp(cmd, "STRAFE_L");
+        if (rlenv && T_InExplore())
+            T_WalkStartStrafe(left ? -1 : 1);
+        else
+            T_DoMove(left ? 3 : 1);
     }
     else if (!strcmp(cmd, "RESPAWN"))
     {
