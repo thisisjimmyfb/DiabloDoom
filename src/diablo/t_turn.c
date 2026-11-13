@@ -2180,12 +2180,21 @@ static void cmd_dispatch(const char *cmd)
         // loading doesn't reset it, so without SEED the RNG position
         // after a load depends on the process's history. A discrete
         // index into the 256-entry table, not an aim.
+        // Also sets rndindex (M_Random): it isn't saved either, and
+        // it drives the status-bar face's idle glances, which are on
+        // screen -- without it two identical runs differ in the face.
         extern int prndindex;
+        extern int rndindex;
         int n;
         if (sscanf(cmd + 5, "%d", &n) == 1 && n >= 0 && n <= 255)
         {
             prndindex = n;
-            printf("[SEED] prndindex %d\n", n);
+            rndindex = n;
+            {
+                extern void ST_ResetFace(void);
+                ST_ResetFace();
+            }
+            printf("[SEED] prndindex/rndindex %d\n", n);
             RL_Emit("{\"event\":\"seed\",\"prndindex\":%d}", n);
         }
         else

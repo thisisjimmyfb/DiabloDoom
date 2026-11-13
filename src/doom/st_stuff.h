@@ -47,6 +47,7 @@ void ST_Drawer (boolean fullscreen, boolean refresh);
 
 // Called when the console player is spawned on each level.
 void ST_Start (void);
+void ST_ResetFace (void);
 
 // Called by startup code.
 void ST_Init (void);

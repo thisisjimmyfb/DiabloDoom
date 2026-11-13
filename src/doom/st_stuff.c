@@ -685,13 +685,33 @@ int ST_calcPainOffset(void)
 // the precedence of expressions is:
 //  dead > evil grin > turned head > straight ahead
 //
+// Face timing state, at file scope (was function-static) so
+// ST_ResetFace can clear it.
+static int	lastattackdown = -1;
+static int	priority = 0;
+
+// Reset every piece of face-animation state to its level-start value.
+// A loaded save doesn't go through P_SpawnPlayer -> ST_Start, so
+// without this the face timers carry over from before the load; -rlenv
+// calls it from SEED so identical runs show identical faces.
+void ST_ResetFace(void)
+{
+    int i;
+
+    lastattackdown = -1;
+    priority = 0;
+    st_facecount = 0;
+    st_faceindex = 0;
+    st_oldhealth = -1;
+    for (i = 0; i < NUMWEAPONS; i++)
+        oldweaponsowned[i] = plyr != NULL ? plyr->weaponowned[i] : false;
+}
+
 void ST_updateFaceWidget(void)
 {
     int		i;
     angle_t	badguyangle;
     angle_t	diffang;
-    static int	lastattackdown = -1;
-    static int	priority = 0;
     boolean	doevilgrin;
 
     if (priority < 10)
