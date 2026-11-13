@@ -44,6 +44,14 @@
 #include "i_video.h"
 #include "v_video.h"
 #include "../tables.h"
+#include "m_argv.h"
+#include "d_rlenv.h"
+
+// -capturedir <path>: where replay MP4s land, overriding the default
+// doomshots directory. RL training gives each captured instance its
+// own directory under the run dir (the instance's working directory
+// is a temp dir that is deleted when the env closes).
+static const char *replay_capture_dir = NULL;
 
 void D_EnsureDoomshotsDir(void)
 {
@@ -51,17 +59,23 @@ void D_EnsureDoomshotsDir(void)
     // On local machines: doomshots/ under the current folder (same place
     // screenshots land, easy to find next to the game).
     // The farm uploads interesting ones before they're lost on recycle.
+    //
+    // The default directory is always created, -capturedir or not:
+    // screenshots (G_DoScreenShot) write to doomshots/ and rely on
+    // this call to create it; -capturedir moves replays only.
     struct stat st;
-    const char *dir;
+    const char *dirs[2];
+    int i;
     extern boolean D_OnMuseVM(void);
-    if (D_OnMuseVM())
-        dir = "/tmp/doomshots";
-    else
-        dir = "doomshots";
-    if (stat(dir, &st) != 0)
+    dirs[0] = D_OnMuseVM() ? "/tmp/doomshots" : "doomshots";
+    dirs[1] = replay_capture_dir;
+    for (i = 0; i < 2; i++)
     {
-        if (mkdir(dir, 0755) != 0 && errno != EEXIST)
-            printf("[REPLAY] warning: cannot create %s/\n", dir);
+        if (dirs[i] && stat(dirs[i], &st) != 0)
+        {
+            if (mkdir(dirs[i], 0755) != 0 && errno != EEXIST)
+                printf("[REPLAY] warning: cannot create %s/\n", dirs[i]);
+        }
     }
 }
 
@@ -69,39 +83,63 @@ void D_EnsureDoomshotsDir(void)
 static const char *D_DoomshotsDir(void)
 {
     extern boolean D_OnMuseVM(void);
+    if (replay_capture_dir)
+        return replay_capture_dir;
     if (D_OnMuseVM())
         return "/tmp/doomshots";
     return "doomshots";
 }
 
-// Find an unused replay filename: /tmp/doomshots/diablodoom_YYYYMMDD_HHMMSS.mp4,
-// with a numeric suffix if the timestamp is taken.
-void D_ReplayNextFilename(char *buf, size_t bufsz)
+// True if `name` or its in-flight encode `name.tmp` exists. An encode
+// writes <name>.tmp and renames it on success, so a segment still
+// encoding is invisible under its final name -- checking only the
+// final name would hand the same name to the next segment.
+static int replay_name_taken(const char *name)
 {
     struct stat st;
-    time_t now = time(NULL);
-    struct tm *tm = localtime(&now);
+    char tmp[300];
+    if (stat(name, &st) == 0)
+        return 1;
+    snprintf(tmp, sizeof(tmp), "%s.tmp", name);
+    return stat(tmp, &st) == 0;
+}
+
+// Find an unused replay filename: /tmp/doomshots/diablodoom_YYYYMMDD_HHMMSS.mp4,
+// with a numeric suffix if the timestamp is taken. Under -rlenv the
+// timestamp carries milliseconds (diablodoom_YYYYMMDD_HHMMSS_mmm.mp4):
+// an uncapped instance finishes a segment every few seconds.
+void D_ReplayNextFilename(char *buf, size_t bufsz)
+{
+    struct timespec now_ts;
+    time_t now;
+    struct tm *tm;
+    char stamp[32];
     int i;
+    clock_gettime(CLOCK_REALTIME, &now_ts);
+    now = now_ts.tv_sec;
+    tm = localtime(&now);
+    if (rlenv)
+        snprintf(stamp, sizeof(stamp), "%04d%02d%02d_%02d%02d%02d_%03d",
+                 tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
+                 tm->tm_hour, tm->tm_min, tm->tm_sec,
+                 (int)(now_ts.tv_nsec / 1000000));
+    else
+        snprintf(stamp, sizeof(stamp), "%04d%02d%02d_%02d%02d%02d",
+                 tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
+                 tm->tm_hour, tm->tm_min, tm->tm_sec);
     for (i = 0; i < 100; i++)
     {
         const char *dir = D_DoomshotsDir();
         if (i == 0)
-            snprintf(buf, bufsz, "%s/diablodoom_%04d%02d%02d_%02d%02d%02d.mp4",
-                     dir,
-                     tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
-                     tm->tm_hour, tm->tm_min, tm->tm_sec);
+            snprintf(buf, bufsz, "%s/diablodoom_%s.mp4", dir, stamp);
         else
-            snprintf(buf, bufsz, "%s/diablodoom_%04d%02d%02d_%02d%02d%02d_%02d.mp4",
-                     dir,
-                     tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
-                     tm->tm_hour, tm->tm_min, tm->tm_sec, i);
-        if (stat(buf, &st) != 0)
+            snprintf(buf, bufsz, "%s/diablodoom_%s_%02d.mp4", dir, stamp, i);
+        if (!replay_name_taken(buf))
             return;  // not taken
     }
     // Extremely unlikely: fall back to pid-suffixed name
-    snprintf(buf, bufsz, "doomshots/diablodoom_%04d%02d%02d_%02d%02d%02d_%d.mp4",
-             tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
-             tm->tm_hour, tm->tm_min, tm->tm_sec, (int)getpid());
+    snprintf(buf, bufsz, "%s/diablodoom_%s_%d.mp4",
+             D_DoomshotsDir(), stamp, (int)getpid());
 }
 
 static byte *replay_buffer = NULL;
@@ -167,6 +205,9 @@ static int replay_audio_init_done = 0;
 
 void D_ReplayInit(void)
 {
+    int p = M_CheckParmWithArgs("-capturedir", 1);
+    if (p > 0)
+        replay_capture_dir = myargv[p + 1];
     D_EnsureDoomshotsDir();
     if (replay_buffer) return;
     replay_buffer = malloc(REPLAY_MAXFRAMES * REPLAY_FRAME_SIZE);
@@ -174,8 +215,9 @@ void D_ReplayInit(void)
         memset(replay_buffer, 0, REPLAY_MAXFRAMES * REPLAY_FRAME_SIZE);
         printf("[REPLAY] buffer ready: %d frames\n", REPLAY_MAXFRAMES);
     }
-    // Audio ring buffer.
-    if (!replay_audio_buf) {
+    // Audio ring buffer. None under -rlenv: instances run -nosound,
+    // so segments are video-only (the snapshot returns no PCM).
+    if (!replay_audio_buf && !rlenv) {
         replay_audio_buf = malloc(REPLAY_AUDIO_BYTES);
         if (replay_audio_buf) {
             memset(replay_audio_buf, 0, REPLAY_AUDIO_BYTES);
@@ -203,6 +245,8 @@ void D_ReplayAudioHook(void *udata, uint8_t *stream, int len)
     }
 }
 
+static int replay_wait_idle(int timeout_ms);
+
 void D_ReplayTick(void)
 {
     extern pixel_t *I_VideoBuffer;
@@ -210,7 +254,21 @@ void D_ReplayTick(void)
     // Timestamp first, then copy: the timestamp and audio position
     // describe this frame, and the audio thread can advance the
     // write position at any moment, so read it at capture time.
-    replay_frame_ts[replay_head] = (uint32_t)I_GetTimeMS();
+    //
+    // Under -rlenv the timestamp is game time (gametic at 35 tics/s),
+    // not the wall clock: the instance runs uncapped (singletics) and
+    // its clock stands still while it blocks at a decision, so
+    // wall-clock durations would turn a segment into fast-forward
+    // broken by frozen frames. One frame is drawn per tic, so game
+    // time plays every segment back at a steady 35 fps.
+    if (rlenv)
+    {
+        extern int gametic;
+        replay_frame_ts[replay_head] =
+            (uint32_t)(((uint64_t)gametic * 1000) / REPLAY_FPS);
+    }
+    else
+        replay_frame_ts[replay_head] = (uint32_t)I_GetTimeMS();
     replay_frame_audio[replay_head] = replay_audio_write;
     memcpy(replay_buffer + (replay_head * REPLAY_FRAME_SIZE),
            I_VideoBuffer, REPLAY_FRAME_SIZE);
@@ -224,6 +282,13 @@ void D_ReplayTick(void)
     // the ring keeps the newest frames (oldest overwritten) and the
     // save fires the tic the encoder frees up, so the segment that
     // lands is always a full 15 seconds.
+    //
+    // Under -rlenv the game waits for the encoder instead: game time
+    // costs nothing to pause there, and holding would overwrite frames
+    // (an uncapped instance fills a segment faster than x264 encodes
+    // one), leaving gaps in the footage.
+    if (replay_autocapture && replay_count >= REPLAY_MAXFRAMES && rlenv)
+        replay_wait_idle(60000);
     if (replay_autocapture && replay_count >= REPLAY_MAXFRAMES
         && !replay_encode_busy)
     {
@@ -615,7 +680,7 @@ static void *replay_encode_worker(void *arg)
         x264_param_t param;
         x264_nal_t *nals;
         int num_nals;
-        if (x264_param_default_preset(&param, "ultrafast", NULL) < 0) {
+        if (x264_param_default_preset(&param, rlenv ? "veryfast" : "ultrafast", NULL) < 0) {
             printf("[REPLAY] x264_param_default_preset failed\n");
             goto fail;
         }
@@ -638,7 +703,10 @@ static void *replay_encode_worker(void *arg)
                                      // the audio thread room to keep up
         param.i_log_level = X264_LOG_WARNING;
         param.rc.i_rc_method = X264_RC_CRF;
-        param.rc.f_rf_constant = 23;
+        // -rlenv: CRF 28 -- training footage is for watching the
+        // policy, and an uncapped instance fills a segment every few
+        // seconds of real time, so file size dominates.
+        param.rc.f_rf_constant = rlenv ? 28 : 23;
 
         enc = x264_encoder_open(&param);
         if (!enc) {
@@ -1539,4 +1607,41 @@ int D_ReplaySaveMP4(const char *filename)
     printf("[REPLAY] encoding %d frames in background\n", n);
     return 0;
 #endif
+}
+
+// Wait until no encode is in flight (up to timeout_ms). Returns 1 when
+// idle, 0 on timeout.
+static int replay_wait_idle(int timeout_ms)
+{
+    while (replay_encode_busy && timeout_ms > 0)
+    {
+        usleep(10000);
+        timeout_ms -= 10;
+    }
+    return !replay_encode_busy;
+}
+
+// Shutdown flush for continuous capture: queue the partial segment in
+// the ring (if any) and wait for every encode to land, so the last
+// seconds before QUIT reach disk and no <name>.tmp is left behind by
+// a process exit killing the encoder thread mid-file.
+void D_ReplayFlushCapture(void)
+{
+    if (!replay_autocapture || !replay_buffer)
+        return;
+    if (!replay_wait_idle(60000))
+    {
+        printf("[REPLAY] flush: previous encode still running, giving up\n");
+        return;
+    }
+    if (replay_count > 0)
+    {
+        char name[256];
+        D_ReplayNextFilename(name, sizeof(name));
+        printf("[REPLAY] flush: final partial segment (%d frames)\n",
+               replay_count);
+        D_ReplaySaveMP4(name);
+    }
+    if (!replay_wait_idle(60000))
+        printf("[REPLAY] flush: final encode still running, giving up\n");
 }

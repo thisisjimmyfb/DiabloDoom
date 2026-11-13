@@ -2252,6 +2252,12 @@ static void cmd_dispatch(const char *cmd)
         // Mirror of the load menu (M_LoadSelect): auto slots 0-2
         // restore Diablo progress + the Doom savegame, manual slots
         // 3-5 load the plain Doom savegame.
+        //
+        // A driver load restarts continuous capture (no segment
+        // straddles a load cut) -- except under -rlenv, where the env
+        // loads at every episode reset: restarting there would drop
+        // every episode's tail (its death or exit) and every episode
+        // shorter than a segment. RL segments run across resets.
         extern void D_ProgressLoadAutoSlot(int auto_slot);
         extern char *P_SaveGameFile(int slot);
         extern void G_LoadGame(char *name);
@@ -2262,13 +2268,15 @@ static void cmd_dispatch(const char *cmd)
         if (n >= 0 && n <= 2)
         {
             printf("[LOAD] auto slot %d\n", n + 1);
-            D_ReplayRequestRestartOnLoad();
+            if (!rlenv)
+                D_ReplayRequestRestartOnLoad();
             D_ProgressLoadAutoSlot(n + 1);
         }
         else if (n >= 3 && n <= 5)
         {
             printf("[LOAD] manual slot %d\n", n);
-            D_ReplayRequestRestartOnLoad();
+            if (!rlenv)
+                D_ReplayRequestRestartOnLoad();
             G_LoadGame(P_SaveGameFile(n));
         }
         else
@@ -2299,8 +2307,11 @@ static void cmd_dispatch(const char *cmd)
         if (rlenv)
         {
             // The env owns its save slots; instances never write
-            // saves on exit.
+            // saves on exit. A capturing instance flushes its
+            // partial segment and waits for the encodes first.
+            extern void D_ReplayFlushCapture(void);
             printf("[QUIT] rlenv: shutting down without saving\n");
+            D_ReplayFlushCapture();
         }
         else
         {

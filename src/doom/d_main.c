@@ -484,10 +484,13 @@ void D_RunFrame()
         } else {
             // normal update
             I_FinishUpdate ();              // page flip or blit buffer
-            if (!rlenv)
             {
+                // Capture frame for the instant replay buffer. Under
+                // -rlenv the buffer exists only with
+                // --continuous-capture (D_ReplayTick is a no-op
+                // without a buffer).
                 extern void D_ReplayTick(void);
-                D_ReplayTick();  // capture frame for instant replay buffer
+                D_ReplayTick();
             }
         }
     }
@@ -520,13 +523,20 @@ void D_DoomLoop (void)
     {
         extern void D_ReplayInit(void);
         extern void D_ReplaySetAutoCapture(int on);
-        D_ReplayInit();
-        if (M_CheckParm("--continuous-capture") > 0 && !rlenv)
+        boolean capture = M_CheckParm("--continuous-capture") > 0;
+        // Under -rlenv the 33 MB replay buffer is allocated only
+        // when this instance captures: training runs many instances
+        // and captures from a few.
+        if (!rlenv || capture)
+            D_ReplayInit();
+        if (capture)
         {
             // Continuous video capture: the replay buffer saves a
             // timestamped 15-second segment MP4 every 15 seconds for
             // the whole session (see d_replay.c). The farm launches
             // with this so a full run's footage survives the run.
+            // Under -rlenv a segment is 15 s of game time (525 tics),
+            // which an uncapped instance fills in a few seconds.
             D_ReplaySetAutoCapture(1);
             printf("[REPLAY] continuous capture on: a 15s segment every 15s\n");
         }

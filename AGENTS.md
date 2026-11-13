@@ -120,8 +120,15 @@ RL environment mode (`-rlenv`, 2026-11-12; design in
 same driver anywhere, on a per-instance `-cmdpipe <path>`, with JSON
 event lines on `-statepipe <path>` and the frame (320x200 indices +
 palette) in a `-shm <name>` segment. It runs `singletics` (as fast as
-possible) and turns off wipes, ENDOOM, replay capture, the CMD echo, the
-idle Zug Zug timer, config save, and saving on QUIT. Stepping is
+possible) and turns off wipes, ENDOOM, the CMD echo, the idle Zug Zug
+timer, config save, and saving on QUIT. Replay capture is off unless
+the instance runs `--continuous-capture` (optionally with `-capturedir
+<path>`): then segments are timed by game time (gametic, so a paused or
+uncapped clock still plays back at 35 fps), named
+`diablodoom_YYYYMMDD_HHMMSS_mmm.mp4`, encoded video-only (veryfast, CRF
+28), never restarted by a driver LOAD (segments run across episode
+resets), the game waits for the encoder rather than dropping frames,
+and QUIT flushes the partial last segment. Stepping is
 decision-driven: when the driver is idle and the game is waiting for
 input (explore with the player settled, planning, dead, or between
 levels), the engine publishes the frame, sends one `decision` line, and

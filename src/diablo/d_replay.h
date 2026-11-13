@@ -43,6 +43,11 @@ int D_ReplayFrameCount(void);
 // timestamped segment MP4s instead of only on-demand captures.
 void D_ReplaySetAutoCapture(int on);
 
+// Continuous capture at shutdown: queue the partial segment still in
+// the buffer and wait for all encodes to finish. No-op unless
+// continuous capture is on. Called by the driver QUIT under -rlenv.
+void D_ReplayFlushCapture(void);
+
 // Restart continuous capture: drop the in-progress segment so the next
 // segment starts clean at the newly loaded world. Called from
 // G_DoLoadGame only when a driver-command LOAD requested it (see

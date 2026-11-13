@@ -3,8 +3,9 @@
 // Runs DiabloDoom as a Gymnasium environment instance (see
 // agent/training/SPEC.md): the FIFO command driver is enabled without
 // D_OnMuseVM(), the game runs fixed tics as fast as it can
-// (singletics), and wipes, ENDOOM, replay capture, the on-screen CMD
-// echo and the wall-clock idle Zug Zug timer are all off.
+// (singletics), and wipes, ENDOOM, the on-screen CMD echo and the
+// wall-clock idle Zug Zug timer are all off. Replay capture runs only
+// with --continuous-capture (game-time segments, see d_replay.c).
 //
 //   -rlenv               enable RL environment mode
 //   -cmdpipe <path>      command FIFO for this instance
