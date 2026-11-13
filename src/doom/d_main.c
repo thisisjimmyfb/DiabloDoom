@@ -33,6 +33,7 @@
 #include "doomstat.h"
 #include "t_turn.h"
 #include "d_diablo_ui.h"
+#include "d_rlenv.h"
 
 #include "dstrings.h"
 #include "sounds.h"
@@ -200,6 +201,11 @@ boolean D_Display (void)
 	redrawsbar = true;
 	d_ui_needs_redraw = false;
     }
+
+    // -rlenv: no screen wipes (they run on the wall clock and would
+    // only show melt frames to the policy).
+    if (rlenv)
+        wipegamestate = gamestate;
 
     // save the current screen if about to wipe
     if (gamestate != wipegamestate)
@@ -460,7 +466,9 @@ void D_RunFrame()
 
     // Idle Zug Zug: once per frame, check whether the player has
     // been idle for more than 30 seconds.
-    D_UITickIdle();
+    // Wall-clock based, so off under -rlenv.
+    if (!rlenv)
+        D_UITickIdle();
 
     S_UpdateSounds (players[consoleplayer].mo);// move positional sounds
 
@@ -476,6 +484,7 @@ void D_RunFrame()
         } else {
             // normal update
             I_FinishUpdate ();              // page flip or blit buffer
+            if (!rlenv)
             {
                 extern void D_ReplayTick(void);
                 D_ReplayTick();  // capture frame for instant replay buffer
@@ -512,7 +521,7 @@ void D_DoomLoop (void)
         extern void D_ReplayInit(void);
         extern void D_ReplaySetAutoCapture(int on);
         D_ReplayInit();
-        if (M_CheckParm("--continuous-capture") > 0)
+        if (M_CheckParm("--continuous-capture") > 0 && !rlenv)
         {
             // Continuous video capture: the replay buffer saves a
             // timestamped 15-second segment MP4 every 15 seconds for
@@ -1649,8 +1658,14 @@ void D_DoomMain (void)
     D_BindVariables();
     M_LoadDefaults();
 
-    // Save configuration at exit.
-    I_AtExit(M_SaveDefaults, false);
+    // RL environment mode (-rlenv): parsed right after the config so
+    // it can override config values (show_endoom).
+    RL_Init();
+
+    // Save configuration at exit. Not under -rlenv: many instances
+    // share one config file and must never race to rewrite it.
+    if (!rlenv)
+        I_AtExit(M_SaveDefaults, false);
 
     // Find main IWAD file and load it.
     iwadfile = D_FindIWAD(IWAD_MASK_DOOM, &gamemission);

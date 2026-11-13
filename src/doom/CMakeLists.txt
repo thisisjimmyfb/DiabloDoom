@@ -18,6 +18,7 @@ add_library(doom STATIC
             ../diablo/d_ssg_sprite.c ../diablo/d_ssg_sprite.h
             ../diablo/d_progress.c    ../diablo/d_progress.h
             ../diablo/d_replay.c      ../diablo/d_replay.h
+            ../diablo/d_rlenv.c       ../diablo/d_rlenv.h
             ../diablo/d_items.c       ../diablo/d_items.h
             d_main.c        d_main.h
             d_net.c

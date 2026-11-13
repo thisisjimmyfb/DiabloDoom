@@ -18,6 +18,7 @@
 #include "t_turn.h"
 #include "t_combat.h"
 #include "d_diablo.h"
+#include "d_rlenv.h"
 #include "doomstat.h"
 #include "doomdef.h"
 #include "doomkeys.h"
@@ -1176,8 +1177,10 @@ static void cmd_init(void)
     struct stat st;
     static char early[4096];
     int early_len = 0;
+    // -rlenv enables the driver anywhere, on its own -cmdpipe path.
+    const char *path = RL_CmdPipePath();
 
-    if (!D_OnMuseVM())
+    if (!D_OnMuseVM() && !rlenv)
     {
         cmdfd = -1;
         return;
@@ -1185,9 +1188,9 @@ static void cmd_init(void)
     // Race fix: if a worker wrote commands before we created the FIFO,
     // the path will be a regular file (not a FIFO). Preserve any pending
     // commands from it before replacing with a real FIFO.
-    if (stat("/tmp/doom_cmd.txt", &st) == 0 && !S_ISFIFO(st.st_mode))
+    if (stat(path, &st) == 0 && !S_ISFIFO(st.st_mode))
     {
-        FILE *f = fopen("/tmp/doom_cmd.txt", "r");
+        FILE *f = fopen(path, "r");
         if (f != NULL)
         {
             size_t r = fread(early, 1, sizeof(early), f);
@@ -1198,16 +1201,16 @@ static void cmd_init(void)
                 early_len = (int)r;
             }
         }
-        unlink("/tmp/doom_cmd.txt");
+        unlink(path);
     }
-    if (mkfifo("/tmp/doom_cmd.txt", 0666) != 0 && errno != EEXIST)
+    if (mkfifo(path, 0666) != 0 && errno != EEXIST)
     {
         cmdfd = -1;
         return;
     }
     // O_RDWR: open never blocks and we never see EOF (we hold a write
     // end ourselves). O_NONBLOCK: reads never stall the game tick.
-    cmdfd = open("/tmp/doom_cmd.txt", O_RDWR | O_NONBLOCK);
+    cmdfd = open(path, O_RDWR | O_NONBLOCK);
     if (cmdfd < 0)
         cmdfd = -1;
     // Feed the recovered early write through the line assembler; a
@@ -1614,7 +1617,9 @@ static void cmd_dispatch(const char *cmd)
     // stay valid until HU_Ticker consumes it. Every executed
     // command shows, diagnostics included; WAIT-held commands show
     // only when they actually execute.
-    if (cmd[0] != '\0')
+    // Not under -rlenv: the echo would put the policy's last action
+    // into its own observation and churn the HUD message line.
+    if (cmd[0] != '\0' && !rlenv)
     {
         static char cmd_msg[96];
         M_snprintf(cmd_msg, sizeof(cmd_msg), "CMD %s", cmd);
@@ -2058,6 +2063,8 @@ static void cmd_dispatch(const char *cmd)
         // Print the git commit hash this binary was built from.
         // Workers compare with `git rev-parse HEAD` to detect stale binaries.
         printf("[VERSION] " GIT_COMMIT_HASH "\n");
+        RL_Emit("{\"event\":\"version\",\"commit\":\"%s\",\"gametic\":%d}",
+                GIT_COMMIT_HASH, gametic);
     }
     else if (!strcmp(cmd, "REPLAY"))
     {
@@ -2155,12 +2162,21 @@ static void cmd_dispatch(const char *cmd)
         int n = 0;
         if (cmd[4] == ' ' && sscanf(cmd + 5, "%d", &n) != 1)
             n = 0;
-        printf("[QUIT] saving slot %d and shutting down\n", n);
-        if (n >= 3 && n <= 5 && gamestate == GS_LEVEL)
-            G_DoSaveGameSlot(n, "DRIVER QUIT");
+        if (rlenv)
+        {
+            // The env owns its save slots; instances never write
+            // saves on exit.
+            printf("[QUIT] rlenv: shutting down without saving\n");
+        }
         else
-            D_AutoSaveGame();
-        printf("[QUIT] save complete, goodbye\n");
+        {
+            printf("[QUIT] saving slot %d and shutting down\n", n);
+            if (n >= 3 && n <= 5 && gamestate == GS_LEVEL)
+                G_DoSaveGameSlot(n, "DRIVER QUIT");
+            else
+                D_AutoSaveGame();
+            printf("[QUIT] save complete, goodbye\n");
+        }
         fflush(NULL);
         // Async screenshots: drain the PNG queue before exiting,
         // so a final screenshot (or pending survey frames) queued
