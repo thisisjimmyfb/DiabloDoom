@@ -23,6 +23,7 @@
 #include "deh_main.h"
 #include "doomdef.h"
 #include "p_local.h"
+#include "d_rlenv.h"
 
 #include "g_game.h"
 
@@ -194,6 +195,8 @@ P_ChangeSwitchTexture
     int     texBot;
     int     i;
     int     sound;
+
+    RL_NoteSwitch(line - lines);   // -rlenv: a switch flipped by a use
 	
     if (!useAgain)
 	line->special = 0;

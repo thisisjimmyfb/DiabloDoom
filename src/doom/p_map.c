@@ -30,6 +30,7 @@
 #include "m_argv.h"
 #include "m_misc.h"
 #include "p_local.h"
+#include "d_rlenv.h"
 
 #include "s_sound.h"
 
@@ -1192,7 +1193,10 @@ void P_UseLines (player_t*	player)
     x2 = x1 + (USERANGE>>FRACBITS)*finecosine[angle];
     y2 = y1 + (USERANGE>>FRACBITS)*finesine[angle];
 	
+    // -rlenv: report what this use set in motion (mechanism reward).
+    RL_UseBegin();
     P_PathTraverse ( x1, y1, x2, y2, PT_ADDLINES, PTR_UseTraverse );
+    RL_UseEnd();
 }
 
 

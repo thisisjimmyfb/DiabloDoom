@@ -68,6 +68,7 @@ The replay system (`d_replay.c`) records 15-second MP4 video, not inputs, and `T
 | Automap rotation | Rotate the automap to the player's heading (vanilla points north). |
 | Explore-mode strafes | Today `STRAFE_L/R` queue a TP-costing turn move that only previews until END TURN. Under `-rlenv` in EXPLORE they take a fixed sideways step without turning, like `WALK <angle>`. |
 | `-rlnocombat` | Removes every monster at level load. Reuse the existing `nomonsters` flag (`d_main.c`) rather than new removal code. |
+| Mechanism use events | Under `-rlenv`, every player USE that sets something going sends `{"event":"use","sectors":[...],"lines":[...]}`: the sectors that gained an active special (doors, lifts, floors, ceilings, stairs) and the switch lines flipped. A use that does nothing (a wall, a locked door without its key, a door already moving) sends nothing. Feeds the mechanism reward (§5.3). |
 | `MONSTERVIS` (state field) | Whether the player can see a monster that has **not** acquired the player, while in EXPLORE. Precise test: `P_CheckSight` to the monster, inside the player's horizontal FOV, and the sprite at least K pixels tall on the 320×200 screen (so a speck on the horizon doesn't count). Rewards only (§5.3); never in the observation. |
 | Backpack-full status message | Shown on a failed pickup. Its own fixed screen spot, size and colour that survive an 84×84 downsample, fixed duration. Today's `D_BackpackFullMsg` → `D_Msg` uses the shared HUD message line in small text and is overwritten by later messages. |
 | Exit path distance | Engine pathfinder distance from the player to the exit, locked doors blocked unless the key is held, capped when no path exists. Critic input only (§7.3). |
@@ -106,6 +107,7 @@ No per-state action masks (they would leak engine state). No mode mask either: t
 |---|---|---|
 | New sector discovered | + | Dense exploration signal |
 | Exit reached | + large | Ends the rollout |
+| Mechanism used | + | A USE that sets a mechanism going: a sector starts moving (door, lift, floor, ceiling, stairs) or a switch flips (including lights and the exit switch). Once per mechanism per rollout, so reusing a door or switch, or using a door from its other side, pays nothing; mechanisms used during the warm-up count as used. From the engine's `use` event (§4). |
 | Death | − | Ends the rollout |
 | Stuck | − | No position change over N tics |
 | CONSULT on trigger | + large | Paid only while exploring (EXPLORE). Trigger = a monster seen before it acquires the player (`MONSTERVIS`, §4), or the backpack-full message up. First consult per trigger only. |

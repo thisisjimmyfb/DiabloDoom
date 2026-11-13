@@ -7,6 +7,7 @@
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -19,6 +20,7 @@
 #include "m_argv.h"
 #include "d_loop.h"
 #include "p_local.h"
+#include "r_state.h"
 #include "tables.h"
 #include "t_turn.h"
 #include "t_combat.h"
@@ -287,5 +289,70 @@ void RL_EmitState(const char *why, int tics)
     if (len >= (int) sizeof(buf))
         len = (int) sizeof(buf) - 1;
     buf[len] = '\0';
+    RL_Emit("%s", buf);
+}
+
+// ------------------------------------------------------------------
+// Mechanism use reporting (see d_rlenv.h). RL_UseBegin snapshots which
+// sectors already have an active special; RL_UseEnd reports the ones
+// that gained one during the use, plus the switch lines flipped.
+// ------------------------------------------------------------------
+#define RL_USE_MAX_LINES 16
+
+static byte *rl_use_busy = NULL;   // per sector: specialdata set at RL_UseBegin
+static int rl_use_busy_cap = 0;
+static boolean rl_using = false;
+static int rl_use_lines[RL_USE_MAX_LINES];
+static int rl_use_nlines = 0;
+
+void RL_UseBegin(void)
+{
+    int i;
+
+    if (!rlenv || numsectors <= 0)
+        return;
+    if (rl_use_busy_cap < numsectors)
+    {
+        free(rl_use_busy);
+        rl_use_busy = malloc(numsectors);
+        rl_use_busy_cap = rl_use_busy ? numsectors : 0;
+        if (rl_use_busy == NULL)
+            return;
+    }
+    for (i = 0; i < numsectors; i++)
+        rl_use_busy[i] = sectors[i].specialdata != NULL;
+    rl_use_nlines = 0;
+    rl_using = true;
+}
+
+void RL_NoteSwitch(int line)
+{
+    if (rl_using && rl_use_nlines < RL_USE_MAX_LINES)
+        rl_use_lines[rl_use_nlines++] = line;
+}
+
+void RL_UseEnd(void)
+{
+    char buf[2048];
+    int len, i, nsec = 0;
+
+    if (!rl_using)
+        return;
+    rl_using = false;
+    len = snprintf(buf, sizeof(buf), "{\"event\":\"use\",\"sectors\":[");
+    for (i = 0; i < numsectors; i++)
+    {
+        if (rl_use_busy[i] || sectors[i].specialdata == NULL)
+            continue;
+        if (len < (int) sizeof(buf) - 64)
+            len += snprintf(buf + len, sizeof(buf) - len, "%s%d", nsec ? "," : "", i);
+        nsec++;
+    }
+    if (nsec == 0 && rl_use_nlines == 0)
+        return;                     // the use did nothing
+    len += snprintf(buf + len, sizeof(buf) - len, "],\"lines\":[");
+    for (i = 0; i < rl_use_nlines; i++)
+        len += snprintf(buf + len, sizeof(buf) - len, "%s%d", i ? "," : "", rl_use_lines[i]);
+    snprintf(buf + len, sizeof(buf) - len, "],\"gametic\":%d}", gametic);
     RL_Emit("%s", buf);
 }

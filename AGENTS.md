@@ -136,7 +136,10 @@ input (explore with the player settled, planning, dead, or between
 levels), the engine publishes the frame, sends one `decision` line, and
 blocks on the pipe until the next command. `STATE` sends a state line
 on demand; `SEED n` sets `prndindex` (send it after `LOAD`; saves don't
-store it); level completion sends an `exit` event. Give each instance
+store it); level completion sends an `exit` event, and a player USE that
+sets a mechanism going (a sector starts moving, or a switch flips) sends a
+`use` event listing those sectors and switch lines (the env pays its
+mechanism reward once per mechanism). Give each instance
 its own working directory and `-savedir` (the turn profile and
 autosaves are written there).
 

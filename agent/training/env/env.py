@@ -42,6 +42,7 @@ class RewardConfig:
     """SPEC.md §5.3. Magnitudes are placeholders, to be tuned from curves."""
     sector: float = 1.0               # per newly visited sector
     exit: float = 50.0                # level exit reached (ends the rollout)
+    mechanism: float = 2.0            # USE that sets a new mechanism going (once per mechanism)
     death: float = -20.0              # ends the rollout
     stuck: float = -1.0               # per stuck_tics without moving stuck_dist
     stuck_tics: int = 105
@@ -169,10 +170,14 @@ class DiabloDoomEnv(gym.Env):
         # max_tics). Deterministic, so a GRPO group given the same list
         # starts from the same varied state. Stops early if the player
         # leaves explore mode or dies.
+        # Mechanisms used during the warm-up count as already used: the
+        # reward is for setting something going within the rollout.
+        self._used: set = set()
         for wa in opts.get("warmup") or []:
             if d.get("mode") != EXPLORE or d.get("dead") or int(wa) == CONSULT:
                 break
-            d, _ = self.engine.command(ACTIONS[int(wa)])
+            d, wevents = self.engine.command(ACTIONS[int(wa)])
+            self._new_mechanisms(wevents)
 
         self.state = d
         self._group = opts.get("group")
@@ -260,6 +265,12 @@ class DiabloDoomEnv(gym.Env):
         # Triggers: start/age/end, and the grace-window miss penalty.
         reward += self._update_triggers(d)
 
+        # Mechanisms: a USE that sets a door, lift, floor, switch...
+        # going pays once per mechanism per rollout (SPEC.md §5.3), so
+        # reusing the same door or switch never pays again.
+        if self._new_mechanisms(events):
+            reward += rc.mechanism
+
         terminated = truncated = False
         exited = any(e.get("event") == "exit" for e in events)
         if exited:
@@ -288,6 +299,20 @@ class DiabloDoomEnv(gym.Env):
         self.engine.close()
 
     # -- internals -------------------------------------------------
+    def _new_mechanisms(self, events: list) -> bool:
+        """Record the mechanisms in this step's "use" events (the sectors
+        a USE set moving and the switch lines it flipped). True if any of
+        them is new this rollout."""
+        new = False
+        for e in events:
+            if e.get("event") != "use":
+                continue
+            keys = {("sector", s) for s in e.get("sectors", [])} | {("line", n) for n in e.get("lines", [])}
+            if keys - self._used:
+                new = True
+            self._used |= keys
+        return new
+
     def _frame(self) -> np.ndarray:
         pix, pal, _ = self.engine.frame()
         return self._pre(pix, pal)

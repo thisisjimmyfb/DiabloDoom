@@ -51,4 +51,19 @@ void RL_EmitState(const char *why, int tics);
 // palette into the -shm segment. No-op without -shm.
 void RL_PublishFrame(void);
 
+// Mechanism use reporting (the env's mechanism reward, SPEC.md §5.3).
+// P_UseLines brackets every player use with RL_UseBegin/RL_UseEnd, and
+// P_ChangeSwitchTexture reports each switch line it flips in between
+// (RL_NoteSwitch, a no-op outside a use). RL_UseEnd sends one
+//   {"event":"use","sectors":[...],"lines":[...],"gametic":N}
+// line when the use did something: "sectors" are the sectors that
+// started moving (a door, lift, floor, ceiling, stairs... -- their
+// specialdata went from empty to set), "lines" the switches flipped
+// (this also covers switches that move nothing, such as lights or the
+// exit). A use that did nothing -- a plain wall, a locked door without
+// its key, a door already moving -- sends nothing. No-ops without -rlenv.
+void RL_UseBegin(void);
+void RL_NoteSwitch(int line);
+void RL_UseEnd(void);
+
 #endif
