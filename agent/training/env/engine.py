@@ -54,6 +54,12 @@ class EngineConfig:
     work_root: str | None = None
     step_timeout: float = 30.0      # seconds to wait for a decision
     start_timeout: float = 60.0
+    # Continuous replay capture: when set, the instance saves a 15 s
+    # (game time, 35 fps) segment MP4 into this directory every 525
+    # tics, named diablodoom_YYYYMMDD_HHMMSS_mmm.mp4. Segments run
+    # across episode resets; the partial last one is flushed on close.
+    capture_dir: str | None = None
+    close_timeout: float = 60.0     # QUIT waits for capture encodes
 
 
 class Engine:
@@ -91,6 +97,10 @@ class Engine:
                 "-warp", *self.cfg.warp.split(), "-nosound", "-savedir", str(savedir),
                 "-rlenv", "-cmdpipe", str(cmd_path), "-statepipe", str(state_path),
                 "-shm", self.shm_name, *self.cfg.extra_args]
+        if self.cfg.capture_dir:
+            cap = Path(self.cfg.capture_dir).resolve()
+            cap.mkdir(parents=True, exist_ok=True)
+            args += ["--continuous-capture", "-capturedir", str(cap)]
         env = dict(os.environ, SDL_VIDEODRIVER="dummy", SDL_AUDIODRIVER="dummy")
         self._log = open(self.workdir / "log.txt", "wb")
         self.proc = subprocess.Popen(args, cwd=self.workdir, env=env, stdout=self._log,
@@ -108,7 +118,7 @@ class Engine:
         if self.proc is not None and self.proc.poll() is None:
             try:
                 os.write(self._cfd, b"QUIT\n")
-                self.proc.wait(timeout=3)
+                self.proc.wait(timeout=self.cfg.close_timeout if self.cfg.capture_dir else 3)
             except (OSError, subprocess.TimeoutExpired):
                 self._kill()
         self.proc = None

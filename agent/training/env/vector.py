@@ -91,6 +91,8 @@ class GroupVecEnv:
             except Exception:
                 pass
         for p in self._procs:
-            p.join(timeout=10)
+            # Long enough for a capturing env's QUIT to flush its
+            # last replay segment (Engine.close waits up to 60 s).
+            p.join(timeout=75)
             if p.is_alive():
                 p.terminate()

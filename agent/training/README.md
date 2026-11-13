@@ -97,6 +97,17 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   SIGTERM exits cleanly; rollouts in progress are discarded.
 - **Logs:** `runs/<name>/metrics.jsonl` (train and eval lines) and
   `config.json`.
+- **Replays:** the first `--capture-envs` (1) training envs record
+  continuous replay into `runs/<name>/replays/env<i>/`, and
+  `--capture-eval` records the eval envs into `replays/eval<i>/`. Each
+  file is 15 s of game time at 35 fps (525 tics, about 2-3 MB), named
+  `diablodoom_YYYYMMDD_HHMMSS_mmm.mp4` by the wall-clock time it was
+  queued, so names are unique and sort chronologically. Segments run
+  across episode resets (a reset shows as a cut), and the last partial
+  segment is written when the run exits. Capture doesn't change the
+  game: a captured env plays the same as an uncaptured one. A captured
+  env produces roughly 5 game-minutes of footage per real minute, so
+  watch disk use on long runs (`--capture-envs 0` turns it off).
 
 Measured 2026-11-12 at the default size: about 240 decisions/s (about
 5,500 game tics/s) and about 12 s per iteration. Envs step in lockstep, so

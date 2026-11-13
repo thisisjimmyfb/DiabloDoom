@@ -55,7 +55,7 @@ N_PRIV = 2  # privileged critic inputs: HP/100, exit path distance (SPEC.md §6)
 # ---------------------------------------------------------------------------
 
 def make_env(warp: str, stage: int, skill: int, max_tics: int,
-             slots_dir: str | None, slots: list[int]):
+             slots_dir: str | None, slots: list[int], capture_dir: str | None = None):
     from env import (DiabloDoomEnv, EngineConfig, EnvConfig, null_consult,
                      scripted_combat_consult)
     # Stage 1 (SPEC.md §7.2): no monsters. Vanilla -nomonsters is the
@@ -64,7 +64,7 @@ def make_env(warp: str, stage: int, skill: int, max_tics: int,
     extra = ["-nomonsters"] if stage == 1 else []
     return DiabloDoomEnv(EnvConfig(
         engine=EngineConfig(warp=warp, skill=skill, extra_args=extra,
-                            savedir_template=slots_dir),
+                            savedir_template=slots_dir, capture_dir=capture_dir),
         max_tics=max_tics,
         start_slots=list(slots),
         consult_handler=null_consult if stage == 1 else scripted_combat_consult,
@@ -354,6 +354,11 @@ def parse_args():
     p.add_argument("--init", default=None, help="initialize weights from a checkpoint (new run)")
     p.add_argument("--eval-every", type=int, default=10)
     p.add_argument("--eval-episodes", type=int, default=2, help="rollouts per eval map")
+    p.add_argument("--capture-envs", type=int, default=1,
+                   help="training envs (from env 0) that record continuous replay segments "
+                        "into <run-dir>/replays/env<i>/ (0: none)")
+    p.add_argument("--capture-eval", action="store_true",
+                   help="also record the eval envs (<run-dir>/replays/eval<i>/)")
     p.add_argument("--keep", type=int, default=3, help="checkpoints to keep")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
@@ -420,13 +425,18 @@ def main():
           f"maps {maps}, eval {eval_maps}, {n_params / 1e6:.2f}M params, device {device}")
 
     env_maps = [maps[(i // G) % len(maps)] for i in range(n_envs)]
+    replays = run_dir / "replays"
     vec = GroupVecEnv([functools.partial(make_env, m, args.stage, args.skill, args.max_tics,
-                                         args.slots_dir, slots) for m in env_maps])
+                                         args.slots_dir, slots,
+                                         str(replays / f"env{i:02d}") if i < args.capture_envs else None)
+                       for i, m in enumerate(env_maps)])
     eval_vec = None
     if eval_maps and args.eval_every > 0:
         eval_env_maps = [m for m in eval_maps for _ in range(args.eval_episodes)]
         eval_vec = GroupVecEnv([functools.partial(make_env, m, args.stage, args.skill, args.max_tics,
-                                                  args.slots_dir, slots) for m in eval_env_maps])
+                                                  args.slots_dir, slots,
+                                                  str(replays / f"eval{i:02d}") if args.capture_eval else None)
+                                for i, m in enumerate(eval_env_maps)])
     metrics_f = open(run_dir / "metrics.jsonl", "a")
 
     def evaluate(it: int):
