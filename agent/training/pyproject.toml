@@ -12,6 +12,8 @@ dependencies = [
 # train.py. On the RTX 5080 (Blackwell) install the CUDA 12.8 build:
 #   uv pip install --python .venv/bin/python torch --index-url https://download.pytorch.org/whl/cu128
 train = ["torch>=2.7"]
+# tests/ (./test.sh installs it when missing). The trainer tests also need torch.
+test = ["pytest>=8"]
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -19,3 +21,12 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 packages = ["env"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# The trainer scripts (model.py, eval.py, learn.py, train.py) import as
+# top-level modules from this directory.
+pythonpath = ["."]
+markers = [
+    "game: launches DiabloDoom instances (slow; deselect with -m 'not game')",
+]

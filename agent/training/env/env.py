@@ -21,7 +21,10 @@ from .obs import FrameStack, Preprocessor
 
 # SPEC.md §5.2. Index = action id.
 ACTIONS = [
-    "WALK -90", "WALK -45", "WALK 0", "WALK 45", "WALK 90",
+    # Forward step only: turning is TURNL/TURNR (smooth, 5 deg/tic).
+    # WALK <angle> snaps the facing in one tic, so the policy never
+    # sends an angle.
+    "WALK 0",
     "TURNL", "TURNR",
     "STRAFE_L", "STRAFE_R",
     "USE",

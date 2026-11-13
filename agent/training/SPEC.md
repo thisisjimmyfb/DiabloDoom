@@ -83,18 +83,20 @@ The replay system (`d_replay.c`) records 15-second MP4 video, not inputs, and `T
 
 ### 5.2 Actions
 
-Discrete, 12 outputs. The env rejects anything else.
+Discrete, 8 outputs. The env rejects anything else.
 
 | # | Action | Notes |
 |---|---|---|
-| 0–4 | `WALK -90`, `WALK -45`, `WALK 0`, `WALK 45`, `WALK 90` | Turn by the angle, then a fixed step |
-| 5–6 | `TURNL`, `TURNR` | 45° turns |
-| 7–8 | `STRAFE_L`, `STRAFE_R` | Needs the explore-mode branch (§4) |
-| 9 | `USE` | Doors and switches, including exits |
-| 10 | `MAP` | Toggle the automap |
-| 11 | `CONSULT` | Environment signal, not a driver command: it drives Muse VM to make a decision — switching to combat or inventory mode. The handler is swappable: on the farm it signals Muse VM (e.g. `doom_loop.sh` exits so Muse's VLM takes over); in training a stand-in answers (§5.4). |
+| 0 | `WALK 0` | A fixed step forward, no turn |
+| 1–2 | `TURNL`, `TURNR` | 45° turns, smooth (5° per tic) |
+| 3–4 | `STRAFE_L`, `STRAFE_R` | Needs the explore-mode branch (§4) |
+| 5 | `USE` | Doors and switches, including exits |
+| 6 | `MAP` | Toggle the automap |
+| 7 | `CONSULT` | Environment signal, not a driver command: it drives Muse VM to make a decision — switching to combat or inventory mode. The handler is swappable: on the farm it signals Muse VM (e.g. `doom_loop.sh` exits so Muse's VLM takes over); in training a stand-in answers (§5.4). |
 
 Everything else stays with the LLM/VLM or the harness: `WAIT`, `COLLECT`, `SNAP_WALL` (aims from engine geometry), bare `WALK` (stops on engine detection), `SURVEY`, `GOTO`, the combat commands (`MOVE_FWD`, `MOVE_BACK`, `ATTACK`, `UNDO`, `END`), gear (`EQUIP`, `UNEQUIP`, `SALVAGE`), read-outs (`INSPECT`, `INVENTORY`, `KEYS`, `SECTORS`, `SCREENSHOT`, `CAPTURE`, `REPLAY`, `VERSION`) and session control (`SAVE`, `LOAD`, `RESPAWN`, `QUIT`).
+
+No angled walks (`WALK -90` … `WALK 90`, decided 2026-11-13): `WALK <angle>` snaps the facing in a single tic, so the policy turns only with `TURNL`/`TURNR` and always walks with `WALK 0`.
 
 No per-state action masks (they would leak engine state). No mode mask either: the policy keeps acting in combat, where every action except CONSULT does nothing and just costs a step (the env drops movement actions outside EXPLORE so they never queue TP-costing combat moves). The policy has to learn from the screen that combat has started and choose CONSULT. While the VLM/stand-in is playing a CONSULT, no policy steps are taken.
 
@@ -121,6 +123,7 @@ Magnitudes are tuned from training curves. Start with the consult reward near a 
 - **Unconsulted-combat cap:** the world is frozen in PLANNING, so steps there spend no tics and the 2,100-tic budget never runs out. After M policy steps in PLANNING without CONSULT, the rollout ends (with the per-step penalties already accrued).
 - **Reset:** `LOAD n` from prepared save slots spread across each level, then `SEED s` to set `prndindex` (§4). With a 256-entry table a seed is one of 256 start offsets; variety comes mostly from slots. Slots near the exit come first in training. Some slots start with the backpack one or two items from full.
 - **Group reset:** all G instances in a group load the same slot and seed.
+- **IWAD:** each instance runs one IWAD (`-iwad`) for its whole life, so an instance's IWAD and map are fixed when it is spawned. Save slots belong to one IWAD (a save loaded under another IWAD's maps is garbage), so slots and multiple IWADs can't be mixed until slots are prepared per IWAD.
 - **Training stand-ins:** with `-rlnocombat` there are no fights. In the monsters-on stage, a CONSULT is answered cheaply: the stand-in removes the monster, or empties the backpack.
 - **`info`:** tics per step, mode, group id. (Mode is for logging and rewards only; it never masks actions.)
 
@@ -129,23 +132,24 @@ Magnitudes are tuned from training curves. Start with the consult reward near a 
 ```
 screen (scene or automap, 84×84, 4 stacked)
    → Nature CNN (3 conv) → 512 features
-   → LSTM core, 256 units  ──▶ action head: 12 logits, sampled
+   → GRU core, 256 units   ──▶ action head: 8 logits, sampled
                             └▶ value head (+ HP, exit distance)  [critic, training only]
 ```
 
 - **One encoder** for both views; the network tells them apart from pixels.
-- **LSTM** carries working memory and remembers the view that isn't showing. LSTM rather than GRU because CleanRL's `ppo_atari_lstm.py` already handles the hidden state; they perform about the same.
+- **GRU** carries working memory and remembers the view that isn't showing. GRU rather than LSTM because it is simpler (one state vector instead of two, fewer parameters); they perform about the same.
 - **Actions are sampled**, not greedy, which is what makes a GRPO group's rollouts differ.
-- **Value head** (one linear layer on the LSTM output, plus HP and exit path distance as privileged inputs) trains from day one. GRPO ignores it; Phase 6 PPO needs it.
+- **Value head** (one linear layer on the GRU output, plus HP and exit path distance as privileged inputs) trains from day one. GRPO ignores it; Phase 6 PPO needs it.
 - **Hidden state** starts at zero for each training rollout. Phase 6 logs it at the start of each logged segment.
 - **Size:** about 2 million parameters.
-- **Two-step build:** step 1 is feedforward (CleanRL `ppo_atari.py`), using the map only while it is in the 4-frame stack. Step 2 adds the LSTM; keep it only if it loops less or finds exits faster on held-out maps.
+- **Two-step build:** step 1 is feedforward, using the map only while it is in the 4-frame stack. Step 2 adds the GRU; keep it only if it loops less or finds exits faster on held-out maps.
 
 ## 7. Training
 
 ### 7.1 GRPO (pretraining)
 
 - **Groups:** G = 8 rollouts from the same slot and seed; 4 groups per batch = 32 instances.
+- **IWADs:** training runs on every IWAD at once: Freedoom Phase 1 and The Ultimate Doom (`train.sh` passes every file under `wad/` whose header is `IWAD`; PWADs are skipped). With I IWADs and M maps, group g plays map `maps[g % M]` on IWAD `iwads[(g % M + g // M) % I]`. Every map is trained at any group count of at least M, the IWADs split the groups evenly, and I×M groups (8 for 2 IWADs × E1M1–E1M4) cover every IWAD/map pair; with fewer, the trainer warns which pairs go untrained. Eval plays every held-out map on every IWAD, and the logs report sectors and exit rate per IWAD.
 - **Advantage:**
 
   ```
@@ -162,8 +166,8 @@ screen (scene or automap, 84×84, 4 stacked)
 
   A few epochs per batch. β = 0 to start (no reference policy). If the farm LLM's explore commands (paired with its frames) are behavior-cloned first, that clone becomes π_ref with β > 0.
 - **Group diversity:** `P_Random` is deterministic, so only action sampling separates rollouts. Use a small entropy bonus. Drop zero-std groups and log the collapsed share.
-- **Trainer:** CleanRL `ppo.py` / `ppo_atari_lstm.py` with the GAE replaced by group advantages and group resets added.
-- **Data:** mostly the game's own levels (they stay fixed), plus filtered community maps so the runner isn't brittle. Randomize textures, player speed and turn rate. Optional early stage: generated mazes with a known shortest path.
+- **Trainer:** a PPO-style clipped-ratio trainer with the GAE replaced by group advantages and group resets added. It runs either as one process on one box (`train.py`) or split into rollout workers and a learner across machines (§7.5).
+- **Data:** mostly the game's own levels (they stay fixed) across both IWADs, so the runner sees two texture sets and two layouts of each map slot, plus filtered community maps so it isn't brittle. Randomize textures, player speed and turn rate. Optional early stage: generated mazes with a known shortest path.
 
 ### 7.2 Training stages
 
@@ -173,7 +177,7 @@ screen (scene or automap, 84×84, 4 stacked)
 
 ### 7.3 Phase 6: session fine-tuning with PPO
 
-- The runner plays live sessions with frozen weights and no search, logging every decision: the frame, the action and its probability, the reward, the game build (`VERSION`), and the LSTM state at the start of each segment (about every 128 decisions). An hour of play is about 5,000 decisions; pool sessions from several farm instances when one is too small.
+- The runner plays live sessions with frozen weights and no search, logging every decision: the frame, the action and its probability, the reward, the game build (`VERSION`), and the GRU state at the start of each segment (about every 128 decisions). An hour of play is about 5,000 decisions; pool sessions from several farm instances when one is too small.
 - A session visits each state once, so there are no groups. PPO's critic scores each step:
 
   ```
@@ -193,7 +197,37 @@ The execution environment can stop at any moment.
 - Save at every update boundary: policy and value weights, reference policy, optimizer state, schedule positions, save-slot and seed sampler state, all RNG states, logger run id.
 - Discard rollouts in progress on restart.
 - Atomic writes (temp file, `fsync`, `os.replace`), keep the last 3 checkpoints, fall back if the newest fails to load.
-- On startup, delete stale FIFOs and `/dev/shm` segments and kill orphaned DiabloDoom processes.
+- On startup, delete stale FIFOs and `/dev/shm` segments and kill orphaned DiabloDoom processes. Only leftovers whose owner process is gone are touched, so several trainer processes can share one box.
+- In the split trainer (§7.5) only the learner checkpoints. Rollout workers are stateless: on restart they pull the newest weights and start new groups. Exact bit-for-bit resume of a multi-machine run is given up; the learner's weights, optimizer and version still resume exactly.
+
+### 7.5 Split trainer: rollout workers and learner
+
+The game instances are the cost, and they are CPU-bound on every machine; the 1.7M-parameter policy is cheap to run on a CPU, and only the update wants the GPU. So the trainer splits in two, and the Muse VM (CPU only) contributes rollouts while the RTX 5080 box learns.
+
+- **`eval.py` (rollout worker, any machine, CPU or GPU):** spawns the env instances, samples group starts (seed, slot, warm-up), plays G×groups rollouts with the newest weights it has, and writes each finished set of groups to the spool as one batch file. Several workers can run at once, on one box or several, each with its own `--actor-id`.
+- **`eval.py --heldout` (held-out evaluation):** the same machinery on the held-out maps from fixed starts (seed 0, no warm-up), once per new weights version; writes metrics only, never training data.
+- **`learn.py` (learner, the 5080):** waits until the spool holds enough fresh groups, computes group advantages and value targets, runs the update, checkpoints (§7.4), and publishes the new weights.
+- **`model.py`:** shared by all three: the policy network, the env factory, IWAD/group allocation and checkpoint I/O.
+- **`train.py`:** the single-box driver, kept: rollouts and update in one process, strictly alternating, no spool. It's the reference for the split's math and the cheapest local run.
+
+**Spool** (a directory; the only interface between the two sides):
+- `weights.pt`: `{version, policy}`, written atomically by the learner at startup (version of the resumed or initial weights) and after every update (version = updates done). Workers reload it when the version changes.
+- `batches/<actor>_<time_ns>.npz`: one file per worker iteration, written atomically (temp file, `fsync`, `os.replace`), deleted by the learner once consumed.
+- `DONE`: written by the learner when it finishes its iterations; workers exit when they see it.
+
+**Batch contents** (per decision; §5.4 for the fields):
+- Frames deduplicated: each new decision pushes one frame onto the 4-frame stack, so a batch stores every distinct 84×84 frame once plus a 4-index stack per decision, and the learner rebuilds the stacks exactly. About 7 KB per decision instead of 28 KB, before compression.
+- `priv` (HP, exit distance), `act`, `logp` (under the acting weights, for the clipped ratio), `rew`, `tics`.
+- Per rollout: length, group id, IWAD, rollout tics, sectors gained, exit, death, terminated (metrics only; the learner recomputes everything it trains on).
+- Meta: actor id, weights version the rollouts were played with, group labels (IWAD:map), timing.
+
+**Staleness and flow control:**
+- The clipped ratio uses the acting policy's log-probs, so rollouts a version or two old are still valid. Batches more than `--max-lag` versions (2) behind the learner are dropped and counted.
+- The learner updates once it holds at least `--min-groups` groups (4), taking every fresh batch in the spool at that moment, so the batch size grows with the number of workers.
+- A worker pauses while `--max-pending` (2) of its own batches are unconsumed, so a fast worker can't fill the disk or train the learner on its own starts only.
+- Groups are normalized within themselves, so groups from different workers, IWADs and maps mix freely in one update.
+
+**Across machines:** the spool is just files. The learner's spool is the source of truth; batches go from a worker's machine to it and `weights.pt` goes back (rsync/scp in a loop, or a shared mount). The transport is open (§12). A worker with only Freedoom contributes Freedoom groups; the learner doesn't care which IWADs a batch covers.
 
 ## 8. LLM/VLM handoff and items
 
@@ -239,7 +273,7 @@ Phases 0–3 are the first trainable env, about 4½ days.
 | `P_Random` is a 256-entry table | Variety comes from start states, not the RNG | Many save slots across maps and NG+ loops |
 | GRPO groups collapse | Identical rollouts give zero gradient | Entropy bonus; skip zero-std groups; log the collapsed share |
 | No critic during GRPO | One advantage per rollout, coarse credit | Process-reward variant; PPO baseline on the same env if curves stall |
-| Pixels-only loops | The policy revisits rooms or spins | `MAP`, LSTM memory, stuck penalty |
+| Pixels-only loops | The policy revisits rooms or spins | `MAP`, GRU memory, stuck penalty |
 | Map flicker | More decisions per rollout, flickering replays | Log toggle rate; small toggle cost if needed |
 | Rendering cost | The renderer runs every decision | Render only at decisions; Phase 3 measures it |
 | HUD churn | Every HUD change shifts the policy's input — including world-space overlays (enemy health bars, floating damage numbers, depth scaling, added after `5fa94f8`) | Eval gate per build; randomize HUD details in training if churn continues |
@@ -253,6 +287,8 @@ Decided:
 - The automap counts as screen visual, reached through the policy's `MAP` toggle.
 - Training runs on the RTX 5080 box.
 - G = 8, 2,100 tics per rollout.
+- Training uses every IWAD under `wad/` (Freedoom Phase 1 and The Ultimate Doom), groups split evenly between them (§7.1).
+- Training can be split: rollout workers (`eval.py`, including CPU-only Muse VMs) feed a learner (`learn.py`, the RTX 5080) through a spool directory (§7.5). `train.py` stays as the single-box driver.
 - CONSULT rewards and penalties as in §5.3; the backpack trigger is a dedicated backpack-full message on a failed pickup.
 - CONSULT is an environment signal that drives Muse VM; the game cannot hand off by itself. The policy is taught to switch to combat or inventory mode with it, and the monster reward is paid only for sightings while exploring. The policy must choose CONSULT itself in every case — including after combat has started, where it earns no reward but each step without it is penalized. No automatic consult, no mode mask.
 - The status bar stays in the policy's view.
@@ -261,3 +297,4 @@ Decided:
 Open:
 - Third stage: fine-tuning with the scripted combat stand-in and an HP-loss penalty. Kept in the plan; details later.
 - Reward magnitudes (§5.3).
+- Spool transport between a Muse VM and the 5080 box (§7.5): SSH/rsync, HTTP, or a shared mount, depending on what can reach what.
