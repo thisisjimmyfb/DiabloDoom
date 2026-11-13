@@ -2066,6 +2066,25 @@ static void cmd_dispatch(const char *cmd)
         RL_Emit("{\"event\":\"version\",\"commit\":\"%s\",\"gametic\":%d}",
                 GIT_COMMIT_HASH, gametic);
     }
+    else if (!strncmp(cmd, "SEED ", 5))
+    {
+        // SEED n (0-255): set the gameplay RNG index (P_Random,
+        // which also rolls Diablo loot, affixes and defense). Sent
+        // right after LOAD: savegames don't store prndindex and
+        // loading doesn't reset it, so without SEED the RNG position
+        // after a load depends on the process's history. A discrete
+        // index into the 256-entry table, not an aim.
+        extern int prndindex;
+        int n;
+        if (sscanf(cmd + 5, "%d", &n) == 1 && n >= 0 && n <= 255)
+        {
+            prndindex = n;
+            printf("[SEED] prndindex %d\n", n);
+            RL_Emit("{\"event\":\"seed\",\"prndindex\":%d}", n);
+        }
+        else
+            printf("[SEED] usage: SEED <0-255>\n");
+    }
     else if (!strcmp(cmd, "REPLAY"))
     {
         // Dump the last 15 seconds of gameplay to MP4 (MJPEG).
