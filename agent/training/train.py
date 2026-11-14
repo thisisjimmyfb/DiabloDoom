@@ -31,9 +31,11 @@ Usage (from agent/training):
 from __future__ import annotations
 
 import argparse
+import copy
 import functools
 import json
 import signal
+import threading
 import time
 from pathlib import Path
 
@@ -55,6 +57,9 @@ def parse_args():
     add_env_args(p)
     add_learn_args(p)
     p.add_argument("--eval-every", type=int, default=10)
+    p.add_argument("--overlap", action="store_true",
+                   help="update on the GPU while the games play the next batch with the weights from "
+                        "before the update (batches one version old; the clipped ratio allows for it)")
     p.add_argument("--capture-envs", type=int, default=1,
                    help="training envs (from env 0) that record continuous replay segments "
                         "into <run-dir>/replays/env<i>/ (0: none)")
@@ -112,21 +117,64 @@ def main():
         metrics_f.flush()
         print_eval(it, out)
 
+    # --overlap: the games act with a frozen copy of the policy, refreshed
+    # after each update, so the next batch can be played while the GPU
+    # trains on the current one.
+    actor = policy
+    if args.overlap:
+        actor = copy.deepcopy(policy)
+        actor.requires_grad_(False)
+
+    def play() -> tuple[list[dict], float]:
+        t = time.time()
+        recs = run_rollouts(vec, actor, device,
+                            sample_group_options(sampler, groups, G, slots, args.warmup_max))
+        for i, r in enumerate(recs):
+            r["iwad"] = iwad_label(env_pairs[i][0])
+        return recs, time.time() - t
+
     try:
         if eval_vec is not None and start_it == 0:
             evaluate(0)  # baseline before any update
+        ahead = None        # --overlap: the next batch, played during the last update
         for it in range(start_it, args.iterations):
             t0 = time.time()
-            recs = run_rollouts(vec, policy, device,
-                                sample_group_options(sampler, groups, G, slots, args.warmup_max))
-            t_roll = time.time() - t0
-            for i, r in enumerate(recs):
-                r["iwad"] = iwad_label(env_pairs[i][0])
+            if ahead is None:
+                (recs, t_roll), lag = play(), 0
+            else:
+                (recs, t_roll), lag = ahead, 1
+                ahead = None
 
             advs, collapsed = group_advantages([recs[g * G:(g + 1) * G] for g in range(groups)],
                                                args.advantage)
             batch = build_batch(recs, advs, args.gamma_tic)
-            upd = update(policy, optimizer, ref, batch, args, device) if batch is not None else {}
+            # What a checkpoint for this update must hold: the RNGs as they
+            # are before the next batch is drawn and played, so a restart
+            # (which discards a batch in flight) replays the same starts.
+            rng = rng_state(sampler)
+            if args.overlap and it + 1 < args.iterations:
+                box: dict = {}
+
+                def run_update():
+                    try:
+                        box["upd"] = update(policy, optimizer, ref, batch, args, device) if batch is not None else {}
+                    except BaseException as e:      # re-raised on the main thread
+                        box["err"] = e
+                th = threading.Thread(target=run_update, daemon=True)
+                th.start()
+                ahead = play()                      # still the pre-update weights
+                th.join()
+                if "err" in box:
+                    raise box["err"]
+                upd = box["upd"]
+                # The update used only the CPU generator (minibatch order);
+                # the rollouts the CUDA one, so keep the update's CPU state.
+                rng["torch"] = torch.get_rng_state()
+            else:
+                upd = update(policy, optimizer, ref, batch, args, device) if batch is not None else {}
+                rng = rng_state(sampler)
+            if actor is not policy:
+                actor.load_state_dict(policy.state_dict())
             t_all = time.time() - t0
 
             m = train_metrics(recs, groups, collapsed)
@@ -134,7 +182,7 @@ def main():
             total_tics += m["tics"]
             m = {"iteration": it, "kind": "train", **m,
                  "total_steps": total_steps, "total_tics": total_tics,
-                 "sps": m["steps"] / t_roll, "rollout_s": t_roll, "iter_s": t_all, **upd}
+                 "sps": m["steps"] / t_roll, "rollout_s": t_roll, "iter_s": t_all, "lag": lag, **upd}
             metrics_f.write(json.dumps(m) + "\n")
             metrics_f.flush()
             print_train(it, m, upd, f" ({m['sps']:.0f}/s) {t_all:.1f}s")
@@ -142,7 +190,7 @@ def main():
             save_checkpoint(run_dir / f"ckpt_{it:06d}.pt", {
                 "policy": policy.state_dict(), "optimizer": optimizer.state_dict(),
                 "iteration": it, "total_steps": total_steps, "total_tics": total_tics,
-                "rng": rng_state(sampler), "run_id": run_id, "ref": args.ref, "args": vars(args),
+                "rng": rng, "run_id": run_id, "ref": args.ref, "args": vars(args),
             }, args.keep)
 
             if eval_vec is not None and (it + 1) % args.eval_every == 0:

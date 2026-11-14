@@ -97,6 +97,14 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
 - **Eval:** every `--eval-every` iterations (and before the first update),
   `--eval-episodes` rollouts on each `--eval-maps` map (held out:
   E1M5, E1M6) from a fixed start. Reports sectors gained and exit rate.
+- **Overlap:** `--overlap` runs each update on the GPU while the games
+  play the next batch with the weights from before the update, so batches
+  are one version old (`lag` 1 in `metrics.jsonl`; the clipped ratio
+  allows for it). Measured 2026-11-13 at the default size on an idle box:
+  about 6% more decisions per second (the update is about 2 s of a
+  ~28 s iteration). After a restart, the first batch is played with the
+  resumed weights (`lag` 0), so an overlapped run that was interrupted is
+  not bit-identical to one that wasn't; its start states still are.
 - **Checkpoints:** `runs/<name>/ckpt_NNNNNN.pt` at every update. Each
   holds weights, optimizer, counters and every RNG state, including the
   start-state sampler. Writes are atomic, the last `--keep` (3) are kept,

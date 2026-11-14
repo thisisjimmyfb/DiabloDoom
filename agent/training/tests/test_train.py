@@ -78,3 +78,17 @@ def test_capture(tmp_path):
     assert segs and all(f.parent.name == "env00" for f in segs), [str(f) for f in files]
     assert all(re.fullmatch(r"diablodoom_\d{8}_\d{6}_\d{3}(_\d\d)?\.mp4", f.name) for f in segs)
     assert all(f.stat().st_size > 0 for f in segs)
+
+
+def test_overlap(tmp_path):
+    """--overlap: each update runs while the next batch plays with the
+    pre-update weights (lag 1); a restart replays the batch in flight with
+    the resumed weights (lag 0)."""
+    run_dir = tmp_path / "run"
+    args = ["--overlap", "--eval-every", "0", "--capture-envs", "0"]
+    train(run_dir, *args, "--iterations", "3")
+    assert sorted(f.name for f in run_dir.glob("ckpt_*.pt")) == [f"ckpt_{i:06d}.pt" for i in range(3)]
+    assert [(r["iteration"], r["lag"]) for r in metrics(run_dir, "train")] == [(0, 0), (1, 1), (2, 1)]
+    o = train(run_dir, *args, "--iterations", "4")
+    assert "resuming from" in o and "ckpt_000002.pt" in o
+    assert [(r["iteration"], r["lag"]) for r in metrics(run_dir, "train")][-1] == (3, 0)
