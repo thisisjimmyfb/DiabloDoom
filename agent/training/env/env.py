@@ -43,6 +43,15 @@ class RewardConfig:
     sector: float = 1.0               # per newly visited sector
     exit: float = 50.0                # level exit reached (ends the rollout)
     mechanism: float = 2.0            # USE that sets a new mechanism going (once per mechanism)
+    key: float = 10.0                 # per key colour newly held (blue, yellow, red; once each)
+    # Progress toward the nearest goal -- an exit line or a frontier
+    # portal (a passable opening from a visited sector into an unvisited
+    # one) -- per map unit closer, negative for moving away. Pays the
+    # change in distance, so a rollout's total is start minus end
+    # distance and hovering or oscillating earns nothing; when a step
+    # visits a new sector (the frontier moves on) the distance is
+    # re-measured without pay.
+    approach: float = 1.0 / 256
     death: float = -20.0              # ends the rollout
     stuck: float = -1.0               # per stuck_tics without moving stuck_dist
     stuck_tics: int = 105
@@ -61,6 +70,13 @@ class RewardConfig:
 # live triggers ("monster", "backpack", "combat"; empty for a false
 # consult). On the farm this signals Muse VM; in training a stand-in.
 ConsultHandler = Callable[["DiabloDoomEnv", dict, list], dict]
+
+
+def goal_dist(state: dict) -> float | None:
+    """Distance (map units) to the nearest exit line or frontier portal in
+    a state line, or None when there is neither (or no level)."""
+    ds = [state[k] for k in ("exit_dist", "frontier_dist") if state.get(k) is not None and state[k] >= 0]
+    return float(min(ds)) if ds else None
 
 
 def null_consult(env: "DiabloDoomEnv", state: dict, kinds: list) -> dict:
@@ -107,9 +123,12 @@ class EnvConfig:
     size: int = 84
     # Reset start states: save slots (3-5 manual, 0-2 auto) in the
     # instance savedir (EngineConfig.savedir_template). Empty: the
-    # warp start is saved to bootstrap_slot once and reloaded.
+    # bootstrap slot. The warp start is saved to bootstrap_slot when the
+    # game starts and kept, so the slot holds the map start unless an
+    # install_state replaces it (training's progress save), and holds
+    # it again when that is removed.
     start_slots: list[int] = field(default_factory=list)
-    bootstrap_slot: int = 5
+    bootstrap_slot: int = 4
     max_combat_steps: int = 20        # steps in combat before truncation
     consult_handler: Optional[ConsultHandler] = None
 
@@ -133,7 +152,7 @@ class DiabloDoomEnv(gym.Env):
         self.action_space = spaces.Discrete(len(ACTIONS))
         self._pre: Preprocessor | None = None
         self._stack = FrameStack(cfg.frame_stack, cfg.size)
-        self._bootstrapped = False
+        self._map_start: bytes | None = None    # the warp start, saved in bootstrap_slot
         # Per-env reset request for vector envs:
         #   envs.set_attr("next_reset", [{"slot": 3, "seed": 17, "group": 0}, ...])
         self.next_reset: dict | None = None
@@ -157,11 +176,16 @@ class DiabloDoomEnv(gym.Env):
         path = self.engine.savedir / f"doomsav{slot}.dsg"
         path.unlink(missing_ok=True)
         self.engine.command(f"SAVE {slot}")
-        return path.read_bytes() if path.exists() else None
+        if path.exists():
+            return path.read_bytes()
+        if slot in self._installed or slot == self.cfg.bootstrap_slot:
+            self._write_installed(slot)   # no save: put back what the slot held
+        return None
 
     def install_state(self, slot: int, data: bytes | None) -> None:
         """Put a savegame (another instance's save_state) in a slot of
-        this instance, for reset(options={"slot": slot}); None removes it.
+        this instance, for reset(options={"slot": slot}); None removes it
+        (the bootstrap slot then holds the map start again).
         Kept, and written again whenever the game (re)starts: the game
         starts at the first reset, and a crashed one gets a new savedir."""
         self._installed[slot] = data
@@ -170,7 +194,9 @@ class DiabloDoomEnv(gym.Env):
 
     def _write_installed(self, slot: int) -> None:
         path = self.engine.savedir / f"doomsav{slot}.dsg"
-        data = self._installed[slot]
+        data = self._installed.get(slot)
+        if data is None and slot == self.cfg.bootstrap_slot:
+            data = self._map_start
         if data is None:
             path.unlink(missing_ok=True)
         else:
@@ -188,20 +214,21 @@ class DiabloDoomEnv(gym.Env):
 
         if self.engine.proc is None or self.engine.proc.poll() is not None:
             self.engine.start()
+            # Save the warp start first: an installed save for the same
+            # slot is written over it below, and the copy kept here
+            # comes back when that save is removed.
+            boot = self.engine.savedir / f"doomsav{self.cfg.bootstrap_slot}.dsg"
+            boot.unlink(missing_ok=True)
+            self.engine.command(f"SAVE {self.cfg.bootstrap_slot}")
+            self._map_start = boot.read_bytes() if boot.exists() else None
             for slot in self._installed:
                 self._write_installed(slot)
             self._pre = Preprocessor(self.engine.width, self.engine.height, self.cfg.size)
-            self._bootstrapped = False
 
         slot = opts.get("slot")
         if slot is None and self.cfg.start_slots:
             slot = int(self.np_random.choice(self.cfg.start_slots))
         if slot is None:
-            if not self._bootstrapped:
-                # First episode on a fresh process: save the warp start
-                # so later resets return to it.
-                self.engine.command(f"SAVE {self.cfg.bootstrap_slot}")
-                self._bootstrapped = True
             slot = self.cfg.bootstrap_slot
         rng_seed = opts.get("seed")
         if rng_seed is None:
@@ -231,6 +258,8 @@ class DiabloDoomEnv(gym.Env):
         self._slot, self._seed = slot, int(rng_seed) % 256
         self._tics = 0
         self._best_sectors = d.get("sectors", 0)
+        self._goal = goal_dist(d)
+        self._keys = d.get("keys", 0)     # keys held at the start (or from the warm-up) never pay
         self._prev_hp = d.get("hp", 0)
         self._anchor = (d.get("x", 0), d.get("y", 0))
         self._stuck_acc = 0
@@ -289,8 +318,15 @@ class DiabloDoomEnv(gym.Env):
         else:
             self._combat_steps = 0
 
-        # Exploration: newly visited sectors.
+        # Progress toward the nearest exit line or frontier portal.
         sec = d.get("sectors", self._best_sectors)
+        goal = goal_dist(d)
+        if goal is not None and self._goal is not None and sec <= self._best_sectors:
+            reward += rc.approach * (self._goal - goal)
+        if goal is not None or "x" in d:
+            self._goal = goal
+
+        # Exploration: newly visited sectors.
         if sec > self._best_sectors:
             reward += rc.sector * (sec - self._best_sectors)
             self._best_sectors = sec
@@ -322,6 +358,9 @@ class DiabloDoomEnv(gym.Env):
         if self._new_mechanisms(events):
             reward += rc.mechanism
 
+        # Keys: each colour pays once per rollout, when first held.
+        reward += rc.key * self._new_keys(d)
+
         terminated = truncated = False
         exited = any(e.get("event") == "exit" for e in events)
         if exited:
@@ -350,6 +389,14 @@ class DiabloDoomEnv(gym.Env):
         self.engine.close()
 
     # -- internals -------------------------------------------------
+    def _new_keys(self, state: dict) -> int:
+        """Record the key colours in this state's "keys" mask (1 blue,
+        2 yellow, 4 red) and return how many were not held before."""
+        held = state.get("keys", self._keys)
+        new = held & ~self._keys
+        self._keys |= held
+        return bin(new).count("1")
+
     def _new_mechanisms(self, events: list) -> bool:
         """Record the mechanisms in this step's "use" events (the sectors
         a USE set moving and the switch lines it flipped). True if any of

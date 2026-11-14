@@ -139,12 +139,22 @@ on demand; `SEED n` sets `prndindex` (send it after `LOAD`; saves don't
 store it); level completion sends an `exit` event, and a player USE that
 sets a mechanism going (a sector starts moving, or a switch flips) sends a
 `use` event listing those sectors and switch lines (the env pays its
-mechanism reward once per mechanism). CONSULT (2026-11-13): the state
-line carries `monstervis` (a living monster on screen while exploring),
-`backpack_full` and `bp_count`, the CONSULT triggers; `-rlspawn <tics>`
-spawns practice monsters in sight while exploring (on screen when there's
-room, else beside or behind the player; one at a time, facing
-away and deaf, so they never start combat; a private RNG seeded by `SEED`),
+mechanism reward once per mechanism). Approach (2026-11-14): the state
+line carries `exit_dist` and `frontier_dist`, map units to the nearest
+exit line and to the nearest passable opening into an unvisited sector
+(-1 when none), for the env's approach reward only -- never a policy
+input, so the 2026-10-21 no-oracle ruling for the farm agent stands.
+Keys (2026-11-14): it also carries `keys`, the key colours held (1 blue,
+2 yellow, 4 red; card or skull), for the env's once-per-colour key reward.
+CONSULT (2026-11-13): the state line carries `monstervis` (a living
+monster on screen while exploring), `backpack_full` and `bp_count`, the
+CONSULT triggers; `-rlspawn <tics>`
+spawns practice monsters on screen while exploring (in sight, within 30
+degrees of the view; one at a time, facing away and deaf, flagged
+`MF_RLPRACTICE`; a private RNG seeded by `SEED`). They never trigger
+combat (2026-11-14): one that would acquire the player is removed
+instead, they never count as combatants, and each is removed 5 s after
+spawning or when a save holding one is loaded,
 because map monsters almost always acquire the player the moment they are
 seen; and the `CONSULT` driver command (`-rlenv` only, the training
 stand-in's hand-off) removes the monsters in sight and, in combat, those

@@ -97,7 +97,8 @@ def test_overlap(tmp_path):
 def test_frontier_start():
     """A frontier start resumes where the best rollout ended: the save is
     taken after the batch, copied to the group's other instance, and a
-    reset from it puts the player at that rollout's end position."""
+    reset from it puts the player at that rollout's end position; the map
+    start is in slot 4 before, and again once the frontier is cleared."""
     from env import ACTIONS
     from env.vector import GroupVecEnv
     from model import FRONTIER_SLOT, Frontier, make_env
@@ -107,8 +108,10 @@ def test_frontier_start():
     pairs = [(None, "1 1")] * 2
     vec = GroupVecEnv([functools.partial(make_env, None, "1 1", 1, 3, 150, None, []) for _ in pairs])
     try:
-        f = Frontier(None, 1.0, pairs)
-        vec.reset([0, 1], [{"seed": 1}, {"seed": 1}])
+        f = Frontier(None, True, pairs)
+        _, infos = vec.reset([0, 1], [{"seed": 1}, {"seed": 1}])
+        assert all(i["slot"] == FRONTIER_SLOT for i in infos), "the map start is slot 4 too"
+        start = (infos[0]["state"]["x"], infos[0]["state"]["y"])
         walk, turn = ACTIONS.index("WALK 0"), ACTIONS.index("TURNL")
         recs, ends, active = [], [None, None], [0, 1]
         rets = [0.0, 0.0]
@@ -127,11 +130,17 @@ def test_frontier_start():
         best = int(np.argmax(rets))
         saved = f.update(vec, recs)
         assert list(saved) == ["default_1_1"]
-        opts = f.options([{"seed": 1}, {"seed": 1}], np.random.default_rng(0), 2)
+        opts = f.options([{"seed": 1}, {"seed": 1}], 2)
         assert all(o["slot"] == FRONTIER_SLOT for o in opts)
         _, infos = vec.reset([0, 1], opts)
         want = (ends[best]["state"]["x"], ends[best]["state"]["y"])
         for info in infos:               # both instances, including the one that didn't save
             assert (info["state"]["x"], info["state"]["y"]) == want
+
+        # Clearing the frontier (an exit) puts the map start back in slot 4.
+        vec.call([0, 1], "install_state", (FRONTIER_SLOT, None))
+        _, infos = vec.reset([0, 1], [{"seed": 1, "slot": FRONTIER_SLOT}] * 2)
+        for info in infos:
+            assert (info["state"]["x"], info["state"]["y"]) == start
     finally:
         vec.close()

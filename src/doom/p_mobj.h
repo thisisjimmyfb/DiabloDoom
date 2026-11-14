@@ -197,7 +197,12 @@ typedef enum
     // Ram Altman (2026-11-04): raised by the amulet — when this enemy
     // is killed again it drops no loot, or one corpse could be farmed
     // forever. Bit 28; bits 28-30 were free (translation uses 26-27).
-    MF_NOLOOT		= 0x10000000
+    MF_NOLOOT		= 0x10000000,
+
+    // -rlenv -rlspawn practice monster (d_rlenv.c, 2026-11-14). Bit 29.
+    // Savegames store the flags, so one in a loaded save is still
+    // recognised (and removed).
+    MF_RLPRACTICE	= 0x20000000
 
 } mobjflag_t;
 

@@ -140,6 +140,21 @@ static mobj_t *T_ExploreDetect(void)
             continue;
         if (!(mo->flags & MF_SHOOTABLE) || mo->health <= 0)
             continue;
+
+        // -rlspawn practice monster: never a combat trigger. If it
+        // would acquire the player (its front arc + line of sight, or
+        // it already holds the player as target and can see it), it is
+        // removed instead; otherwise skipped. Checked before
+        // T_IsCombatant, which is false for it.
+        if (mo->flags & MF_RLPRACTICE)
+        {
+            an = R_PointToAngle2(mo->x, mo->y,
+                                 player->mo->x, player->mo->y) - mo->angle;
+            if ((mo->target == player->mo || an <= ANG90 || an >= ANG270)
+                && P_CheckSight(mo, player->mo))
+                RL_PracticeAcquired(mo);
+            continue;
+        }
         if (!T_IsCombatant(mo)) // barrels etc. never trigger combat
             continue;
 
@@ -474,6 +489,10 @@ void T_EnterExplore(void)
 void T_EnterCombat(mobj_t *spotter)
 {
     static char msg[96];
+    // A -rlspawn practice monster never starts combat (backstop: explore
+    // detection already removes or skips it).
+    if (spotter != NULL && (spotter->flags & MF_RLPRACTICE))
+        return;
     // GOTO paths, WALK and the COLLECT walk are explore-mode only;
     // cancel on combat entry.
     T_GotoCancel();
@@ -3440,6 +3459,10 @@ boolean T_IsCombatant(mobj_t *mo)
 {
     const mobjinfo_t *mi;
     if (mo == NULL)
+        return false;
+    // -rlspawn practice monsters are frozen sightings, never combatants:
+    // one on screen neither starts nor prolongs a fight.
+    if (mo->flags & MF_RLPRACTICE)
         return false;
     mi = &mobjinfo[mo->type];
     return mi->meleestate != S_NULL || mi->missilestate != S_NULL;

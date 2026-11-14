@@ -75,16 +75,20 @@ void RL_NoteBackpackFull(void);
 // the player the moment the player sees it (detection has no range
 // limit), so a sighting would never come before combat. With
 //   -rlspawn <tics>      mean game tics between spawns while exploring
-// RL_SpawnTick (each explore tic) spawns one monster at a time in line
-// of sight: on screen (128-640 units ahead, within 30 degrees of the
-// view) when there's room, else anywhere around the player (a player
-// that WALKed until blocked faces a wall), so it comes on screen when
-// the player turns. It faces away and deaf (MF_AMBUSH), so it stays frozen and never
-// acquires the player -- a sighting the policy should CONSULT about. One
-// that stays out of sight for 5 s is removed. Rolls use a private RNG
-// seeded by SEED (RL_SpawnSeed), so episodes stay deterministic and
-// P_Random's sequence is untouched. RL_LevelSetup forgets them (every
-// level setup, including a LOAD).
+// RL_SpawnTick (each explore tic) spawns one monster at a time on
+// screen: in line of sight, 128-640 units ahead, within 30 degrees of
+// the view (no room there: no spawn that time). It faces away and deaf
+// (MF_AMBUSH), so it stays frozen -- a sighting the policy should
+// CONSULT about -- and is marked MF_RLPRACTICE. It is removed 5 s after
+// spawning, or at once if it would acquire the player (the player walks
+// into its front arc; RL_PracticeAcquired, called from explore
+// detection, removes it). It never triggers combat: explore detection
+// skips it, T_IsCombatant is false for it (so it never keeps a fight
+// going either), and T_EnterCombat refuses it as a spotter. Rolls use a
+// private RNG seeded by SEED (RL_SpawnSeed), so episodes stay
+// deterministic and P_Random's sequence is untouched. RL_LevelSetup
+// forgets them (every level setup, including a LOAD), and the next
+// explore tic removes any practice monster a loaded save carried.
 //
 // RL_Consult is the CONSULT driver command (-rlenv only): the training
 // stand-in for the hand-off to Muse's VLM. It removes every monster in
@@ -95,6 +99,9 @@ void RL_SpawnTick(void);
 void RL_SpawnSeed(int n);
 void RL_LevelSetup(void);
 void RL_Consult(void);
+// Explore detection found mo acquiring the player: if it is a practice
+// monster, remove it and return true (no combat); else false.
+boolean RL_PracticeAcquired(struct mobj_s *mo);
 
 // Mechanism use reporting (the env's mechanism reward, SPEC.md §5.3).
 // P_UseLines brackets every player use with RL_UseBegin/RL_UseEnd, and

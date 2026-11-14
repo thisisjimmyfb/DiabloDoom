@@ -136,6 +136,22 @@ def test_mechanism_once():
     assert e._new_mechanisms([]) is False
 
 
+def test_keys_once():
+    """The key reward's bookkeeping: once per colour per rollout, keys
+    held at the start never pay, and a state without the field (between
+    levels) changes nothing."""
+    e = make_env()                        # never started: no game needed
+    e._keys = 0
+    assert e._new_keys({"keys": 0}) == 0
+    assert e._new_keys({"keys": 1}) == 1  # blue
+    assert e._new_keys({"keys": 1}) == 0  # still blue
+    assert e._new_keys({}) == 0           # no level: nothing changes
+    assert e._new_keys({"keys": 7}) == 2  # yellow and red at once
+    assert e._new_keys({"keys": 7}) == 0
+    e._keys = 4                           # red held at reset
+    assert e._new_keys({"keys": 4}) == 0 and e._new_keys({"keys": 5}) == 1
+
+
 @pytest.mark.game
 def test_mechanism_reward_once():
     """In E1M1: the first USE that opens a door pays the mechanism reward;
@@ -284,3 +300,46 @@ def test_spawn_consult():
     assert r >= RewardConfig().consult_hit, f"CONSULT on a sighting pays (reward {r})"
     assert not after["monstervis"] and after["kills"] == seen["kills"], "removed, not killed"
     assert run()[0] == trace, "spawns are deterministic under SEED"
+
+
+def test_goal_dist():
+    """The approach reward's goal: the nearer of the exit line and the
+    nearest frontier portal; -1 (none) and missing fields are ignored."""
+    from env.env import goal_dist
+    assert goal_dist({"exit_dist": 900, "frontier_dist": 40}) == 40
+    assert goal_dist({"exit_dist": 30, "frontier_dist": 40}) == 30
+    assert goal_dist({"exit_dist": 900, "frontier_dist": -1}) == 900
+    assert goal_dist({"exit_dist": -1, "frontier_dist": -1}) is None
+    assert goal_dist({"mode": "INTERMISSION"}) is None
+
+
+@pytest.mark.game
+def test_approach_reward():
+    """E1M1: the state line carries exit_dist and frontier_dist, and with
+    every other reward off a rollout's approach total is the start goal
+    distance minus the end one, summed over the stretches between new
+    sectors (never more than the distances walked)."""
+    only = RewardConfig(sector=0, exit=0, mechanism=0, death=0, stuck=0, consult_hit=0,
+                        trigger_miss=0, consult_false=0, combat_unconsulted_step=0, key=0, approach=1.0)
+    e = make_env(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only,
+                 max_tics=100000, consult_handler=standin_consult)
+    try:
+        from env.env import goal_dist
+        _, info = e.reset(options={"seed": 0})
+        s = info["state"]
+        assert s["exit_dist"] > 0 and s["frontier_dist"] >= 0 and s["keys"] == 0
+        rng = np.random.default_rng(2)
+        expect, got, prev = 0.0, 0.0, goal_dist(s)
+        for _ in range(200):
+            _, r, term, trunc, info = e.step(int(rng.choice([0, 0, 1, 2, 3, 4])))
+            s2 = info["state"]
+            g = goal_dist(s2)
+            if s2["sectors"] == s["sectors"] and g is not None and prev is not None:
+                expect += prev - g
+            prev, s = g, s2
+            got += r
+            if term or trunc:
+                break
+        assert abs(got - expect) < 1e-6, (got, expect)
+    finally:
+        e.close()

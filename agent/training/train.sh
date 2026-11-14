@@ -7,6 +7,8 @@
 #   ./train.sh --smoke               # smallest run: 1 group of 2 per IWAD, 1 iteration, no eval
 #   ./train.sh --run-dir runs/x ...  # any train.py arguments pass through
 #   ./train.sh --no-noblit           # also blit (games run with -noblit by default)
+#   ./train.sh --capture             # record continuous replay (off by default): the first
+#                                    # training env of each IWAD -> <run-dir>/replays/
 #
 # Split training (rollout workers feed one learner through a spool):
 #   ./train.sh --learn               # learner only (learn.py): runs/stage1, spool runs/stage1/spool;
@@ -14,6 +16,8 @@
 #   ./train.sh --actor               # rollout worker only (eval.py) on runs/stage1/spool
 #   ./train.sh --actor --spool DIR --actor-id vm0 --device cpu   # e.g. on a Muse VM
 #   ./train.sh --heldout             # held-out eval of each new version -> runs/stage1/eval.jsonl
+#   ./train.sh --actor --capture     # --capture works in every mode but --learn (it plays no game):
+#                                    # actor: its first env per IWAD; heldout: the eval envs
 # Arguments after the mode pass through to learn.py / eval.py.
 #
 # Setup is idempotent and only does what is missing:
@@ -28,6 +32,15 @@ MODE=train
 case "${1:-}" in
     --smoke|--learn|--actor|--heldout) MODE="${1#--}"; shift ;;
 esac
+
+# --capture is train.sh's own (replay capture on): taken out of the
+# arguments passed through, wherever it appears.
+CAPTURE=0
+rest=()
+for a in "$@"; do
+    if [[ "$a" == --capture ]]; then CAPTURE=1; else rest+=("$a"); fi
+done
+set -- ${rest[@]+"${rest[@]}"}
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
@@ -105,7 +118,7 @@ has_arg() {
     done
     return 1
 }
-ARGS=("$@")
+ARGS=(${1+"$@"})
 # arg_value NAME: the value given for --NAME (either spelling), else empty.
 arg_value() {
     local i
@@ -140,6 +153,17 @@ add_spool() { has_arg spool || pre+=(--spool "$RUN_DIR/spool"); }
 # 4x more decisions/s, frames and replays unchanged) unless --no-noblit
 # (or --noblit) is given.
 add_noblit() { has_arg noblit || has_arg no-noblit || pre+=(--noblit); }
+# Replay capture (--continuous-capture in the games) only with --capture:
+# training and actors record their first env per IWAD (unless
+# --capture-envs is given), the held-out eval its eval envs.
+add_capture() {
+    (( CAPTURE )) || return 0
+    if [[ "$1" == eval ]]; then
+        has_arg capture-eval || pre+=(--capture-eval)
+    else
+        has_arg capture-envs || pre+=(--capture-envs 1)
+    fi
+}
 
 case "$MODE" in
     smoke)
@@ -151,15 +175,16 @@ case "$MODE" in
         exec "$PY" train.py --run-dir runs/smoke --groups "$n_smoke" --group-size 2 \
             --iterations 1 --max-tics 350 --eval-every 0 --capture-envs 0 "${pre[@]}" "$@" ;;
     train)
-        add_run_dir; add_outpath; add_iwads; add_noblit
+        add_run_dir; add_outpath; add_iwads; add_noblit; add_capture envs
         exec "$PY" train.py "${pre[@]}" "$@" ;;
     learn)
+        (( CAPTURE )) && log "--capture ignored: the learner plays no game"
         add_run_dir; add_outpath
         exec "$PY" learn.py "${pre[@]}" "$@" ;;
     actor)
-        add_spool; add_iwads; add_noblit
+        add_spool; add_iwads; add_noblit; add_capture envs
         exec "$PY" eval.py "${pre[@]}" "$@" ;;
     heldout)
-        add_spool; add_run_dir; add_iwads; add_noblit
+        add_spool; add_run_dir; add_iwads; add_noblit; add_capture eval
         exec "$PY" eval.py --heldout "${pre[@]}" "$@" ;;
 esac

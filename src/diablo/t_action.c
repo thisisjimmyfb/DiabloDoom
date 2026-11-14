@@ -1129,6 +1129,12 @@ int T_VisitedCount(void)
     return visited_count;
 }
 
+boolean T_SectorVisited(int idx)
+{
+    T_TrackResetIfLevelChanged();
+    return idx >= 0 && idx < VISITED_MAX && idx < numsectors && visited_sectors[idx];
+}
+
 static boolean walk_active = false;
 static int walk_blocked_tics = 0;
 static fixed_t walk_last_x = 0;

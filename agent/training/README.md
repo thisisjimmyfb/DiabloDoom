@@ -46,13 +46,26 @@ obs, reward, terminated, truncated, info = game.step(0)   # WALK 0
   would signal Muse VM instead. Handlers send driver commands through
   `game.consult_command(line)` (`game` being the `DiabloDoomEnv` instance).
 - **Rewards:** `RewardConfig` (SPEC.md §5.3). The values are placeholders.
+  `approach` (1/256 per map unit) pays progress toward the nearest goal:
+  the exit line, or a frontier portal (a passable two-sided line from a
+  visited sector into an unvisited one; doors and lifts count by their
+  special). It pays the change in distance, so a rollout's total is the
+  start distance minus the end one and hovering earns nothing; a step
+  that visits a new sector re-measures without pay. The distances come
+  from the state line (`exit_dist`, `frontier_dist`) and shape the reward
+  only: the policy acts from the frames alone.
+  `key` (10) pays each key colour (blue, yellow, red) the first time it is
+  held in a rollout, from the state line's `keys` mask; keys held at the
+  start pay nothing.
 - **info:** `tics` for this step, `rollout_tics`, `mode`, `group`, `slot`,
   `seed`, `exit`, and `state` (the engine's STATE line, for logging and
   the critic; never part of the observation).
 - **Resets:** `LOAD slot` then `SEED seed`. Slots come from
   `EnvConfig.start_slots` and are copied from `EngineConfig.savedir_template`.
-  With neither, the warp start is saved to `bootstrap_slot` (5) on the
-  first reset and reloaded later. For GRPO groups with a vector env, set
+  With neither, the warp start is saved to `bootstrap_slot` (4) when the
+  game starts and reloaded later; an `install_state` save (training's
+  progress) replaces it in that slot, and removing that save puts the map
+  start back. For GRPO groups with a vector env, set
   each env's next reset with
   `envs.set_attr("next_reset", [{"slot": s, "seed": k, "group": g}, ...])`.
 - **Episode end:** exit reached or death (terminated); `max_tics` (2100)
@@ -82,8 +95,8 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
 
 - **Policy:** the step-1 feedforward network: Nature CNN on the 4x84x84
   stack, 8 action logits (sampled), and a value head on detached
-  features plus HP and exit distance (exit distance is 0 until the engine
-  provides it). 1.69M parameters. The value head trains from the start
+  features plus HP and exit distance (straight-line distance to the exit
+  line; 0 on a level without one). 1.69M parameters. The value head trains from the start
   but never shapes the policy during GRPO.
 - **Batch:** `--groups` (4) x `--group-size` (8) instances. Group g plays
   map `--maps[g % M]` (E1M1-E1M4 by default). With several `--iwads`
@@ -108,21 +121,23 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   short of the exit saves the game where it stopped (`SAVE 4`). The save
   goes to `<run-dir>/frontier/<iwad>_<map>.dsg` (or
   `<spool>/frontier/<actor-id>/` for an `eval.py` actor), so it survives a
-  resume, and is copied into every instance on that map. Each group then
-  starts from it with probability `--frontier-prob` (default 0.5); the
-  rest start from the map start. A rollout that reaches the exit clears
-  that map's frontier, and the cycle starts over. `front` in the training
-  line is the share of rollouts that started from a frontier.
-  `--frontier-prob 0` turns it off. Save slot 4 is reserved for it, so
-  `--slots` can't include 4.
+  resume, and is copied into slot 4 of every instance on that map, where
+  it replaces the map start. Every group starts from slot 4, so training
+  always saves and loads its progress there. A rollout that reaches the
+  exit clears that map's frontier: slot 4 holds the map start again, and
+  the cycle starts over. `front` in the training line is the share of
+  rollouts that started from a frontier. `--no-frontier` turns it off
+  (every start is the map start, still from slot 4). `--slots` can't
+  include 4.
 - **Stages:** `--stage 1` runs with `-nomonsters` (vanilla's flag, which is
   the spec's `-rlnocombat`); `--stage 2` has the map's monsters. Both
-  spawn practice monsters in sight while exploring: on screen, or beside
-  or behind a player facing a wall (`--spawn-tics`, default 700 tics on
-  average; 0 turns them off). Map monsters almost
+  spawn practice monsters on screen while exploring (`--spawn-tics`,
+  default 700 tics on average; 0 turns them off). Map monsters almost
   always see the player the moment the player sees them, so without the
   practice monsters a sighting would never come before combat. They face
-  away and never start a fight, and CONSULT on one pays `consult_hit` and
+  away and never start a fight: one that would acquire the player is
+  removed instead. Each is removed 5 s after spawning (or when a save
+  holding one is loaded), and CONSULT on one pays `consult_hit` and
   removes it.
 - **Eval:** every `--eval-every` iterations (and before the first update),
   `--eval-episodes` rollouts on each `--eval-maps` map (held out:
@@ -142,10 +157,14 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   SIGTERM exits cleanly; rollouts in progress are discarded.
 - **Logs:** `runs/<name>/metrics.jsonl` (train and eval lines) and
   `config.json`.
-- **Replays:** the first `--capture-envs` (1) training envs of each IWAD
+- **Replays:** off by default. `./train.sh --capture` turns them on (for
+  training, actors and the held-out eval; the learner plays no game):
+  the first `--capture-envs` training envs of each IWAD (train.sh sets 1;
+  `train.py`'s own default is 0) launch with `--continuous-capture` and
   record continuous replay into `runs/<name>/replays/env<i>_<IWAD>/`
   (e.g. `env00_FREEDOOM1/`, `env08_DOOM/`), and
-  `--capture-eval` records the eval envs into `replays/eval<i>/`. Each
+  `--capture-eval` (what `./train.sh --heldout --capture` passes) records
+  the eval envs into `replays/eval<i>/`. Each
   file is 15 s of game time at 35 fps (525 tics, about 2-3 MB), named
   `diablodoom_YYYYMMDD_HHMMSS_mmm.mp4` by the wall-clock time it was
   queued, so names are unique and sort chronologically. Segments run
@@ -153,7 +172,7 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   segment is written when the run exits. Capture doesn't change the
   game: a captured env plays the same as an uncaptured one. A captured
   env produces roughly 5 game-minutes of footage per real minute, so
-  watch disk use on long runs (`--capture-envs 0` turns it off).
+  watch disk use on long runs.
 - **No blit (`--noblit`, train.sh's default):** the games launch with
   `-noblit`, which skips the SDL blit (`I_FinishUpdate`) that nobody sees
   in a headless game: about 4x more decisions per second for one env
@@ -180,7 +199,7 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
 - **Workers** are stateless: they take the env arguments (`--iwads`,
   `--maps`, `--groups`, `--stage`, …), pause while `--max-pending` (2) of
   their own batches are unconsumed, reload `weights.pt` when its version
-  or run changes, and need a unique `--actor-id` (no `_`). Replay capture is off unless `--capture-envs` is set.
+  or run changes, and need a unique `--actor-id` (no `_`). Replay capture is off unless `--capture-envs` is set (`./train.sh --actor --capture` sets 1).
 - **Across machines:** sync batches to the learner's spool and
   `weights.pt` back (rsync/scp, or a shared mount).
 
@@ -195,7 +214,7 @@ the policy trained on.
 ./play.sh                                    # newest agent/ckpt_*.pt, Freedoom E1M1, monsters on
 ./play.sh --checkpoint agent/ckpt_000129.pt --warp "1 2"
 ./play.sh --greedy --delay 0.3               # most likely actions, slowed down for watching
-./play.sh --no-monsters                      # monsters off, as in stage-1 training
+./play.sh --no-monster                       # monsters off, as in stage-1 training (--no-monsters works too)
 ```
 
 The drive stops at the exit, on death, when combat starts (CONSULT is the

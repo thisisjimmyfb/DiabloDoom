@@ -63,8 +63,8 @@ def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
 
 def privileged(info: dict) -> list[float]:
     s = info.get("state", {})
-    exit_dist = s.get("exit_dist")
-    return [s.get("hp", 0) / 100.0, (exit_dist / 4096.0) if exit_dist is not None else 0.0]
+    exit_dist = s.get("exit_dist")      # -1: the level has no exit line
+    return [s.get("hp", 0) / 100.0, (exit_dist / 4096.0) if exit_dist is not None and exit_dist >= 0 else 0.0]
 
 
 # ---------------------------------------------------------------------------
@@ -183,10 +183,11 @@ def add_env_args(p) -> None:
     p.add_argument("--groups", type=int, default=4)
     p.add_argument("--group-size", type=int, default=8)
     p.add_argument("--max-tics", type=int, default=2100)
-    p.add_argument("--frontier-prob", type=float, default=0.5,
-                   help="share of groups started from their map's frontier: the end state of the best "
-                        "rollout so far, saved after each batch (save slot 4), so training keeps its "
-                        "progress past the --max-tics limit; an exit clears it (0: always the map start)")
+    p.add_argument("--frontier", action=argparse.BooleanOptionalAction, default=True,
+                   help="keep progress: after each batch, save each map's best rollout end state to save "
+                        "slot 4 and start every group from it, so training gets past the --max-tics "
+                        "limit; an exit clears it (slot 4 holds the map start again). --no-frontier: "
+                        "always the map start (still slot 4)")
     p.add_argument("--warmup-max", type=int, default=40,
                    help="random warm-up actions per group start (0..N), for start-state variety")
 
@@ -195,6 +196,8 @@ def add_env_args(p) -> None:
 # Frontier starts (SPEC.md §5.4): progress kept across the rollout limit
 # ---------------------------------------------------------------------------
 
+# Training saves and loads progress in save slot 4 only: the env keeps the
+# map start there (EnvConfig.bootstrap_slot) until a frontier replaces it.
 FRONTIER_SLOT = 4
 
 
@@ -203,16 +206,17 @@ class Frontier:
     start state. After each batch, the highest-return rollout on a map
     that ended alive, exploring and short of the exit saves the game
     (SAVE 4, where it stopped); the save is kept in root/ (so it survives
-    a restart) and copied into every instance on that map. The next
-    batches start each group from it with probability prob, the rest
-    from the map start. A rollout reaching the exit clears the map's
-    frontier: the level is done, the cycle starts again from the start."""
+    a restart) and copied into slot 4 of every instance on that map,
+    where it replaces the map start. The next batches start every group
+    from slot 4. A rollout reaching the exit clears the map's frontier:
+    the level is done, slot 4 holds the map start again and the cycle
+    starts over."""
 
-    def __init__(self, root: Path | None, prob: float, env_pairs: list, tag: str = "train"):
-        self.root, self.prob, self.tag = root, prob, tag
+    def __init__(self, root: Path | None, enabled: bool, env_pairs: list, tag: str = "train"):
+        self.root, self.enabled, self.tag = root, enabled, tag
         self.labels = [f"{iwad_label(w)}_{m.replace(' ', '_')}" for w, m in env_pairs]
         self.data: dict[str, bytes] = {}
-        if root is not None and prob > 0:
+        if root is not None and enabled:
             root.mkdir(parents=True, exist_ok=True)
             for label in set(self.labels):
                 f = root / f"{label}.dsg"
@@ -229,13 +233,12 @@ class Frontier:
         if self.data:
             print(f"[{self.tag}] frontier starts restored: {sorted(self.data)}")
 
-    def options(self, options: list[dict], sampler: np.random.Generator, G: int) -> list[dict]:
-        """Start a share of the groups (all G members alike) from their
-        map's frontier. One draw per group either way, so the sampler's
-        stream doesn't depend on which frontiers exist."""
+    def options(self, options: list[dict], G: int) -> list[dict]:
+        """Start every group (all G members alike) on a map with a
+        frontier from it. The other groups keep their start: the map
+        start, in the same slot, unless --slots picked a prepared one."""
         for g in range(len(options) // G):
-            u = sampler.random()
-            if self.prob > 0 and self.labels[g * G] in self.data and u < self.prob:
+            if self.enabled and self.labels[g * G] in self.data:
                 for o in options[g * G:(g + 1) * G]:
                     o["slot"] = FRONTIER_SLOT
                     o["frontier"] = True
@@ -244,7 +247,7 @@ class Frontier:
     def update(self, vec, recs: list[dict]) -> dict:
         """After a batch: save each map's best rollout end state (or clear
         the map's frontier on an exit). Returns {label: return saved}."""
-        if self.prob <= 0:
+        if not self.enabled:
             return {}
         saved = {}
         for label in sorted(set(self.labels)):
@@ -281,7 +284,7 @@ def check_slots(iwads: list[str | None], slots: list[int]) -> None:
     if len(iwads) > 1 and slots:
         sys.exit("--slots can't be combined with several --iwads (save slots are IWAD-specific)")
     if FRONTIER_SLOT in slots:
-        sys.exit(f"--slots can't use slot {FRONTIER_SLOT}: frontier starts write it (--frontier-prob)")
+        sys.exit(f"--slots can't use slot {FRONTIER_SLOT}: training keeps the map start and its progress there")
 
 
 # ---------------------------------------------------------------------------

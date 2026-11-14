@@ -261,7 +261,7 @@ def main():
                                              spawn_tics=args.spawn_tics, nodraw=args.nodraw, noblit=args.noblit)
                            for i, (w, m) in enumerate(env_pairs)])
         # Frontier starts, per actor (its own maps and instances).
-        frontier = Frontier(spool / "frontier" / args.actor_id, args.frontier_prob, env_pairs, tag)
+        frontier = Frontier(spool / "frontier" / args.actor_id, args.frontier, env_pairs, tag)
         frontier.install_all(vec)
         # Workers keep no state, so a restart must not replay the same
         # starts: the sampler mixes in the actor id and the start time.
@@ -284,7 +284,7 @@ def main():
             played_with, played_run = version, run_id
             t0 = time.time()
             options = frontier.options(sample_group_options(sampler, groups, G, slots, args.warmup_max),
-                                       sampler, G)
+                                       G)
             recs = run_rollouts(vec, policy, device, options)
             saved = frontier.update(vec, recs)    # before the next reset
             t_roll = time.time() - t0

@@ -251,6 +251,7 @@ void T_WalkCancel(void);
 void T_WalkTick(void);      // keep walking until enemy/loot/blocked (explore)
 void T_TrackTick(void);     // mark current sector visited (every tick)
 int T_VisitedCount(void);   // sectors visited on this level so far
+boolean T_SectorVisited(int idx);  // sector idx visited on this level (-rlenv reward)
 struct player_s;
 boolean T_LootAvailable(void); // true if any loot drop or player corpse is reachable (COLLECT's path rule)
 int T_GetLootList(mobj_t **list, int max); // fill with live loot mobjs, returns count

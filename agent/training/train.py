@@ -64,9 +64,10 @@ def parse_args():
     p.add_argument("--overlap", action="store_true",
                    help="update on the GPU while the games play the next batch with the weights from "
                         "before the update (batches one version old; the clipped ratio allows for it)")
-    p.add_argument("--capture-envs", type=int, default=1,
+    p.add_argument("--capture-envs", type=int, default=0,
                    help="training envs per IWAD (the first of each) that record continuous replay "
-                        "segments into <run-dir>/replays/env<i>_<IWAD>/ (0: none)")
+                        "segments into <run-dir>/replays/env<i>_<IWAD>/ (default 0: none; "
+                        "train.sh --capture sets 1)")
     p.add_argument("--capture-eval", action="store_true",
                    help="also record the eval envs (<run-dir>/replays/eval<i>/)")
     return p.parse_args()
@@ -138,13 +139,13 @@ def main():
         actor.requires_grad_(False)
 
     # Frontier starts: each map's best rollout end state so far.
-    frontier = Frontier(run_dir / "frontier", args.frontier_prob, env_pairs)
+    frontier = Frontier(run_dir / "frontier", args.frontier, env_pairs)
     frontier.install_all(vec)
 
     def play() -> tuple[list[dict], float]:
         t = time.time()
         options = frontier.options(sample_group_options(sampler, groups, G, slots, args.warmup_max),
-                                   sampler, G)
+                                   G)
         recs = run_rollouts(vec, actor, device, options)
         for i, r in enumerate(recs):
             r["iwad"] = iwad_label(env_pairs[i][0])

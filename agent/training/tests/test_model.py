@@ -159,11 +159,11 @@ def _end(ret, mode="EXPLORE", death=False, exit=False):
 def test_frontier(tmp_path):
     """Frontier starts: each map's best live, exploring, non-exit rollout
     is saved and copied to that map's instances (and kept on disk); groups
-    start from it with probability prob; an exit clears the map's frontier."""
+    start from it; an exit clears the map's frontier."""
     pairs = [(None, "1 1")] * 2 + [(None, "1 2")] * 2      # 2 groups of G=2
     vec = _FakeVec(4)
-    f = Frontier(tmp_path, 1.0, pairs)
-    opts = f.options([{"seed": 0} for _ in range(4)], np.random.default_rng(0), 2)
+    f = Frontier(tmp_path, True, pairs)
+    opts = f.options([{"seed": 0} for _ in range(4)], 2)
     assert not any("slot" in o for o in opts), "no frontier yet: map starts"
 
     # E1M1: env 0 scores higher but died, env 1 is saved. E1M2: env 3
@@ -173,25 +173,25 @@ def test_frontier(tmp_path):
     assert vec.slots == [b"save-of-env1"] * 2 + [b"save-of-env2"] * 2
     assert (tmp_path / "default_1_1.dsg").read_bytes() == b"save-of-env1"
 
-    opts = f.options([{"seed": 0} for _ in range(4)], np.random.default_rng(0), 2)
+    opts = f.options([{"seed": 0} for _ in range(4)], 2)
     assert all(o["slot"] == FRONTIER_SLOT and o["frontier"] for o in opts)
 
     # A restart finds the frontiers on disk and reinstalls them.
     vec2 = _FakeVec(4)
-    Frontier(tmp_path, 1.0, pairs).install_all(vec2)
+    Frontier(tmp_path, True, pairs).install_all(vec2)
     assert vec2.slots == vec.slots
 
     # An exit on E1M1 clears its frontier (memory, instances, disk).
     saved = f.update(vec, [_end(50, exit=True), _end(2), _end(1), _end(2)])
     assert saved["default_1_1"] is None and not (tmp_path / "default_1_1.dsg").exists()
     assert vec.slots[:2] == [None, None] and vec.slots[2:] == [b"save-of-env3"] * 2
-    opts = f.options([{"seed": 0} for _ in range(4)], np.random.default_rng(0), 2)
+    opts = f.options([{"seed": 0} for _ in range(4)], 2)
     assert "slot" not in opts[0] and opts[2]["slot"] == FRONTIER_SLOT
 
-    # prob 0: off (no saves, map starts only).
-    off = Frontier(tmp_path / "off", 0.0, pairs)
+    # Off (no saves, map starts only).
+    off = Frontier(tmp_path / "off", False, pairs)
     assert off.update(vec, [_end(1)] * 4) == {}
-    assert not any("slot" in o for o in off.options([{} for _ in range(4)], np.random.default_rng(0), 2))
+    assert not any("slot" in o for o in off.options([{} for _ in range(4)], 2))
 
 
 def test_capture_dirs():

@@ -2,6 +2,7 @@
 // agent/training/SPEC.md.
 
 #include <errno.h>
+#include <math.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -248,6 +249,56 @@ void RL_NoteBackpackFull(void)
     rl_bpfull_tic = gametic;
 }
 
+// Distance from (px,py) to the segment v1-v2, in map units.
+static double RL_SegDist(double px, double py, const line_t *ld)
+{
+    double ax = ld->v1->x / (double) FRACUNIT, ay = ld->v1->y / (double) FRACUNIT;
+    double bx = ld->v2->x / (double) FRACUNIT, by = ld->v2->y / (double) FRACUNIT;
+    double dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy, t = 0, ex, ey;
+    if (len2 > 0)
+    {
+        t = ((px - ax) * dx + (py - ay) * dy) / len2;
+        t = t < 0 ? 0 : t > 1 ? 1 : t;
+    }
+    ex = ax + t * dx - px;
+    ey = ay + t * dy - py;
+    return sqrt(ex * ex + ey * ey);
+}
+
+static boolean RL_IsExitLine(const line_t *ld)
+{
+    // S1 / W1 exit and secret exit (vanilla specials).
+    return ld->special == 11 || ld->special == 52
+        || ld->special == 51 || ld->special == 124;
+}
+
+// A frontier portal: a two-sided line from a visited sector into an
+// unvisited one that the player could pass -- a step up of at most 24
+// units and room to stand (56) -- or that has a special of its own (a
+// door or lift opened from it). Blocking lines never count.
+static boolean RL_IsFrontier(const line_t *ld)
+{
+    sector_t *a = ld->frontsector, *b = ld->backsector;
+    boolean va, vb;
+    fixed_t top, bottom;
+    if (b == NULL || a == NULL || (ld->flags & ML_BLOCKING))
+        return false;
+    va = T_SectorVisited(a - sectors);
+    vb = T_SectorVisited(b - sectors);
+    if (va == vb)
+        return false;
+    if (!va)
+    {
+        sector_t *t = a; a = b; b = t;          // a visited, b not
+    }
+    if (ld->special != 0)
+        return true;
+    top = a->ceilingheight < b->ceilingheight ? a->ceilingheight : b->ceilingheight;
+    bottom = a->floorheight > b->floorheight ? a->floorheight : b->floorheight;
+    return b->floorheight - a->floorheight <= 24 * FRACUNIT
+        && top - bottom >= 56 * FRACUNIT;
+}
+
 void RL_EmitState(const char *why, int tics)
 {
     char buf[3600];
@@ -285,6 +336,13 @@ void RL_EmitState(const char *why, int tics)
                (int) w, T_KitAmmo(w), T_KitMaxAmmo(w),
                p->killcount, T_VisitedCount());
 
+        // Key colours held, as a mask (1 blue, 2 yellow, 4 red): a
+        // keycard and a skull key of one colour open the same doors.
+        RL_PUT(",\"keys\":%d",
+               ((p->cards[it_bluecard] || p->cards[it_blueskull]) ? 1 : 0)
+               | ((p->cards[it_yellowcard] || p->cards[it_yellowskull]) ? 2 : 0)
+               | ((p->cards[it_redcard] || p->cards[it_redskull]) ? 4 : 0));
+
         // Up to 9 targets from the turn controller's list (what the
         // player can see), in list order.
         RL_PUT(",\"targets\":[");
@@ -307,6 +365,32 @@ void RL_EmitState(const char *why, int tics)
             first = false;
         }
         RL_PUT("]");
+
+        // Reward shaping only (the policy never sees frontier_dist):
+        // distance to the nearest exit line and to the nearest frontier
+        // portal, in map units; -1 when there is none.
+        {
+            double px = mo->x / (double) FRACUNIT, py = mo->y / (double) FRACUNIT;
+            double ex = -1, fr = -1;
+            for (i = 0; i < numlines; i++)
+            {
+                const line_t *ld = &lines[i];
+                if (RL_IsExitLine(ld))
+                {
+                    double d = RL_SegDist(px, py, ld);
+                    if (ex < 0 || d < ex)
+                        ex = d;
+                }
+                else if (RL_IsFrontier(ld))
+                {
+                    double d = RL_SegDist(px, py, ld);
+                    if (fr < 0 || d < fr)
+                        fr = d;
+                }
+            }
+            RL_PUT(",\"exit_dist\":%d,\"frontier_dist\":%d",
+                   ex < 0 ? -1 : (int) (ex + 0.5), fr < 0 ? -1 : (int) (fr + 0.5));
+        }
 
         // CONSULT triggers (SPEC.md §5.3). monstervis: a living monster
         // on screen (line of sight, within the 90-degree view) while exploring -- enemies are frozen in
@@ -419,15 +503,16 @@ void RL_UseEnd(void)
 // ---------------------------------------------------------------------
 
 #define RL_SPAWN_MAX     4
-#define RL_SPAWN_FORGET  (5 * TICRATE)  // out of sight this long: removed
-#define RL_SPAWN_TRIES   16             // directions tried in view, then all around
+#define RL_SPAWN_LIFE    (5 * TICRATE)  // removed this long after spawning
+#define RL_SPAWN_TRIES   16             // directions tried, all in view
 #define RL_SPAWN_NEAR    128            // spawn distance range, map units
 #define RL_SPAWN_FAR     640
 
 static int rl_spawn_period = -1;        // -rlspawn; -1 unparsed, 0 off
 static uint32_t rl_spawn_rng = 1;
 static mobj_t *rl_spawned[RL_SPAWN_MAX];
-static int rl_spawned_unseen[RL_SPAWN_MAX];
+static int rl_spawned_age[RL_SPAWN_MAX];
+static boolean rl_spawn_purge;          // level set up: remove practice monsters from a save
 
 static uint32_t RL_SpawnRand(void)
 {
@@ -444,6 +529,7 @@ void RL_SpawnSeed(int n)
 void RL_LevelSetup(void)
 {
     memset(rl_spawned, 0, sizeof(rl_spawned));
+    rl_spawn_purge = true;   // a LOAD unarchives the save's mobjs after this
 }
 
 // A tracked pointer is used only after finding it in the thinker list
@@ -475,17 +561,16 @@ static boolean RL_TrySpawn(mobj_t *pmo)
         ;
     if (slot == RL_SPAWN_MAX)
         return false;
-    // RL_SPAWN_TRIES directions within 30 degrees of the view, then as
-    // many in any direction: a player that WALKed until blocked often
-    // faces a wall, and a monster in sight beside or behind it comes on
-    // screen when it turns. A point that is blocked or out of sight is
+    // RL_SPAWN_TRIES directions within 30 degrees of the view, so the
+    // monster is always on screen: one beside or behind the player is
+    // never a sighting, and WALK refuses to move with a monster within
+    // 192 units, seen or not. A point that is blocked or out of sight is
     // walked back toward the player, down to RL_SPAWN_NEAR units, before
-    // trying the next direction.
-    for (attempt = 0; attempt < 2 * RL_SPAWN_TRIES; attempt++)
+    // trying the next direction; no room in view, no spawn this time.
+    for (attempt = 0; attempt < RL_SPAWN_TRIES; attempt++)
     {
         int dist = RL_SPAWN_NEAR + (int) (RL_SpawnRand() % (RL_SPAWN_FAR - RL_SPAWN_NEAR + 1));
-        int deg = attempt < RL_SPAWN_TRIES ? (int) (RL_SpawnRand() % 61) - 30
-                                           : (int) (RL_SpawnRand() % 360) - 180;
+        int deg = (int) (RL_SpawnRand() % 61) - 30;
         angle_t an = pmo->angle + (angle_t) ((int64_t) deg * (ANG90 / 90));
         mobjtype_t type = types[RL_SpawnRand() % (sizeof(types) / sizeof(types[0]))];
 
@@ -502,9 +587,9 @@ static boolean RL_TrySpawn(mobj_t *pmo)
                 continue;
             }
             mo->angle = R_PointToAngle2(pmo->x, pmo->y, x, y);  // back to the player
-            mo->flags |= MF_AMBUSH;                              // deaf
+            mo->flags |= MF_AMBUSH | MF_RLPRACTICE;              // deaf; practice
             rl_spawned[slot] = mo;
-            rl_spawned_unseen[slot] = 0;
+            rl_spawned_age[slot] = 0;
             printf("[RL] spawned type %d at (%d,%d), %d units, %d deg\n",
                    (int) type, x >> FRACBITS, y >> FRACBITS, dist, deg);
             T_RefreshTargets();
@@ -526,11 +611,36 @@ void RL_SpawnTick(void)
         if (rl_spawn_period < 0)
             rl_spawn_period = 0;
     }
+    // A level was just set up (a LOAD included): practice monsters in
+    // the loaded save have lost their timers -- remove them, so a start
+    // state never carries one.
+    if (rl_spawn_purge && rlenv && gamestate == GS_LEVEL)
+    {
+        thinker_t *th;
+        int purged = 0;
+        rl_spawn_purge = false;
+        for (th = thinkercap.next; th != &thinkercap; th = th->next)
+        {
+            mobj_t *mo = (mobj_t *) th;
+            if (th->function.acp1 == (actionf_p1) P_MobjThinker
+                && (mo->flags & MF_RLPRACTICE) && mo->health > 0)
+            {
+                P_RemoveMobj(mo);
+                purged++;
+            }
+        }
+        if (purged > 0)
+        {
+            printf("[RL] removed %d practice monster(s) from the loaded save\n", purged);
+            T_RefreshTargets();
+        }
+    }
+
     if (rl_spawn_period == 0 || gamestate != GS_LEVEL || pl->mo == NULL
         || pl->health <= 0 || !T_InExplore())
         return;
 
-    // Forget dead or vanished ones; remove those long out of sight.
+    // Forget dead or vanished ones; remove those past their lifetime.
     for (i = 0; i < RL_SPAWN_MAX; i++)
     {
         mobj_t *mo = rl_spawned[i];
@@ -541,18 +651,32 @@ void RL_SpawnTick(void)
             rl_spawned[i] = NULL;
             continue;
         }
-        if (P_CheckSight(pl->mo, mo))
-            rl_spawned_unseen[i] = 0;
-        else if (++rl_spawned_unseen[i] >= RL_SPAWN_FORGET)
+        if (++rl_spawned_age[i] >= RL_SPAWN_LIFE)
         {
+            printf("[RL] practice monster removed (lifetime)\n");
             P_RemoveMobj(mo);
             rl_spawned[i] = NULL;
+            T_RefreshTargets();
             continue;
         }
         live++;
     }
     if (live == 0 && RL_SpawnRand() % (uint32_t) rl_spawn_period == 0)
         RL_TrySpawn(pl->mo);
+}
+
+boolean RL_PracticeAcquired(mobj_t *mo)
+{
+    int si;
+    if (!(mo->flags & MF_RLPRACTICE))
+        return false;
+    si = RL_SpawnedIndex(mo);
+    if (si >= 0)
+        rl_spawned[si] = NULL;
+    printf("[RL] practice monster acquired the player: removed\n");
+    P_RemoveMobj(mo);   // only marks the thinker: the caller's thinker walk stays valid
+    T_RefreshTargets(); // the target list may hold it
+    return true;
 }
 
 void RL_Consult(void)

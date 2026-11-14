@@ -5,9 +5,10 @@
 #   ./play.sh                                   # newest agent/ckpt_*.pt, Freedoom E1M1, monsters on
 #   ./play.sh --checkpoint agent/ckpt_000129.pt --warp "1 2"
 #   ./play.sh --greedy --delay 0.3              # most likely actions, slowed down for watching
-#   ./play.sh --no-monsters                     # monsters off, as in stage-1 training
+#   ./play.sh --no-monster                      # monsters off, as in stage-1 training
 #
-# Monsters are on (play.sh passes --monsters); the drive ends when combat
+# Monsters are on by default (--monster; --no-monster turns them off, and
+# the plural spellings work too); the drive ends when combat
 # starts, since CONSULT's VLM isn't attached here. The drive stops at the
 # exit, on death, in combat, after --max-decisions, or on Ctrl-C; the game
 # window then stays open for you (--quit-at-end closes it). Arguments pass
@@ -31,5 +32,16 @@ if [[ -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
     echo "[play.sh] warning: no DISPLAY or WAYLAND_DISPLAY; the game window can't open" >&2
 fi
 
+# --monster / --no-monster: play.py's --monsters / --no-monsters. The
+# default goes first, so one given on the command line wins.
+args=()
+for a in "$@"; do
+    case "$a" in
+        --monster) args+=(--monsters) ;;
+        --no-monster) args+=(--no-monsters) ;;
+        *) args+=("$a") ;;
+    esac
+done
+
 cd "$HERE"
-exec "$PY" play.py --monsters "$@"
+exec "$PY" play.py --monsters ${args[@]+"${args[@]}"}
