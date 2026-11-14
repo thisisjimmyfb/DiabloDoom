@@ -91,7 +91,7 @@ the current cell when stalled off-centre across a face line, and
 COLLECT rides on GOTO — it filters loot positions and hands them
 over as destinations), `KEYS`, `SECTORS`
 (visited-sector progress), `TURNL`/`TURNR`, `ATTACK`, `UNDO`, `END`, `COLLECT`,
-`SCREENSHOT`, `CAPTURE`/`REPLAY` (15 s MP4; the encode runs on a
+`MAP` (toggle the automap like Tab; explore mode only, 2026-11-14), `SCREENSHOT`, `CAPTURE`/`REPLAY` (15 s MP4; the encode runs on a
 worker thread since 2026-10-19, so the game never stalls waiting for
 x264). Launching with `--continuous-capture` turns on continuous capture:
 every full 15-second buffer is queued for encode automatically and

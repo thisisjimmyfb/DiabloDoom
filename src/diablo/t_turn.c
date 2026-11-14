@@ -2131,6 +2131,31 @@ static void cmd_dispatch(const char *cmd)
                pl->cards[it_bluecard] || pl->cards[it_blueskull],
                pl->cards[it_yellowcard] || pl->cards[it_yellowskull]);
     }
+    else if (!strcmp(cmd, "MAP"))
+    {
+        // MAP: toggle the automap, exactly like Tab (am_map.c's
+        // AM_Responder: AM_Start/AM_Stop and the 3D view off/on).
+        // Explore mode only -- combat hides the map on entry
+        // (T_EnterCombat), so in combat MAP does nothing.
+        extern void AM_Start(void);
+        extern void AM_Stop(void);
+        if (!T_InExplore())
+        {
+            printf("[MAP] blocked: explore mode only\n");
+        }
+        else if (!automapactive)
+        {
+            AM_Start();
+            viewactive = false;
+            printf("[MAP] automap on\n");
+        }
+        else
+        {
+            viewactive = true;
+            AM_Stop();
+            printf("[MAP] automap off\n");
+        }
+    }
     else if (!strcmp(cmd, "SECTORS"))
     {
         // Log sector traversal progress: current sector, visited count,

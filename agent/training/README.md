@@ -281,7 +281,7 @@ about 385 steps/s for 8 envs in `AsyncVectorEnv`, with rendering on every tic.
 
 ## Not yet in the engine
 
-`MAP` (sent, but answered as an unknown command), `monstervis` (the env
+`monstervis` (the env
 falls back to "visible targets while exploring"), `backpack_full`,
 `-rlnocombat`, exit path distance, `ITEM` events, `STATEHASH`, and
 rendering only at decisions. See SPEC.md §4.

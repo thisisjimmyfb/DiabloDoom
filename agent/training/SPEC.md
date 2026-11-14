@@ -64,7 +64,7 @@ The replay system (`d_replay.c`) records 15-second MP4 video, not inputs, and `T
 | Frame to shared memory | At each decision, copy `I_VideoBuffer` (320×200, 8-bit) and the palette. No PNG, no SDL surface. |
 | Render only at decisions | Skip `D_Display` on tics between decisions. |
 | `STATEHASH` command | Hash of player, mobj and turn-controller state, for determinism checks. |
-| `MAP` command (new) | Toggles the automap via `AM_Start` / `AM_Stop`. Follow mode, fixed zoom. |
+| `MAP` command (new) | Toggles the automap via `AM_Start` / `AM_Stop`, as Tab does. Follow mode, fixed zoom. Explore only (combat hides the map on entry; `MAP` in combat does nothing). Movement keeps working with the map open. |
 | Automap rotation | Rotate the automap to the player's heading (vanilla points north). |
 | Explore-mode strafes | Today `STRAFE_L/R` queue a TP-costing turn move that only previews until END TURN. Under `-rlenv` in EXPLORE they take a fixed sideways step without turning, like `WALK <angle>`. |
 | `-rlnocombat` | Removes every monster at level load. Reuse the existing `nomonsters` flag (`d_main.c`) rather than new removal code. |
