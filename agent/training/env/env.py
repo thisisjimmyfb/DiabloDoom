@@ -64,22 +64,37 @@ ConsultHandler = Callable[["DiabloDoomEnv", dict, list], dict]
 
 
 def null_consult(env: "DiabloDoomEnv", state: dict, kinds: list) -> dict:
-    """Does nothing; the policy keeps control (stage 1, -rlnocombat)."""
+    """Does nothing; the policy keeps control."""
     return state
 
 
-def scripted_combat_consult(env: "DiabloDoomEnv", state: dict, kinds: list,
-                            max_rounds: int = 60) -> dict:
-    """Cheap combat stand-in: attack the default target and end the turn
-    until combat is over or the player dies. Explore-mode triggers (a
-    sighting, a full backpack) are acknowledged without action."""
+def standin_consult(env: "DiabloDoomEnv", state: dict, kinds: list,
+                    max_rounds: int = 10, salvage_extra: int = 10) -> dict:
+    """Training stand-in for Muse's VLM (SPEC.md §5.4): it clears what the
+    policy consulted about, cheaply, so the policy learns *when* to hand
+    off, not how to fight.
+      - a monster sighting or combat: the CONSULT driver command (-rlenv
+        only) removes the monsters in sight and, in combat, those
+        targeting the player; in combat, END then closes the round (back
+        to explore once no combatant is visible), up to max_rounds;
+      - a full backpack: salvage the oldest items until it has room, plus
+        salvage_extra more.
+    A false consult (no live trigger) does nothing."""
     s = state
-    rounds = 0
-    while s["mode"] in COMBAT_MODES and not s.get("dead") and rounds < max_rounds:
-        if s["mode"] in ("PLANNING", "TARGETING", "CONFIRM"):
-            s, _ = env.consult_command("ATTACK")
-        s, _ = env.consult_command("END")
-        rounds += 1
+    if "backpack" in kinds and s.get("mode") == EXPLORE:
+        extra = salvage_extra
+        while s.get("bp_count", 0) > 0 and (s.get("backpack_full") or extra > 0):
+            if not s.get("backpack_full"):
+                extra -= 1
+            s, _ = env.consult_command("SALVAGE 0")
+    if "monster" in kinds or "combat" in kinds:
+        s, _ = env.consult_command("CONSULT")
+        rounds = 0
+        while s["mode"] in COMBAT_MODES and not s.get("dead") and rounds < max_rounds:
+            s, _ = env.consult_command("END")
+            if s["mode"] in COMBAT_MODES:
+                s, _ = env.consult_command("CONSULT")
+            rounds += 1
     return s
 
 
@@ -122,6 +137,7 @@ class DiabloDoomEnv(gym.Env):
         # Per-env reset request for vector envs:
         #   envs.set_attr("next_reset", [{"slot": 3, "seed": 17, "group": 0}, ...])
         self.next_reset: dict | None = None
+        self._installed: dict[int, bytes | None] = {}   # install_state slots
         self.state: dict = {}
 
     # -- engine access for CONSULT handlers ------------------------
@@ -133,6 +149,35 @@ class DiabloDoomEnv(gym.Env):
         self._handler_events.extend(others)
         return d, others
 
+    # -- start states (frontier starts, SPEC.md §5.4) ----------------
+    def save_state(self, slot: int) -> bytes | None:
+        """Save the game as it is now (normally where the last rollout
+        ended) to a manual slot (3-5) and return the savegame's bytes;
+        None if no save was written (e.g. not in a level)."""
+        path = self.engine.savedir / f"doomsav{slot}.dsg"
+        path.unlink(missing_ok=True)
+        self.engine.command(f"SAVE {slot}")
+        return path.read_bytes() if path.exists() else None
+
+    def install_state(self, slot: int, data: bytes | None) -> None:
+        """Put a savegame (another instance's save_state) in a slot of
+        this instance, for reset(options={"slot": slot}); None removes it.
+        Kept, and written again whenever the game (re)starts: the game
+        starts at the first reset, and a crashed one gets a new savedir."""
+        self._installed[slot] = data
+        if self.engine.workdir is not None:
+            self._write_installed(slot)
+
+    def _write_installed(self, slot: int) -> None:
+        path = self.engine.savedir / f"doomsav{slot}.dsg"
+        data = self._installed[slot]
+        if data is None:
+            path.unlink(missing_ok=True)
+        else:
+            tmp = path.with_suffix(".tmp")
+            tmp.write_bytes(data)
+            tmp.replace(path)
+
     # -- gym API ---------------------------------------------------
     def reset(self, *, seed: int | None = None, options: dict | None = None):
         super().reset(seed=seed)
@@ -143,6 +188,8 @@ class DiabloDoomEnv(gym.Env):
 
         if self.engine.proc is None or self.engine.proc.poll() is not None:
             self.engine.start()
+            for slot in self._installed:
+                self._write_installed(slot)
             self._pre = Preprocessor(self.engine.width, self.engine.height, self.cfg.size)
             self._bootstrapped = False
 
@@ -214,6 +261,10 @@ class DiabloDoomEnv(gym.Env):
                     reward += rc.consult_hit
                 self._trig[k]["consulted"] = True
             d = self.consult_handler(self, prev, kinds)
+            if d.get("mode") in COMBAT_MODES and not self._trig["combat"]["consulted"]:
+                # The handler took the fight on (or left it unfinished):
+                # this combat is consulted, no per-step penalty for it.
+                self._trig["combat"] = dict(self._new_trigger(), active=True, consulted=True)
             events = self._handler_events
             tics = self._handler_tics
             sent = True
@@ -333,11 +384,10 @@ class DiabloDoomEnv(gym.Env):
 
     @staticmethod
     def _monster_visible(d: dict) -> bool:
-        """A monster seen before it acquires the player, while exploring.
-        Uses the engine's monstervis field when present; until then,
-        any visible target in EXPLORE (enemies are frozen in explore and
-        an acquisition starts combat at once, so a visible target in
-        explore has not acquired the player)."""
+        """A monster seen before it acquires the player, while exploring:
+        the engine's monstervis field (a living monster among the visible
+        targets; enemies are frozen in explore and an acquisition starts
+        combat at once). Older engines without it: any visible target."""
         if d.get("mode") != EXPLORE:
             return False
         if "monstervis" in d:

@@ -69,7 +69,10 @@ The replay system (`d_replay.c`) records 15-second MP4 video, not inputs, and `T
 | Explore-mode strafes | Today `STRAFE_L/R` queue a TP-costing turn move that only previews until END TURN. Under `-rlenv` in EXPLORE they take a fixed sideways step without turning, like `WALK <angle>`. |
 | `-rlnocombat` | Removes every monster at level load. Reuse the existing `nomonsters` flag (`d_main.c`) rather than new removal code. |
 | Mechanism use events | Under `-rlenv`, every player USE that sets something going sends `{"event":"use","sectors":[...],"lines":[...]}`: the sectors that gained an active special (doors, lifts, floors, ceilings, stairs) and the switch lines flipped. A use that does nothing (a wall, a locked door without its key, a door already moving) sends nothing. Feeds the mechanism reward (§5.3). |
-| `MONSTERVIS` (state field) | Whether the player can see a monster that has **not** acquired the player, while in EXPLORE. Precise test: `P_CheckSight` to the monster, inside the player's horizontal FOV, and the sprite at least K pixels tall on the 320×200 screen (so a speck on the horizon doesn't count). Rewards only (§5.3); never in the observation. |
+| `-rldrive` | Control and output only, for driving a normal, real-time game with the policy (farm play, §7.3): the driver on `-cmdpipe`, the JSON lines on `-statepipe`, the frame in `-shm`, and decision points published without blocking (one per idle period, plus one when combat starts, the player dies or the level ends while idle). No uncapped tics and none of the `-rlenv` suppressions. `-rlenv` implies it. |
+| `MONSTERVIS` (state field) | Whether the player can see a monster that has **not** acquired the player, while in EXPLORE. Precise test: `P_CheckSight` to the monster, inside the player's horizontal FOV, and the sprite at least K pixels tall on the 320×200 screen (so a speck on the horizon doesn't count). Rewards only (§5.3); never in the observation. Implemented as `monstervis`: a living monster among the visible targets within the 90° view (no sprite-size test yet). Next to it, `backpack_full` (a pickup failed on a full backpack in the last 4 s, and it is still full) and `bp_count`. |
+| `-rlspawn <tics>` | CONSULT practice. Detection has no range limit, so on the map a monster almost always acquires the player the moment the player sees it, and a sighting before combat almost never happens. With `-rlspawn`, explore spawns one monster at a time in line of sight: on screen (128–640 units ahead, within 30° of the view) when there's room, otherwise anywhere around the player (a player that walked until blocked faces a wall), so it comes on screen when the player turns. It faces away and deaf, so it stays frozen and never acquires the player: a sighting to CONSULT about. Mean `<tics>` game tics between spawns; out of sight for 5 s, it is removed. Rolls use a private RNG seeded by `SEED`, so episodes stay deterministic. Works with `-nomonsters`. |
+| `CONSULT` (driver command, `-rlenv` only) | The training stand-in's hand-off (§5.4): removes every monster in sight and, in combat, every monster targeting the player. A spawned practice monster disappears (no kill, no loot); a map monster is killed (kill count and drops, as if the VLM had fought it). |
 | Backpack-full status message | Shown on a failed pickup. Its own fixed screen spot, size and colour that survive an 84×84 downsample, fixed duration. Today's `D_BackpackFullMsg` → `D_Msg` uses the shared HUD message line in small text and is overwritten by later messages. |
 | Exit path distance | Engine pathfinder distance from the player to the exit, locked doors blocked unless the key is held, capped when no path exists. Critic input only (§7.3). |
 | `ITEM` event | Emitted from `D_BackpackAddDur`: tier, item index, durability, rolled stats, backpack index. |
@@ -93,7 +96,7 @@ Discrete, 8 outputs. The env rejects anything else.
 | 3–4 | `STRAFE_L`, `STRAFE_R` | Needs the explore-mode branch (§4) |
 | 5 | `USE` | Doors and switches, including exits |
 | 6 | `MAP` | Toggle the automap |
-| 7 | `CONSULT` | Environment signal, not a driver command: it drives Muse VM to make a decision — switching to combat or inventory mode. The handler is swappable: on the farm it signals Muse VM (e.g. `doom_loop.sh` exits so Muse's VLM takes over); in training a stand-in answers (§5.4). |
+| 7 | `CONSULT` | Environment signal, not a driver command: it drives Muse VM to make a decision — switching to combat or inventory mode. The handler is swappable: on the farm it signals Muse VM (e.g. `doom_loop.sh` exits so Muse's VLM takes over); in training a stand-in answers (§5.4) with the `-rlenv` `CONSULT` driver command (§4). |
 
 Everything else stays with the LLM/VLM or the harness: `WAIT`, `COLLECT`, `SNAP_WALL` (aims from engine geometry), bare `WALK` (stops on engine detection), `SURVEY`, `GOTO`, the combat commands (`MOVE_FWD`, `MOVE_BACK`, `ATTACK`, `UNDO`, `END`), gear (`EQUIP`, `UNEQUIP`, `SALVAGE`), read-outs (`INSPECT`, `INVENTORY`, `KEYS`, `SECTORS`, `SCREENSHOT`, `CAPTURE`, `REPLAY`, `VERSION`) and session control (`SAVE`, `LOAD`, `RESPAWN`, `QUIT`).
 
@@ -124,9 +127,10 @@ Magnitudes are tuned from training curves. Start with the consult reward near a 
 - **Rollout:** 2,100 game tics (60 s) from one start state, about 50–200 decisions. Ends early on death or exit. Produces one score R_i.
 - **Unconsulted-combat cap:** the world is frozen in PLANNING, so steps there spend no tics and the 2,100-tic budget never runs out. After M policy steps in PLANNING without CONSULT, the rollout ends (with the per-step penalties already accrued).
 - **Reset:** `LOAD n` from prepared save slots spread across each level, then `SEED s` to set `prndindex` (§4). With a 256-entry table a seed is one of 256 start offsets; variety comes mostly from slots. Slots near the exit come first in training. Some slots start with the backpack one or two items from full.
+- **Frontier starts:** a rollout ends at 2,100 tics, so from the map start alone training never sees past the first minute of a level. After each batch, per (IWAD, map), the highest-return rollout that ended alive, in EXPLORE and short of the exit saves the game where it stopped (`SAVE 4`); the save is kept in the run directory and copied into every instance on that map, and each group then starts from it with probability `--frontier-prob` (default 0.5). An exit clears the map's frontier, so the level is replayed from the start. Slot 4 is reserved for this.
 - **Group reset:** all G instances in a group load the same slot and seed.
 - **IWAD:** each instance runs one IWAD (`-iwad`) for its whole life, so an instance's IWAD and map are fixed when it is spawned. Save slots belong to one IWAD (a save loaded under another IWAD's maps is garbage), so slots and multiple IWADs can't be mixed until slots are prepared per IWAD.
-- **Training stand-ins:** with `-rlnocombat` there are no fights. In the monsters-on stage, a CONSULT is answered cheaply: the stand-in removes the monster, or empties the backpack.
+- **Training stand-ins:** a CONSULT is answered cheaply: the stand-in (`standin_consult`) sends the `CONSULT` driver command, which removes the monster (then `END` closes a combat round), or salvages the backpack until it has room. Both stages run `-rlspawn` practice monsters (`--spawn-tics`, default 700), so CONSULT on sighting is trained from stage 1.
 - **`info`:** tics per step, mode, group id. (Mode is for logging and rewards only; it never masks actions.)
 
 ## 6. Policy architecture
@@ -173,8 +177,8 @@ screen (scene or automap, 84×84, 4 stacked)
 
 ### 7.2 Training stages
 
-1. `-rlnocombat` (no monsters): exploration.
-2. Monsters on: CONSULT on sighting.
+1. `-rlnocombat` (no map monsters): exploration, plus CONSULT on `-rlspawn` practice sightings.
+2. Map monsters on: CONSULT on sighting, and on combat started without one.
 3. Scripted combat stand-in with an HP-loss penalty: learning which fights to avoid. **Open; details later.**
 
 ### 7.3 Phase 6: session fine-tuning with PPO

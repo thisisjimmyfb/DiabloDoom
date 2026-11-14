@@ -9,7 +9,7 @@ import gymnasium as gym
 import numpy as np
 import pytest
 
-from env import ACTIONS, DiabloDoomEnv, EngineConfig, EnvConfig, RewardConfig, scripted_combat_consult
+from env import ACTIONS, DiabloDoomEnv, EngineConfig, EnvConfig, RewardConfig, standin_consult
 
 RANDOM_STEPS = 10000      # random agent: decisions across resets
 DETERM_STEPS = 1500       # determinism: decisions per run
@@ -23,7 +23,7 @@ def make_env(**kw) -> DiabloDoomEnv:
 
 @pytest.fixture
 def env():
-    e = make_env(consult_handler=scripted_combat_consult)
+    e = make_env(consult_handler=standin_consult)
     yield e
     e.close()
 
@@ -62,7 +62,7 @@ def test_random_agent(env):
 def test_determinism():
     """Same slot, seed and actions twice -> identical states and observations."""
     def run():
-        e = make_env(consult_handler=scripted_combat_consult)
+        e = make_env(consult_handler=standin_consult)
         try:
             rng = np.random.default_rng(123)
             e.reset(options={"seed": 42})
@@ -88,7 +88,7 @@ def test_determinism():
 def test_vector_throughput():
     """VECTOR_K instances in AsyncVectorEnv step without error; prints steps/s."""
     envs = gym.vector.AsyncVectorEnv(
-        [lambda: make_env(consult_handler=scripted_combat_consult) for _ in range(VECTOR_K)])
+        [lambda: make_env(consult_handler=standin_consult) for _ in range(VECTOR_K)])
     try:
         envs.reset(seed=0)
         rng = np.random.default_rng(0)
@@ -181,3 +181,106 @@ def test_mechanism_reward_once():
         assert reopened > 0, "the door should reopen once it has closed"
     finally:
         e.close()
+
+
+class _FakeGame:
+    """Stands in for DiabloDoomEnv in a CONSULT handler: answers each
+    driver command with the next scripted state, and records them."""
+
+    def __init__(self, replies):
+        self.replies, self.sent = list(replies), []
+
+    def consult_command(self, line):
+        self.sent.append(line)
+        return self.replies.pop(0), []
+
+
+def test_standin_consult():
+    """The training stand-in clears what was consulted about: CONSULT
+    then END for combat (and a sighting), salvage for a full backpack,
+    nothing for a false consult."""
+    explore = {"mode": "EXPLORE", "bp_count": 0}
+    plan = {"mode": "PLANNING"}
+
+    g = _FakeGame([plan, explore])
+    assert standin_consult(g, plan, ["combat"])["mode"] == "EXPLORE"
+    assert g.sent == ["CONSULT", "END"]
+
+    g = _FakeGame([explore])
+    standin_consult(g, dict(explore, monstervis=True), ["monster"])
+    assert g.sent == ["CONSULT"]
+
+    # Still full after the first salvage, room after the second: then
+    # salvage_extra more...
+    full = {"mode": "EXPLORE", "backpack_full": True}
+    replies = [dict(full, bp_count=4)] + [dict(explore, bp_count=n) for n in (3, 2, 1, 0)]
+    g = _FakeGame(replies)
+    s = standin_consult(g, dict(full, bp_count=5), ["backpack"], salvage_extra=2)
+    assert g.sent == ["SALVAGE 0"] * 4 and s["bp_count"] == 1
+    # ...but never past an empty backpack.
+    g = _FakeGame(replies)
+    s = standin_consult(g, dict(full, bp_count=5), ["backpack"], salvage_extra=10)
+    assert g.sent == ["SALVAGE 0"] * 5 and s["bp_count"] == 0
+
+    g = _FakeGame([])
+    assert standin_consult(g, explore, []) is explore and g.sent == []
+
+
+@pytest.mark.game
+def test_consult_clears_combat():
+    """Monsters on, E1M1: once combat starts, other actions are dropped
+    and penalized; CONSULT (the stand-in's CONSULT command) ends the fight with
+    the monster killed and no penalty."""
+    e = make_env(engine=EngineConfig(warp="1 1"), consult_handler=standin_consult, max_tics=100000)
+    try:
+        rng = np.random.default_rng(1)
+        _, info = e.reset(options={"seed": 0})
+        for k in ("monstervis", "backpack_full", "bp_count"):
+            assert k in info["state"], f"state line lacks {k}"
+        for _ in range(500):
+            if info["mode"] != "EXPLORE":
+                break
+            _, _, term, trunc, info = e.step(int(rng.choice([0, 0, 0, 1, 2])))
+            if term or trunc:
+                _, info = e.reset(options={"seed": 0})
+        else:
+            pytest.fail("no combat in 500 random steps")
+        before = info["state"]
+        _, r, _, _, info = e.step(0)                      # WALK in combat: dropped
+        assert info["tics"] == 0 and r <= -0.5, f"dropped and penalized (reward {r})"
+        _, r, _, _, info = e.step(ACTIONS.index("CONSULT"))
+        after = info["state"]
+        assert after["mode"] == "EXPLORE", f"consult should end combat, still {after['mode']}"
+        assert after["kills"] > before["kills"]
+        assert r >= 0, f"consulting on combat costs nothing (reward {r})"
+    finally:
+        e.close()
+
+
+@pytest.mark.game
+def test_spawn_consult():
+    """-rlspawn (no map monsters): a practice monster appears on screen
+    without starting combat; CONSULT on it pays consult_hit and removes
+    it. Spawns follow SEED: the same seed and actions give the same run."""
+    def run():
+        e = make_env(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters", "-rlspawn", "60"]),
+                     consult_handler=standin_consult, max_tics=100000)
+        try:
+            rng = np.random.default_rng(7)
+            _, info = e.reset(options={"seed": 3})
+            trace = []
+            for _ in range(600):
+                s = info["state"]
+                assert s["mode"] == "EXPLORE", "a practice monster never starts combat"
+                if s["monstervis"]:
+                    _, r, _, _, info = e.step(ACTIONS.index("CONSULT"))
+                    return trace, s, r, info["state"]
+                _, _, _, _, info = e.step(int(rng.choice([0, 0, 1, 2])))
+                trace.append((info["state"]["x"], info["state"]["y"], info["state"]["monstervis"]))
+            pytest.fail("no practice monster in 600 steps")
+        finally:
+            e.close()
+    trace, seen, r, after = run()
+    assert r >= RewardConfig().consult_hit, f"CONSULT on a sighting pays (reward {r})"
+    assert not after["monstervis"] and after["kills"] == seen["kills"], "removed, not killed"
+    assert run()[0] == trace, "spawns are deterministic under SEED"

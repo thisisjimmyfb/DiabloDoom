@@ -153,6 +153,8 @@ extern turnctrl_t turnctrl;
 
 // Rebuild the target list from live, visible enemies.
 void T_RefreshTargets(void);
+// Empty the target list (level setup: its mobjs were all freed).
+void T_ClearTargets(void);
 // Number of current targets (0 = none).
 int T_NumTargets(void);
 // True if the mobj is a real combatant (has melee/missile attack).

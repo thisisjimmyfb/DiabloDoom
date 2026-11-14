@@ -36,6 +36,7 @@
 
 #include "d_diablo.h"
 #include "d_diablo_icons.h"
+#include "d_rlenv.h"
 #include "d_pistol_sprite.h"
 #include "d_ssg_sprite.h"
 #include "d_player.h"
@@ -1861,6 +1862,7 @@ void D_BackpackFullMsg(struct player_s *pl)
     player_t *player = (player_t *)pl;
     static int lasttic = -TICRATE * 2;
 
+    RL_NoteBackpackFull();     // CONSULT trigger (-rlenv state line)
     if (gametic - lasttic < TICRATE)
         return;
     lasttic = gametic;

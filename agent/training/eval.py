@@ -32,7 +32,8 @@ import numpy as np
 import torch
 from torch.distributions import Categorical
 
-from model import (BATCH_DIR, DONE_FILE, WARMUP_ACTIONS, Policy, add_env_args, allocate_groups,
+from model import (BATCH_DIR, DONE_FILE, WARMUP_ACTIONS, Frontier, Policy, add_env_args, allocate_groups,
+                   capture_dirs,
                    check_slots, env_label, iwad_label, make_env, pack_rollouts, parse_list,
                    init_weights_if_absent, privileged, read_weights, resolve_iwads)
 from env import cleanup_stale  # noqa: E402  (model.py put env on sys.path)
@@ -117,7 +118,8 @@ def make_heldout_vec(iwads, eval_maps, args, slots, capture_root: Path | None):
     labels = [env_label(w, m, iwads) for w, m in pairs]
     vec = GroupVecEnv([functools.partial(make_env, w, m, args.stage, args.skill, args.max_tics,
                                          args.slots_dir, slots,
-                                         str(capture_root / f"eval{i:02d}") if capture_root else None)
+                                         str(capture_root / f"eval{i:02d}") if capture_root else None,
+                                         spawn_tics=args.spawn_tics, nodraw=args.nodraw, noblit=args.noblit)
                        for i, (w, m) in enumerate(pairs)])
     return vec, labels
 
@@ -153,7 +155,8 @@ def parse_args():
     p.add_argument("--max-pending", type=int, default=2,
                    help="pause while this many of this worker's batches are unconsumed")
     p.add_argument("--capture-envs", type=int, default=0,
-                   help="envs (from env 0) that record continuous replay into --capture-dir/env<i>/")
+                   help="envs per IWAD (the first of each) that record continuous replay into "
+                        "--capture-dir/env<i>_<IWAD>/")
     p.add_argument("--capture-dir", default=None, help="replay directory (default: <spool>/replays/<actor-id>)")
     p.add_argument("--heldout", action="store_true",
                    help="evaluate each new weights version on --eval-maps instead of producing batches")
@@ -252,10 +255,14 @@ def main():
         ro_group = [i // G for i in range(G * groups)]
         ro_iwad = [iwads.index(w) for w, _ in env_pairs]
         capture = Path(args.capture_dir) if args.capture_dir else spool / "replays" / args.actor_id
+        captures = capture_dirs(env_pairs, args.capture_envs, capture)
         vec = GroupVecEnv([functools.partial(make_env, w, m, args.stage, args.skill, args.max_tics,
-                                             args.slots_dir, slots,
-                                             str(capture / f"env{i:02d}") if i < args.capture_envs else None)
+                                             args.slots_dir, slots, captures[i],
+                                             spawn_tics=args.spawn_tics, nodraw=args.nodraw, noblit=args.noblit)
                            for i, (w, m) in enumerate(env_pairs)])
+        # Frontier starts, per actor (its own maps and instances).
+        frontier = Frontier(spool / "frontier" / args.actor_id, args.frontier_prob, env_pairs, tag)
+        frontier.install_all(vec)
         # Workers keep no state, so a restart must not replay the same
         # starts: the sampler mixes in the actor id and the start time.
         sampler = np.random.default_rng([args.seed, zlib.crc32(args.actor_id.encode()), time.time_ns()])
@@ -276,8 +283,10 @@ def main():
             refresh_weights()
             played_with, played_run = version, run_id
             t0 = time.time()
-            recs = run_rollouts(vec, policy, device,
-                                sample_group_options(sampler, groups, G, slots, args.warmup_max))
+            options = frontier.options(sample_group_options(sampler, groups, G, slots, args.warmup_max),
+                                       sampler, G)
+            recs = run_rollouts(vec, policy, device, options)
+            saved = frontier.update(vec, recs)    # before the next reset
             t_roll = time.time() - t0
             arrays = pack_rollouts(recs, ro_group, ro_iwad)
             meta = {"actor": args.actor_id, "version": played_with, "run_id": played_run,
@@ -288,7 +297,8 @@ def main():
             n += 1
             steps = int(arrays["ro_len"].sum())
             print(f"[{tag}] batch {n} v{played_with}: {steps} steps ({steps / t_roll:.0f}/s), "
-                  f"{arrays['frames'].shape[0]} frames, {path.stat().st_size / 1e6:.1f} MB, {t_roll:.1f}s")
+                  f"{arrays['frames'].shape[0]} frames, {path.stat().st_size / 1e6:.1f} MB, {t_roll:.1f}s"
+                  + (f"; frontier {saved}" if saved else ""))
     except Stop:
         print(f"[{tag}] learner is done; exiting")
     except KeyboardInterrupt:

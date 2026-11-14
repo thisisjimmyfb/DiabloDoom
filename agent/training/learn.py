@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import signal
 import time
@@ -162,6 +163,10 @@ def train_metrics(recs: list[dict], n_groups: int, collapsed: int) -> dict:
          "death_rate": float(np.mean([r["death"] for r in recs])),
          "collapsed_share": collapsed / max(n_groups, 1),
          "action_share": (acts / max(acts.sum(), 1)).round(3).tolist()}
+    if any("frontier" in r for r in recs):
+        m["frontier_share"] = float(np.mean([bool(r.get("frontier")) for r in recs]))
+    if recs and recs[0].get("frontier_saved"):
+        m["frontier_saved"] = recs[0]["frontier_saved"]
     labels = sorted({r["iwad"] for r in recs if "iwad" in r})
     if len(labels) > 1:
         for w in labels:
@@ -174,7 +179,8 @@ def train_metrics(recs: list[dict], n_groups: int, collapsed: int) -> dict:
 def print_train(it: int, m: dict, upd: dict, extra: str = "") -> None:
     print(f"[it {it:5d}] ret {m['return']:7.2f} sectors {m['sectors']:5.2f} "
           f"exit {m['exit_rate']:.2f} collapsed {m['collapsed_share']:.2f} steps {m['steps']} "
-          f"ent {upd.get('entropy', float('nan')):.3f} kl {upd.get('approx_kl', float('nan')):.4f}{extra}")
+          f"ent {upd.get('entropy', float('nan')):.3f} kl {upd.get('approx_kl', float('nan')):.4f}"
+          + (f" front {m['frontier_share']:.2f}" if "frontier_share" in m else "") + extra)
 
 
 def add_learn_args(p) -> None:
@@ -321,6 +327,13 @@ def main():
     for tmp in batch_dir.glob("*.tmp"):       # a worker died mid-write
         tmp.unlink(missing_ok=True)
     device = torch.device(args.device)
+    if device.type == "cpu":
+        # A CPU learner usually shares its machine with rollout workers
+        # (a Muse VM has no GPU): PyTorch would take every core and starve
+        # the games, so the update gets half of them.
+        cores = len(os.sched_getaffinity(0))
+        torch.set_num_threads(max(1, cores // 2))
+        print(f"[learn] CPU update: {torch.get_num_threads()} of {cores} cores (the rest for the games)")
 
     def on_sigterm(signum, frame):
         raise KeyboardInterrupt

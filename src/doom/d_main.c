@@ -524,10 +524,19 @@ void D_DoomLoop (void)
         extern void D_ReplayInit(void);
         extern void D_ReplaySetAutoCapture(int on);
         boolean capture = M_CheckParm("--continuous-capture") > 0;
+        // -rlenv -nodraw never draws a frame, so there is nothing to
+        // record: no replay buffer, and continuous capture is ignored
+        // (CAPTURE/REPLAY then report an empty buffer).
+        if (rlenv && nodrawers)
+        {
+            if (capture)
+                printf("[REPLAY] -nodraw: continuous capture ignored (nothing is drawn)\n");
+            capture = false;
+        }
         // Under -rlenv the 33 MB replay buffer is allocated only
         // when this instance captures: training runs many instances
         // and captures from a few.
-        if (!rlenv || capture)
+        else if (!rlenv || capture)
             D_ReplayInit();
         if (capture)
         {

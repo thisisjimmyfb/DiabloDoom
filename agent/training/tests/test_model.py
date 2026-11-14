@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from model import (BATCH_DIR, Policy, allocate_groups, export_latest_checkpoint,
+from model import (BATCH_DIR, FRONTIER_SLOT, Frontier, Policy, allocate_groups, capture_dirs, export_latest_checkpoint,
                    init_weights_if_absent, load_latest_checkpoint, pack_rollouts, publish_weights, read_weights,
                    restore_rng, rng_state, save_checkpoint, unpack_rollouts)
 
@@ -131,3 +131,76 @@ def test_init_weights_if_absent(tmp_path):
     publish_weights(spool, 3, second, "learner")      # a learner's weights are never replaced
     assert init_weights_if_absent(spool, Policy(), "init-c") is False
     assert read_weights(spool)["run_id"] == "learner"
+
+
+class _FakeVec:
+    """GroupVecEnv stand-in for Frontier: save_state returns a fake
+    savegame naming the env; install_state is recorded per env."""
+
+    def __init__(self, n):
+        self.slots = [None] * n
+
+    def call(self, idx, name, args=()):
+        out = []
+        for i in idx:
+            if name == "save_state":
+                out.append(f"save-of-env{i}".encode())
+            elif name == "install_state":
+                assert args[0] == FRONTIER_SLOT
+                self.slots[i] = args[1]
+                out.append(None)
+        return out
+
+
+def _end(ret, mode="EXPLORE", death=False, exit=False):
+    return {"ret": ret, "death": death, "exit": exit, "end_info": {"mode": mode}}
+
+
+def test_frontier(tmp_path):
+    """Frontier starts: each map's best live, exploring, non-exit rollout
+    is saved and copied to that map's instances (and kept on disk); groups
+    start from it with probability prob; an exit clears the map's frontier."""
+    pairs = [(None, "1 1")] * 2 + [(None, "1 2")] * 2      # 2 groups of G=2
+    vec = _FakeVec(4)
+    f = Frontier(tmp_path, 1.0, pairs)
+    opts = f.options([{"seed": 0} for _ in range(4)], np.random.default_rng(0), 2)
+    assert not any("slot" in o for o in opts), "no frontier yet: map starts"
+
+    # E1M1: env 0 scores higher but died, env 1 is saved. E1M2: env 3
+    # scores higher but ended in combat, env 2 is saved.
+    saved = f.update(vec, [_end(9, death=True), _end(3), _end(1), _end(7, mode="PLANNING")])
+    assert saved == {"default_1_1": 3, "default_1_2": 1}
+    assert vec.slots == [b"save-of-env1"] * 2 + [b"save-of-env2"] * 2
+    assert (tmp_path / "default_1_1.dsg").read_bytes() == b"save-of-env1"
+
+    opts = f.options([{"seed": 0} for _ in range(4)], np.random.default_rng(0), 2)
+    assert all(o["slot"] == FRONTIER_SLOT and o["frontier"] for o in opts)
+
+    # A restart finds the frontiers on disk and reinstalls them.
+    vec2 = _FakeVec(4)
+    Frontier(tmp_path, 1.0, pairs).install_all(vec2)
+    assert vec2.slots == vec.slots
+
+    # An exit on E1M1 clears its frontier (memory, instances, disk).
+    saved = f.update(vec, [_end(50, exit=True), _end(2), _end(1), _end(2)])
+    assert saved["default_1_1"] is None and not (tmp_path / "default_1_1.dsg").exists()
+    assert vec.slots[:2] == [None, None] and vec.slots[2:] == [b"save-of-env3"] * 2
+    opts = f.options([{"seed": 0} for _ in range(4)], np.random.default_rng(0), 2)
+    assert "slot" not in opts[0] and opts[2]["slot"] == FRONTIER_SLOT
+
+    # prob 0: off (no saves, map starts only).
+    off = Frontier(tmp_path / "off", 0.0, pairs)
+    assert off.update(vec, [_end(1)] * 4) == {}
+    assert not any("slot" in o for o in off.options([{} for _ in range(4)], np.random.default_rng(0), 2))
+
+
+def test_capture_dirs():
+    """--capture-envs n records the first n envs of each IWAD (groups take
+    the IWADs in rotation, so env 0..7 are all the first IWAD)."""
+    groups = allocate_groups(TWO_IWADS, MAPS, 4)
+    pairs = [groups[i // 8] for i in range(32)]
+    dirs = capture_dirs(pairs, 1, Path("/r"))
+    assert {i: d for i, d in enumerate(dirs) if d} == {0: "/r/env00_FREEDOOM1", 8: "/r/env08_DOOM"}
+    assert sum(d is not None for d in capture_dirs(pairs, 2, Path("/r"))) == 4
+    assert capture_dirs(pairs, 0, Path("/r")) == [None] * 32
+    assert capture_dirs([(None, "1 1")] * 2, 1, Path("/r")) == ["/r/env00_default", None]

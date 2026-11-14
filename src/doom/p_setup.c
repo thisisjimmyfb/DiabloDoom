@@ -815,6 +815,13 @@ P_SetupLevel
 
     //printf ("free memory: 0x%x\n", Z_FreeMemory());
 
+    // Every level setup freed the old mobjs: drop the turn system's
+    // target list, which still points at them (T_ClearTargets).
+    {
+        extern void T_ClearTargets(void);
+        T_ClearTargets();
+    }
+
     // -rlenv: every level setup (new level or a loaded save) starts
     // the visited-sector count from zero. The pointer check in
     // T_TrackResetIfLevelChanged misses a reload of the same level
@@ -823,8 +830,12 @@ P_SetupLevel
     {
         extern boolean rlenv;
         extern void T_TrackReset(void);
+        extern void RL_LevelSetup(void);
         if (rlenv)
+        {
             T_TrackReset();
+            RL_LevelSetup();     // forget spawned CONSULT monsters
+        }
     }
 }
 

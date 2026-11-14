@@ -70,12 +70,12 @@ def test_iwads(tmp_path):
 
 
 def test_capture(tmp_path):
-    """--capture-envs 1 records timestamped replay segments into replays/env00/."""
+    """--capture-envs 1 records timestamped replay segments into replays/env00_<IWAD>/."""
     run_dir = tmp_path / "run"
     train(run_dir, "--iterations", "1", "--eval-every", "0", "--capture-envs", "1", "--max-tics", "1200")
     files = sorted((run_dir / "replays").rglob("*"))
     segs = [f for f in files if f.is_file()]
-    assert segs and all(f.parent.name == "env00" for f in segs), [str(f) for f in files]
+    assert segs and all(f.parent.name.startswith("env00_") for f in segs), [str(f) for f in files]
     assert all(re.fullmatch(r"diablodoom_\d{8}_\d{6}_\d{3}(_\d\d)?\.mp4", f.name) for f in segs)
     assert all(f.stat().st_size > 0 for f in segs)
 
@@ -92,3 +92,46 @@ def test_overlap(tmp_path):
     o = train(run_dir, *args, "--iterations", "4")
     assert "resuming from" in o and "ckpt_000002.pt" in o
     assert [(r["iteration"], r["lag"]) for r in metrics(run_dir, "train")][-1] == (3, 0)
+
+
+def test_frontier_start():
+    """A frontier start resumes where the best rollout ended: the save is
+    taken after the batch, copied to the group's other instance, and a
+    reset from it puts the player at that rollout's end position."""
+    from env import ACTIONS
+    from env.vector import GroupVecEnv
+    from model import FRONTIER_SLOT, Frontier, make_env
+    import functools
+    import numpy as np
+
+    pairs = [(None, "1 1")] * 2
+    vec = GroupVecEnv([functools.partial(make_env, None, "1 1", 1, 3, 150, None, []) for _ in pairs])
+    try:
+        f = Frontier(None, 1.0, pairs)
+        vec.reset([0, 1], [{"seed": 1}, {"seed": 1}])
+        walk, turn = ACTIONS.index("WALK 0"), ACTIONS.index("TURNL")
+        recs, ends, active = [], [None, None], [0, 1]
+        rets = [0.0, 0.0]
+        while active:                    # env 0 walks, env 1 turns in place
+            _, rew, term, trunc, infos = vec.step(active, [walk if i == 0 else turn for i in active])
+            still = []
+            for k, i in enumerate(active):
+                rets[i] += float(rew[k])
+                if term[k] or trunc[k]:
+                    ends[i] = infos[k]
+                else:
+                    still.append(i)
+            active = still
+        recs = [{"ret": rets[i], "death": bool(ends[i]["state"].get("dead")), "exit": bool(ends[i]["exit"]),
+                 "end_info": ends[i]} for i in range(2)]
+        best = int(np.argmax(rets))
+        saved = f.update(vec, recs)
+        assert list(saved) == ["default_1_1"]
+        opts = f.options([{"seed": 1}, {"seed": 1}], np.random.default_rng(0), 2)
+        assert all(o["slot"] == FRONTIER_SLOT for o in opts)
+        _, infos = vec.reset([0, 1], opts)
+        want = (ends[best]["state"]["x"], ends[best]["state"]["y"])
+        for info in infos:               # both instances, including the one that didn't save
+            assert (info["state"]["x"], info["state"]["y"]) == want
+    finally:
+        vec.close()

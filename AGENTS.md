@@ -139,9 +139,30 @@ on demand; `SEED n` sets `prndindex` (send it after `LOAD`; saves don't
 store it); level completion sends an `exit` event, and a player USE that
 sets a mechanism going (a sector starts moving, or a switch flips) sends a
 `use` event listing those sectors and switch lines (the env pays its
-mechanism reward once per mechanism). Give each instance
+mechanism reward once per mechanism). CONSULT (2026-11-13): the state
+line carries `monstervis` (a living monster on screen while exploring),
+`backpack_full` and `bp_count`, the CONSULT triggers; `-rlspawn <tics>`
+spawns practice monsters in sight while exploring (on screen when there's
+room, else beside or behind the player; one at a time, facing
+away and deaf, so they never start combat; a private RNG seeded by `SEED`),
+because map monsters almost always acquire the player the moment they are
+seen; and the `CONSULT` driver command (`-rlenv` only, the training
+stand-in's hand-off) removes the monsters in sight and, in combat, those
+targeting the player (a practice monster disappears, a map monster is
+killed). Give each instance
 its own working directory and `-savedir` (the turn profile and
 autosaves are written there).
+
+Policy drive mode (`-rldrive`, 2026-11-13): only the control and output
+half of `-rlenv`, for driving a normal game with the trained policy.
+It turns on the driver anywhere on `-cmdpipe` (between levels too), the
+JSON lines on `-statepipe`, the frame in `-shm`, and the decision points,
+which are published but never block: one `decision` line when the game
+becomes ready for input, then nothing until the next command or until the
+game changes kind while idle (combat starts, the player dies, the level
+ends). Everything else is normal play: real-time 35 tics/s, the window,
+sound, wipes, ENDOOM, the on-screen `CMD` echo, the idle timer and config
+save. `-rlenv` implies it (`rldrive` is true under both).
 
 ## Repo map
 

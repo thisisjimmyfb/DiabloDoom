@@ -2,10 +2,11 @@
 # Set up the training environment and run the trainer (SPEC.md §7.1, §7.5).
 #
 # Full training on one box (train.py):
-#   ./train.sh                       # full stage-1 run in runs/stage1 (rerun to resume);
+#   ./train.sh                       # 100 stage-1 updates in runs/stage1 (rerun: 100 more);
 #                                    # the final checkpoint is copied to agent/
 #   ./train.sh --smoke               # smallest run: 1 group of 2 per IWAD, 1 iteration, no eval
 #   ./train.sh --run-dir runs/x ...  # any train.py arguments pass through
+#   ./train.sh --no-noblit           # also blit (games run with -noblit by default)
 #
 # Split training (rollout workers feed one learner through a spool):
 #   ./train.sh --learn               # learner only (learn.py): runs/stage1, spool runs/stage1/spool;
@@ -135,6 +136,10 @@ add_iwads() {
 add_run_dir() { has_arg run-dir || pre+=(--run-dir "$RUN_DIR"); }
 add_outpath() { has_arg outpath || pre+=(--outpath "$(dirname "$HERE")"); }
 add_spool() { has_arg spool || pre+=(--spool "$RUN_DIR/spool"); }
+# Games launch with -noblit (skip the SDL blit nobody sees headless: about
+# 4x more decisions/s, frames and replays unchanged) unless --no-noblit
+# (or --noblit) is given.
+add_noblit() { has_arg noblit || has_arg no-noblit || pre+=(--noblit); }
 
 case "$MODE" in
     smoke)
@@ -142,19 +147,19 @@ case "$MODE" in
         # each), one update, one checkpoint. Not enough to learn anything.
         n_smoke=${#IWADS[@]}
         has_arg iwads && n_smoke=1
-        add_iwads
+        add_iwads; add_noblit
         exec "$PY" train.py --run-dir runs/smoke --groups "$n_smoke" --group-size 2 \
             --iterations 1 --max-tics 350 --eval-every 0 --capture-envs 0 "${pre[@]}" "$@" ;;
     train)
-        add_run_dir; add_outpath; add_iwads
+        add_run_dir; add_outpath; add_iwads; add_noblit
         exec "$PY" train.py "${pre[@]}" "$@" ;;
     learn)
         add_run_dir; add_outpath
         exec "$PY" learn.py "${pre[@]}" "$@" ;;
     actor)
-        add_spool; add_iwads
+        add_spool; add_iwads; add_noblit
         exec "$PY" eval.py "${pre[@]}" "$@" ;;
     heldout)
-        add_spool; add_run_dir; add_iwads
+        add_spool; add_run_dir; add_iwads; add_noblit
         exec "$PY" eval.py --heldout "${pre[@]}" "$@" ;;
 esac

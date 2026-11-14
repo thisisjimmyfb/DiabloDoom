@@ -22,7 +22,7 @@ eval.py workers instead (SPEC.md §7.5); they share this file's pieces.
 
 Usage (from agent/training):
     .venv/bin/python train.py --run-dir runs/stage1                # stage 1
-    .venv/bin/python train.py --run-dir runs/stage1                # resumes
+    .venv/bin/python train.py --run-dir runs/stage1                # resumes; 100 more updates each run (--more)
     .venv/bin/python train.py --stage 2 --run-dir runs/stage2 \\
         --init runs/stage1/ckpt_000500.pt
     .venv/bin/python train.py --iwads FREEDOOM1.WAD DOOM.WAD --groups 8   # two IWADs
@@ -42,7 +42,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from model import (add_env_args, allocate_groups, check_slots, env_label, export_latest_checkpoint,
+from model import (Frontier, add_env_args, allocate_groups, capture_dirs, check_slots, env_label, export_latest_checkpoint,
                    iwad_label, make_env, parse_list, resolve_iwads, rng_state, save_checkpoint)
 from env import cleanup_stale  # noqa: E402  (model.py put env on sys.path)
 from env.vector import GroupVecEnv  # noqa: E402
@@ -56,13 +56,17 @@ def parse_args():
     p.add_argument("--run-dir", default="runs/grpo")
     add_env_args(p)
     add_learn_args(p)
+    p.set_defaults(iterations=None)
+    p.add_argument("--more", type=int, default=100,
+                   help="without --iterations: train this many updates past the newest checkpoint "
+                        "(a fresh run: this many in all)")
     p.add_argument("--eval-every", type=int, default=10)
     p.add_argument("--overlap", action="store_true",
                    help="update on the GPU while the games play the next batch with the weights from "
                         "before the update (batches one version old; the clipped ratio allows for it)")
     p.add_argument("--capture-envs", type=int, default=1,
-                   help="training envs (from env 0) that record continuous replay segments "
-                        "into <run-dir>/replays/env<i>/ (0: none)")
+                   help="training envs per IWAD (the first of each) that record continuous replay "
+                        "segments into <run-dir>/replays/env<i>_<IWAD>/ (0: none)")
     p.add_argument("--capture-eval", action="store_true",
                    help="also record the eval envs (<run-dir>/replays/eval<i>/)")
     return p.parse_args()
@@ -91,6 +95,13 @@ def main():
     sampler = np.random.default_rng(args.seed)
     policy, optimizer, ref, start_it, total_steps, total_tics, run_id = \
         setup_learner(args, run_dir, device, sampler)
+    # --iterations is the run's total number of updates; without it, each
+    # run of this script adds --more updates (100) to what's there.
+    if args.iterations is None:
+        args.iterations = start_it + args.more
+    if start_it >= args.iterations:
+        print(f"[train] {run_dir} already has {start_it} updates (--iterations {args.iterations}); "
+              f"nothing to do: pass a higher --iterations, or leave it out to train --more ({args.more}) more")
 
     (run_dir / "config.json").write_text(json.dumps({**vars(args), "run_id": run_id}, indent=2))
     n_params = sum(p.numel() for p in policy.parameters())
@@ -101,9 +112,10 @@ def main():
 
     env_pairs = [group_pairs[i // G] for i in range(n_envs)]
     replays = run_dir / "replays"
+    captures = capture_dirs(env_pairs, args.capture_envs, replays)
     vec = GroupVecEnv([functools.partial(make_env, w, m, args.stage, args.skill, args.max_tics,
-                                         args.slots_dir, slots,
-                                         str(replays / f"env{i:02d}") if i < args.capture_envs else None)
+                                         args.slots_dir, slots, captures[i],
+                                         spawn_tics=args.spawn_tics, nodraw=args.nodraw, noblit=args.noblit)
                        for i, (w, m) in enumerate(env_pairs)])
     eval_vec = None
     if eval_maps and args.eval_every > 0:
@@ -125,12 +137,20 @@ def main():
         actor = copy.deepcopy(policy)
         actor.requires_grad_(False)
 
+    # Frontier starts: each map's best rollout end state so far.
+    frontier = Frontier(run_dir / "frontier", args.frontier_prob, env_pairs)
+    frontier.install_all(vec)
+
     def play() -> tuple[list[dict], float]:
         t = time.time()
-        recs = run_rollouts(vec, actor, device,
-                            sample_group_options(sampler, groups, G, slots, args.warmup_max))
+        options = frontier.options(sample_group_options(sampler, groups, G, slots, args.warmup_max),
+                                   sampler, G)
+        recs = run_rollouts(vec, actor, device, options)
         for i, r in enumerate(recs):
             r["iwad"] = iwad_label(env_pairs[i][0])
+            r["frontier"] = bool(options[i].get("frontier"))
+        # Before the next reset: every game is still where its rollout ended.
+        recs[0]["frontier_saved"] = frontier.update(vec, recs)
         return recs, time.time() - t
 
     try:

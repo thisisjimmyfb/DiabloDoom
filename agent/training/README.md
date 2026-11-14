@@ -19,11 +19,11 @@ The env finds the game at `build/src/chocolate-doom` and the IWAD at
 
 ```python
 import gymnasium as gym
-from env import EnvConfig, EngineConfig, scripted_combat_consult  # registers DiabloDoom-v0
+from env import EnvConfig, EngineConfig, standin_consult  # registers DiabloDoom-v0
 
 game = gym.make("DiabloDoom-v0", config=EnvConfig(
     engine=EngineConfig(warp="1 1", skill=3),
-    consult_handler=scripted_combat_consult,
+    consult_handler=standin_consult,
 ))
 obs, info = game.reset(options={"slot": 5, "seed": 17, "group": 0})
 obs, reward, terminated, truncated, info = game.step(0)   # WALK 0
@@ -37,8 +37,12 @@ obs, reward, terminated, truncated, info = game.step(0)   # WALK 0
   every action except `CONSULT` is dropped: no command is sent, no game
   time passes, and the step is penalized until the policy consults.
 - **CONSULT** calls `EnvConfig.consult_handler(game, state, kinds)`.
-  `null_consult` does nothing; `scripted_combat_consult` fights with
-  ATTACK/END until combat ends (training stand-in). A farm handler
+  `null_consult` does nothing; `standin_consult` (training stand-in)
+  clears what was consulted about: the `CONSULT` driver command
+  (`-rlenv` only) removes the monsters in sight, and in combat those
+  targeting the player, then `END` closes the round; a full backpack is
+  salvaged until it has room. The policy learns when to hand off, not how to
+  fight. A farm handler
   would signal Muse VM instead. Handlers send driver commands through
   `game.consult_command(line)` (`game` being the `DiabloDoomEnv` instance).
 - **Rewards:** `RewardConfig` (SPEC.md §5.3). The values are placeholders.
@@ -69,6 +73,13 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
 .venv/bin/python train.py --stage 2 --run-dir runs/stage2 --init runs/stage1/ckpt_000500.pt
 ```
 
+- **Length:** each run of `train.py` (and `./train.sh`) trains `--more`
+  (100) updates past the newest checkpoint, so rerunning the same command
+  keeps going 100 at a time. `--iterations N` instead sets the run's
+  total: it stops at update N, and does nothing if the run already has N.
+  (`learn.py` keeps `--iterations` 1000, the total, since it writes the
+  DONE marker that stops the workers.)
+
 - **Policy:** the step-1 feedforward network: Nature CNN on the 4x84x84
   stack, 8 action logits (sampled), and a value head on detached
   features plus HP and exit distance (exit distance is 0 until the engine
@@ -91,9 +102,28 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
 - **Loss:** clipped ratio (`--clip` 0.2), `--epochs` 4, entropy bonus
   `--ent-coef` 0.01, and an optional KL to a reference policy
   (`--ref`, `--beta`).
+- **Frontier starts:** a rollout stops at `--max-tics`, so on its own
+  training would only ever see the first 60 s of each map. After every
+  batch, each map's highest-return rollout that ended alive, exploring and
+  short of the exit saves the game where it stopped (`SAVE 4`). The save
+  goes to `<run-dir>/frontier/<iwad>_<map>.dsg` (or
+  `<spool>/frontier/<actor-id>/` for an `eval.py` actor), so it survives a
+  resume, and is copied into every instance on that map. Each group then
+  starts from it with probability `--frontier-prob` (default 0.5); the
+  rest start from the map start. A rollout that reaches the exit clears
+  that map's frontier, and the cycle starts over. `front` in the training
+  line is the share of rollouts that started from a frontier.
+  `--frontier-prob 0` turns it off. Save slot 4 is reserved for it, so
+  `--slots` can't include 4.
 - **Stages:** `--stage 1` runs with `-nomonsters` (vanilla's flag, which is
-  the spec's `-rlnocombat`) and a no-op CONSULT. `--stage 2` has monsters,
-  with the scripted combat stand-in answering CONSULT.
+  the spec's `-rlnocombat`); `--stage 2` has the map's monsters. Both
+  spawn practice monsters in sight while exploring: on screen, or beside
+  or behind a player facing a wall (`--spawn-tics`, default 700 tics on
+  average; 0 turns them off). Map monsters almost
+  always see the player the moment the player sees them, so without the
+  practice monsters a sighting would never come before combat. They face
+  away and never start a fight, and CONSULT on one pays `consult_hit` and
+  removes it.
 - **Eval:** every `--eval-every` iterations (and before the first update),
   `--eval-episodes` rollouts on each `--eval-maps` map (held out:
   E1M5, E1M6) from a fixed start. Reports sectors gained and exit rate.
@@ -112,8 +142,9 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   SIGTERM exits cleanly; rollouts in progress are discarded.
 - **Logs:** `runs/<name>/metrics.jsonl` (train and eval lines) and
   `config.json`.
-- **Replays:** the first `--capture-envs` (1) training envs record
-  continuous replay into `runs/<name>/replays/env<i>/`, and
+- **Replays:** the first `--capture-envs` (1) training envs of each IWAD
+  record continuous replay into `runs/<name>/replays/env<i>_<IWAD>/`
+  (e.g. `env00_FREEDOOM1/`, `env08_DOOM/`), and
   `--capture-eval` records the eval envs into `replays/eval<i>/`. Each
   file is 15 s of game time at 35 fps (525 tics, about 2-3 MB), named
   `diablodoom_YYYYMMDD_HHMMSS_mmm.mp4` by the wall-clock time it was
@@ -123,43 +154,15 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   game: a captured env plays the same as an uncaptured one. A captured
   env produces roughly 5 game-minutes of footage per real minute, so
   watch disk use on long runs (`--capture-envs 0` turns it off).
-
-Measured 2026-11-12 at the default size: about 240 decisions/s (about
-5,500 game tics/s) and about 12 s per iteration. Envs step in lockstep, so
-each round waits for the slowest action; asynchronous stepping is a
-Phase 3 item.
-
-## Split training (`learn.py` + `eval.py`)
-
-The same training spread over machines (SPEC.md §7.5): rollout workers
-play the games, one learner updates. `train.py` and the split share
-their code (`model.py`; rollouts in `eval.py`, update in `learn.py`), so
-the math is the same.
-
-With `train.sh` (does the setup, fills in `runs/stage1`, the spool,
-every IWAD under `wad/` and `--outpath agent/`; extra arguments pass
-through):
-
-```sh
-./train.sh --learn                    # learner only (no game needed on this box)
-./train.sh --actor                    # rollout worker on runs/stage1/spool
-./train.sh --actor --spool DIR --actor-id vm0 --device cpu   # e.g. a Muse VM
-./train.sh --heldout                  # held-out eval of each new version
-./train.sh                            # (unchanged) full training in one process
-```
-
-Or directly:
-
-```sh
-# the 5080 box: the learner, plus a local worker
-.venv/bin/python learn.py --run-dir runs/stage1 --outpath ..
-.venv/bin/python eval.py --spool runs/stage1/spool --actor-id local --iwads ../../wad/*/*.WAD --groups 8
-# a Muse VM (CPU): a worker on a synced copy of the spool
-.venv/bin/python eval.py --spool spool --actor-id vm0 --device cpu --groups 2
-# anywhere: held-out eval of each new version -> runs/stage1/eval.jsonl
-.venv/bin/python eval.py --spool runs/stage1/spool --heldout --run-dir runs/stage1
-```
-
+- **No blit (`--noblit`, train.sh's default):** the games launch with
+  `-noblit`, which skips the SDL blit (`I_FinishUpdate`) that nobody sees
+  in a headless game: about 4x more decisions per second for one env
+  (measured 2026-11-14: 1208/s against 295/s). The frame the policy sees
+  and the replays come from the game's 8-bit buffer, so they are
+  byte-identical. `./train.sh --no-noblit` blits as before.
+  `--nodraw` (opt-in, benchmarks only) skips rendering as well, about 6x,
+  but then the frame is never drawn, so the policy is blind, and replay
+  capture is off.
 - **Spool** (`<run-dir>/spool` by default): the learner publishes
   `weights.pt` (with its version and run id) at startup and after every
   update. A worker that finds no `weights.pt` creates random version-0
@@ -180,6 +183,31 @@ Or directly:
   or run changes, and need a unique `--actor-id` (no `_`). Replay capture is off unless `--capture-envs` is set.
 - **Across machines:** sync batches to the learner's spool and
   `weights.pt` back (rsync/scp, or a shared mount).
+
+## Playing (`play.sh`)
+
+Launches the game locally, in a window with sound, with a trained policy
+driving it. The game runs with `-rldrive` (real time, normal play), and
+`play.py` turns each decision's frame into the same 84x84 4-frame stack
+the policy trained on.
+
+```sh
+./play.sh                                    # newest agent/ckpt_*.pt, Freedoom E1M1, monsters on
+./play.sh --checkpoint agent/ckpt_000129.pt --warp "1 2"
+./play.sh --greedy --delay 0.3               # most likely actions, slowed down for watching
+./play.sh --no-monsters                      # monsters off, as in stage-1 training
+```
+
+The drive stops at the exit, on death, when combat starts (CONSULT is the
+hand-off to Muse's VLM, which isn't attached here; a CONSULT while
+exploring is skipped unless `--on-consult stop`), after
+`--max-decisions`, or on Ctrl-C. The game window then stays open for you;
+`--quit-at-end` closes it. Each decision prints the action, the mode, the
+position and the sectors gained.
+
+Differences from training: `-rldrive` keeps normal play's on-screen
+`CMD` echo, and explore strafes do what they do in a normal game (queue a
+combat move) instead of `-rlenv`'s sideways step.
 
 ## Tests
 
@@ -220,10 +248,13 @@ fixtures (fake rollouts and batch files) in `tests/conftest.py`:
   on hand-written batches without the game (updates, checkpoints, `DONE`,
   `--outpath`, resume, stale drop). Game: `test_split` runs `learn.py`
   with real `eval.py` workers until `DONE`.
+- `test_play.py`: a checkpoint from another action set is refused; game:
+  `play.py` drives a headless game and quits, or leaves it running
+  detached (no work directory or shared memory left for `cleanup_stale`).
 - `test_train.py` (game): `test_resume` runs `train.py` for 2 iterations
   with evals and `--outpath`, then resumes it to 3; `test_iwads` splits
   groups over Freedoom and The Ultimate Doom (skipped without both);
-  `test_capture` checks replay segments land in `replays/env00/` with
+  `test_capture` checks replay segments land in `replays/env00_<IWAD>/` with
   timestamped names.
 
 Measured 2026-11-12 (16 cores, WSL2): about 135 steps/s for one env and

@@ -28,6 +28,9 @@ def _worker(remote, env_fn):
                 remote.send(("ok", (obs, r, term, trunc, info)))
             elif cmd == "reset":
                 remote.send(("ok", env.reset(options=data)))
+            elif cmd == "call":
+                name, args = data
+                remote.send(("ok", getattr(env, name)(*args)))
             elif cmd == "close":
                 break
             else:
@@ -83,6 +86,12 @@ class GroupVecEnv:
         term = np.array([r[2] for r in res], dtype=bool)
         trunc = np.array([r[3] for r in res], dtype=bool)
         return obs, rew, term, trunc, [r[4] for r in res]
+
+    def call(self, idx: Sequence[int], name: str, args: tuple = ()) -> list:
+        """Call env.<name>(*args) on each env in idx; returns the results."""
+        for i in idx:
+            self._remotes[i].send(("call", (name, tuple(args))))
+        return self._gather(idx)
 
     def close(self):
         for r in self._remotes:

@@ -240,6 +240,7 @@ void T_ExploreTick(void)
     // COLLECT autonomous walk to loot (explore mode only; cancelled
     // on combat entry; blocks FIFO input while active).
     T_CollectTick();
+    RL_SpawnTick();              // -rlenv -rlspawn: CONSULT practice monsters
     if (++explore_sight_tic >= 7)
     {
         explore_sight_tic = 0;
@@ -1178,10 +1179,11 @@ static void cmd_init(void)
     struct stat st;
     static char early[4096];
     int early_len = 0;
-    // -rlenv enables the driver anywhere, on its own -cmdpipe path.
+    // -rlenv and -rldrive enable the driver anywhere, on its own
+    // -cmdpipe path.
     const char *path = RL_CmdPipePath();
 
-    if (!D_OnMuseVM() && !rlenv)
+    if (!D_OnMuseVM() && !rldrive)
     {
         cmdfd = -1;
         return;
@@ -1352,11 +1354,48 @@ static void rl_decision_point(void)
     }
 }
 
+// -rldrive: the same decision points, published without blocking -- the
+// game keeps running in real time and the driver acts whenever its next
+// command arrives. One decision per idle period, plus a fresh one when
+// the game changes kind while idle (combat starts, the player dies, the
+// level ends), so the driver always holds the screen it must act on.
+// rl_published_kind is cleared whenever a command is dispatched.
+static int rl_published_kind = -1;
+
+static int rl_decision_kind(void)
+{
+    player_t *pl = &players[consoleplayer];
+
+    if (gamestate != GS_LEVEL)
+        return 1000 + (int) gamestate;
+    if (pl->mo == NULL || pl->playerstate == PST_DEAD || pl->health <= 0)
+        return 1;
+    if (T_InExplore())
+        return 0;
+    return 10 + (int) turnctrl.state;
+}
+
+static void rl_decision_publish(void)
+{
+    int kind;
+
+    if (!rl_decision_due())
+        return;
+    kind = rl_decision_kind();
+    if (kind == rl_published_kind)
+        return;
+    RL_PublishFrame();
+    RL_EmitState("decision", gametic - rl_last_decision_tic);
+    rl_last_decision_tic = gametic;
+    rl_settle_tics = 0;
+    rl_published_kind = kind;
+}
+
 // Driver step for game states without T_Ticker (intermission,
 // finale) under -rlenv, so LOAD and QUIT still work between levels.
 void T_DriverTick(void)
 {
-    if (rlenv)
+    if (rldrive)
         cmd_drain(cmd_dispatch);
 }
 
@@ -1513,6 +1552,8 @@ static void cmd_drain(void (*dispatch)(const char *))
 
     if (rlenv && cmd_q_count == 0)
         rl_decision_point();
+    else if (rldrive && cmd_q_count == 0)
+        rl_decision_publish();
 
     if (cmd_q_count > 0)
     {
@@ -1525,6 +1566,7 @@ static void cmd_drain(void (*dispatch)(const char *))
             && !cmd_is_diagnostic(cmd_queue[cmd_q_head]))
             return;
         dispatch(cmd_queue[cmd_q_head]);
+        rl_published_kind = -1;   // -rldrive: the next decision is new
         cmd_q_head = (cmd_q_head + 1) % CMD_QUEUE_MAX;
         cmd_q_count--;
     }
@@ -2158,6 +2200,17 @@ static void cmd_dispatch(const char *cmd)
             }
         }
     }
+    else if (!strcmp(cmd, "CONSULT"))
+    {
+        // CONSULT (-rlenv only): the training stand-in for the hand-off
+        // to Muse's VLM (agent/training/SPEC.md §5.4) -- removes what
+        // the policy consulted about. See RL_Consult. On the farm
+        // CONSULT never reaches the game: doom_loop.sh hands off instead.
+        if (!rlenv)
+            printf("[RL] CONSULT needs -rlenv\n");
+        else
+            RL_Consult();
+    }
     else if (!strcmp(cmd, "VERSION"))
     {
         // Print the git commit hash this binary was built from.
@@ -2190,6 +2243,7 @@ static void cmd_dispatch(const char *cmd)
         {
             prndindex = n;
             rndindex = n;
+            RL_SpawnSeed(n);
             {
                 extern void ST_ResetFace(void);
                 ST_ResetFace();
@@ -2728,14 +2782,15 @@ void T_TickFloatText(void)
 static boolean T_FloatTextLive(mobj_t *mo)
 {
     thinker_t *th;
-    if (mo == NULL || mo->health <= 0)
+    if (mo == NULL)
         return false;
+    // Thinker list first: only then is mo safe to dereference.
     for (th = thinkercap.next; th != &thinkercap; th = th->next)
     {
         if (th->function.acp1 != (actionf_p1)P_MobjThinker)
             continue;
         if ((mobj_t *)th == mo)
-            return true;
+            return mo->health > 0;
     }
     return false;
 }
@@ -2963,6 +3018,15 @@ void T_DrawHealthBars(void)
 
 static mobj_t *t_targets[T_MAXTARGETS];
 static int t_numtargets = 0;
+
+// Level setup (a new level or a loaded save) frees every mobj, so the
+// list's pointers are stale until the next T_RefreshTargets (up to 7
+// tics later in explore). Readers in between -- the -rlenv state line,
+// the HUD markers -- would read freed memory; empty the list instead.
+void T_ClearTargets(void)
+{
+    t_numtargets = 0;
+}
 
 // Test/script tooling: mobj of the current selection, or NULL.
 mobj_t *T_SelectedMobj(void)

@@ -60,10 +60,16 @@ class EngineConfig:
     # across episode resets; the partial last one is flushed on close.
     capture_dir: str | None = None
     close_timeout: float = 60.0     # QUIT waits for capture encodes
+    # drive: launch with -rldrive instead of -rlenv -- a normal, real-time
+    # game that publishes decisions without blocking (play.py). headless:
+    # no window and no sound (SDL dummy drivers, -nosound); training
+    # instances always are, a played game usually isn't.
+    drive: bool = False
+    headless: bool = True
 
 
 class Engine:
-    """Spawn and talk to one -rlenv game process."""
+    """Spawn and talk to one -rlenv (or -rldrive) game process."""
 
     def __init__(self, cfg: EngineConfig, tag: str = "0"):
         self.cfg = cfg
@@ -94,14 +100,19 @@ class Engine:
         os.mkfifo(state_path)
 
         args = [self.cfg.game, "-iwad", self.cfg.iwad, "-skill", str(self.cfg.skill),
-                "-warp", *self.cfg.warp.split(), "-nosound", "-savedir", str(savedir),
-                "-rlenv", "-cmdpipe", str(cmd_path), "-statepipe", str(state_path),
+                "-warp", *self.cfg.warp.split(), "-savedir", str(savedir),
+                "-rldrive" if self.cfg.drive else "-rlenv",
+                "-cmdpipe", str(cmd_path), "-statepipe", str(state_path),
                 "-shm", self.shm_name, *self.cfg.extra_args]
+        if self.cfg.headless:
+            args.append("-nosound")
         if self.cfg.capture_dir:
             cap = Path(self.cfg.capture_dir).resolve()
             cap.mkdir(parents=True, exist_ok=True)
             args += ["--continuous-capture", "-capturedir", str(cap)]
-        env = dict(os.environ, SDL_VIDEODRIVER="dummy", SDL_AUDIODRIVER="dummy")
+        env = dict(os.environ)
+        if self.cfg.headless:
+            env.update(SDL_VIDEODRIVER="dummy", SDL_AUDIODRIVER="dummy")
         self._log = open(self.workdir / "log.txt", "wb")
         self.proc = subprocess.Popen(args, cwd=self.workdir, env=env, stdout=self._log,
                                      stderr=subprocess.STDOUT, start_new_session=True)
@@ -113,6 +124,11 @@ class Engine:
         d, _ = self._read_until_decision(self.cfg.start_timeout)
         self._map_shm()
         return d
+
+    @property
+    def savedir(self) -> Path:
+        """The instance's -savedir (savegames doomsav<slot>.dsg)."""
+        return self.workdir / "save"
 
     def close(self) -> None:
         if self.proc is not None and self.proc.poll() is None:
@@ -143,6 +159,14 @@ class Engine:
             shutil.rmtree(self.workdir, ignore_errors=True)
             self.workdir = None
 
+    def detach(self) -> None:
+        """Let go of the game but leave it running (play.py at the end of a
+        drive: the window stays open for a human). Closes this side's pipes
+        and shared memory and removes the working directory -- so
+        cleanup_stale never mistakes it for a crashed run's game."""
+        self.proc = None
+        self.close()
+
     def _kill(self) -> None:
         if self.proc is None:
             return
@@ -165,6 +189,36 @@ class Engine:
             raise EngineError(f"engine not running (rc={self.proc and self.proc.returncode})")
         os.write(self._cfd, (line.strip() + "\n").encode())
         return self._read_until_decision(self.cfg.step_timeout)
+
+    def send(self, line: str) -> None:
+        """Send one command without waiting for its decision (-rldrive)."""
+        os.write(self._cfd, (line.strip() + "\n").encode())
+
+    def wait_decision(self, timeout: float | None = None) -> tuple[dict, list[dict]]:
+        """The next decision, and the events before it."""
+        return self._read_until_decision(self.cfg.step_timeout if timeout is None else timeout)
+
+    def poll(self) -> list[dict]:
+        """Every complete state line already waiting, without blocking.
+        Under -rldrive a decision can arrive unprompted (the game changed
+        kind while idle: combat, death, level end)."""
+        try:
+            while True:
+                chunk = os.read(self._sfd, 1 << 16)
+                if not chunk:
+                    break
+                self._buf += chunk
+        except BlockingIOError:
+            pass
+        out = []
+        while b"\n" in self._buf:
+            line, self._buf = self._buf.split(b"\n", 1)
+            if line.strip():
+                ev = json.loads(line)
+                if ev.get("event") == "decision":
+                    self.last_decision = ev
+                out.append(ev)
+        return out
 
     def _read_until_decision(self, timeout: float) -> tuple[dict, list[dict]]:
         others: list[dict] = []

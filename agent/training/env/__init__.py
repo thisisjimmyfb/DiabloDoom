@@ -11,10 +11,10 @@ from gymnasium.envs.registration import register
 
 from .engine import Engine, EngineConfig, EngineError, cleanup_stale
 from .env import (ACTIONS, CONSULT, DiabloDoomEnv, EnvConfig, RewardConfig,
-                  null_consult, scripted_combat_consult)
+                  null_consult, standin_consult)
 
 register(id="DiabloDoom-v0", entry_point="env.env:DiabloDoomEnv")
 
 __all__ = ["ACTIONS", "CONSULT", "DiabloDoomEnv", "EnvConfig", "RewardConfig",
            "Engine", "EngineConfig", "EngineError", "cleanup_stale",
-           "null_consult", "scripted_combat_consult"]
+           "null_consult", "standin_consult"]

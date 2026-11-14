@@ -5,6 +5,7 @@ worker) and learn.py (learner)."""
 
 from __future__ import annotations
 
+import argparse
 import os
 import random
 import shutil
@@ -29,13 +30,25 @@ N_PRIV = 2  # privileged critic inputs: HP/100, exit path distance (SPEC.md §6)
 # ---------------------------------------------------------------------------
 
 def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
-             slots_dir: str | None, slots: list[int], capture_dir: str | None = None):
-    from env import (DiabloDoomEnv, EngineConfig, EnvConfig, null_consult,
-                     scripted_combat_consult)
-    # Stage 1 (SPEC.md §7.2): no monsters. Vanilla -nomonsters is the
-    # -rlnocombat of the spec. Stage 2: monsters on, CONSULT answered by
-    # the scripted combat stand-in.
+             slots_dir: str | None, slots: list[int], capture_dir: str | None = None,
+             spawn_tics: int = 0, nodraw: bool = False, noblit: bool = False):
+    from env import DiabloDoomEnv, EngineConfig, EnvConfig, standin_consult
+    # Stage 1 (SPEC.md §7.2): no map monsters. Vanilla -nomonsters is the
+    # -rlnocombat of the spec. Stage 2: map monsters on. In both,
+    # -rlspawn puts practice monsters on screen (a sighting to CONSULT
+    # about), and the stand-in answers CONSULT.
     extra = ["-nomonsters"] if stage == 1 else []
+    if spawn_tics > 0:
+        extra += ["-rlspawn", str(spawn_tics)]
+    if noblit:
+        # Skip the SDL blit (I_FinishUpdate), which headless nobody sees:
+        # most of the game's CPU time. The frame the policy gets and the
+        # replays come from the 8-bit buffer, so they are unchanged.
+        extra.append("-noblit")
+    if nodraw:
+        # No rendering at all (D_Display and the blit skipped): faster
+        # still, but the frame is never drawn and replays are off.
+        extra.append("-nodraw")
     engine = EngineConfig(warp=warp, skill=skill, extra_args=extra,
                           savedir_template=slots_dir, capture_dir=capture_dir)
     if iwad:
@@ -44,7 +57,7 @@ def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
         engine=engine,
         max_tics=max_tics,
         start_slots=list(slots),
-        consult_handler=null_consult if stage == 1 else scripted_combat_consult,
+        consult_handler=standin_consult,
     ))
 
 
@@ -113,6 +126,19 @@ def env_label(w: str | None, m: str, iwads: list[str | None]) -> str:
     return f"{iwad_label(w)}:{m}" if len(iwads) > 1 else m
 
 
+def capture_dirs(env_pairs: list, n: int, root: Path) -> list[str | None]:
+    """Replay directories for --capture-envs n: the first n envs of each
+    IWAD record, into root/env<i>_<IWAD>/ (groups take the IWADs in
+    rotation, so "the first n envs" alone would all be the first IWAD)."""
+    seen: dict = {}
+    out = []
+    for i, (w, _) in enumerate(env_pairs):
+        k = seen.get(w, 0)
+        seen[w] = k + 1
+        out.append(str(root / f"env{i:02d}_{iwad_label(w)}") if k < n else None)
+    return out
+
+
 def allocate_groups(iwads: list[str | None], maps: list[str], groups: int,
                     tag: str = "train") -> list[tuple[str | None, str]]:
     """Group g -> (iwad, map). The map is maps[g % M] as with one IWAD, so
@@ -132,7 +158,17 @@ def allocate_groups(iwads: list[str | None], maps: list[str], groups: int,
 def add_env_args(p) -> None:
     """Arguments shared by everything that spawns training envs."""
     p.add_argument("--stage", type=int, choices=[1, 2], default=1,
-                   help="1: no monsters (exploration); 2: monsters on, CONSULT on sighting")
+                   help="1: no map monsters (exploration); 2: map monsters on")
+    p.add_argument("--spawn-tics", type=int, default=700,
+                   help="mean game tics between practice monsters spawned on screen while exploring "
+                        "(-rlspawn: a sighting the policy should CONSULT about; 0: none)")
+    p.add_argument("--noblit", action=argparse.BooleanOptionalAction, default=False,
+                   help="launch the games with -noblit: skip the SDL blit nobody sees headless "
+                        "(~4x more decisions/s; frames and replays unchanged; train.sh's default)")
+    p.add_argument("--nodraw", action=argparse.BooleanOptionalAction, default=False,
+                   help="launch the games with -nodraw: no rendering at all (faster still), but the "
+                        "observation frame is never drawn, so the policy is blind, and replay "
+                        "capture is off (benchmarks only)")
     p.add_argument("--iwads", nargs="+", default=None, metavar="WAD",
                    help="IWADs to train on (default: the env's, Freedoom Phase 1). Group g plays "
                         "maps[g %% M] on iwads[(g %% M + g // M) %% I]: the IWADs split the groups "
@@ -147,8 +183,96 @@ def add_env_args(p) -> None:
     p.add_argument("--groups", type=int, default=4)
     p.add_argument("--group-size", type=int, default=8)
     p.add_argument("--max-tics", type=int, default=2100)
+    p.add_argument("--frontier-prob", type=float, default=0.5,
+                   help="share of groups started from their map's frontier: the end state of the best "
+                        "rollout so far, saved after each batch (save slot 4), so training keeps its "
+                        "progress past the --max-tics limit; an exit clears it (0: always the map start)")
     p.add_argument("--warmup-max", type=int, default=40,
                    help="random warm-up actions per group start (0..N), for start-state variety")
+
+
+# ---------------------------------------------------------------------------
+# Frontier starts (SPEC.md §5.4): progress kept across the rollout limit
+# ---------------------------------------------------------------------------
+
+FRONTIER_SLOT = 4
+
+
+class Frontier:
+    """Per (IWAD, map): the end state of the best rollout so far, as a
+    start state. After each batch, the highest-return rollout on a map
+    that ended alive, exploring and short of the exit saves the game
+    (SAVE 4, where it stopped); the save is kept in root/ (so it survives
+    a restart) and copied into every instance on that map. The next
+    batches start each group from it with probability prob, the rest
+    from the map start. A rollout reaching the exit clears the map's
+    frontier: the level is done, the cycle starts again from the start."""
+
+    def __init__(self, root: Path | None, prob: float, env_pairs: list, tag: str = "train"):
+        self.root, self.prob, self.tag = root, prob, tag
+        self.labels = [f"{iwad_label(w)}_{m.replace(' ', '_')}" for w, m in env_pairs]
+        self.data: dict[str, bytes] = {}
+        if root is not None and prob > 0:
+            root.mkdir(parents=True, exist_ok=True)
+            for label in set(self.labels):
+                f = root / f"{label}.dsg"
+                if f.exists():
+                    self.data[label] = f.read_bytes()
+
+    def _envs(self, label: str) -> list[int]:
+        return [i for i, l in enumerate(self.labels) if l == label]
+
+    def install_all(self, vec) -> None:
+        """Copy the frontiers found in root/ into fresh instances."""
+        for label, data in self.data.items():
+            vec.call(self._envs(label), "install_state", (FRONTIER_SLOT, data))
+        if self.data:
+            print(f"[{self.tag}] frontier starts restored: {sorted(self.data)}")
+
+    def options(self, options: list[dict], sampler: np.random.Generator, G: int) -> list[dict]:
+        """Start a share of the groups (all G members alike) from their
+        map's frontier. One draw per group either way, so the sampler's
+        stream doesn't depend on which frontiers exist."""
+        for g in range(len(options) // G):
+            u = sampler.random()
+            if self.prob > 0 and self.labels[g * G] in self.data and u < self.prob:
+                for o in options[g * G:(g + 1) * G]:
+                    o["slot"] = FRONTIER_SLOT
+                    o["frontier"] = True
+        return options
+
+    def update(self, vec, recs: list[dict]) -> dict:
+        """After a batch: save each map's best rollout end state (or clear
+        the map's frontier on an exit). Returns {label: return saved}."""
+        if self.prob <= 0:
+            return {}
+        saved = {}
+        for label in sorted(set(self.labels)):
+            idx = self._envs(label)
+            if any(recs[i]["exit"] for i in idx):
+                if label in self.data:
+                    del self.data[label]
+                    vec.call(idx, "install_state", (FRONTIER_SLOT, None))
+                    if self.root is not None:
+                        (self.root / f"{label}.dsg").unlink(missing_ok=True)
+                saved[label] = None
+                continue
+            ok = [i for i in idx if not recs[i]["death"]
+                  and recs[i]["end_info"].get("mode") == "EXPLORE"]
+            if not ok:
+                continue
+            best = max(ok, key=lambda i: recs[i]["ret"])
+            data = vec.call([best], "save_state", (FRONTIER_SLOT,))[0]
+            if data is None:
+                continue
+            self.data[label] = data
+            vec.call(idx, "install_state", (FRONTIER_SLOT, data))
+            if self.root is not None:
+                tmp = self.root / f"{label}.dsg.tmp"
+                tmp.write_bytes(data)
+                os.replace(tmp, self.root / f"{label}.dsg")
+            saved[label] = round(recs[best]["ret"], 2)
+        return saved
 
 
 def check_slots(iwads: list[str | None], slots: list[int]) -> None:
@@ -156,6 +280,8 @@ def check_slots(iwads: list[str | None], slots: list[int]) -> None:
     # maps is garbage), so they can't be mixed.
     if len(iwads) > 1 and slots:
         sys.exit("--slots can't be combined with several --iwads (save slots are IWAD-specific)")
+    if FRONTIER_SLOT in slots:
+        sys.exit(f"--slots can't use slot {FRONTIER_SLOT}: frontier starts write it (--frontier-prob)")
 
 
 # ---------------------------------------------------------------------------

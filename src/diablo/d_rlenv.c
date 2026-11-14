@@ -21,6 +21,8 @@
 #include "d_loop.h"
 #include "p_local.h"
 #include "r_state.h"
+#include "r_main.h"
+#include "m_misc.h"
 #include "tables.h"
 #include "t_turn.h"
 #include "t_combat.h"
@@ -29,6 +31,7 @@
 #include "d_rlenv.h"
 
 boolean rlenv = false;
+boolean rldrive = false;
 
 static const char *rl_cmdpipe = "/tmp/doom_cmd.txt";
 static int rl_statefd = -1;     // -1 = stdout with "[RL] " prefix
@@ -54,9 +57,13 @@ void RL_Init(void)
     extern int show_endoom;
     int p;
 
-    if (M_CheckParm("-rlenv") <= 0)
+    if (M_CheckParm("-rlenv") > 0)
+        rlenv = true;
+    // -rlenv implies -rldrive: control and output are common to both.
+    if (rlenv || M_CheckParm("-rldrive") > 0)
+        rldrive = true;
+    if (!rldrive)
         return;
-    rlenv = true;
 
     p = M_CheckParmWithArgs("-cmdpipe", 1);
     if (p > 0)
@@ -116,14 +123,25 @@ void RL_Init(void)
             close(fd);
     }
 
-    // Fixed tics, as fast as possible: one tic per TryRunTics call,
-    // never waiting on the wall clock.
-    singletics = true;
-    // ENDOOM waits for a keypress nobody will send.
-    show_endoom = 0;
+    if (rlenv)
+    {
+        // Fixed tics, as fast as possible: one tic per TryRunTics call,
+        // never waiting on the wall clock.
+        singletics = true;
+        // ENDOOM waits for a keypress nobody will send.
+        show_endoom = 0;
+        // -nodraw (vanilla reads it only under -timedemo): no D_Display
+        // and no I_FinishUpdate at all. Game logic is unaffected, but the
+        // published frame and any replay capture are never drawn.
+        if (M_ParmExists("-nodraw"))
+        {
+            nodrawers = true;
+            printf("[RL] -nodraw: rendering off (frames and capture are not drawn)\n");
+        }
+    }
 
-    printf("[RL] rlenv on: cmdpipe %s, state %s\n", rl_cmdpipe,
-           rl_statefd >= 0 ? "pipe" : "stdout");
+    printf("[RL] %s on: cmdpipe %s, state %s\n", rlenv ? "rlenv" : "rldrive",
+           rl_cmdpipe, rl_statefd >= 0 ? "pipe" : "stdout");
 }
 
 const char *RL_CmdPipePath(void)
@@ -137,7 +155,7 @@ void RL_Emit(const char *fmt, ...)
     va_list args;
     int n;
 
-    if (!rlenv)
+    if (!rldrive)
         return;
 
     va_start(args, fmt);
@@ -223,6 +241,13 @@ static int RL_AngleDeg(angle_t a)
     return (int) (((uint64_t) a * 360) >> 32);
 }
 
+static int rl_bpfull_tic = -1000000;   // gametic of the last failed pickup on a full backpack
+
+void RL_NoteBackpackFull(void)
+{
+    rl_bpfull_tic = gametic;
+}
+
 void RL_EmitState(const char *why, int tics)
 {
     char buf[3600];
@@ -282,6 +307,37 @@ void RL_EmitState(const char *why, int tics)
             first = false;
         }
         RL_PUT("]");
+
+        // CONSULT triggers (SPEC.md §5.3). monstervis: a living monster
+        // on screen (line of sight, within the 90-degree view) while exploring -- enemies are frozen in
+        // explore and an acquisition starts combat at once, so it has
+        // not acquired the player (barrels are targets but never count).
+        // backpack_full: a pickup failed on a full backpack within the
+        // last 4 s (the message's lifetime) and it is still full.
+        {
+            boolean vis = false;
+            if (T_InExplore())
+            {
+                n = T_NumTargets();
+                for (i = 0; i < n && !vis; i++)
+                {
+                    mobj_t *t = T_TargetMobj(i);
+                    int rel;
+                    if (t == NULL || !(t->flags & MF_COUNTKILL) || t->health <= 0)
+                        continue;
+                    // On screen: within the 90-degree view (the target
+                    // list is line of sight in every direction).
+                    rel = RL_AngleDeg(R_PointToAngle2(mo->x, mo->y, t->x, t->y)
+                                      - mo->angle);
+                    vis = rel <= 45 || rel >= 315;
+                }
+            }
+            RL_PUT(",\"monstervis\":%s,\"backpack_full\":%s,\"bp_count\":%d",
+                   vis ? "true" : "false",
+                   (gametic - rl_bpfull_tic < 4 * TICRATE && D_BackpackFull(p))
+                       ? "true" : "false",
+                   p->diablo_bp_count);
+        }
     }
     RL_PUT("}");
 #undef RL_PUT
@@ -309,7 +365,7 @@ void RL_UseBegin(void)
 {
     int i;
 
-    if (!rlenv || numsectors <= 0)
+    if (!rldrive || numsectors <= 0)
         return;
     if (rl_use_busy_cap < numsectors)
     {
@@ -356,3 +412,194 @@ void RL_UseEnd(void)
     snprintf(buf + len, sizeof(buf) - len, "],\"gametic\":%d}", gametic);
     RL_Emit("%s", buf);
 }
+
+
+// ---------------------------------------------------------------------
+// CONSULT practice monsters and the CONSULT command (see d_rlenv.h).
+// ---------------------------------------------------------------------
+
+#define RL_SPAWN_MAX     4
+#define RL_SPAWN_FORGET  (5 * TICRATE)  // out of sight this long: removed
+#define RL_SPAWN_TRIES   16             // directions tried in view, then all around
+#define RL_SPAWN_NEAR    128            // spawn distance range, map units
+#define RL_SPAWN_FAR     640
+
+static int rl_spawn_period = -1;        // -rlspawn; -1 unparsed, 0 off
+static uint32_t rl_spawn_rng = 1;
+static mobj_t *rl_spawned[RL_SPAWN_MAX];
+static int rl_spawned_unseen[RL_SPAWN_MAX];
+
+static uint32_t RL_SpawnRand(void)
+{
+    rl_spawn_rng = rl_spawn_rng * 1664525u + 1013904223u;
+    return rl_spawn_rng >> 8;
+}
+
+void RL_SpawnSeed(int n)
+{
+    rl_spawn_rng = 0x9e3779b9u ^ (uint32_t) n;
+    RL_SpawnRand();
+}
+
+void RL_LevelSetup(void)
+{
+    memset(rl_spawned, 0, sizeof(rl_spawned));
+}
+
+// A tracked pointer is used only after finding it in the thinker list
+// (a removed mobj's memory may already be gone or reused).
+static boolean RL_IsLive(mobj_t *mo)
+{
+    thinker_t *th;
+    for (th = thinkercap.next; th != &thinkercap; th = th->next)
+        if (th == &mo->thinker)
+            return th->function.acp1 == (actionf_p1) P_MobjThinker;
+    return false;
+}
+
+static int RL_SpawnedIndex(mobj_t *mo)
+{
+    int i;
+    for (i = 0; i < RL_SPAWN_MAX; i++)
+        if (rl_spawned[i] == mo)
+            return i;
+    return -1;
+}
+
+static boolean RL_TrySpawn(mobj_t *pmo)
+{
+    static const mobjtype_t types[] = { MT_POSSESSED, MT_SHOTGUY, MT_TROOP, MT_SERGEANT };
+    int slot, attempt;
+
+    for (slot = 0; slot < RL_SPAWN_MAX && rl_spawned[slot] != NULL; slot++)
+        ;
+    if (slot == RL_SPAWN_MAX)
+        return false;
+    // RL_SPAWN_TRIES directions within 30 degrees of the view, then as
+    // many in any direction: a player that WALKed until blocked often
+    // faces a wall, and a monster in sight beside or behind it comes on
+    // screen when it turns. A point that is blocked or out of sight is
+    // walked back toward the player, down to RL_SPAWN_NEAR units, before
+    // trying the next direction.
+    for (attempt = 0; attempt < 2 * RL_SPAWN_TRIES; attempt++)
+    {
+        int dist = RL_SPAWN_NEAR + (int) (RL_SpawnRand() % (RL_SPAWN_FAR - RL_SPAWN_NEAR + 1));
+        int deg = attempt < RL_SPAWN_TRIES ? (int) (RL_SpawnRand() % 61) - 30
+                                           : (int) (RL_SpawnRand() % 360) - 180;
+        angle_t an = pmo->angle + (angle_t) ((int64_t) deg * (ANG90 / 90));
+        mobjtype_t type = types[RL_SpawnRand() % (sizeof(types) / sizeof(types[0]))];
+
+        for (; dist >= RL_SPAWN_NEAR; dist = dist * 3 / 4)
+        {
+            fixed_t x = pmo->x + dist * finecosine[an >> ANGLETOFINESHIFT];
+            fixed_t y = pmo->y + dist * finesine[an >> ANGLETOFINESHIFT];
+            mobj_t *mo = P_SpawnMobj(x, y, ONFLOORZ, type);
+
+            if (!P_CheckPosition(mo, x, y) || !P_CheckSight(pmo, mo)
+                || mo->subsector->sector->ceilingheight - mo->floorz < mo->height)
+            {
+                P_RemoveMobj(mo);
+                continue;
+            }
+            mo->angle = R_PointToAngle2(pmo->x, pmo->y, x, y);  // back to the player
+            mo->flags |= MF_AMBUSH;                              // deaf
+            rl_spawned[slot] = mo;
+            rl_spawned_unseen[slot] = 0;
+            printf("[RL] spawned type %d at (%d,%d), %d units, %d deg\n",
+                   (int) type, x >> FRACBITS, y >> FRACBITS, dist, deg);
+            T_RefreshTargets();
+            return true;
+        }
+    }
+    return false;
+}
+
+void RL_SpawnTick(void)
+{
+    player_t *pl = &players[consoleplayer];
+    int i, live = 0;
+
+    if (rl_spawn_period < 0)
+    {
+        int p = M_CheckParmWithArgs("-rlspawn", 1);
+        rl_spawn_period = (rlenv && p > 0) ? atoi(myargv[p + 1]) : 0;
+        if (rl_spawn_period < 0)
+            rl_spawn_period = 0;
+    }
+    if (rl_spawn_period == 0 || gamestate != GS_LEVEL || pl->mo == NULL
+        || pl->health <= 0 || !T_InExplore())
+        return;
+
+    // Forget dead or vanished ones; remove those long out of sight.
+    for (i = 0; i < RL_SPAWN_MAX; i++)
+    {
+        mobj_t *mo = rl_spawned[i];
+        if (mo == NULL)
+            continue;
+        if (!RL_IsLive(mo) || mo->health <= 0)
+        {
+            rl_spawned[i] = NULL;
+            continue;
+        }
+        if (P_CheckSight(pl->mo, mo))
+            rl_spawned_unseen[i] = 0;
+        else if (++rl_spawned_unseen[i] >= RL_SPAWN_FORGET)
+        {
+            P_RemoveMobj(mo);
+            rl_spawned[i] = NULL;
+            continue;
+        }
+        live++;
+    }
+    if (live == 0 && RL_SpawnRand() % (uint32_t) rl_spawn_period == 0)
+        RL_TrySpawn(pl->mo);
+}
+
+void RL_Consult(void)
+{
+    player_t *pl = &players[consoleplayer];
+    thinker_t *th, *next;
+    boolean combat;
+    int removed = 0, killed = 0;
+
+    if (pl->mo == NULL || pl->health <= 0)
+        return;
+    combat = !T_InExplore();
+    for (th = thinkercap.next; th != &thinkercap; th = next)
+    {
+        mobj_t *mo;
+        int si;
+        next = th->next;
+        if (th->function.acp1 != (actionf_p1) P_MobjThinker)
+            continue;
+        mo = (mobj_t *) th;
+        if (!(mo->flags & MF_COUNTKILL) || mo->health <= 0 || mo->player != NULL)
+            continue;
+        if (!P_CheckSight(pl->mo, mo) && !(combat && mo->target == pl->mo))
+            continue;
+        si = RL_SpawnedIndex(mo);
+        if (si >= 0 && !combat)
+        {
+            // Explore: nothing else holds it (the target list is
+            // refreshed below, health bars validate against thinkers).
+            rl_spawned[si] = NULL;
+            P_RemoveMobj(mo);
+            removed++;
+        }
+        else
+        {
+            // Combat may hold it (spotter, selection): kill it, the
+            // corpse stays a valid mobj. No source: the player-damage
+            // path would swap in a pending turn-attack damage override,
+            // and a sourceless kill still counts (vanilla's
+            // single-player branch).
+            if (si >= 0)
+                rl_spawned[si] = NULL;
+            P_DamageMobj(mo, NULL, NULL, mo->health + 1000);
+            killed++;
+        }
+    }
+    printf("[RL] CONSULT: %d spawned removed, %d killed\n", removed, killed);
+    T_RefreshTargets();
+}
+
