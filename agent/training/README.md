@@ -54,6 +54,14 @@ obs, reward, terminated, truncated, info = game.step(0)   # WALK 0
   that visits a new sector re-measures without pay. The distances come
   from the state line (`exit_dist`, `frontier_dist`) and shape the reward
   only: the policy acts from the frames alone.
+  The portal goal (`--portal-goal`, default 1): a rollout ends, with the
+  `portal` bonus (5), once it enters a sector not yet visited, and
+  `--time-penalty` (1/3 per game second) is charged until it ends, so the
+  faster crossing wins its group; `--max-tics` is 525 (15 s). A per-tic
+  penalty does nothing without the goal: rollouts that all run to the
+  limit pay the same, and the group-relative advantage cancels it. The
+  held-out eval keeps `--eval-max-tics` (2100) with no goal and no
+  penalty, so its numbers compare across versions.
   `key` (10) pays each key colour (blue, yellow, red) the first time it is
   held in a rollout, from the state line's `keys` mask; keys held at the
   start pay nothing.
@@ -115,11 +123,17 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
 - **Loss:** clipped ratio (`--clip` 0.2), `--epochs` 4, entropy bonus
   `--ent-coef` 0.01, and an optional KL to a reference policy
   (`--ref`, `--beta`).
-- **Frontier starts:** a rollout stops at `--max-tics`, so on its own
-  training would only ever see the first 60 s of each map. After every
-  batch, each map's highest-return rollout that ended alive, exploring and
-  short of the exit saves the game where it stopped (`SAVE 4`). The save
-  goes to `<run-dir>/frontier/<iwad>_<map>.dsg` (or
+- **Frontier starts:** a rollout stops at `--max-tics` (or at the portal
+  goal), so on its own training would only ever see the start of each
+  map. After every batch, each map's highest-return rollout that ended
+  alive, exploring, short of the exit and with progress (a new sector)
+  saves the game where it stopped (`SAVE 4`) along with its visited
+  sectors (`VISITED`; replayed with `VISIT` after each load, since saves
+  don't store them, so the portal it came in by is not new). With the
+  portal goal the agent moves on portal by portal. A batch without
+  progress keeps the current start; `--frontier-patience` (5) of them in a
+  row (a dead end) clear it, back to the map start. The save
+  goes to `<run-dir>/frontier/<iwad>_<map>.dsg` (visited list: `.visited`) (or
   `<spool>/frontier/<actor-id>/` for an `eval.py` actor), so it survives a
   resume, and is copied into slot 4 of every instance on that map, where
   it replaces the map start. Every group starts from slot 4, so training

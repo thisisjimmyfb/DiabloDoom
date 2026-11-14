@@ -110,6 +110,7 @@ def test_frontier_start():
     try:
         f = Frontier(None, True, pairs)
         _, infos = vec.reset([0, 1], [{"seed": 1}, {"seed": 1}])
+        starts = [i["state"]["sectors"] for i in infos]
         assert all(i["slot"] == FRONTIER_SLOT for i in infos), "the map start is slot 4 too"
         start = (infos[0]["state"]["x"], infos[0]["state"]["y"])
         walk, turn = ACTIONS.index("WALK 0"), ACTIONS.index("TURNL")
@@ -126,7 +127,8 @@ def test_frontier_start():
                     still.append(i)
             active = still
         recs = [{"ret": rets[i], "death": bool(ends[i]["state"].get("dead")), "exit": bool(ends[i]["exit"]),
-                 "end_info": ends[i]} for i in range(2)]
+                 "sectors_gained": ends[i]["state"]["sectors"] - starts[i], "end_info": ends[i]} for i in range(2)]
+        assert recs[0]["sectors_gained"] > 0, "the walker should reach a new sector"
         best = int(np.argmax(rets))
         saved = f.update(vec, recs)
         assert list(saved) == ["default_1_1"]

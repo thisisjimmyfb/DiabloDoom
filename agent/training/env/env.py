@@ -63,6 +63,11 @@ class RewardConfig:
     combat_unconsulted_step: float = -0.5  # per step in combat before CONSULT
     hp_loss: float = 0.0              # per HP lost (third stage only)
     map_toggle: float = 0.0           # per MAP action (only if flicker appears)
+    # Per game tic, every step (0 off). Only works with a portal goal
+    # (EnvConfig.portal_goal): rollouts that all run to max_tics pay the
+    # same, and a group-relative advantage cancels it.
+    time: float = 0.0
+    portal: float = 5.0               # the portal goal reached (ends the rollout)
 
 
 # A CONSULT handler answers a CONSULT: it may drive the engine with any
@@ -130,6 +135,11 @@ class EnvConfig:
     start_slots: list[int] = field(default_factory=list)
     bootstrap_slot: int = 4
     max_combat_steps: int = 20        # steps in combat before truncation
+    # n > 0: the rollout ends (terminated, + RewardConfig.portal) once it
+    # has entered n sectors not yet visited -- through n portals. A start
+    # installed with a visited list (install_state) counts those as
+    # visited, so going back through the portal it came in by is not new.
+    portal_goal: int = 0
     consult_handler: Optional[ConsultHandler] = None
 
 
@@ -157,6 +167,7 @@ class DiabloDoomEnv(gym.Env):
         #   envs.set_attr("next_reset", [{"slot": 3, "seed": 17, "group": 0}, ...])
         self.next_reset: dict | None = None
         self._installed: dict[int, bytes | None] = {}   # install_state slots
+        self._installed_visited: dict[int, str | None] = {}  # their visited lists (VISITED hex)
         self.state: dict = {}
 
     # -- engine access for CONSULT handlers ------------------------
@@ -182,13 +193,24 @@ class DiabloDoomEnv(gym.Env):
             self._write_installed(slot)   # no save: put back what the slot held
         return None
 
-    def install_state(self, slot: int, data: bytes | None) -> None:
+    def visited(self) -> str | None:
+        """The visited sectors now, as the engine's VISITED hex bitmask
+        (with save_state, the visited list of a progress save)."""
+        _, events = self.engine.command("VISITED")
+        for e in events:
+            if e.get("event") == "visited":
+                return e.get("hex")
+        return None
+
+    def install_state(self, slot: int, data: bytes | None, visited: str | None = None) -> None:
         """Put a savegame (another instance's save_state) in a slot of
         this instance, for reset(options={"slot": slot}); None removes it
-        (the bootstrap slot then holds the map start again).
+        (the bootstrap slot then holds the map start again). visited (a
+        visited() bitmask) is marked after every reset from the slot.
         Kept, and written again whenever the game (re)starts: the game
         starts at the first reset, and a crashed one gets a new savedir."""
         self._installed[slot] = data
+        self._installed_visited[slot] = visited if data is not None else None
         if self.engine.workdir is not None:
             self._write_installed(slot)
 
@@ -238,6 +260,12 @@ class DiabloDoomEnv(gym.Env):
         # frame rendered from the loaded state.
         self.engine.command(f"LOAD {slot}")
         d, _ = self.engine.command(f"SEED {int(rng_seed) % 256}")
+        # A progress save's visited list (the save doesn't store it; the
+        # load reset it): VISIT in pieces that fit a command line.
+        vis = self._installed_visited.get(slot)
+        if vis:
+            for off in range(0, len(vis), 200):
+                d, _ = self.engine.command(f"VISIT {off} {vis[off:off + 200]}")
 
         # Optional warm-up: explore actions played after LOAD + SEED and
         # before the rollout starts (not scored, not counted against
@@ -258,6 +286,7 @@ class DiabloDoomEnv(gym.Env):
         self._slot, self._seed = slot, int(rng_seed) % 256
         self._tics = 0
         self._best_sectors = d.get("sectors", 0)
+        self._start_sectors = self._best_sectors
         self._goal = goal_dist(d)
         self._keys = d.get("keys", 0)     # keys held at the start (or from the warm-up) never pay
         self._prev_hp = d.get("hp", 0)
@@ -309,6 +338,7 @@ class DiabloDoomEnv(gym.Env):
 
         self.state = d
         self._tics += tics
+        reward -= rc.time * tics
 
         # Combat before CONSULT: per-step penalty; capped (frozen world).
         if d.get("mode") in COMBAT_MODES:
@@ -362,6 +392,7 @@ class DiabloDoomEnv(gym.Env):
         reward += rc.key * self._new_keys(d)
 
         terminated = truncated = False
+        portal = False
         exited = any(e.get("event") == "exit" for e in events)
         if exited:
             reward += rc.exit
@@ -369,6 +400,9 @@ class DiabloDoomEnv(gym.Env):
         elif d.get("dead"):
             reward += rc.death
             terminated = True
+        elif self.cfg.portal_goal > 0 and self._best_sectors - self._start_sectors >= self.cfg.portal_goal:
+            reward += rc.portal
+            terminated = portal = True
         if not terminated:
             if self._tics >= self.cfg.max_tics:
                 truncated = True
@@ -378,6 +412,7 @@ class DiabloDoomEnv(gym.Env):
         obs = self._stack.push(self._frame()) if sent else self._stack.get()
         info = self._info(tics, d)
         info["exit"] = exited
+        info["portal"] = portal
         return obs, float(reward), terminated, truncated, info
 
     def render(self):

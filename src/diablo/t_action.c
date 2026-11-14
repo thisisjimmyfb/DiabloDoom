@@ -1129,6 +1129,18 @@ int T_VisitedCount(void)
     return visited_count;
 }
 
+// -rlenv VISIT: mark a sector visited (a progress save's visited list
+// replayed after its LOAD; savegames don't store the list).
+void T_MarkVisited(int idx)
+{
+    T_TrackResetIfLevelChanged();
+    if (idx >= 0 && idx < VISITED_MAX && idx < numsectors && !visited_sectors[idx])
+    {
+        visited_sectors[idx] = true;
+        visited_count++;
+    }
+}
+
 boolean T_SectorVisited(int idx)
 {
     T_TrackResetIfLevelChanged();

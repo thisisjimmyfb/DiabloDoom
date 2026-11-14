@@ -114,6 +114,36 @@ static void T_SpotPlayer(mobj_t *mo, boolean by_sight)
     mo->frame = mo->state->frame;
 }
 
+// Driver MAP (2026-11-14): the automap it opens closes by itself after
+// T_MAP_SHOW_TICS game tics (T_MapTick, every explore tic). -1: no
+// driver-opened map pending (Tab's map stays until toggled).
+#define T_MAP_SHOW_TICS 18      // about half a second (35 tics/s)
+static int t_map_close_tic = -1;
+
+static void T_MapClose(void)
+{
+    extern void AM_Stop(void);
+    t_map_close_tic = -1;
+    if (automapactive)
+    {
+        viewactive = true;
+        AM_Stop();
+    }
+}
+
+static void T_MapTick(void)
+{
+    if (t_map_close_tic < 0)
+        return;
+    if (!automapactive)
+        t_map_close_tic = -1;        // closed some other way (combat, Tab)
+    else if (gametic >= t_map_close_tic)
+    {
+        T_MapClose();
+        printf("[MAP] automap off (timeout)\n");
+    }
+}
+
 // Explore-mode detection pass. Returns the first monster that acquired
 // the player this tick (NULL if none); every detector records the
 // acquisition. A monster that already holds the player as its target
@@ -256,6 +286,7 @@ void T_ExploreTick(void)
     // on combat entry; blocks FIFO input while active).
     T_CollectTick();
     RL_SpawnTick();              // -rlenv -rlspawn: CONSULT practice monsters
+    T_MapTick();                 // driver MAP: close the map after 0.5 s
     if (++explore_sight_tic >= 7)
     {
         explore_sight_tic = 0;
@@ -1036,6 +1067,7 @@ static int cmdfd = -2;  // -2 = uninitialized, -1 = failed/disabled
 // No command is ever dropped for lack of room.
 #define CMD_QUEUE_MAX 128
 #define CMD_LINE_MAX 256
+#define VISITED_HEX_MAX 3900    // VISITED bitmask digits (RL_Emit holds 4096 bytes)
 static char cmd_queue[CMD_QUEUE_MAX][CMD_LINE_MAX];
 static int cmd_q_head = 0;   // slot of the next command to execute
 static int cmd_q_count = 0;  // commands currently queued
@@ -1147,7 +1179,7 @@ static boolean cmd_is_diagnostic(const char *cmd)
 {
     static const char *diag[] = {
         "SCREENSHOT", "REPLAY", "CAPTURE", "VERSION",
-        "INVENTORY", "KEYS", "SECTORS", "STATE", NULL
+        "INVENTORY", "KEYS", "SECTORS", "STATE", "VISITED", NULL
     };
     int i;
     for (i = 0; diag[i] != NULL; i++)
@@ -2133,12 +2165,12 @@ static void cmd_dispatch(const char *cmd)
     }
     else if (!strcmp(cmd, "MAP"))
     {
-        // MAP: toggle the automap, exactly like Tab (am_map.c's
-        // AM_Responder: AM_Start/AM_Stop and the 3D view off/on).
-        // Explore mode only -- combat hides the map on entry
-        // (T_EnterCombat), so in combat MAP does nothing.
+        // MAP: open the automap like Tab (am_map.c's AM_Responder:
+        // AM_Start and the 3D view off) for T_MAP_SHOW_TICS (0.5 s of
+        // game time), then T_MapTick closes it; MAP while it is open
+        // closes it at once. Explore mode only -- combat hides the map
+        // on entry (T_EnterCombat), so in combat MAP does nothing.
         extern void AM_Start(void);
-        extern void AM_Stop(void);
         if (!T_InExplore())
         {
             printf("[MAP] blocked: explore mode only\n");
@@ -2147,12 +2179,12 @@ static void cmd_dispatch(const char *cmd)
         {
             AM_Start();
             viewactive = false;
-            printf("[MAP] automap on\n");
+            t_map_close_tic = gametic + T_MAP_SHOW_TICS;
+            printf("[MAP] automap on (closes in %d tics)\n", T_MAP_SHOW_TICS);
         }
         else
         {
-            viewactive = true;
-            AM_Stop();
+            T_MapClose();
             printf("[MAP] automap off\n");
         }
     }
@@ -2262,6 +2294,59 @@ static void cmd_dispatch(const char *cmd)
         printf("[VERSION] " GIT_COMMIT_HASH "\n");
         RL_Emit("{\"event\":\"version\",\"commit\":\"%s\",\"gametic\":%d}",
                 GIT_COMMIT_HASH, gametic);
+    }
+    else if (rlenv && !strcmp(cmd, "VISITED"))
+    {
+        // VISITED (-rlenv): the visited sectors as a hex bitmask, one
+        // digit per 4 sectors, lowest sector in the digit's lowest bit:
+        // {"event":"visited","n":<numsectors>,"hex":"..."}. With VISIT,
+        // a progress save carries its visited list across a LOAD.
+        static char hex[VISITED_HEX_MAX + 1];
+        int i, nd = (numsectors + 3) / 4;
+        if (nd > VISITED_HEX_MAX)
+            nd = VISITED_HEX_MAX;
+        for (i = 0; i < nd; i++)
+        {
+            int b, v = 0;
+            for (b = 0; b < 4; b++)
+                if (T_SectorVisited(4 * i + b))
+                    v |= 1 << b;
+            hex[i] = "0123456789abcdef"[v];
+        }
+        hex[nd] = 0;
+        RL_Emit("{\"event\":\"visited\",\"n\":%d,\"hex\":\"%s\"}", numsectors, hex);
+    }
+    else if (rlenv && !strncmp(cmd, "VISIT ", 6))
+    {
+        // VISIT <digit offset> <hex> (-rlenv): mark the sectors set in
+        // this piece of a VISITED bitmask (sent in pieces: a command
+        // line holds 255 characters).
+        int off, i, n = 0;
+        char *p;
+        if (sscanf(cmd + 6, "%d", &off) == 1 && off >= 0
+            && (p = strchr(cmd + 6, ' ')) != NULL)
+        {
+            for (p++, i = 0; p[i] != 0; i++)
+            {
+                int b, v;
+                char c = p[i];
+                v = (c >= '0' && c <= '9') ? c - '0'
+                  : (c >= 'a' && c <= 'f') ? c - 'a' + 10 : -1;
+                if (v < 0)
+                    break;
+                for (b = 0; b < 4; b++)
+                    if (v & (1 << b))
+                    {
+                        T_MarkVisited(4 * (off + i) + b);
+                        n++;
+                    }
+            }
+            printf("[VISIT] marked %d sectors (visited %d)\n", n, T_VisitedCount());
+        }
+        else
+        {
+            printf("[VISIT] usage: VISIT <digit offset> <hex>\n");
+        }
     }
     else if (!strcmp(cmd, "STATE"))
     {

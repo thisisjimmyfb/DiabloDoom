@@ -343,3 +343,40 @@ def test_approach_reward():
         assert abs(got - expect) < 1e-6, (got, expect)
     finally:
         e.close()
+
+
+@pytest.mark.game
+def test_portal_goal():
+    """E1M1, portal goal 1: the rollout ends (terminated, portal) on its
+    first new sector, and with only time and portal rewards on its return
+    is the bonus minus time * tics. Its end state saved with its visited
+    list (VISITED) and reinstalled restores that visited count after the
+    load (VISIT), so the next rollout's goal is a sector beyond it."""
+    only = RewardConfig(sector=0, exit=0, mechanism=0, death=0, stuck=0, consult_hit=0,
+                        trigger_miss=0, consult_false=0, combat_unconsulted_step=0, key=0,
+                        approach=0, time=0.01, portal=5.0)
+    e = DiabloDoomEnv(EnvConfig(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only,
+                                max_tics=100000, portal_goal=1, consult_handler=standin_consult))
+    try:
+        _, info = e.reset(options={"seed": 0})
+        start = info["state"]["sectors"]
+        rng = np.random.default_rng(0)
+        ret = 0.0
+        for _ in range(3000):
+            _, r, term, trunc, info = e.step(int(rng.choice([0, 0, 0, 1, 2, 3, 4])))
+            ret += r
+            if term or trunc:
+                break
+        assert term and info["portal"], "a new sector ends the rollout"
+        assert info["state"]["sectors"] == start + 1
+        assert abs(ret - (5.0 - 0.01 * info["rollout_tics"])) < 1e-6, ret
+
+        visited = e.visited()
+        assert bin(int(visited[::-1], 16)).count("1") == start + 1
+        data = e.save_state(4)
+        e.install_state(4, data, visited)
+        _, info = e.reset(options={"seed": 0, "slot": 4})
+        assert info["state"]["sectors"] == start + 1, "the visited list survives the load"
+        assert e.visited() == visited
+    finally:
+        e.close()

@@ -116,7 +116,8 @@ def main():
     captures = capture_dirs(env_pairs, args.capture_envs, replays)
     vec = GroupVecEnv([functools.partial(make_env, w, m, args.stage, args.skill, args.max_tics,
                                          args.slots_dir, slots, captures[i],
-                                         spawn_tics=args.spawn_tics, nodraw=args.nodraw, noblit=args.noblit)
+                                         spawn_tics=args.spawn_tics, nodraw=args.nodraw, noblit=args.noblit,
+                                         portal_goal=args.portal_goal, time_penalty=args.time_penalty)
                        for i, (w, m) in enumerate(env_pairs)])
     eval_vec = None
     if eval_maps and args.eval_every > 0:
@@ -139,7 +140,7 @@ def main():
         actor.requires_grad_(False)
 
     # Frontier starts: each map's best rollout end state so far.
-    frontier = Frontier(run_dir / "frontier", args.frontier, env_pairs)
+    frontier = Frontier(run_dir / "frontier", args.frontier, env_pairs, patience=args.frontier_patience)
     frontier.install_all(vec)
 
     def play() -> tuple[list[dict], float]:

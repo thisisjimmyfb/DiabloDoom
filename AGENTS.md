@@ -91,7 +91,11 @@ the current cell when stalled off-centre across a face line, and
 COLLECT rides on GOTO — it filters loot positions and hands them
 over as destinations), `KEYS`, `SECTORS`
 (visited-sector progress), `TURNL`/`TURNR`, `ATTACK`, `UNDO`, `END`, `COLLECT`,
-`MAP` (toggle the automap like Tab; explore mode only, 2026-11-14), `SCREENSHOT`, `CAPTURE`/`REPLAY` (15 s MP4; the encode runs on a
+`MAP` (open the automap like Tab for 0.5 s of game time (18 tics), then it closes by
+itself; MAP while open closes it; explore mode only, 2026-11-14),
+`VISITED`/`VISIT <offset> <hex>` (`-rlenv` only, 2026-11-14: read / mark
+the visited sectors as a hex bitmask, one digit per 4 sectors; training
+carries a progress save's visited list across its LOAD), `SCREENSHOT`, `CAPTURE`/`REPLAY` (15 s MP4; the encode runs on a
 worker thread since 2026-10-19, so the game never stalls waiting for
 x264). Launching with `--continuous-capture` turns on continuous capture:
 every full 15-second buffer is queued for encode automatically and

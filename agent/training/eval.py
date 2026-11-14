@@ -92,6 +92,7 @@ def run_rollouts(vec: GroupVecEnv, policy: Policy, device: torch.device,
         r["sectors_gained"] = int(s.get("sectors", 0)) - int(r["start_sectors"])
         r["exit"] = bool(r["end_info"].get("exit"))
         r["death"] = bool(s.get("dead"))
+        r["portal"] = bool(r["end_info"].get("portal"))
     return recs
 
 
@@ -116,7 +117,9 @@ def make_heldout_vec(iwads, eval_maps, args, slots, capture_root: Path | None):
     (vec, per-env labels)."""
     pairs = [(w, m) for w in iwads for m in eval_maps for _ in range(args.eval_episodes)]
     labels = [env_label(w, m, iwads) for w, m in pairs]
-    vec = GroupVecEnv([functools.partial(make_env, w, m, args.stage, args.skill, args.max_tics,
+    # Held out: the full --eval-max-tics, no portal goal, no time penalty,
+    # so its sectors and returns compare across versions.
+    vec = GroupVecEnv([functools.partial(make_env, w, m, args.stage, args.skill, args.eval_max_tics,
                                          args.slots_dir, slots,
                                          str(capture_root / f"eval{i:02d}") if capture_root else None,
                                          spawn_tics=args.spawn_tics, nodraw=args.nodraw, noblit=args.noblit)
@@ -258,10 +261,12 @@ def main():
         captures = capture_dirs(env_pairs, args.capture_envs, capture)
         vec = GroupVecEnv([functools.partial(make_env, w, m, args.stage, args.skill, args.max_tics,
                                              args.slots_dir, slots, captures[i],
-                                             spawn_tics=args.spawn_tics, nodraw=args.nodraw, noblit=args.noblit)
+                                             spawn_tics=args.spawn_tics, nodraw=args.nodraw, noblit=args.noblit,
+                                         portal_goal=args.portal_goal, time_penalty=args.time_penalty)
                            for i, (w, m) in enumerate(env_pairs)])
         # Frontier starts, per actor (its own maps and instances).
-        frontier = Frontier(spool / "frontier" / args.actor_id, args.frontier, env_pairs, tag)
+        frontier = Frontier(spool / "frontier" / args.actor_id, args.frontier, env_pairs, tag,
+                            patience=args.frontier_patience)
         frontier.install_all(vec)
         # Workers keep no state, so a restart must not replay the same
         # starts: the sampler mixes in the actor id and the start time.

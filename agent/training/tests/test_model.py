@@ -139,21 +139,25 @@ class _FakeVec:
 
     def __init__(self, n):
         self.slots = [None] * n
+        self.vis = [None] * n
 
     def call(self, idx, name, args=()):
         out = []
         for i in idx:
             if name == "save_state":
                 out.append(f"save-of-env{i}".encode())
+            elif name == "visited":
+                out.append(f"v{i}")
             elif name == "install_state":
                 assert args[0] == FRONTIER_SLOT
                 self.slots[i] = args[1]
+                self.vis[i] = args[2] if len(args) > 2 else None
                 out.append(None)
         return out
 
 
-def _end(ret, mode="EXPLORE", death=False, exit=False):
-    return {"ret": ret, "death": death, "exit": exit, "end_info": {"mode": mode}}
+def _end(ret, mode="EXPLORE", death=False, exit=False, gained=1):
+    return {"ret": ret, "death": death, "exit": exit, "sectors_gained": gained, "end_info": {"mode": mode}}
 
 
 def test_frontier(tmp_path):
@@ -171,7 +175,9 @@ def test_frontier(tmp_path):
     saved = f.update(vec, [_end(9, death=True), _end(3), _end(1), _end(7, mode="PLANNING")])
     assert saved == {"default_1_1": 3, "default_1_2": 1}
     assert vec.slots == [b"save-of-env1"] * 2 + [b"save-of-env2"] * 2
+    assert vec.vis == ["v1"] * 2 + ["v2"] * 2, "the visited list goes with the save"
     assert (tmp_path / "default_1_1.dsg").read_bytes() == b"save-of-env1"
+    assert (tmp_path / "default_1_1.visited").read_text() == "v1"
 
     opts = f.options([{"seed": 0} for _ in range(4)], 2)
     assert all(o["slot"] == FRONTIER_SLOT and o["frontier"] for o in opts)
@@ -179,7 +185,7 @@ def test_frontier(tmp_path):
     # A restart finds the frontiers on disk and reinstalls them.
     vec2 = _FakeVec(4)
     Frontier(tmp_path, True, pairs).install_all(vec2)
-    assert vec2.slots == vec.slots
+    assert vec2.slots == vec.slots and vec2.vis == vec.vis
 
     # An exit on E1M1 clears its frontier (memory, instances, disk).
     saved = f.update(vec, [_end(50, exit=True), _end(2), _end(1), _end(2)])
@@ -192,6 +198,22 @@ def test_frontier(tmp_path):
     off = Frontier(tmp_path / "off", False, pairs)
     assert off.update(vec, [_end(1)] * 4) == {}
     assert not any("slot" in o for o in off.options([{} for _ in range(4)], 2))
+
+
+def test_frontier_progress(tmp_path):
+    """Only a rollout with progress (a new sector) replaces a frontier; a
+    batch without keeps it, and `patience` such batches in a row clear it
+    (a dead end: back to the map start)."""
+    pairs = [(None, "1 1")] * 2
+    vec = _FakeVec(2)
+    f = Frontier(tmp_path, True, pairs, patience=2)
+    assert f.update(vec, [_end(9, gained=0), _end(3, gained=0)]) == {}, "no progress: nothing saved"
+    assert f.update(vec, [_end(1, gained=0), _end(2, gained=1)]) == {"default_1_1": 2}
+    assert vec.slots == [b"save-of-env1"] * 2
+    assert f.update(vec, [_end(5, gained=0)] * 2) == {}, "first stale batch keeps it"
+    assert vec.slots == [b"save-of-env1"] * 2
+    assert f.update(vec, [_end(5, gained=0)] * 2) == {"default_1_1": None}, "second clears it"
+    assert vec.slots == [None, None] and not (tmp_path / "default_1_1.visited").exists()
 
 
 def test_capture_dirs():

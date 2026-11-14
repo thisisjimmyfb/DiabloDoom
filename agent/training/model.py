@@ -31,8 +31,12 @@ N_PRIV = 2  # privileged critic inputs: HP/100, exit path distance (SPEC.md §6)
 
 def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
              slots_dir: str | None, slots: list[int], capture_dir: str | None = None,
-             spawn_tics: int = 0, nodraw: bool = False, noblit: bool = False):
-    from env import DiabloDoomEnv, EngineConfig, EnvConfig, standin_consult
+             spawn_tics: int = 0, nodraw: bool = False, noblit: bool = False,
+             portal_goal: int = 0, time_penalty: float = 0.0):
+    """time_penalty: reward per game second (negative pays, e.g. 1/3
+    costs a point every 3 s), with portal_goal n > 0 ending a rollout
+    once it reaches n new sectors."""
+    from env import DiabloDoomEnv, EngineConfig, EnvConfig, RewardConfig, standin_consult
     # Stage 1 (SPEC.md §7.2): no map monsters. Vanilla -nomonsters is the
     # -rlnocombat of the spec. Stage 2: map monsters on. In both,
     # -rlspawn puts practice monsters on screen (a sighting to CONSULT
@@ -58,6 +62,8 @@ def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
         max_tics=max_tics,
         start_slots=list(slots),
         consult_handler=standin_consult,
+        portal_goal=portal_goal,
+        rewards=RewardConfig(time=time_penalty / 35.0),
     ))
 
 
@@ -182,12 +188,27 @@ def add_env_args(p) -> None:
     p.add_argument("--slots", default="", help="start slots in --slots-dir, e.g. '3,4,5'")
     p.add_argument("--groups", type=int, default=4)
     p.add_argument("--group-size", type=int, default=8)
-    p.add_argument("--max-tics", type=int, default=2100)
+    p.add_argument("--max-tics", type=int, default=525,
+                   help="rollout limit in game tics (35/s; default 15 s)")
+    p.add_argument("--portal-goal", type=int, default=1,
+                   help="a rollout ends (+portal bonus) once it enters this many sectors not yet "
+                        "visited -- through a portal; with --frontier the next batch starts beyond it "
+                        "(0: rollouts run to the exit, death or --max-tics)")
+    p.add_argument("--time-penalty", type=float, default=1 / 3,
+                   help="reward lost per game second until the rollout ends, so the faster portal "
+                        "crossing wins its group (default 1/3: a point every 3 s)")
+    p.add_argument("--eval-max-tics", type=int, default=2100,
+                   help="held-out eval rollout limit (no portal goal, no time penalty: sectors "
+                        "visited in 60 s, comparable across versions)")
     p.add_argument("--frontier", action=argparse.BooleanOptionalAction, default=True,
-                   help="keep progress: after each batch, save each map's best rollout end state to save "
-                        "slot 4 and start every group from it, so training gets past the --max-tics "
-                        "limit; an exit clears it (slot 4 holds the map start again). --no-frontier: "
-                        "always the map start (still slot 4)")
+                   help="keep progress: after each batch, save each map's best rollout that made "
+                        "progress (with its visited sectors) to save slot 4 and start every group from "
+                        "it, so training moves on portal by portal past the --max-tics limit; an exit, "
+                        "or --frontier-patience batches without progress, clears it (slot 4 holds the "
+                        "map start again). --no-frontier: always the map start (still slot 4)")
+    p.add_argument("--frontier-patience", type=int, default=5,
+                   help="batches in a row without progress from a map's frontier before it is "
+                        "cleared (a dead end: back to the map start)")
     p.add_argument("--warmup-max", type=int, default=40,
                    help="random warm-up actions per group start (0..N), for start-state variety")
 
@@ -204,24 +225,33 @@ FRONTIER_SLOT = 4
 class Frontier:
     """Per (IWAD, map): the end state of the best rollout so far, as a
     start state. After each batch, the highest-return rollout on a map
-    that ended alive, exploring and short of the exit saves the game
-    (SAVE 4, where it stopped); the save is kept in root/ (so it survives
-    a restart) and copied into slot 4 of every instance on that map,
-    where it replaces the map start. The next batches start every group
-    from slot 4. A rollout reaching the exit clears the map's frontier:
-    the level is done, slot 4 holds the map start again and the cycle
-    starts over."""
+    that ended alive, exploring, short of the exit and with progress
+    (a new sector: with a portal goal, through the portal) saves the game
+    (SAVE 4, where it stopped) and its visited sectors (VISITED); both
+    are kept in root/ (so they survive a restart) and copied into slot 4
+    of every instance on that map, where the save replaces the map start
+    and the visited list is replayed after each load (so the portal it
+    came through is not new). The next batches start every group from
+    slot 4: the agent moves on portal by portal. A batch without
+    progress keeps the current start; `patience` of them in a row (a
+    dead end) clear the map's frontier, and so does a rollout reaching
+    the exit (the level is done): slot 4 holds the map start again."""
 
-    def __init__(self, root: Path | None, enabled: bool, env_pairs: list, tag: str = "train"):
-        self.root, self.enabled, self.tag = root, enabled, tag
+    def __init__(self, root: Path | None, enabled: bool, env_pairs: list, tag: str = "train",
+                 patience: int = 5):
+        self.root, self.enabled, self.tag, self.patience = root, enabled, tag, patience
         self.labels = [f"{iwad_label(w)}_{m.replace(' ', '_')}" for w, m in env_pairs]
         self.data: dict[str, bytes] = {}
+        self.visited: dict[str, str | None] = {}
+        self.stale: dict[str, int] = {}
         if root is not None and enabled:
             root.mkdir(parents=True, exist_ok=True)
             for label in set(self.labels):
                 f = root / f"{label}.dsg"
                 if f.exists():
                     self.data[label] = f.read_bytes()
+                    v = root / f"{label}.visited"
+                    self.visited[label] = v.read_text().strip() if v.exists() else None
 
     def _envs(self, label: str) -> list[int]:
         return [i for i, l in enumerate(self.labels) if l == label]
@@ -229,7 +259,7 @@ class Frontier:
     def install_all(self, vec) -> None:
         """Copy the frontiers found in root/ into fresh instances."""
         for label, data in self.data.items():
-            vec.call(self._envs(label), "install_state", (FRONTIER_SLOT, data))
+            vec.call(self._envs(label), "install_state", (FRONTIER_SLOT, data, self.visited.get(label)))
         if self.data:
             print(f"[{self.tag}] frontier starts restored: {sorted(self.data)}")
 
@@ -253,29 +283,50 @@ class Frontier:
         for label in sorted(set(self.labels)):
             idx = self._envs(label)
             if any(recs[i]["exit"] for i in idx):
-                if label in self.data:
-                    del self.data[label]
-                    vec.call(idx, "install_state", (FRONTIER_SLOT, None))
-                    if self.root is not None:
-                        (self.root / f"{label}.dsg").unlink(missing_ok=True)
+                self._clear(vec, label, idx)
                 saved[label] = None
                 continue
-            ok = [i for i in idx if not recs[i]["death"]
+            ok = [i for i in idx if not recs[i]["death"] and recs[i]["sectors_gained"] > 0
                   and recs[i]["end_info"].get("mode") == "EXPLORE"]
-            if not ok:
-                continue
-            best = max(ok, key=lambda i: recs[i]["ret"])
-            data = vec.call([best], "save_state", (FRONTIER_SLOT,))[0]
+            data = None
+            if ok:
+                best = max(ok, key=lambda i: recs[i]["ret"])
+                data = vec.call([best], "save_state", (FRONTIER_SLOT,))[0]
             if data is None:
+                # No progress from this start: keep it, unless it has
+                # been a dead end for `patience` batches in a row.
+                if label in self.data:
+                    self.stale[label] = self.stale.get(label, 0) + 1
+                    if self.stale[label] >= self.patience:
+                        self._clear(vec, label, idx)
+                        saved[label] = None
                 continue
-            self.data[label] = data
-            vec.call(idx, "install_state", (FRONTIER_SLOT, data))
+            visited = vec.call([best], "visited")[0]
+            if visited is None and not getattr(self, "_warned", False):
+                self._warned = True
+                print(f"[{self.tag}] warning: the game sent no VISITED reply (a binary older than "
+                      f"2026-11-14? rebuild with scripts/build.sh --release): progress saves carry no "
+                      f"visited list, so the portal a rollout came in by counts as new")
+            self.data[label], self.visited[label], self.stale[label] = data, visited, 0
+            vec.call(idx, "install_state", (FRONTIER_SLOT, data, visited))
             if self.root is not None:
-                tmp = self.root / f"{label}.dsg.tmp"
-                tmp.write_bytes(data)
-                os.replace(tmp, self.root / f"{label}.dsg")
+                for name, blob in ((f"{label}.dsg", data), (f"{label}.visited", (visited or "").encode())):
+                    tmp = self.root / f"{name}.tmp"
+                    tmp.write_bytes(blob)
+                    os.replace(tmp, self.root / name)
             saved[label] = round(recs[best]["ret"], 2)
         return saved
+
+    def _clear(self, vec, label: str, idx: list[int]) -> None:
+        """Back to the map start: forget the map's frontier everywhere."""
+        self.stale.pop(label, None)
+        self.visited.pop(label, None)
+        if label in self.data:
+            del self.data[label]
+            vec.call(idx, "install_state", (FRONTIER_SLOT, None))
+            if self.root is not None:
+                (self.root / f"{label}.dsg").unlink(missing_ok=True)
+                (self.root / f"{label}.visited").unlink(missing_ok=True)
 
 
 def check_slots(iwads: list[str | None], slots: list[int]) -> None:
@@ -462,6 +513,7 @@ def pack_rollouts(recs: list[dict], ro_group: list[int], ro_iwad: list[int]) -> 
         "ro_sectors": np.array([r["sectors_gained"] for r in recs], dtype=np.int32),
         "ro_exit": np.array([r["exit"] for r in recs], dtype=bool),
         "ro_death": np.array([r["death"] for r in recs], dtype=bool),
+        "ro_portal": np.array([r.get("portal", False) for r in recs], dtype=bool),
         "ro_terminated": np.array([r.get("terminated", False) for r in recs], dtype=bool),
     }
 
@@ -490,6 +542,7 @@ def unpack_rollouts(z, iwad_labels: list[str]) -> list[dict]:
             "sectors_gained": int(z["ro_sectors"][i]),
             "exit": bool(z["ro_exit"][i]),
             "death": bool(z["ro_death"][i]),
+            "portal": bool(z["ro_portal"][i]) if "ro_portal" in z else False,
             "terminated": bool(z["ro_terminated"][i]),
             "group": int(z["ro_group"][i]),
             "iwad": iwad_labels[int(z["ro_iwad"][i])],
