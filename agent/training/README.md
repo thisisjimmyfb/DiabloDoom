@@ -31,9 +31,11 @@ obs, reward, terminated, truncated, info = game.step(0)   # WALK 0
 
 - **Observation:** `uint8 (4, 84, 84)`, the last 4 decision frames in
   grayscale, area-resampled from the 320x200 screen (status bar kept).
-- **Actions:** `Discrete(8)`, see `env.ACTIONS`: `WALK 0` (a fixed step
-  forward), `TURNL`/`TURNR` (45°), `STRAFE_L`/`STRAFE_R`, `USE`, `MAP`,
-  `CONSULT`. In combat,
+- **Actions:** `Discrete(7)`, see `env.ACTIONS`: `WALK 0` (a fixed step
+  forward), `TURNL`/`TURNR` (45°), `STRAFE_L`/`STRAFE_R`, `USE`,
+  `CONSULT`. There is no `MAP` action (removed 2026-11-14): the map is
+  shown only by the env's forced glances. An 8-action checkpoint (with
+  `MAP`) is upgraded on load: `MAP`'s output is dropped, the rest kept. In combat,
   every action except `CONSULT` is dropped: no command is sent, no game
   time passes, and the step is penalized until the policy consults.
 - **CONSULT** calls `EnvConfig.consult_handler(game, state, kinds)`.
@@ -65,8 +67,19 @@ obs, reward, terminated, truncated, info = game.step(0)   # WALK 0
   compare across versions. Stage 1 has no map monsters, so there is no
   death, HP-loss, combat or stuck term (a death or a long combat still
   ends the rollout).
-  `map_toggle` (-0.1) is charged for every `MAP` (the automap opens for
-  half a second), so the policy opens it when it helps.
+  Forced map glances (`--force-map`), done by the engine: the env sends
+  `FORCEMAP N tics` when a game starts, and after every N gameplay
+  commands (WALK, turns, strafes, USE, CONSULT; a LOAD resets the count)
+  the next decision point in explore mode opens the automap, runs that
+  tic and publishes the frame with the map on it (`"forced_map":true`;
+  skipped while the map is open, never charged), so the automap sits in
+  the frame stack and the vision layers learn to read it. `--force-map N`
+  (default 4, 0 off) is fixed for the run; to change it, stop and resume
+  with another N. A forced glance keeps the map up `--force-map-tics`
+  game tics (default 1: the policy gets the map as its next frame, keeps
+  it in its frame stack, and on screen it closes on the first tic of the
+  next action -- one video frame per glance, every few seconds). The held-out eval never forces
+  glances. The training line shows `fmap N` while on.
   Positive reinforcement: `exit` (100, the top reward) for triggering the
   level complete (ends the rollout), `key` (25) per key colour, `mechanism`
   (10) for each new mechanism set going, `portal` (5) for the portal goal,

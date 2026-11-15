@@ -422,6 +422,10 @@ void RL_EmitState(const char *why, int tics)
                        ? "true" : "false",
                    p->diablo_bp_count);
         }
+        // automap: the map is on screen (Tab or the driver's MAP); the
+        // env's forced map glances check it before sending MAP.
+        RL_PUT(",\"automap\":%s,\"forced_map\":%s", automapactive ? "true" : "false",
+               T_ForcedMapFrame() ? "true" : "false");
     }
     RL_PUT("}");
 #undef RL_PUT

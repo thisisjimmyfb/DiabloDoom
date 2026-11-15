@@ -249,3 +249,25 @@ def test_capture_dirs():
     assert sum(d is not None for d in capture_dirs(pairs, 2, Path("/r"))) == 4
     assert capture_dirs(pairs, 0, Path("/r")) == [None] * 32
     assert capture_dirs([(None, "1 1")] * 2, 1, Path("/r")) == ["/r/env00_default", None]
+
+
+def test_upgrade_8_action_policy():
+    """An 8-action checkpoint (with MAP at 6) loads into the 7-action
+    policy: MAP's row is dropped, every other output (CONSULT included)
+    keeps its weights, and the optimizer state follows."""
+    import torch
+    from model import ACTIONS, OLD_MAP_INDEX, upgrade_optimizer_state, upgrade_policy_state
+    assert "MAP" not in ACTIONS and len(ACTIONS) == 7
+    old = Policy(n_actions=8)
+    state = upgrade_policy_state(old.state_dict())
+    new = Policy()
+    new.load_state_dict(state)
+    keep = [i for i in range(8) if i != OLD_MAP_INDEX]
+    assert torch.equal(new.policy_head.weight, old.policy_head.weight[keep])
+    assert torch.equal(new.policy_head.bias[-1], old.policy_head.bias[7]), "CONSULT keeps its weights"
+    opt = torch.optim.Adam(old.parameters())
+    old(torch.zeros(1, 4, 84, 84), torch.zeros(1, 2))[0].sum().backward()
+    opt.step()
+    new_opt = torch.optim.Adam(new.parameters())
+    new_opt.load_state_dict(upgrade_optimizer_state(opt.state_dict(), new))
+    assert upgrade_policy_state(new.state_dict())["policy_head.weight"].shape[0] == 7, "a current policy is unchanged"

@@ -19,9 +19,10 @@ import torch.nn as nn
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from env import ACTIONS, CONSULT  # noqa: E402
 
-MAP_ACTION = ACTIONS.index("MAP")
-# Warm-up uses movement only (no MAP toggle, no CONSULT).
-WARMUP_ACTIONS = [i for i in range(len(ACTIONS)) if i not in (CONSULT, MAP_ACTION)]
+# Warm-up uses movement only (no CONSULT).
+WARMUP_ACTIONS = [i for i in range(len(ACTIONS)) if i != CONSULT]
+# The action set before MAP was removed (2026-11-14): MAP was output 6 of 8.
+OLD_ACTIONS_WITH_MAP, OLD_MAP_INDEX = 8, 6
 N_PRIV = 2  # privileged critic inputs: HP/100, exit path distance (SPEC.md §6)
 
 
@@ -32,7 +33,8 @@ N_PRIV = 2  # privileged critic inputs: HP/100, exit path distance (SPEC.md §6)
 def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
              slots_dir: str | None, slots: list[int], capture_dir: str | None = None,
              spawn_tics: int = 0, nodraw: bool = False, noblit: bool = False,
-             portal_goal: int = 0, time_penalty: float = 0.0):
+             portal_goal: int = 0, time_penalty: float = 0.0,
+             force_map: int = 0, force_map_tics: int = 1):
     """time_penalty: reward per game second (negative pays, e.g. 1/3
     costs a point every 3 s), with portal_goal n > 0 ending a rollout
     once it reaches n new sectors."""
@@ -63,6 +65,8 @@ def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
         start_slots=list(slots),
         consult_handler=standin_consult,
         portal_goal=portal_goal,
+        force_map_every=force_map,
+        force_map_tics=force_map_tics,
         rewards=RewardConfig(time=time_penalty / 35.0),
     ))
 
@@ -106,9 +110,39 @@ class Policy(nn.Module):
         return logits, value
 
 
+def upgrade_policy_state(state: dict) -> dict:
+    """A policy state dict from the 8-action set (with MAP) -> the
+    current one: drop MAP's row of the policy head (every other output
+    keeps its weights, so the policy acts the same minus MAP). Anything
+    else is returned unchanged."""
+    w = state.get("policy_head.weight")
+    if w is not None and w.shape[0] == OLD_ACTIONS_WITH_MAP and len(ACTIONS) == OLD_ACTIONS_WITH_MAP - 1:
+        keep = [i for i in range(OLD_ACTIONS_WITH_MAP) if i != OLD_MAP_INDEX]
+        state = dict(state)
+        state["policy_head.weight"] = w[keep].clone()
+        state["policy_head.bias"] = state["policy_head.bias"][keep].clone()
+        print("[ckpt] upgraded an 8-action policy (MAP removed)")
+    return state
+
+
+def upgrade_optimizer_state(opt_state: dict, policy) -> dict:
+    """The Adam state of an 8-action checkpoint -> the current policy:
+    drop MAP's row from the policy head's moment estimates."""
+    names = [n for n, _ in policy.named_parameters()]
+    keep = [i for i in range(OLD_ACTIONS_WITH_MAP) if i != OLD_MAP_INDEX]
+    for idx in (names.index("policy_head.weight"), names.index("policy_head.bias")):
+        st = opt_state["state"].get(idx)
+        if not st:
+            continue
+        for k in ("exp_avg", "exp_avg_sq"):
+            if k in st and st[k].shape[0] == OLD_ACTIONS_WITH_MAP:
+                st[k] = st[k][keep].clone()
+    return opt_state
+
+
 def load_weights(path: str) -> dict:
     ckpt = torch.load(path, map_location="cpu", weights_only=False)
-    return ckpt["policy"] if "policy" in ckpt else ckpt
+    return upgrade_policy_state(ckpt["policy"] if "policy" in ckpt else ckpt)
 
 
 # ---------------------------------------------------------------------------
@@ -211,6 +245,15 @@ def add_env_args(p) -> None:
     p.add_argument("--frontier-patience", type=int, default=5,
                    help="batches in a row without progress from a map's frontier before it is "
                         "cleared (a dead end: back to the map start)")
+    p.add_argument("--force-map", type=int, default=4,
+                   help="forced map glance: the env sends MAP itself after every N steps, so the "
+                        "automap is in the frame stack and the vision layers learn to read it "
+                        "(0: off). Fixed for the run; resume with another N to change it. The "
+                        "held-out eval never forces glances")
+    p.add_argument("--force-map-tics", type=int, default=1,
+                   help="game tics a forced glance keeps the map on screen (MAP <tics>, 1-350; default "
+                        "1: the policy still gets the map as its next frame, and it closes on the "
+                        "first tic of the next action)")
     p.add_argument("--warmup-max", type=int, default=40,
                    help="random warm-up actions per group start (0..N), for start-state variety")
 

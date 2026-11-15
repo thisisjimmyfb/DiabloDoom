@@ -35,7 +35,7 @@ from torch.distributions import Categorical
 from model import (BATCH_DIR, DONE_FILE, WARMUP_ACTIONS, Frontier, Policy, add_env_args, allocate_groups,
                    capture_dirs,
                    check_slots, env_label, iwad_label, make_env, pack_rollouts, parse_list,
-                   init_weights_if_absent, privileged, read_weights, resolve_iwads)
+                   init_weights_if_absent, privileged, read_weights, resolve_iwads, upgrade_policy_state)
 from env import cleanup_stale  # noqa: E402  (model.py put env on sys.path)
 from env.vector import GroupVecEnv  # noqa: E402
 
@@ -212,7 +212,7 @@ def main():
 
     def load(w: dict) -> None:
         nonlocal version, run_id
-        policy.load_state_dict(w["policy"])
+        policy.load_state_dict(upgrade_policy_state(w["policy"]))
         version, run_id = w["version"], w.get("run_id")
 
     def wait_for_weights() -> None:
@@ -264,12 +264,15 @@ def main():
         vec = GroupVecEnv([functools.partial(make_env, w, m, args.stage, args.skill, args.max_tics,
                                              args.slots_dir, slots, captures[i],
                                              spawn_tics=args.spawn_tics, nodraw=args.nodraw, noblit=args.noblit,
-                                         portal_goal=args.portal_goal, time_penalty=args.time_penalty)
+                                         portal_goal=args.portal_goal, time_penalty=args.time_penalty,
+                                         force_map=args.force_map, force_map_tics=args.force_map_tics)
                            for i, (w, m) in enumerate(env_pairs)])
         # Frontier starts, per actor (its own maps and instances).
         frontier = Frontier(spool / "frontier" / args.actor_id, args.frontier, env_pairs, tag,
                             patience=args.frontier_patience)
         frontier.install_all(vec)
+        print(f"[{tag}] forced map glance " + (f"every {args.force_map} steps, {args.force_map_tics} tics on screen"
+                                               if args.force_map > 0 else "off"))
         # Workers keep no state, so a restart must not replay the same
         # starts: the sampler mixes in the actor id and the start time.
         sampler = np.random.default_rng([args.seed, zlib.crc32(args.actor_id.encode()), time.time_ns()])

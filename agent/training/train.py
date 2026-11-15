@@ -119,7 +119,8 @@ def main():
     vec = GroupVecEnv([functools.partial(make_env, w, m, args.stage, args.skill, args.max_tics,
                                          args.slots_dir, slots, captures[i],
                                          spawn_tics=args.spawn_tics, nodraw=args.nodraw, noblit=args.noblit,
-                                         portal_goal=args.portal_goal, time_penalty=args.time_penalty)
+                                         portal_goal=args.portal_goal, time_penalty=args.time_penalty,
+                                         force_map=args.force_map, force_map_tics=args.force_map_tics)
                        for i, (w, m) in enumerate(env_pairs)])
     eval_vec = None
     if eval_maps and args.eval_every > 0:
@@ -144,8 +145,11 @@ def main():
     # Frontier starts: each map's best rollout end state so far.
     frontier = Frontier(run_dir / "frontier", args.frontier, env_pairs, patience=args.frontier_patience)
     frontier.install_all(vec)
+    print("[train] forced map glance " + (f"every {args.force_map} steps, {args.force_map_tics} tics on screen"
+                                           if args.force_map > 0 else "off"))
 
-    def play() -> tuple[list[dict], float]:
+    def play(it: int) -> tuple[list[dict], float]:
+        """The batch for update `it`."""
         t = time.time()
         options = frontier.options(sample_group_options(sampler, groups, G, slots, args.warmup_max),
                                    G)
@@ -164,7 +168,7 @@ def main():
         for it in range(start_it, args.iterations):
             t0 = time.time()
             if ahead is None:
-                (recs, t_roll), lag = play(), 0
+                (recs, t_roll), lag = play(it), 0
             else:
                 (recs, t_roll), lag = ahead, 1
                 ahead = None
@@ -186,7 +190,7 @@ def main():
                         box["err"] = e
                 th = threading.Thread(target=run_update, daemon=True)
                 th.start()
-                ahead = play()                      # still the pre-update weights
+                ahead = play(it + 1)                # still the pre-update weights
                 th.join()
                 if "err" in box:
                     raise box["err"]
@@ -209,7 +213,8 @@ def main():
                  "sps": m["steps"] / t_roll, "rollout_s": t_roll, "iter_s": t_all, "lag": lag, **upd}
             metrics_f.write(json.dumps(m) + "\n")
             metrics_f.flush()
-            print_train(it, m, upd, f" ({m['sps']:.0f}/s) {t_all:.1f}s")
+            print_train(it, m, upd, (f" fmap {args.force_map}" if args.force_map > 0 else "")
+                        + f" ({m['sps']:.0f}/s) {t_all:.1f}s")
 
             save_checkpoint(run_dir / f"ckpt_{it:06d}.pt", {
                 "policy": policy.state_dict(), "optimizer": optimizer.state_dict(),

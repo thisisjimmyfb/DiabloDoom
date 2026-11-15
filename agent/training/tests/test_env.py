@@ -320,7 +320,7 @@ def test_time_distance_penalty():
     far_scale), d the mean of its start and end goal distances."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0,
                         trigger_miss=0, consult_false=0, key=0,
-                        map_toggle=0, time=1.0, far_scale=256.0)
+                        time=1.0, far_scale=256.0)
     e = make_env(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only,
                  max_tics=100000, consult_handler=standin_consult)
     try:
@@ -354,7 +354,7 @@ def test_portal_goal():
     load (VISIT), so the next rollout's goal is a sector beyond it."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0,
                         trigger_miss=0, consult_false=0, key=0,
-                        map_toggle=0, time=0.01, far_scale=1e12, portal=5.0)   # time only
+                        time=0.01, far_scale=1e12, portal=5.0)   # time only
     e = DiabloDoomEnv(EnvConfig(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only,
                                 max_tics=100000, portal_goal=1, consult_handler=standin_consult))
     try:
@@ -383,19 +383,64 @@ def test_portal_goal():
 
 
 @pytest.mark.game
-def test_map_penalty():
-    """E1M1: MAP opens the automap and costs map_toggle; with every other
-    reward off that is the step's whole reward."""
+def test_forced_map_glance():
+    """force_map_every=2: after every 2nd step the env sends MAP itself --
+    the next frame is the automap (state automap true) and nothing is
+    charged."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0,
-                        trigger_miss=0, consult_false=0, key=0,
-                        time=0, map_toggle=-0.1)
+                        trigger_miss=0, consult_false=0, key=0, time=0)
     e = DiabloDoomEnv(EnvConfig(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only,
+                                max_tics=100000, force_map_every=2, consult_handler=standin_consult))
+    tl = ACTIONS.index("TURNL")
+    try:
+        _, info = e.reset(options={"seed": 0})
+        assert info["state"]["automap"] is False
+        forced = []
+        for _ in range(6):
+            obs, r, *_, info = e.step(tl)
+            forced.append(info["forced_map"])
+            assert r == 0, "a forced glance is never charged"
+            if info["forced_map"]:
+                assert info["state"]["automap"] is True
+                assert (obs[-1] < 8).mean() > 0.5, "the frame the policy sees is the automap"
+        assert forced == [False, True] * 3 or forced == [False, True, False, False, True, False], forced
+        e.set_force_map(0)
+        for _ in range(4):
+            _, _, _, _, info = e.step(tl)
+            assert not info["forced_map"]
+    finally:
+        e.close()
+
+
+@pytest.mark.game
+def test_map_tics():
+    """MAP <tics> keeps the automap up that many game tics (plain MAP: 18),
+    and a forced glance uses force_map_tics."""
+    e = DiabloDoomEnv(EnvConfig(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]),
                                 max_tics=100000, consult_handler=standin_consult))
+    tl = ACTIONS.index("TURNL")
     try:
         e.reset(options={"seed": 0})
-        _, r, *_ = e.step(ACTIONS.index("MAP"))
-        assert abs(r + 0.1) < 1e-9, r
-        _, r, *_ = e.step(ACTIONS.index("TURNL"))
-        assert r == 0
+
+        def shown_for(cmd):
+            d, _ = e.engine.command(cmd)
+            assert d["automap"] is True
+            t = 0
+            while d["automap"]:
+                d, _ = e.engine.command("TURNL")     # 10 tics each
+                t += d["tics"]
+            return t
+        assert 10 < shown_for("MAP") <= 20, "plain MAP: 18 tics"
+        assert 60 < shown_for("MAP 70") <= 80
+        e.set_force_map(1, 40)
+        _, _, _, _, info = e.step(tl)
+        assert info["forced_map"] and info["state"]["automap"]
+        t = 0
+        while True:
+            _, _, _, _, info = e.step(tl)
+            t += info["tics"] - (1 if info["forced_map"] else 0)
+            if info["forced_map"] or not info["state"]["automap"]:
+                break
+        assert 30 < t <= 50, t
     finally:
         e.close()

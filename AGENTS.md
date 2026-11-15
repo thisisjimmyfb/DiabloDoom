@@ -91,8 +91,15 @@ the current cell when stalled off-centre across a face line, and
 COLLECT rides on GOTO — it filters loot positions and hands them
 over as destinations), `KEYS`, `SECTORS`
 (visited-sector progress), `TURNL`/`TURNR`, `ATTACK`, `UNDO`, `END`, `COLLECT`,
-`MAP` (open the automap like Tab for 0.5 s of game time (18 tics), then it closes by
-itself; MAP while open closes it; explore mode only, 2026-11-14),
+`MAP [tics]` (open the automap like Tab for <tics> game tics -- default 18,
+0.5 s; clamped to 1..350 -- then it closes by itself; MAP while open
+closes it; explore mode only, 2026-11-14),
+`FORCEMAP <every> [tics]` (`-rlenv` only, 2026-11-14; also the launch flag
+`-rlforcemap <every> [tics]`, which works under `-rldrive` too: after every
+<every> gameplay commands -- WALK, turns, strafes, USE, CONSULT; LOAD resets
+the count -- the next explore decision point opens the automap for <tics>
+(default 1) and publishes that frame, the state line marking it
+`forced_map`; 0 turns it off),
 `VISITED`/`VISIT <offset> <hex>` (`-rlenv` only, 2026-11-14: read / mark
 the visited sectors as a hex bitmask, one digit per 4 sectors; training
 carries a progress save's visited list across its LOAD), `SCREENSHOT`, `CAPTURE`/`REPLAY` (15 s MP4; the encode runs on a
@@ -148,6 +155,8 @@ line carries `exit_dist` and `frontier_dist`, map units to the nearest
 exit line and to the nearest passable opening into an unvisited sector
 (-1 when none), for the env's distance penalty only -- never a policy
 input, so the 2026-10-21 no-oracle ruling for the farm agent stands.
+Automap (2026-11-14): it also carries `automap` (the map is on screen),
+which the env's forced map glances check before sending `MAP`.
 Keys (2026-11-14): it also carries `keys`, the key colours held (1 blue,
 2 yellow, 4 red; card or skull), for the env's once-per-colour key reward.
 CONSULT (2026-11-13): the state line carries `monstervis` (a living

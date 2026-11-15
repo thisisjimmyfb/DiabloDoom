@@ -37,7 +37,7 @@ from torch.distributions import Categorical
 
 from model import (ACTIONS, BATCH_DIR, DONE_FILE, Policy, export_latest_checkpoint,
                    load_latest_checkpoint, load_weights, publish_weights, read_weights, restore_rng,
-                   rng_state, save_checkpoint, unpack_rollouts)
+                   rng_state, save_checkpoint, unpack_rollouts, upgrade_optimizer_state, upgrade_policy_state)
 
 
 # ---------------------------------------------------------------------------
@@ -225,8 +225,8 @@ def setup_learner(args, run_dir: Path, device: torch.device, sampler: np.random.
     run_id = uuid.uuid4().hex[:8]
     ckpt = load_latest_checkpoint(run_dir)
     if ckpt is not None:
-        policy.load_state_dict(ckpt["policy"])
-        optimizer.load_state_dict(ckpt["optimizer"])
+        policy.load_state_dict(upgrade_policy_state(ckpt["policy"]))
+        optimizer.load_state_dict(upgrade_optimizer_state(ckpt["optimizer"], policy))
         restore_rng(ckpt["rng"], sampler)
         start_it = ckpt["iteration"] + 1
         total_steps, total_tics = ckpt["total_steps"], ckpt["total_tics"]
@@ -237,7 +237,7 @@ def setup_learner(args, run_dir: Path, device: torch.device, sampler: np.random.
         policy.load_state_dict(load_weights(args.init))
         print(f"[init] weights from {args.init}")
     elif spool is not None and (w := read_weights(spool)) is not None:
-        policy.load_state_dict(w["policy"])
+        policy.load_state_dict(upgrade_policy_state(w["policy"]))
         if w["version"] == 0 and w.get("run_id"):
             # Version-0 weights from a worker: keep their run id, so the
             # batches already played with them are accepted.

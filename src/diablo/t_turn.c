@@ -117,7 +117,8 @@ static void T_SpotPlayer(mobj_t *mo, boolean by_sight)
 // Driver MAP (2026-11-14): the automap it opens closes by itself after
 // T_MAP_SHOW_TICS game tics (T_MapTick, every explore tic). -1: no
 // driver-opened map pending (Tab's map stays until toggled).
-#define T_MAP_SHOW_TICS 18      // about half a second (35 tics/s)
+#define T_MAP_SHOW_TICS 18      // MAP's default: about half a second (35 tics/s)
+#define T_MAP_MAX_TICS  350     // MAP <tics> is clamped to 1..this (10 s)
 static int t_map_close_tic = -1;
 
 static void T_MapClose(void)
@@ -129,6 +130,82 @@ static void T_MapClose(void)
         viewactive = true;
         AM_Stop();
     }
+}
+
+// Forced map glance (-rlenv/-rldrive, 2026-11-14): after every
+// rl_fmap_every gameplay commands (WALK, turns, strafes, USE, CONSULT;
+// a LOAD resets the count), the next decision point in explore mode
+// opens the automap for rl_fmap_tics instead of publishing, runs that
+// tic, and publishes the frame with the map on it ("forced_map":true).
+// In the engine, not the driver, so no pipe round-trip and no lateness
+// under -rldrive. Set by -rlforcemap <every> [tics] or the FORCEMAP
+// driver command; 0 turns it off.
+static int rl_fmap_every = -1;         // -1: -rlforcemap not parsed yet
+static int rl_fmap_tics = 1;
+static int rl_fmap_count = 0;
+static boolean rl_fmap_frame = false;  // the next published decision shows a forced glance
+
+boolean T_ForcedMapFrame(void)
+{
+    return rl_fmap_frame;
+}
+
+static void T_ForceMapParse(void)
+{
+    int p;
+    if (rl_fmap_every >= 0)
+        return;
+    rl_fmap_every = 0;
+    p = M_CheckParmWithArgs("-rlforcemap", 1);
+    if (p > 0)
+    {
+        rl_fmap_every = atoi(myargv[p + 1]);
+        if (p + 2 < myargc && myargv[p + 2][0] != '-')
+            rl_fmap_tics = atoi(myargv[p + 2]);
+    }
+    if (rl_fmap_every < 0)
+        rl_fmap_every = 0;
+    if (rl_fmap_tics < 1)
+        rl_fmap_tics = 1;
+}
+
+static void T_ForceMapNoteCommand(const char *cmd)
+{
+    static const char *acts[] = { "WALK", "TURNL", "TURNR", "STRAFE_L", "STRAFE_R",
+                                  "USE", "CONSULT", NULL };
+    int i;
+    if (!strncmp(cmd, "LOAD", 4) && (cmd[4] == '\0' || cmd[4] == ' '))
+    {
+        rl_fmap_count = 0;
+        return;
+    }
+    for (i = 0; acts[i] != NULL; i++)
+    {
+        size_t n = strlen(acts[i]);
+        if (!strncmp(cmd, acts[i], n) && (cmd[n] == '\0' || cmd[n] == ' '))
+        {
+            rl_fmap_count++;
+            return;
+        }
+    }
+}
+
+// At a decision point: if a forced glance is due, open the map and
+// return true (publish at the next tic, with the map rendered).
+static boolean T_ForceMapDue(void)
+{
+    extern void AM_Start(void);
+    player_t *pl = &players[consoleplayer];
+    T_ForceMapParse();
+    if (rl_fmap_every <= 0 || rl_fmap_count < rl_fmap_every || gamestate != GS_LEVEL
+        || !T_InExplore() || automapactive || pl->mo == NULL || pl->health <= 0)
+        return false;
+    AM_Start();
+    viewactive = false;
+    t_map_close_tic = gametic + rl_fmap_tics;
+    rl_fmap_count = 0;
+    rl_fmap_frame = true;
+    return true;
 }
 
 static void T_MapTick(void)
@@ -1390,8 +1467,11 @@ static void rl_decision_point(void)
 
     if (!rl_decision_due())
         return;
+    if (T_ForceMapDue())
+        return;                     // the next tic renders the map, then publishes
     RL_PublishFrame();
     RL_EmitState("decision", gametic - rl_last_decision_tic);
+    rl_fmap_frame = false;
     rl_last_decision_tic = gametic;
     rl_settle_tics = 0;
     pfd.fd = cmdfd;
@@ -1435,8 +1515,11 @@ static void rl_decision_publish(void)
     kind = rl_decision_kind();
     if (kind == rl_published_kind)
         return;
+    if (T_ForceMapDue())
+        return;                     // the next tic renders the map, then publishes
     RL_PublishFrame();
     RL_EmitState("decision", gametic - rl_last_decision_tic);
+    rl_fmap_frame = false;
     rl_last_decision_tic = gametic;
     rl_settle_tics = 0;
     rl_published_kind = kind;
@@ -1776,6 +1859,8 @@ static void T_SnapToNearestWall(void)
 // Dispatch a single driver command line from the FIFO.
 static void cmd_dispatch(const char *cmd)
 {
+    T_ForceMapParse();
+    T_ForceMapNoteCommand(cmd);
     // Any driver command counts as activity for the idle Zug Zug timer.
     {
         extern void D_UINoteActivity(void);
@@ -2163,14 +2248,24 @@ static void cmd_dispatch(const char *cmd)
                pl->cards[it_bluecard] || pl->cards[it_blueskull],
                pl->cards[it_yellowcard] || pl->cards[it_yellowskull]);
     }
-    else if (!strcmp(cmd, "MAP"))
+    else if (!strcmp(cmd, "MAP") || !strncmp(cmd, "MAP ", 4))
     {
-        // MAP: open the automap like Tab (am_map.c's AM_Responder:
-        // AM_Start and the 3D view off) for T_MAP_SHOW_TICS (0.5 s of
-        // game time), then T_MapTick closes it; MAP while it is open
-        // closes it at once. Explore mode only -- combat hides the map
-        // on entry (T_EnterCombat), so in combat MAP does nothing.
+        // MAP [tics]: open the automap like Tab (am_map.c's
+        // AM_Responder: AM_Start and the 3D view off) for <tics> game
+        // tics (default T_MAP_SHOW_TICS, 0.5 s; clamped to
+        // 1..T_MAP_MAX_TICS), then T_MapTick closes it; MAP (with or
+        // without tics) while it is open closes it at once. Explore mode
+        // only -- combat hides the map on entry (T_EnterCombat), so in
+        // combat MAP does nothing.
         extern void AM_Start(void);
+        int show = T_MAP_SHOW_TICS;
+        if (cmd[3] == ' ' && sscanf(cmd + 4, "%d", &show) == 1)
+        {
+            if (show < 1)
+                show = 1;
+            if (show > T_MAP_MAX_TICS)
+                show = T_MAP_MAX_TICS;
+        }
         if (!T_InExplore())
         {
             printf("[MAP] blocked: explore mode only\n");
@@ -2179,8 +2274,8 @@ static void cmd_dispatch(const char *cmd)
         {
             AM_Start();
             viewactive = false;
-            t_map_close_tic = gametic + T_MAP_SHOW_TICS;
-            printf("[MAP] automap on (closes in %d tics)\n", T_MAP_SHOW_TICS);
+            t_map_close_tic = gametic + show;
+            printf("[MAP] automap on (closes in %d tics)\n", show);
         }
         else
         {
@@ -2294,6 +2389,23 @@ static void cmd_dispatch(const char *cmd)
         printf("[VERSION] " GIT_COMMIT_HASH "\n");
         RL_Emit("{\"event\":\"version\",\"commit\":\"%s\",\"gametic\":%d}",
                 GIT_COMMIT_HASH, gametic);
+    }
+    else if (rlenv && !strncmp(cmd, "FORCEMAP", 8) && (cmd[8] == '\0' || cmd[8] == ' '))
+    {
+        // FORCEMAP <every> [tics] (-rlenv): set the forced map glance
+        // (see T_ForceMapDue); FORCEMAP 0 turns it off.
+        int every = 0, tics = rl_fmap_tics;
+        if (sscanf(cmd + 8, "%d %d", &every, &tics) >= 1)
+        {
+            rl_fmap_every = every < 0 ? 0 : every;
+            rl_fmap_tics = tics < 1 ? 1 : (tics > T_MAP_MAX_TICS ? T_MAP_MAX_TICS : tics);
+            rl_fmap_count = 0;
+            printf("[FORCEMAP] every %d actions, %d tics\n", rl_fmap_every, rl_fmap_tics);
+        }
+        else
+        {
+            printf("[FORCEMAP] usage: FORCEMAP <every> [tics]\n");
+        }
     }
     else if (rlenv && !strcmp(cmd, "VISITED"))
     {

@@ -27,11 +27,11 @@ ACTIONS = [
     "TURNL", "TURNR",
     "STRAFE_L", "STRAFE_R",
     "USE",
-    "MAP",
+    # No MAP (removed 2026-11-14): the policy never opens the map itself;
+    # the env's forced glances (EnvConfig.force_map_every) do.
     "CONSULT",
 ]
 CONSULT = ACTIONS.index("CONSULT")
-MAP = ACTIONS.index("MAP")
 EXPLORE = "EXPLORE"
 COMBAT_MODES = {"PLANNING", "TARGETING", "CONFIRM", "PULSE", "REACTION", "ROUND_END"}
 
@@ -47,7 +47,6 @@ class RewardConfig:
     trigger_miss: float = -8.0        # trigger unanswered after the grace window
     grace_decisions: int = 5
     consult_false: float = -0.5       # CONSULT with no live, unanswered trigger
-    map_toggle: float = -0.1          # per MAP action: a small cost, so the map is opened when it helps
     # Time and distance, one penalty: every game tic costs
     #   time * (1 + d / far_scale)
     # where d is the distance (map units) to the nearest goal -- an exit
@@ -133,6 +132,12 @@ class EnvConfig:
     # installed with a visited list (install_state) counts those as
     # visited, so going back through the portal it came in by is not new.
     portal_goal: int = 0
+    # n > 0: a forced map glance every n actions, done by the engine
+    # (FORCEMAP, sent when the game starts): after every n gameplay
+    # commands the next decision shows the automap for force_map_tics,
+    # so it is in the frame stack and the vision layers learn to read it.
+    force_map_every: int = 0
+    force_map_tics: int = 1           # game tics a forced glance keeps the map up (MAP <tics>): 1 = only the next frame
     consult_handler: Optional[ConsultHandler] = None
 
 
@@ -255,6 +260,8 @@ class DiabloDoomEnv(gym.Env):
             self._map_start = boot.read_bytes() if boot.exists() else None
             for slot in self._installed:
                 self._write_installed(slot)
+            # Forced map glances run in the engine (FORCEMAP).
+            self.engine.command(f"FORCEMAP {self.cfg.force_map_every} {self.cfg.force_map_tics}")
             self._pre = Preprocessor(self.engine.width, self.engine.height, self.cfg.size)
 
         slot = opts.get("slot")
@@ -340,8 +347,6 @@ class DiabloDoomEnv(gym.Env):
             d, events = self.engine.command(ACTIONS[a])
             tics = max(d.get("tics", 0), 0)
             sent = True
-            if a == MAP:
-                reward += rc.map_toggle
 
         self.state = d
         self._tics += tics
@@ -401,7 +406,17 @@ class DiabloDoomEnv(gym.Env):
         info = self._info(tics, d)
         info["exit"] = exited
         info["portal"] = portal
+        info["forced_map"] = bool(d.get("forced_map"))   # the engine's forced glance (FORCEMAP)
         return obs, float(reward), terminated, truncated, info
+
+    def set_force_map(self, every: int, tics: int | None = None) -> None:
+        """Change the forced map glance period (0: off) and optionally how
+        many tics a forced glance shows the map (the engine's FORCEMAP)."""
+        self.cfg.force_map_every = int(every)
+        if tics is not None:
+            self.cfg.force_map_tics = int(tics)
+        if self.engine.proc is not None and self.engine.proc.poll() is None:
+            self.engine.command(f"FORCEMAP {self.cfg.force_map_every} {self.cfg.force_map_tics}")
 
     def render(self):
         if self.render_mode == "rgb_array":

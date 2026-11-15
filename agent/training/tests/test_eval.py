@@ -16,7 +16,7 @@ import pytest
 
 from env import ACTIONS, CONSULT
 from eval import sample_group_options, write_batch
-from model import (BATCH_DIR, DONE_FILE, MAP_ACTION, WARMUP_ACTIONS, Policy, pack_rollouts,
+from model import (BATCH_DIR, DONE_FILE, WARMUP_ACTIONS, Policy, pack_rollouts,
                    publish_weights, read_weights, unpack_rollouts)
 
 HERE = Path(__file__).resolve().parents[1]
@@ -45,8 +45,8 @@ def test_group_starts_shared():
 
 def test_warmup_moves_only():
     """Warm-up actions never toggle the map or consult."""
-    assert CONSULT not in WARMUP_ACTIONS and MAP_ACTION not in WARMUP_ACTIONS
-    assert len(WARMUP_ACTIONS) == len(ACTIONS) - 2
+    assert CONSULT not in WARMUP_ACTIONS
+    assert len(WARMUP_ACTIONS) == len(ACTIONS) - 1
     opts = sample_group_options(np.random.default_rng(0), 20, 1, [], warmup_max=40)
     assert all(a in WARMUP_ACTIONS for o in opts for a in o["warmup"])
 
