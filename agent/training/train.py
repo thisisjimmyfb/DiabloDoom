@@ -78,7 +78,17 @@ def parse_args():
     return p.parse_args()
 
 
+def format_duration(seconds: float) -> str:
+    """A wall-clock duration as h:mm:ss (days added past 24 hours)."""
+    s = int(round(seconds))
+    d, s = divmod(s, 86400)
+    h, s = divmod(s, 3600)
+    m, s = divmod(s, 60)
+    return (f"{d}d " if d else "") + f"{h}:{m:02d}:{s:02d}"
+
+
 def main():
+    t_start = time.time()
     args = parse_args()
     run_dir = Path(args.run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -286,6 +296,8 @@ def main():
             eval_vec.close()
         if hub is not None:
             hub.finish(run_dir / CKPT_NAME if saved_it is not None else None, saved_it)
+        done = 0 if saved_it is None else saved_it + 1 - start_it
+        print(f"[train] run took {format_duration(time.time() - t_start)} ({done} update{'' if done == 1 else 's'} this run)")
 
 
 if __name__ == "__main__":
