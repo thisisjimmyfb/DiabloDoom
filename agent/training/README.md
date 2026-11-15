@@ -96,7 +96,10 @@ obs, reward, terminated, truncated, info = game.step(0)   # WALK 0
   `sector` (1) per new sector.
   `key` (25) pays each key colour (blue, yellow, red) the first time it is
   held in a rollout, from the state line's `keys` mask; keys held at the
-  start pay nothing.
+  start pay nothing. In training a new key also ends the rollout (`end`
+  "key", the key goal), so its end state competes with the batch's
+  portal rollouts for the next start (see Frontier starts); the held-out
+  eval doesn't stop at keys.
 - **info:** `tics` for this step, `rollout_tics`, `mode`, `group`, `slot`,
   `seed`, `exit`, and `state` (the engine's STATE line, for logging and
   the critic; never part of the observation).
@@ -169,18 +172,20 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   `--ent-coef` 0.01, and an optional KL to a reference policy
   (`--ref`, `--beta`).
 - **Frontier starts:** a rollout stops at `--max-tics` (or at the portal
-  goal), so on its own training would only ever see the start of each
+  or key goal), so on its own training would only ever see the start of each
   map. Every group loads its start from slot 4 (the map start until there
   is progress), so all its members start from the identical state. After
   every batch, each map's highest-return rollout that ended alive,
-  exploring, short of the exit and with progress (a new sector) -- only
+  exploring, short of the exit and with progress (a new sector, or a new
+  key) -- only
   that one -- saves the game where it stopped to slot 5 (`SAVE 5`, so the
   start in slot 4 is never overwritten mid-batch) along with its visited
   sectors (`VISITED`; replayed with `VISIT` after each load, since saves
   don't store them, so the portal it came in by is not new). The save is
   copied into slot 5 of every instance on that map, then slots 4 and 5
   swap there: the progress is the next batch's start in 4, the old start
-  sits in 5. With the portal goal the agent moves on portal by portal. A
+  sits in 5. With the portal goal the agent moves on portal by portal,
+  and key by key: the save holds the key, so the next start has it. A
   batch without progress keeps the current start; `--frontier-patience`
   (5) of them in a row at the full tic budget (a dead end) clear it, back to the map start. The
   save is also kept in `<run-dir>/frontier/<iwad>_<map>.dsg` (visited
@@ -220,8 +225,8 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   `config.json`, plus `runs/<name>/rollouts.jsonl` for debugging: one line
   per training rollout giving the env
   index, group and map, the start (`map` or `frontier`, slot, seed,
-  warm-up length), why it ended (`end`: exit, death, portal, time,
-  combat), its tics against that map's `max_tics`, the return split by
+  warm-up length), why it ended (`end`: exit, death, key, portal,
+  time, combat), its tics against that map's `max_tics`, the return split by
   reward term (`terms`), sectors gained, HP, position and sector at the
   start and end, goal distances, action counts, and what the frontier did
   for its map (`frontier`: saved, exit, stale or kept; `picked` on the

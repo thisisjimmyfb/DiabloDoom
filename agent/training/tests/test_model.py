@@ -116,8 +116,9 @@ class _FakeVec:
         return out
 
 
-def _end(ret, mode="EXPLORE", death=False, exit=False, gained=1):
-    return {"ret": ret, "death": death, "exit": exit, "sectors_gained": gained, "end_info": {"mode": mode}}
+def _end(ret, mode="EXPLORE", death=False, exit=False, gained=1, key=False):
+    return {"ret": ret, "death": death, "exit": exit, "sectors_gained": gained, "key": key,
+            "end_info": {"mode": mode}}
 
 
 def test_frontier(tmp_path):
@@ -181,6 +182,21 @@ def test_frontier_progress(tmp_path):
     assert vec.slots == [None, None] and not (tmp_path / "default_1_1.visited").exists()
 
 
+def test_frontier_key(tmp_path):
+    """A rollout that got a key is progress even without a new sector: it
+    competes on score with the sector rollouts, and the best one is saved."""
+    pairs = [(None, "1 1")] * 3
+    vec = _FakeVec(3)
+    f = Frontier(tmp_path, True, pairs)
+    assert f.update(vec, [_end(30, gained=0, key=True), _end(5, gained=1), _end(40, gained=0)]) \
+        == {"default_1_1": 30}, "the key rollout outscores the sector one; no progress, no save"
+    assert vec.slots == [b"save-of-env0"] * 3
+    assert f.update(vec, [_end(10, gained=0, key=True), _end(12, gained=1), _end(0, gained=0)]) \
+        == {"default_1_1": 12}, "a sector rollout with a higher score wins"
+    assert f.update(vec, [_end(50, gained=0, key=True, death=True)] + [_end(0, gained=0)] * 2) == {}, \
+        "a key and then a death is no start"
+
+
 def test_tic_budget():
     """A map's rollout limit grows x1.5 after a batch where nobody got a
     new sector, up to the cap; progress (or a cleared frontier) resets it;
@@ -205,6 +221,9 @@ def test_tic_budget():
         b.update([stuck] * 4)
         assert b.tics["default_1_1"] == want
     assert b.growing() == frozenset(), "both maps at the cap"
+    assert b.update([_end(0, gained=0, key=True), stuck, stuck, stuck])["default_1_1"] == 525, "a key resets"
+    for _ in range(4):
+        b.update([stuck] * 4)
     assert b.update([_end(0, gained=0, exit=True), stuck, stuck, stuck])["default_1_1"] == 525, "an exit resets"
     b.update([stuck] * 4)
     assert b.update([stuck] * 4, cleared={"default_1_1"})["default_1_1"] == 525, "a cleared frontier resets"

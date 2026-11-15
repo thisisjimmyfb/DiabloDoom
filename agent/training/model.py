@@ -34,10 +34,10 @@ def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
              slots_dir: str | None, slots: list[int], capture_dir: str | None = None,
              spawn_tics: int = 0, nodraw: bool = False, noblit: bool = False,
              portal_goal: int = 0, time_penalty: float = 0.0,
-             force_map: int = 0, force_map_tics: int = 1):
+             force_map: int = 0, force_map_tics: int = 1, key_goal: bool = False):
     """time_penalty: reward per game second (negative pays, e.g. 1/3
     costs a point every 3 s), with portal_goal n > 0 ending a rollout
-    once it reaches n new sectors."""
+    once it reaches n new sectors, and key_goal ending it on a new key."""
     from env import DiabloDoomEnv, EngineConfig, EnvConfig, RewardConfig, standin_consult
     # Stage 1 (SPEC.md §7.2): no map monsters. Vanilla -nomonsters is the
     # -rlnocombat of the spec. Stage 2: map monsters on. In both,
@@ -65,6 +65,7 @@ def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
         start_slots=list(slots),
         consult_handler=standin_consult,
         portal_goal=portal_goal,
+        key_goal=key_goal,
         force_map_every=force_map,
         force_map_tics=force_map_tics,
         rewards=RewardConfig(time=time_penalty / 35.0),
@@ -379,7 +380,8 @@ class Frontier:
     """Per (IWAD, map): the end state of the best rollout so far, as a
     start state. After each batch, the highest-return rollout on a map
     that ended alive, exploring, short of the exit and with progress
-    (a new sector: with a portal goal, through the portal) -- only the
+    (a new sector: with a portal goal, through the portal; or a new key,
+    which ends a training rollout) -- only the
     highest score -- saves the game to slot 5 (SAVE 5, where it stopped;
     slot 4, the start every group loaded, stays untouched) with its
     visited sectors (VISITED). The save is copied into slot 5 of every
@@ -472,7 +474,8 @@ class Frontier:
                 saved[label] = None
                 self.last[label] = {"result": "exit", "env": next(i for i in idx if recs[i]["exit"])}
                 continue
-            ok = [i for i in idx if not recs[i]["death"] and recs[i]["sectors_gained"] > 0
+            ok = [i for i in idx if not recs[i]["death"]
+                  and (recs[i]["sectors_gained"] > 0 or recs[i].get("key"))
                   and recs[i]["end_info"].get("mode") == "EXPLORE"]
             data = None
             if ok:
@@ -523,9 +526,9 @@ class Frontier:
 class TicBudget:
     """Per (IWAD, map): the rollout limit in game tics. It starts at
     `base` (--max-tics); after a batch where no rollout on the map reached
-    a new sector or the exit, it grows by `growth`, up to `cap`
+    a new sector, a new key or the exit, it grows by `growth`, up to `cap`
     (--max-tics-cap), and any progress puts it back to `base`. Progress
-    still means getting through a portal: a longer budget gives the agent
+    still means getting through a portal (or a key): a longer budget gives the agent
     time to find the path, without rewarding a start that only got near
     one. Not saved: a restart begins at `base`."""
 
@@ -567,7 +570,8 @@ class TicBudget:
         changed = {}
         for label in sorted(set(self.labels)):
             idx = self._envs(label)
-            progress = label in cleared or any(recs[i]["sectors_gained"] > 0 or recs[i]["exit"] for i in idx)
+            progress = label in cleared or any(recs[i]["sectors_gained"] > 0 or recs[i]["exit"] or recs[i].get("key")
+                                                for i in idx)
             n = self.base if progress else min(self.cap, int(round(self.tics[label] * self.growth)))
             if n != self.tics[label]:
                 self.tics[label] = changed[label] = n

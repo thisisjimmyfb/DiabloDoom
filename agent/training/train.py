@@ -129,7 +129,8 @@ def main():
                                          args.slots_dir, slots, captures[i],
                                          spawn_tics=args.spawn_tics, nodraw=args.nodraw, noblit=args.noblit,
                                          portal_goal=args.portal_goal, time_penalty=args.time_penalty,
-                                         force_map=args.force_map, force_map_tics=args.force_map_tics)
+                                         force_map=args.force_map, force_map_tics=args.force_map_tics,
+                                         key_goal=True)
                        for i, (w, m) in enumerate(env_pairs)])
     eval_vec = None
     if eval_maps and args.eval_every > 0:

@@ -145,6 +145,7 @@ def train_metrics(recs: list[dict], n_groups: int, collapsed: int) -> dict:
          "exit_rate": float(np.mean([r["exit"] for r in recs])),
          "death_rate": float(np.mean([r["death"] for r in recs])),
          "portal_rate": float(np.mean([r.get("portal", False) for r in recs])),
+         "key_rate": float(np.mean([r.get("key", False) for r in recs])),
          "collapsed_share": collapsed / max(n_groups, 1),
          "action_share": (acts / max(acts.sum(), 1)).round(3).tolist()}
     if any("frontier" in r for r in recs):

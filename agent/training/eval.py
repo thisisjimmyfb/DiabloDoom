@@ -78,6 +78,7 @@ def run_rollouts(vec: GroupVecEnv, policy: Policy, device: torch.device,
         r["exit"] = bool(r["end_info"].get("exit"))
         r["death"] = bool(s.get("dead"))
         r["portal"] = bool(r["end_info"].get("portal"))
+        r["key"] = bool(r["end_info"].get("key"))
     return recs
 
 

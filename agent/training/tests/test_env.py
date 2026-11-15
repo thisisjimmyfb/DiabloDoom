@@ -192,6 +192,35 @@ def test_hp_loss_and_death():
     assert ends == [False, False, False, True]
 
 
+def test_key_goal():
+    """With key_goal a new key colour ends the rollout (terminated, end
+    "key", the key reward paid); one held from the start never does, and
+    without key_goal a key only pays. Engine faked: no game needed."""
+    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
+                        consult_false=0, key=25.0, time=0, portal=0, hp_loss=0, death=0,
+                        loot=0, health=0)
+    for goal in (True, False):
+        e = make_env(rewards=only, max_tics=100000, key_goal=goal)
+        states = iter([{"mode": "EXPLORE", "hp": 100, "tics": 5, "keys": 1},    # blue held from the start
+                       {"mode": "EXPLORE", "hp": 100, "tics": 5, "keys": 3}])   # yellow picked up
+        e.engine.command = lambda line: (next(states), [])
+        e._frame = lambda: np.zeros((200, 320), dtype=np.uint8)
+        e.state = {"mode": "EXPLORE", "hp": 100, "keys": 1}
+        e._prev_hp, e._tics, e._combat_steps = 100, 0, 0
+        e._best_sectors = e._start_sectors = 0
+        e._keys, e._goal, e._group, e._slot, e._seed = 1, None, 0, None, 0
+        e._trig = {k: e._new_trigger() for k in ("monster", "backpack", "combat")}
+        e._stack.reset(e._frame())
+        _, r, term, _, info = e.step(0)
+        assert (r, term, info["end"], info["key"]) == (0.0, False, None, False)
+        _, r, term, _, info = e.step(0)
+        assert r == 25.0
+        if goal:
+            assert term and info["end"] == "key" and info["key"]
+        else:
+            assert not term and info["end"] is None and not info["key"]
+
+
 def test_pickup_rewards():
     """Pickup events: loot and armor pay `loot` per item, health pays
     `health` per HP healed, keys and other things pay nothing here (keys

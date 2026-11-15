@@ -143,6 +143,9 @@ class EnvConfig:
     # installed with a visited list (install_state) counts those as
     # visited, so going back through the portal it came in by is not new.
     portal_goal: int = 0
+    # True: picking up a key of a colour not held yet ends the rollout
+    # (terminated, end "key"), so its end state can become the next start.
+    key_goal: bool = False
     # n > 0: a forced map glance every n actions, done by the engine
     # (FORCEMAP, sent when the game starts): after every n gameplay
     # commands the next decision shows the automap for force_map_tics,
@@ -399,7 +402,8 @@ class DiabloDoomEnv(gym.Env):
             add("mechanism", rc.mechanism)
 
         # Keys: each colour pays once per rollout, when first held.
-        add("key", rc.key * self._new_keys(d))
+        new_keys = self._new_keys(d)
+        add("key", rc.key * new_keys)
 
         # Pickups: loot and armor per item, health per HP healed.
         for e in events:
@@ -416,7 +420,7 @@ class DiabloDoomEnv(gym.Env):
         self._prev_hp = hp
 
         terminated = truncated = False
-        portal = False
+        portal = got_key = False
         exited = any(e.get("event") == "exit" for e in events)
         end = None
         if exited:
@@ -425,6 +429,9 @@ class DiabloDoomEnv(gym.Env):
         elif d.get("dead"):
             add("death", rc.death)
             terminated, end = True, "death"
+        elif self.cfg.key_goal and new_keys:
+            terminated = got_key = True
+            end = "key"
         elif self.cfg.portal_goal > 0 and self._best_sectors - self._start_sectors >= self.cfg.portal_goal:
             add("portal", rc.portal)
             terminated = portal = True
@@ -440,9 +447,10 @@ class DiabloDoomEnv(gym.Env):
         info = self._info(tics, d)
         info["exit"] = exited
         info["portal"] = portal
+        info["key"] = got_key             # the key goal reached (EnvConfig.key_goal)
         info["forced_map"] = bool(d.get("forced_map"))   # the engine's forced glance (FORCEMAP)
         info["terms"] = terms             # the reward by term
-        info["end"] = end                 # why the rollout ended: exit, death, portal, time, combat
+        info["end"] = end                 # why the rollout ended: exit, death, key, portal, time, combat
         info["max_tics"] = self.cfg.max_tics
         return obs, float(reward), terminated, truncated, info
 
