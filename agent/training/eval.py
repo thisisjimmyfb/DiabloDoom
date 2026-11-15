@@ -6,7 +6,6 @@ make_heldout_vec / heldout_eval / print_eval run the held-out maps."""
 
 from __future__ import annotations
 
-import functools
 import json
 import time
 from pathlib import Path
@@ -15,7 +14,7 @@ import numpy as np
 import torch
 from torch.distributions import Categorical
 
-from model import WARMUP_ACTIONS, Policy, env_label, make_env, privileged
+from model import WARMUP_ACTIONS, Policy, env_label, privileged, run_env
 from env import ACTIONS, goal_dist  # noqa: E402  (model.py put env on sys.path)
 from env.vector import GroupVecEnv  # noqa: E402
 
@@ -158,19 +157,21 @@ def make_heldout_vec(iwads, eval_maps, args, slots, capture_root: Path | None):
     (vec, per-env labels)."""
     pairs = [(w, m) for w in iwads for m in eval_maps for _ in range(args.eval_episodes)]
     labels = [env_label(w, m, iwads) for w, m in pairs]
-    # Held out: the full --eval-max-tics, no portal goal, no time penalty,
-    # so its sectors and returns compare across versions.
-    vec = GroupVecEnv([functools.partial(make_env, w, m, args.stage, args.skill, args.eval_max_tics,
-                                         args.slots_dir, slots,
-                                         str(capture_root / f"eval{i:02d}") if capture_root else None,
-                                         spawn_tics=args.spawn_tics, nodraw=args.nodraw, noblit=args.noblit)
+    # Held out: the training env and rewards, with the held-out rollout
+    # rules (model.run_env).
+    vec = GroupVecEnv([run_env(args, slots, w, m, str(capture_root / f"eval{i:02d}") if capture_root else None,
+                               held_out=True)
                        for i, (w, m) in enumerate(pairs)])
     return vec, labels
 
 
 def heldout_eval(vec: GroupVecEnv, labels: list[str], policy: Policy, device: torch.device) -> dict:
-    # Fixed starts (seed 0, no warm-up) so evals are comparable over time.
-    recs = run_rollouts(vec, policy, device, [{"seed": 0, "group": -1, "warmup": []} for _ in labels])
+    # Fixed starts (seed 0, no warm-up) and a fixed action-sampling seed,
+    # so evals are comparable over time: the same weights play the same
+    # games. The RNG is forked, so training's own RNG stream is untouched.
+    with torch.random.fork_rng(devices=[device] if device.type == "cuda" else []):
+        torch.manual_seed(0)
+        recs = run_rollouts(vec, policy, device, [{"seed": 0, "group": -1, "warmup": []} for _ in labels])
     per_map: dict[str, list[dict]] = {}
     for m, r in zip(labels, recs):
         per_map.setdefault(m, []).append(r)
@@ -178,7 +179,38 @@ def heldout_eval(vec: GroupVecEnv, labels: list[str], policy: Policy, device: to
             "eval_exit_rate": float(np.mean([r["exit"] for r in recs])),
             "eval_return": float(np.mean([r["ret"] for r in recs])),
             "eval_per_map": {m: float(np.mean([r["sectors_gained"] for r in rs]))
-                             for m, rs in per_map.items()}}
+                             for m, rs in per_map.items()},
+            "eval_per_map_exit": {m: float(np.mean([r["exit"] for r in rs]))
+                                  for m, rs in per_map.items()},
+            "eval_per_map_return": {m: float(np.mean([r["ret"] for r in rs]))
+                                    for m, rs in per_map.items()}}
+
+
+def eval_delta_lines(first: dict, last: dict) -> list[str]:
+    """The change from one eval to another, per IWAD and map (sectors,
+    exit rate, return) and overall."""
+    def row(name, v0, v1):
+        (s0, e0, r0), (s1, e1, r1) = v0, v1
+        return (f"  {name:<{width}}  sectors {s0:5.2f} -> {s1:5.2f} ({s1 - s0:+.2f})  "
+                f"exit {e0:.2f} -> {e1:.2f} ({e1 - e0:+.2f})  "
+                f"return {r0:7.2f} -> {r1:7.2f} ({r1 - r0:+.2f})")
+
+    def per_map(out, m):
+        return (out["eval_per_map"].get(m, 0.0), out.get("eval_per_map_exit", {}).get(m, 0.0),
+                out.get("eval_per_map_return", {}).get(m, 0.0))
+
+    def overall(out):
+        return out["eval_sectors"], out["eval_exit_rate"], out["eval_return"]
+    maps = list(last["eval_per_map"])
+    width = max(len(m) for m in maps + ["all"])
+    lines = [f"[eval delta] iteration {first['iteration']} -> {last['iteration']}"]
+    lines += [row(m, per_map(first, m), per_map(last, m)) for m in maps]
+    lines.append(row("all", overall(first), overall(last)))
+    return lines
+
+
+def print_eval_delta(first: dict, last: dict) -> None:
+    print("\n".join(eval_delta_lines(first, last)))
 
 
 def print_eval(version: int, out: dict) -> None:

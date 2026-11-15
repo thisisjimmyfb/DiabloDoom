@@ -182,7 +182,7 @@ case "$MODE" in
         has_arg iwads && n_smoke=1
         add_iwads; add_noblit
         exec "$PY" train.py --run-dir runs/smoke --groups "$n_smoke" --group-size 2 \
-            --iterations 1 --max-tics 350 --eval-every 0 --capture-envs 0 "${pre[@]}" "$@" ;;
+            --iterations 1 --max-tics 350 --eval-maps "" --capture-envs 0 "${pre[@]}" "$@" ;;
     train)
         add_run_dir; add_iwads; add_noblit; add_capture; add_hub
         exec "$PY" train.py "${pre[@]}" "$@" ;;

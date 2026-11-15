@@ -48,8 +48,9 @@ obs, reward, terminated, truncated, info = game.step(0)   # WALK 0
   would signal Muse VM instead. Handlers send driver commands through
   `game.consult_command(line)` (`game` being the `DiabloDoomEnv` instance).
 - **Rewards:** `RewardConfig` (SPEC.md §5.3). The values are placeholders.
-  The portal goal (`--portal-goal`, default 1): a rollout ends, with the
-  `portal` bonus (5), once it enters a sector not yet visited;
+  The portal goal (`--portal-goal`, default 1): a rollout ends once it
+  enters a sector not yet visited (paid by `sector`, 15; there is no
+  separate portal bonus);
   `--max-tics` is 525 (15 s), per map a starting budget: after a batch
   where no rollout on a map gets through a portal (or to the exit), that
   map's limit grows x`--tics-growth` (1.5) up to `--max-tics-cap` (2100),
@@ -91,9 +92,11 @@ obs, reward, terminated, truncated, info = game.step(0)   # WALK 0
   next action -- one video frame per glance, every few seconds). The held-out eval never forces
   glances. The training line shows `fmap N` while on.
   Positive reinforcement: `exit` (100, the top reward) for triggering the
-  level complete (ends the rollout), `key` (25) per key colour, `mechanism`
-  (10) for each new mechanism set going, `portal` (5) for the portal goal,
-  `sector` (1) per new sector.
+  level complete (ends the rollout), `key` (25) per key colour, `sector`
+  (15) per new sector (more than a mechanism: getting somewhere new is
+  the goal, a door only the way there), `mechanism` (10) for each new
+  mechanism set going. `consult_false` (-1.5) per CONSULT with nothing to
+  consult about.
   `key` (25) pays each key colour (blue, yellow, red) the first time it is
   held in a rollout, from the state line's `keys` mask; keys held at the
   start pay nothing. In training a new key also ends the rollout (`end`
@@ -209,12 +212,15 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   removed instead. Each is removed 5 s after spawning (or when a save
   holding one is loaded), and CONSULT on one pays `consult_hit` and
   removes it.
-- **Eval:** off by default (`--eval-every 0`); nothing in training reads
-  it. With `--eval-every N`, every N iterations (and before the first
-  update), `--eval-episodes` rollouts on each `--eval-maps` map (held out:
-  E1M5, E1M6) from a fixed start, with no time penalty, goals or progress
-  saves, so the numbers compare across versions. Reports sectors gained
-  and exit rate.
+- **Eval:** at the start and at the end of each run, and every
+  `--eval-every N` iterations as well when N > 0 (default 0); the end
+  prints the change per IWAD and map (`[eval delta]`). `--eval-maps ''`
+  turns evals off; nothing in training reads them. Each eval plays
+  `--eval-episodes` rollouts on each `--eval-maps` map (held out:
+  E1M5, E1M6) from a fixed start (no progress saves), scored with the
+  training rewards, time penalty included, but with no portal or key goal
+  ending a rollout early, so sectors compare across versions. Reports
+  sectors gained, exit rate and return.
 - **Overlap:** `--overlap` runs each update on the GPU while the games
   play the next batch with the weights from before the update, so batches
   are one version old (`lag` 1 in `metrics.jsonl`; the clipped ratio

@@ -36,10 +36,12 @@ def metrics(run_dir: Path, kind: str) -> list[dict]:
 
 def test_resume(tmp_path):
     """2 iterations with held-out evals, then the same command
-    with --iterations 3 resumes from the newest checkpoint."""
+    with --iterations 3 resumes from the newest checkpoint; each run prints
+    its start-to-end eval delta."""
     run_dir = tmp_path / "run"
     args = ["--eval-every", "1", "--capture-envs", "0"]
-    train(run_dir, *args, "--iterations", "2")
+    o = train(run_dir, *args, "--iterations", "2")
+    assert "[eval delta] iteration 0 -> 2" in o, "start and end of the run"
     assert sorted(f.name for f in run_dir.glob("*.pt")) == ["doom-runner.pt"], "one checkpoint file"
     assert torch.load(run_dir / "doom-runner.pt", weights_only=False)["iteration"] == 1
     assert [r["iteration"] for r in metrics(run_dir, "train")] == [0, 1]
@@ -59,7 +61,9 @@ def test_resume(tmp_path):
     assert "resuming from" in o and "doom-runner.pt (iteration 1)" in o
     assert [r["iteration"] for r in metrics(run_dir, "train")] == [0, 1, 2], \
         "the resumed run continues at iteration 2 (no repeat)"
-    assert [r["iteration"] for r in metrics(run_dir, "eval")] == [0, 1, 2, 3], "no new baseline"
+    assert [r["iteration"] for r in metrics(run_dir, "eval")] == [0, 1, 2, 2, 3], \
+        "each run evals at its start"
+    assert "[eval delta] iteration 2 -> 3" in o
     assert torch.load(run_dir / "doom-runner.pt", weights_only=False)["iteration"] == 2
 
 

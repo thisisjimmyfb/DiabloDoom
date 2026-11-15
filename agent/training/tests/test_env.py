@@ -168,8 +168,8 @@ def test_hp_loss_and_death():
     the mark up), and a death ends the rollout with the death penalty on
     top of the HP it lost. Engine faked: no game needed."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
-                        consult_false=0, key=0, time=0, portal=0, hp_loss=-0.2, death=-100.0,
-                        loot=0, health=0)
+                        consult_false=0, key=0, time=0, hp_loss=-0.2, death=-100.0,
+                        loot=0, health=0, straight=0)
     e = make_env(rewards=only, max_tics=100000)
     states = iter([{"mode": "EXPLORE", "hp": 90, "tics": 10},     # nukage: -10 hp
                    {"mode": "EXPLORE", "hp": 100, "tics": 10},    # healed: nothing
@@ -192,13 +192,52 @@ def test_hp_loss_and_death():
     assert ends == [False, False, False, True]
 
 
+def test_straight_walk():
+    """A run of one move (WALK 0, STRAFE_L or STRAFE_R) whose steps move
+    pays straight x the run length (capped); another move, a turn or a
+    blocked step starts the run over, and turns never pay. Engine faked:
+    no game needed."""
+    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
+                        consult_false=0, key=0, time=0, hp_loss=0, death=0,
+                        loot=0, health=0, straight=0.02, straight_cap=3)
+    e = make_env(rewards=only, max_tics=100000)
+    pos = [0, 0]
+    step = {"WALK 0": (96, 0), "STRAFE_L": (0, 96), "STRAFE_R": (0, -96)}
+
+    def command(line):                   # moves 96 units, except walking past x=480 (a wall)
+        dx, dy = step.get(line, (0, 0))
+        if pos[0] + dx <= 480:
+            pos[0] += dx
+            pos[1] += dy
+        return {"mode": "EXPLORE", "hp": 100, "tics": 28, "x": pos[0], "y": pos[1]}, []
+    e.engine.command = command
+    e._frame = lambda: np.zeros((200, 320), dtype=np.uint8)
+    e.state = {"mode": "EXPLORE", "hp": 100, "x": 0, "y": 0}
+    e._prev_hp, e._tics, e._combat_steps, e._straight_run, e._straight_move = 100, 0, 0, 0, None
+    e._best_sectors = e._start_sectors = 0
+    e._keys, e._goal, e._group, e._slot, e._seed = 0, None, 0, None, 0
+    e._trig = {k: e._new_trigger() for k in ("monster", "backpack", "combat")}
+    e._stack.reset(e._frame())
+    walk, turn, left, right = (ACTIONS.index(a) for a in ("WALK 0", "TURNL", "STRAFE_L", "STRAFE_R"))
+    plan = [(walk, 0.02), (walk, 0.04), (walk, 0.06), (walk, 0.06),   # 1x, 2x, 3x, capped at 3x
+            (turn, 0.0), (turn, 0.0),                                 # turns never pay, and reset
+            (left, 0.02), (left, 0.04),                               # a strafe run
+            (right, 0.02),                                            # the other way: a new run
+            (walk, 0.02), (walk, 0.0), (walk, 0.0)]                   # the wall at x=480 blocks
+    got = []
+    for a, _ in plan:
+        _, r, *_ = e.step(a)
+        got.append(round(r, 6))
+    assert got == [want for _, want in plan], got
+
+
 def test_key_goal():
     """With key_goal a new key colour ends the rollout (terminated, end
     "key", the key reward paid); one held from the start never does, and
     without key_goal a key only pays. Engine faked: no game needed."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
-                        consult_false=0, key=25.0, time=0, portal=0, hp_loss=0, death=0,
-                        loot=0, health=0)
+                        consult_false=0, key=25.0, time=0, hp_loss=0, death=0,
+                        loot=0, health=0, straight=0)
     for goal in (True, False):
         e = make_env(rewards=only, max_tics=100000, key_goal=goal)
         states = iter([{"mode": "EXPLORE", "hp": 100, "tics": 5, "keys": 1},    # blue held from the start
@@ -226,7 +265,7 @@ def test_pickup_rewards():
     `health` per HP healed, keys and other things pay nothing here (keys
     pay through the state's key mask). Engine faked: no game needed."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
-                        consult_false=0, key=0, time=0, portal=0, hp_loss=0, death=0,
+                        consult_false=0, key=0, time=0, hp_loss=0, death=0,
                         loot=5.0, health=0.2)
     e = make_env(rewards=only, max_tics=100000)
     st = {"mode": "EXPLORE", "hp": 50, "tics": 5}
@@ -412,7 +451,7 @@ def test_time_distance_penalty():
     every other reward off each step costs time * its tics * (1 + d /
     far_scale), d the mean of its start and end goal distances."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0,
-                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0,
+                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, straight=0,
                         time=1.0, far_scale=256.0)
     e = make_env(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only,
                  max_tics=100000, consult_handler=standin_consult)
@@ -441,13 +480,13 @@ def test_time_distance_penalty():
 @pytest.mark.game
 def test_portal_goal():
     """E1M1, portal goal 1: the rollout ends (terminated, portal) on its
-    first new sector, and with only time and portal rewards on its return
-    is the bonus minus time * tics. Its end state saved with its visited
+    first new sector, and with only time and sector rewards on its return
+    is the sector's reward minus time * tics. Its end state saved with its visited
     list (VISITED) and reinstalled restores that visited count after the
     load (VISIT), so the next rollout's goal is a sector beyond it."""
-    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0,
-                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0,
-                        time=0.01, far_scale=1e12, portal=5.0)   # time only
+    only = RewardConfig(sector=15.0, exit=0, mechanism=0, consult_hit=0,
+                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, straight=0,
+                        time=0.01, far_scale=1e12)   # time and sector only
     e = DiabloDoomEnv(EnvConfig(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only,
                                 max_tics=100000, portal_goal=1, consult_handler=standin_consult))
     try:
@@ -462,7 +501,7 @@ def test_portal_goal():
                 break
         assert term and info["portal"], "a new sector ends the rollout"
         assert info["state"]["sectors"] == start + 1
-        assert abs(ret - (5.0 - 0.01 * info["rollout_tics"])) < 1e-6, ret
+        assert abs(ret - (15.0 - 0.01 * info["rollout_tics"])) < 1e-6, ret
 
         visited = e.visited()
         assert bin(int(visited[::-1], 16)).count("1") == start + 1
@@ -481,7 +520,7 @@ def test_forced_map_glance():
     the next frame is the automap (state automap true) and nothing is
     charged."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0,
-                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, time=0)
+                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, straight=0, time=0)
     e = DiabloDoomEnv(EnvConfig(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only,
                                 max_tics=100000, force_map_every=2, consult_handler=standin_consult))
     tl = ACTIONS.index("TURNL")

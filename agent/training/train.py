@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import argparse
 import copy
-import functools
 import json
 import signal
 import threading
@@ -46,11 +45,11 @@ import torch
 from model import (Frontier, HubUploader, MapRotation, TicBudget, add_env_args, capture_dirs, check_slots,
                    FREE_CORES, available_cores, default_groups, env_label, hub_pull, move_groups,
                    resolve_maps,
-                   iwad_label, make_env, parse_list, resolve_iwads, rng_state,
+                   iwad_label, run_env, parse_list, resolve_iwads, rng_state,
                    save_checkpoint, CKPT_NAME)
 from env import cleanup_stale  # noqa: E402  (model.py put env on sys.path)
 from env.vector import GroupVecEnv  # noqa: E402
-from eval import (heldout_eval, make_heldout_vec, print_eval, run_rollouts, sample_group_options,
+from eval import (heldout_eval, make_heldout_vec, print_eval, print_eval_delta, run_rollouts, sample_group_options,
                   write_rollout_log)
 from learn import (add_learn_args, build_batch, group_advantages, print_train, setup_learner,
                    train_metrics, update)
@@ -66,8 +65,8 @@ def parse_args():
                    help="without --iterations: train this many updates past the newest checkpoint "
                         "(a fresh run: this many in all)")
     p.add_argument("--eval-every", type=int, default=0,
-                   help="held-out eval every N updates (and a baseline before the first); 0 (default) off: "
-                        "nothing in training reads it")
+                   help="also a held-out eval every N updates; 0 (default): only at the start and end of "
+                        "the run (--eval-maps '' turns evals off; nothing in training reads them)")
     p.add_argument("--overlap", action="store_true",
                    help="update on the GPU while the games play the next batch with the weights from "
                         "before the update (batches one version old; the clipped ratio allows for it)")
@@ -152,15 +151,9 @@ def main():
     env_pairs = [group_pairs[i // G] for i in range(n_envs)]
     replays = run_dir / "replays"
     captures = capture_dirs(env_pairs, args.capture_envs, replays)
-    vec = GroupVecEnv([functools.partial(make_env, w, m, args.stage, args.skill, args.max_tics,
-                                         args.slots_dir, slots, captures[i],
-                                         spawn_tics=args.spawn_tics, nodraw=args.nodraw, noblit=args.noblit,
-                                         portal_goal=args.portal_goal, time_penalty=args.time_penalty,
-                                         force_map=args.force_map, force_map_tics=args.force_map_tics,
-                                         key_goal=True)
-                       for i, (w, m) in enumerate(env_pairs)])
+    vec = GroupVecEnv([run_env(args, slots, w, m, captures[i]) for i, (w, m) in enumerate(env_pairs)])
     eval_vec = None
-    if eval_maps and args.eval_every > 0:
+    if eval_maps and start_it < args.iterations:
         eval_vec, eval_labels = make_heldout_vec(iwads, eval_maps, args, slots,
                                                  replays if args.capture_eval else None)
     metrics_f = open(run_dir / "metrics.jsonl", "a")
@@ -173,6 +166,7 @@ def main():
         metrics_f.write(json.dumps(out) + "\n")
         metrics_f.flush()
         print_eval(it, out)
+        return out
 
     # --overlap: the games act with a frozen copy of the policy, refreshed
     # after each update, so the next batch can be played while the GPU
@@ -220,9 +214,12 @@ def main():
         write_rollout_log(rollouts_f, recs, options, env_labels, frontier, iteration=it)
         return recs, time.time() - t
 
+    # Held-out evals: one at the start of the run and one at the end, whose
+    # difference is printed per IWAD and map; --eval-every N adds more.
+    first_eval = last_eval = None
     try:
-        if eval_vec is not None and start_it == 0:
-            evaluate(0)  # baseline before any update
+        if eval_vec is not None:
+            first_eval = last_eval = evaluate(start_it)
         ahead = None        # --overlap: the next batch, played during the last update
         for it in range(start_it, args.iterations):
             t0 = time.time()
@@ -286,10 +283,15 @@ def main():
                 if not hub.push(ckpt_path, it):
                     print(f"[hub] iteration {hub.it} is still uploading; skipped iteration {it}")
 
-            if eval_vec is not None and (it + 1) % args.eval_every == 0:
-                evaluate(it + 1)
+            if eval_vec is not None and args.eval_every > 0 and (it + 1) % args.eval_every == 0:
+                last_eval = evaluate(it + 1)
+        if eval_vec is not None:
+            if last_eval["iteration"] != args.iterations:
+                last_eval = evaluate(args.iterations)
+            print_eval_delta(first_eval, last_eval)
     except KeyboardInterrupt:
-        print("[train] interrupted; the last checkpoint is at the previous update boundary")
+        print("[train] interrupted; the last checkpoint is at the previous update boundary"
+              + ("; no end-of-run eval" if eval_vec is not None else ""))
     finally:
         metrics_f.close()
         rollouts_f.close()

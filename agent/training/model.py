@@ -75,6 +75,24 @@ def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
     ))
 
 
+def run_env(args, slots: list[int], iwad: str | None, warp: str, capture_dir: str | None = None,
+            held_out: bool = False):
+    """The env factory for training and for the held-out eval alike, so
+    both are built from the same arguments and scored by the same rewards
+    (the time penalty included). Only the rollout rules differ: held out,
+    a rollout runs the full --eval-max-tics, never ended early by the
+    portal or key goal, and without forced map glances (§5.3), so its
+    sectors compare across versions."""
+    import functools
+    rules = (dict(max_tics=args.eval_max_tics) if held_out else
+             dict(max_tics=args.max_tics, portal_goal=args.portal_goal, key_goal=True,
+                  force_map=args.force_map, force_map_tics=args.force_map_tics))
+    return functools.partial(make_env, iwad, warp, args.stage, args.skill, slots_dir=args.slots_dir,
+                             slots=slots, capture_dir=capture_dir, spawn_tics=args.spawn_tics,
+                             nodraw=args.nodraw, noblit=args.noblit, time_penalty=args.time_penalty,
+                             **rules)
+
+
 def privileged(info: dict) -> list[float]:
     s = info.get("state", {})
     exit_dist = s.get("exit_dist")      # -1: the level has no exit line
@@ -353,8 +371,8 @@ def add_env_args(p) -> None:
                    help="reward lost per game second until the rollout ends, so the faster portal "
                         "crossing wins its group (default 1/3: a point every 3 s)")
     p.add_argument("--eval-max-tics", type=int, default=2100,
-                   help="held-out eval rollout limit (no portal goal, no time penalty: sectors "
-                        "visited in 60 s, comparable across versions)")
+                   help="held-out eval rollout limit (the training rewards, but no portal or key goal "
+                        "ending it early: sectors visited in 60 s, comparable across versions)")
     p.add_argument("--frontier", action=argparse.BooleanOptionalAction, default=True,
                    help="keep progress: every group loads its start from save slot 4; after each "
                         "batch, each map's highest-scoring rollout that made progress saves to slot 5 "

@@ -32,6 +32,8 @@ ACTIONS = [
     "CONSULT",
 ]
 CONSULT = ACTIONS.index("CONSULT")
+# The moves whose runs pay RewardConfig.straight (never the turns).
+STRAIGHT_MOVES = {ACTIONS.index(m) for m in ("WALK 0", "STRAFE_L", "STRAFE_R")}
 EXPLORE = "EXPLORE"
 COMBAT_MODES = {"PLANNING", "TARGETING", "CONFIRM", "PULSE", "REACTION", "ROUND_END"}
 
@@ -39,7 +41,10 @@ COMBAT_MODES = {"PLANNING", "TARGETING", "CONFIRM", "PULSE", "REACTION", "ROUND_
 @dataclass
 class RewardConfig:
     """SPEC.md §5.3. Magnitudes are placeholders, to be tuned from curves."""
-    sector: float = 1.0               # per newly visited sector
+    # Per newly visited sector: more than a mechanism, since getting
+    # somewhere new is the goal and a door only the way there. With the
+    # portal goal (training) the first new sector also ends the rollout.
+    sector: float = 15.0
     exit: float = 100.0               # level complete triggered (ends the rollout): the top reward
     death: float = -100.0             # the player died (ends the rollout): as big as the exit
     mechanism: float = 10.0           # USE that sets a new mechanism going (once per mechanism)
@@ -53,7 +58,7 @@ class RewardConfig:
     consult_hit: float = 5.0          # first CONSULT on an explore trigger
     trigger_miss: float = -8.0        # trigger unanswered after the grace window
     grace_decisions: int = 5
-    consult_false: float = -0.5       # CONSULT with no live, unanswered trigger
+    consult_false: float = -1.5       # CONSULT with no live, unanswered trigger
     # Time and distance, one penalty: every game tic costs
     #   time * (1 + d / far_scale)
     # where d is the distance (map units) to the nearest goal -- an exit
@@ -66,7 +71,19 @@ class RewardConfig:
     # cancels most of it.
     time: float = 0.0
     far_scale: float = 256.0
-    portal: float = 5.0               # the portal goal reached (ends the rollout)
+    # Moving on in a straight line: a run of the same move -- WALK 0, or
+    # STRAFE_L, or STRAFE_R -- each step of which moves the player at
+    # least straight_min map units (a full step is about 96) pays
+    # straight x the step's place in the run, capped at straight_cap --
+    # 1x, 2x, 3x, ... -- so the longer the run, the more each step is
+    # worth. A different action (another move, a turn, USE...) or a
+    # blocked step starts the run over; turns never pay (that would
+    # teach spinning in place). At the defaults a step pays at most 0.2,
+    # under the time penalty a step costs (28 tics, at least 0.27), so it
+    # softens the clock for moving on but never makes a slow rollout pay.
+    straight: float = 0.02
+    straight_cap: int = 10
+    straight_min: float = 48.0
     # Per HP lost, whatever the cause: passive damage (nukage, slime,
     # crushers, barrels) in stage 1. Healing never pays; a death costs
     # the HP it lost on the way plus `death`.
@@ -138,7 +155,7 @@ class EnvConfig:
     start_slots: list[int] = field(default_factory=list)
     bootstrap_slot: int = 4
     max_combat_steps: int = 20        # steps in combat before truncation
-    # n > 0: the rollout ends (terminated, + RewardConfig.portal) once it
+    # n > 0: the rollout ends (terminated; the sectors pay RewardConfig.sector) once it
     # has entered n sectors not yet visited -- through n portals. A start
     # installed with a visited list (install_state) counts those as
     # visited, so going back through the portal it came in by is not new.
@@ -322,6 +339,8 @@ class DiabloDoomEnv(gym.Env):
         self._keys = d.get("keys", 0)     # keys held at the start (or from the warm-up) never pay
         self._prev_hp = d.get("hp", 0)
         self._combat_steps = 0
+        self._straight_run = 0            # consecutive steps of one move that moved (RewardConfig.straight)
+        self._straight_move = None        # that move's action
         self._trig = {k: self._new_trigger() for k in ("monster", "backpack", "combat")}
         self._update_triggers(d)
         obs = self._stack.reset(self._frame())
@@ -387,6 +406,17 @@ class DiabloDoomEnv(gym.Env):
         if goal is not None or "x" in d:
             self._goal = goal
 
+        # Straight-line moving: a run of one move (WALK 0, STRAFE_L or
+        # STRAFE_R) whose steps all moved.
+        moved = (prev.get("x") is not None and d.get("x") is not None
+                 and float(np.hypot(d["x"] - prev["x"], d["y"] - prev["y"])) >= rc.straight_min)
+        if a in STRAIGHT_MOVES and sent and moved:
+            self._straight_run = self._straight_run + 1 if a == self._straight_move else 1
+            self._straight_move = a
+            add("straight", rc.straight * min(self._straight_run, rc.straight_cap))
+        else:
+            self._straight_run, self._straight_move = 0, None
+
         # Exploration: newly visited sectors.
         if sec > self._best_sectors:
             add("sector", rc.sector * (sec - self._best_sectors))
@@ -433,7 +463,6 @@ class DiabloDoomEnv(gym.Env):
             terminated = got_key = True
             end = "key"
         elif self.cfg.portal_goal > 0 and self._best_sectors - self._start_sectors >= self.cfg.portal_goal:
-            add("portal", rc.portal)
             terminated = portal = True
             end = "portal"
         if not terminated:
