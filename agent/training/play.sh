@@ -2,7 +2,8 @@
 # Launch DiabloDoom locally, in a window with sound, with a trained policy
 # driving it (play.py; the game runs with -rldrive, in real time).
 #
-#   ./play.sh                                   # newest runs/*/doom-runner.pt, first IWAD under wad/, E1M1, monsters on
+#   ./play.sh                                   # thisisjimmy/DoomRunner's doom-runner.pt, first IWAD under wad/, E1M1, monsters on
+#   ./play.sh --no-hub                          # the newest local runs/*/doom-runner.pt instead
 #   IWAD_INDEX=2 ./play.sh                      # the second IWAD in the printed list
 #   ./play.sh --checkpoint runs/stage1/doom-runner.pt --warp "1 2"
 #   ./play.sh --greedy --delay 0.3              # most likely actions, slowed down for watching
@@ -14,6 +15,11 @@
 # exit, on death, in combat, after --max-decisions, or on Ctrl-C; the game
 # window then stays open for you (--quit-at-end closes it). Arguments pass
 # through to play.py (--help lists them).
+# The policy: --checkpoint if given; else the Hugging Face repo's
+# doom-runner.pt (--hub-repo, default thisisjimmy/DoomRunner; downloaded
+# into runs/hub-play/ with the hf CLI, no login needed for a public repo),
+# falling back to the newest local checkpoint when it can't be downloaded;
+# --no-hub skips the repo.
 # Needs the setup train.sh does: run ./train.sh --smoke once on a fresh checkout.
 set -euo pipefail
 
@@ -61,15 +67,22 @@ fi
 IWAD="${IWADS[$((IWAD_INDEX - 1))]}"
 
 # --monster / --no-monster: play.py's --monsters / --no-monsters. The
-# defaults go first, so one given on the command line wins.
+# defaults go first, so one given on the command line wins. --no-hub is
+# play.sh's own.
+HUB_REPO=thisisjimmy/DoomRunner
+HUB=1
 args=()
 for a in "$@"; do
     case "$a" in
         --monster) args+=(--monsters) ;;
         --no-monster) args+=(--no-monsters) ;;
+        --no-hub) HUB=0 ;;
+        --checkpoint|--checkpoint=*|--hub-repo|--hub-repo=*) HUB=0; args+=("$a") ;;
         *) args+=("$a") ;;
     esac
 done
+pre=(--monsters --iwad "$IWAD")
+(( HUB )) && pre+=(--hub-repo "$HUB_REPO")
 
 cd "$HERE"
-exec "$PY" play.py --monsters --iwad "$IWAD" ${args[@]+"${args[@]}"}
+exec "$PY" play.py "${pre[@]}" ${args[@]+"${args[@]}"}

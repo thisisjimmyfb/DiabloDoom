@@ -13,8 +13,9 @@ attached here), or after --max-decisions; Ctrl-C stops it too. The game is
 then left running for you to play on or close, unless --quit-at-end.
 
 Usage (from agent/training; ./play.sh does the setup):
-    .venv/bin/python play.py                                 # newest agent/ckpt_*.pt, E1M1
-    .venv/bin/python play.py --checkpoint agent/ckpt_000129.pt --warp "1 2" --greedy
+    .venv/bin/python play.py                                 # newest runs/*/doom-runner.pt, E1M1
+    .venv/bin/python play.py --hub-repo user/name            # the repo's doom-runner.pt
+    .venv/bin/python play.py --checkpoint runs/stage1/doom-runner.pt --warp "1 2" --greedy
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ import numpy as np
 import torch
 from torch.distributions import Categorical
 
-from model import Policy, load_weights, privileged
+from model import Policy, hub_fetch_checkpoint, load_weights, privileged
 from env import ACTIONS, CONSULT, Engine, EngineConfig, EngineError  # noqa: E402
 from env.env import EXPLORE  # noqa: E402
 from env.obs import FrameStack, Preprocessor  # noqa: E402
@@ -61,7 +62,13 @@ def load_policy(path: Path, device: torch.device) -> Policy:
 
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--checkpoint", default=None, help="policy checkpoint (default: the newest runs/*/doom-runner.pt)")
+    p.add_argument("--checkpoint", default=None,
+                   help="policy checkpoint (default: --hub-repo's doom-runner.pt, else the newest "
+                        "runs/*/doom-runner.pt)")
+    p.add_argument("--hub-repo", default=None,
+                   help="Hugging Face model repo (e.g. user/name) to download the checkpoint from when "
+                        "--checkpoint isn't given (into runs/hub-play/; the newest local checkpoint "
+                        "if it can't be downloaded)")
     p.add_argument("--iwad", default=None, help="IWAD (default: Freedoom Phase 1)")
     p.add_argument("--warp", default="1 1", help="level, as -warp args (default: E1M1)")
     p.add_argument("--skill", type=int, default=3)
@@ -82,9 +89,15 @@ def parse_args():
 
 def main():
     args = parse_args()
-    ckpt = Path(args.checkpoint) if args.checkpoint else default_checkpoint()
+    ckpt = Path(args.checkpoint) if args.checkpoint else None
+    if ckpt is None and args.hub_repo:
+        ckpt = hub_fetch_checkpoint(args.hub_repo, HERE / "runs" / "hub-play")
+        if ckpt is None:
+            print("[play] using the newest local checkpoint instead")
+    if ckpt is None:
+        ckpt = default_checkpoint()
     if ckpt is None or not ckpt.exists():
-        raise SystemExit("no checkpoint: pass --checkpoint, or train first (./train.sh exports one to agent/)")
+        raise SystemExit("no checkpoint: pass --checkpoint or --hub-repo, or train first (./train.sh)")
     device = torch.device(args.device)
     torch.manual_seed(args.seed)
     policy = load_policy(ckpt, device)

@@ -467,3 +467,25 @@ def test_default_groups_leave_two_cores():
     assert default_groups(TWO_IWADS, MAPS, cores=8) == 6
     assert default_groups(TWO_IWADS, MAPS, cores=2) == 1, "never below 1"
     assert max_default_groups() == max(1, available_cores() - 2)
+
+
+def test_hub_fetch_checkpoint(tmp_path, monkeypatch):
+    """play.py's download: the repo's checkpoint lands in dest; a repo
+    without one, an unreadable repo or no hf CLI give None (play.py then
+    uses a local checkpoint) instead of exiting."""
+    from model import hub_fetch_checkpoint
+    bin_dir, hub = tmp_path / "bin", tmp_path / "hub"
+    bin_dir.mkdir(); hub.mkdir()
+    (bin_dir / "hf").write_text(_FAKE_HF)
+    (bin_dir / "hf").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}:/usr/bin:/bin")
+    monkeypatch.setenv("FAKE_HUB", str(hub))
+    dest = tmp_path / "play"
+    assert hub_fetch_checkpoint("u/m", dest) is None, "no checkpoint in the repo"
+    save_checkpoint(hub / CKPT_NAME, {"iteration": 7})
+    got = hub_fetch_checkpoint("u/m", dest)
+    assert got == dest / CKPT_NAME and torch.load(got, weights_only=False)["iteration"] == 7
+    monkeypatch.setenv("FAKE_HUB", str(tmp_path / "missing"))          # the fake fails: unreadable
+    assert hub_fetch_checkpoint("u/m", dest) is None
+    monkeypatch.setenv("PATH", "/nonexistent")
+    assert hub_fetch_checkpoint("u/m", dest) is None

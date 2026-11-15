@@ -688,15 +688,48 @@ def _hf() -> str:
     return exe
 
 
+class HubError(Exception):
+    pass
+
+
+def _hub_files(repo: str) -> list[str]:
+    out = subprocess.run([_hf(), "models", "info", repo], capture_output=True, text=True)
+    if out.returncode != 0 or "{" not in out.stdout:
+        raise HubError(f"cannot read {repo}: {(out.stderr or out.stdout).strip()[-500:]}")
+    info = json.loads(out.stdout[out.stdout.index("{"):])
+    return [s["rfilename"] for s in info.get("siblings", [])]
+
+
 def hub_files(repo: str) -> list[str]:
     """The files in the model repo. Exits when the repo can't be read, so
     a network or login problem never starts a fresh run that would then
     replace the repo's checkpoint."""
-    out = subprocess.run([_hf(), "models", "info", repo], capture_output=True, text=True)
-    if out.returncode != 0 or "{" not in out.stdout:
-        sys.exit(f"[hub] cannot read {repo}: {(out.stderr or out.stdout).strip()[-500:]}")
-    info = json.loads(out.stdout[out.stdout.index("{"):])
-    return [s["rfilename"] for s in info.get("siblings", [])]
+    try:
+        return _hub_files(repo)
+    except HubError as e:
+        sys.exit(f"[hub] {e}")
+
+
+def hub_fetch_checkpoint(repo: str, dest: Path) -> Path | None:
+    """Download just the repo's checkpoint into dest (for play.py).
+    Returns its path, or None (with the reason printed) when the repo has
+    none or can't be reached (or the hf CLI isn't on PATH)."""
+    if shutil.which("hf") is None:
+        print("[hub] the hf CLI isn't on PATH")
+        return None
+    try:
+        if HUB_FILE not in _hub_files(repo):
+            print(f"[hub] {repo} has no {HUB_FILE} yet")
+            return None
+    except HubError as e:
+        print(f"[hub] {e}")
+        return None
+    out = subprocess.run([_hf(), "download", repo, HUB_FILE, "--local-dir", str(dest)],
+                         capture_output=True, text=True)
+    if out.returncode != 0:
+        print(f"[hub] cannot download {repo}/{HUB_FILE}: {(out.stderr or out.stdout).strip()[-500:]}")
+        return None
+    return dest / HUB_FILE
 
 
 HUB_FRONTIER = "frontier"   # the run's progress saves and tic budgets, mirrored in the repo

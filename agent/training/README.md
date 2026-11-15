@@ -287,10 +287,16 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
 Launches the game locally, in a window with sound, with a trained policy
 driving it. The game runs with `-rldrive` (real time, normal play), and
 `play.py` turns each decision's frame into the same 84x84 4-frame stack
-the policy trained on.
+the policy trained on. The policy is `--checkpoint` if given, else the
+Hugging Face repo's `doom-runner.pt` (`--hub-repo`, play.sh's default
+`thisisjimmy/DoomRunner`, downloaded into `runs/hub-play/` with the `hf`
+CLI on PATH; a public repo needs no login), else, when that can't be
+downloaded, the newest local `runs/*/doom-runner.pt`. `--no-hub` skips
+the repo.
 
 ```sh
-./play.sh                                    # newest runs/*/doom-runner.pt, Freedoom E1M1, monsters on
+./play.sh                                    # thisisjimmy/DoomRunner's doom-runner.pt, Freedoom E1M1, monsters on
+./play.sh --no-hub                           # the newest local runs/*/doom-runner.pt
 ./play.sh --checkpoint runs/stage1/doom-runner.pt --warp "1 2"
 ./play.sh --greedy --delay 0.3               # most likely actions, slowed down for watching
 ./play.sh --no-monster                       # monsters off, as in stage-1 training (--no-monsters works too)
