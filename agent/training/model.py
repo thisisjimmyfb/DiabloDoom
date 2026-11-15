@@ -419,8 +419,10 @@ class Frontier:
     instance on that map, and then slots 4 and 5 swap there: the
     progress is the next batch's start in slot 4 (the visited list is
     replayed after each load, so the portal it came through is not new),
-    and the old start sits in 5. Both are kept in root/ (so they survive
-    a restart). Every group starts from slot 4, so all members of a
+    and the old start sits in 5. The saves live only in memory and in
+    the instances: a new run (a restart, another machine) starts every
+    map from its beginning, while the map rotation resumes from the
+    checkpoint's iteration. Every group starts from slot 4, so all members of a
     group start from the identical state: the agent moves on portal by
     portal. A batch without
     progress keeps the current start (and grows the map's tic budget,
@@ -430,9 +432,8 @@ class Frontier:
     the next batch. Every rollout of the batch still runs to its own
     end; an exit stops none of the others."""
 
-    def __init__(self, root: Path | None, enabled: bool, env_pairs: list, tag: str = "train",
-                 patience: int = 5):
-        self.root, self.enabled, self.tag, self.patience = root, enabled, tag, patience
+    def __init__(self, enabled: bool, env_pairs: list, tag: str = "train", patience: int = 5):
+        self.enabled, self.tag, self.patience = enabled, tag, patience
         self.labels = [f"{iwad_label(w)}_{m.replace(' ', '_')}" for w, m in env_pairs]
         self.data: dict[str, bytes] = {}
         self.visited: dict[str, str | None] = {}
@@ -440,42 +441,19 @@ class Frontier:
         # What the last update did per map, for the rollout log:
         # {label: {"result": saved|exit|stale|kept, "env": i, "stale": n}}.
         self.last: dict[str, dict] = {}
-        if root is not None and enabled:
-            root.mkdir(parents=True, exist_ok=True)
-            for label in set(self.labels):
-                f = root / f"{label}.dsg"
-                if f.exists():
-                    self.data[label] = f.read_bytes()
-                    v = root / f"{label}.visited"
-                    self.visited[label] = v.read_text().strip() if v.exists() else None
 
     def _envs(self, label: str) -> list[int]:
         return [i for i, l in enumerate(self.labels) if l == label]
 
     def assign(self, vec, env_pairs: list, moved: list[int]) -> None:
         """The envs now play env_pairs (MapRotation): the moved envs get
-        their new map's frontier, from memory or root/ (kept per map, so a
-        map picks up where it was left)."""
+        their new map's frontier (kept per map while other maps have their
+        turn, so a map picks up where it was left)."""
         self.labels = [f"{iwad_label(w)}_{m.replace(' ', '_')}" for w, m in env_pairs]
-        for label in set(self.labels):
-            if label not in self.data and self.root is not None and self.enabled:
-                f = self.root / f"{label}.dsg"
-                if f.exists():
-                    self.data[label] = f.read_bytes()
-                    v = self.root / f"{label}.visited"
-                    self.visited[label] = v.read_text().strip() if v.exists() else None
         for label in set(self.labels[i] for i in moved):
             idx = [i for i in moved if self.labels[i] == label]
             if label in self.data:
                 vec.call(idx, "install_state", (FRONTIER_SLOT, self.data[label], self.visited.get(label)))
-
-    def install_all(self, vec) -> None:
-        """Copy the frontiers found in root/ into fresh instances."""
-        for label, data in self.data.items():
-            if self._envs(label):
-                vec.call(self._envs(label), "install_state", (FRONTIER_SLOT, data, self.visited.get(label)))
-        if self.data:
-            print(f"[{self.tag}] frontier starts restored: {sorted(self.data)}")
 
     def options(self, options: list[dict], G: int) -> list[dict]:
         """Start every group (all G members alike) on a map with a
@@ -534,11 +512,6 @@ class Frontier:
             self.last[label] = {"result": "saved", "env": best}
             vec.call(idx, "install_state", (SAVE_SLOT, data, visited))   # the new progress in 5...
             vec.call(idx, "swap_slots", (FRONTIER_SLOT, SAVE_SLOT))     # ...becomes the start in 4
-            if self.root is not None:
-                for name, blob in ((f"{label}.dsg", data), (f"{label}.visited", (visited or "").encode())):
-                    tmp = self.root / f"{name}.tmp"
-                    tmp.write_bytes(blob)
-                    os.replace(tmp, self.root / name)
             saved[label] = round(recs[best]["ret"], 2)
         return saved
 
@@ -549,9 +522,6 @@ class Frontier:
         if label in self.data:
             del self.data[label]
             vec.call(idx, "install_state", (FRONTIER_SLOT, None))
-            if self.root is not None:
-                (self.root / f"{label}.dsg").unlink(missing_ok=True)
-                (self.root / f"{label}.visited").unlink(missing_ok=True)
 
 
 class TicBudget:
@@ -561,30 +531,14 @@ class TicBudget:
     (--max-tics-cap), and any progress puts it back to `base`. Progress
     still means getting through a portal (or a key): a longer budget gives the agent
     time to find the path, without rewarding a start that only got near
-    one. Saved to `path` (beside the progress saves, so a resume, or the
-    Hub, brings them back together); without one a restart begins at
-    `base`."""
+    one. Not saved: like the progress saves, a new run starts every map
+    over, at `base`."""
 
-    def __init__(self, env_pairs: list, base: int, cap: int, growth: float = 1.5,
-                 path: Path | None = None):
-        self.base, self.cap, self.growth, self.path = base, max(cap, base), growth, path
+    def __init__(self, env_pairs: list, base: int, cap: int, growth: float = 1.5):
+        self.base, self.cap, self.growth = base, max(cap, base), growth
         self.tics: dict[str, int] = {}
         self._applied: dict[int, int] = {}   # env -> the limit it was last sent
-        if path is not None and path.exists():
-            try:
-                saved = json.loads(path.read_text())
-                self.tics = {k: min(max(int(v), self.base), self.cap) for k, v in saved.items()}
-            except (ValueError, TypeError, AttributeError) as e:
-                print(f"[train] ignoring the unreadable tic budgets in {path}: {e}")
         self.assign(env_pairs)
-
-    def save(self) -> None:
-        if self.path is None:
-            return
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_name(self.path.name + ".tmp")
-        tmp.write_text(json.dumps(self.tics, sort_keys=True))
-        os.replace(tmp, self.path)
 
     def assign(self, env_pairs: list) -> None:
         """The envs now play env_pairs (MapRotation); a map's budget is
@@ -623,8 +577,6 @@ class TicBudget:
             n = self.base if progress else min(self.cap, int(round(self.tics[label] * self.growth)))
             if n != self.tics[label]:
                 self.tics[label] = changed[label] = n
-        if changed:
-            self.save()
         return changed
 
 
@@ -663,9 +615,6 @@ def atomic_torch_save(obj, path: Path) -> None:
 # The run's one checkpoint, in --run-dir and in the Hub repo: replaced
 # (atomically) after every update. Its iteration is inside it ("iteration").
 CKPT_NAME = "doom-runner.pt"
-# The per-map rollout limits (TicBudget), kept with the progress saves in
-# <run-dir>/frontier/.
-TIC_BUDGET_FILE = "tic_budget.json"
 
 
 def save_checkpoint(path: Path, state: dict) -> None:
@@ -732,23 +681,26 @@ def hub_fetch_checkpoint(repo: str, dest: Path) -> Path | None:
     return dest / HUB_FILE
 
 
-HUB_FRONTIER = "frontier"   # the run's progress saves and tic budgets, mirrored in the repo
+# The repo holds just the checkpoint: a run on a fresh machine resumes the
+# policy and the map rotation (from the iteration) and starts each map
+# from its beginning. Progress saves are never uploaded (and never kept
+# across runs): a save only loads in the exact IWAD file it was made with,
+# and machines may have different releases (Freedoom's maps change).
+HUB_STALE = "frontier/*"   # saves an older version uploaded: removed at the next push
 
 
 def hub_pull(repo: str, run_dir: Path) -> Path | None:
-    """Download the repo's checkpoint (CKPT_NAME) and its progress saves
-    and tic budgets (frontier/) into run_dir, so training resumes from
-    them, unless run_dir's checkpoint is at that iteration or a newer one
-    (then the local run, with its own frontier/, wins). Returns the new
+    """Download the repo's checkpoint (CKPT_NAME) into run_dir, so
+    training resumes from it, unless run_dir's checkpoint is at that
+    iteration or a newer one (then the local run wins). Returns the new
     checkpoint, or None."""
     files = hub_files(repo)
     if HUB_FILE not in files:
         print(f"[hub] {repo} has no {HUB_FILE} yet")
         return None
-    front = [f for f in files if f.startswith(HUB_FRONTIER + "/")]
     dl = run_dir / "hub" / "download"
     shutil.rmtree(dl, ignore_errors=True)
-    out = subprocess.run([_hf(), "download", repo, HUB_FILE, *front, "--local-dir", str(dl)],
+    out = subprocess.run([_hf(), "download", repo, HUB_FILE, "--local-dir", str(dl)],
                          capture_output=True, text=True)
     if out.returncode != 0:
         sys.exit(f"[hub] cannot download from {repo}: {(out.stderr or out.stdout).strip()[-500:]}")
@@ -760,26 +712,18 @@ def hub_pull(repo: str, run_dir: Path) -> Path | None:
         return None
     dst = run_dir / CKPT_NAME
     os.replace(dl / HUB_FILE, dst)
-    # The progress saves go with the checkpoint: the local ones belong to
-    # an older point of the run.
-    shutil.rmtree(run_dir / HUB_FRONTIER, ignore_errors=True)
-    if (dl / HUB_FRONTIER).is_dir():
-        os.replace(dl / HUB_FRONTIER, run_dir / HUB_FRONTIER)
-    print(f"[hub] pulled iteration {it} from {repo} -> {dst}"
-          + (f", with {len(front)} progress files" if front else ""))
+    print(f"[hub] pulled iteration {it} from {repo} -> {dst}")
     return dst
 
 
 class HubUploader:
-    """Pushes the checkpoint (as HUB_FILE) and the run's frontier/
-    (progress saves and tic budgets) to the repo in one commit, in the
-    background (one upload at a time; a push while one is running is
-    skipped). They are staged in run_dir/hub/upload first, so the next
-    save can't change them mid-upload. The hf output goes to
-    run_dir/hub_upload.log."""
+    """Pushes the checkpoint to the repo as HUB_FILE, in the background
+    (one upload at a time; a push while one is running is skipped). It is
+    staged in run_dir/hub/upload first, so the next save can't change it
+    mid-upload. The hf output goes to run_dir/hub_upload.log."""
 
     def __init__(self, repo: str, run_dir: Path):
-        self.repo, self.run_dir, self.dir, self.hf = repo, run_dir, run_dir / "hub", _hf()
+        self.repo, self.dir, self.hf = repo, run_dir / "hub", _hf()
         self.log = open(run_dir / "hub_upload.log", "a")
         self.proc: subprocess.Popen | None = None
         self.it: int | None = None         # the upload in flight (or last started)
@@ -802,20 +746,13 @@ class HubUploader:
     def _stage(self, ckpt: Path) -> Path:
         staged = self.dir / "upload"
         shutil.rmtree(staged, ignore_errors=True)
-        (staged / HUB_FRONTIER).mkdir(parents=True)
+        staged.mkdir(parents=True)
         shutil.copyfile(ckpt, staged / HUB_FILE)
-        src = self.run_dir / HUB_FRONTIER
-        for f in (src.iterdir() if src.is_dir() else []):
-            if f.is_file() and not f.name.endswith(".tmp"):
-                try:
-                    shutil.copyfile(f, staged / HUB_FRONTIER / f.name)
-                except FileNotFoundError:  # cleared meanwhile (--overlap plays during the upload)
-                    pass
         return staged
 
     def push(self, ckpt: Path, it: int) -> bool:
-        """Start uploading ckpt (at iteration it) and frontier/; False
-        (skipped) if an upload is running."""
+        """Start uploading ckpt (at iteration it); False (skipped) if an
+        upload is running."""
         if self.busy():
             return False
         self._reap()
@@ -823,10 +760,10 @@ class HubUploader:
         self.it = it
         self.log.write(f"--- iteration {self.it}\n")
         self.log.flush()
-        # --delete: progress saves cleared since the last push (an exit,
-        # a dead end) go from the repo too.
+        # --delete: progress saves an older version of this code uploaded
+        # are removed, so no machine finds them.
         self.proc = subprocess.Popen([self.hf, "upload", self.repo, str(staged), ".",
-                                      "--delete", f"{HUB_FRONTIER}/*",
+                                      "--delete", HUB_STALE,
                                       "--commit-message", f"iteration {self.it}"],
                                      stdout=self.log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
         return True

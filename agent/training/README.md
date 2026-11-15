@@ -53,8 +53,8 @@ obs, reward, terminated, truncated, info = game.step(0)   # WALK 0
   `--max-tics` is 525 (15 s), per map a starting budget: after a batch
   where no rollout on a map gets through a portal (or to the exit), that
   map's limit grows x`--tics-growth` (1.5) up to `--max-tics-cap` (2100),
-  and any progress puts it back to 525 (`TicBudget`; saved in
-  `<run-dir>/frontier/tic_budget.json`, so a resume keeps it). Progress still means finding the path, never just getting near a
+  and any progress puts it back to 525 (`TicBudget`; not saved: a new
+  run starts every map at 525). Progress still means finding the path, never just getting near a
   portal. Until it ends, time and distance cost one
   penalty: every game tic costs `time` x (1 + d / `far_scale`), d the
   distance (map units, the mean of the step's start and end) to the
@@ -189,8 +189,11 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   and key by key: the save holds the key, so the next start has it. A
   batch without progress keeps the current start; `--frontier-patience`
   (5) of them in a row at the full tic budget (a dead end) clear it, back to the map start. The
-  save is also kept in `<run-dir>/frontier/<iwad>_<map>.dsg` (visited
-  list: `.visited`), so it survives a resume. A rollout that reaches the exit clears
+  saves live only in the running trainer and its games, never on disk: a
+  new run (a restart, a resume on another machine) starts every map from
+  its beginning, and only the map rotation resumes, from the
+  checkpoint's iteration (a save only loads in the exact IWAD file it was
+  made with, so it couldn't follow the run between machines anyway). A rollout that reaches the exit clears
   that map's frontier (the other rollouts of the batch still run to
   their own ends): slot 4 holds the map start again, and the cycle
   starts over. `front` in the training line is the share of rollouts that
@@ -248,11 +251,12 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   directory's checkpoint is at that iteration or a newer one. While training, the newest checkpoint is
   uploaded as `doom-runner.pt` every `--hub-every` (10) updates and at the
   end (Ctrl-C included), in the background, one upload at a time, so the
-  repo's commit history ("iteration N") is the checkpoint history. The
-  run's `frontier/` (every map's progress save and the tic budgets) goes
-  up in the same commit and comes down with the checkpoint, so a run on
-  a fresh machine (a recycled VM) resumes each map where it was, and the
-  rotation from the checkpoint's iteration. Metrics and logs stay local. Uses the
+  repo's commit history ("iteration N") is the checkpoint history. Only
+  the checkpoint goes up: a run on a fresh machine (a recycled VM)
+  resumes the policy and the map rotation (the episode and mission each
+  group plays, from the iteration), each map from its beginning. A push
+  also removes any `frontier/` an older version uploaded. Metrics and logs
+  stay local. Uses the
   `hf` CLI (`hf auth login` once, with a write token), so the venv needs
   no extra package; its output goes to `<run-dir>/hub_upload.log`. A repo
   that can't be read (network, login) stops the run before training,

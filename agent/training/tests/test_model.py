@@ -5,7 +5,6 @@ instances."""
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -134,11 +133,12 @@ def _end(ret, mode="EXPLORE", death=False, exit=False, gained=1, key=False):
 
 def test_frontier(tmp_path):
     """Frontier starts: each map's best live, exploring, non-exit rollout
-    is saved and copied to that map's instances (and kept on disk); groups
-    start from it; an exit clears the map's frontier."""
+    is saved and copied to that map's instances (never to disk: a new run
+    starts every map over); groups start from it; an exit clears the map's
+    frontier."""
     pairs = [(None, "1 1")] * 2 + [(None, "1 2")] * 2      # 2 groups of G=2
     vec = _FakeVec(4)
-    f = Frontier(tmp_path, True, pairs)
+    f = Frontier(True, pairs)
     opts = f.options([{"seed": 0} for _ in range(4)], 2)
     assert not any("slot" in o for o in opts), "no frontier yet: map starts"
 
@@ -150,26 +150,20 @@ def test_frontier(tmp_path):
     assert vec.vis == ["v1"] * 2 + ["v2"] * 2, "the visited list goes with the save"
     assert set(vec.saved_to) == {SAVE_SLOT}, "progress is saved to slot 5, never over the start in 4"
     assert vec.store[0][SAVE_SLOT] == (None, None), "after the swap slot 5 holds the old start"
-    assert (tmp_path / "default_1_1.dsg").read_bytes() == b"save-of-env1"
-    assert (tmp_path / "default_1_1.visited").read_text() == "v1"
+    assert not list(tmp_path.iterdir()), "nothing written to disk"
 
     opts = f.options([{"seed": 0} for _ in range(4)], 2)
     assert all(o["slot"] == FRONTIER_SLOT and o["frontier"] for o in opts)
 
-    # A restart finds the frontiers on disk and reinstalls them.
-    vec2 = _FakeVec(4)
-    Frontier(tmp_path, True, pairs).install_all(vec2)
-    assert vec2.slots == vec.slots and vec2.vis == vec.vis
-
-    # An exit on E1M1 clears its frontier (memory, instances, disk).
+    # An exit on E1M1 clears its frontier (memory, instances).
     saved = f.update(vec, [_end(50, exit=True), _end(2), _end(1), _end(2)])
-    assert saved["default_1_1"] is None and not (tmp_path / "default_1_1.dsg").exists()
+    assert saved["default_1_1"] is None
     assert vec.slots[:2] == [None, None] and vec.slots[2:] == [b"save-of-env3"] * 2
     opts = f.options([{"seed": 0} for _ in range(4)], 2)
     assert "slot" not in opts[0] and opts[2]["slot"] == FRONTIER_SLOT
 
     # Off (no saves, map starts only).
-    off = Frontier(tmp_path / "off", False, pairs)
+    off = Frontier(False, pairs)
     assert off.update(vec, [_end(1)] * 4) == {}
     assert not any("slot" in o for o in off.options([{} for _ in range(4)], 2))
 
@@ -180,7 +174,7 @@ def test_frontier_progress(tmp_path):
     (a dead end: back to the map start)."""
     pairs = [(None, "1 1")] * 2
     vec = _FakeVec(2)
-    f = Frontier(tmp_path, True, pairs, patience=2)
+    f = Frontier(True, pairs, patience=2)
     assert f.update(vec, [_end(9, gained=0), _end(3, gained=0)]) == {}, "no progress: nothing saved"
     assert f.update(vec, [_end(1, gained=0), _end(2, gained=1)]) == {"default_1_1": 2}
     assert f.last == {"default_1_1": {"result": "saved", "env": 1}}
@@ -190,7 +184,7 @@ def test_frontier_progress(tmp_path):
     assert f.last == {"default_1_1": {"result": "kept", "stale": 1}}
     assert f.update(vec, [_end(5, gained=0)] * 2) == {"default_1_1": None}, "second clears it"
     assert f.last == {"default_1_1": {"result": "stale", "stale": 2}}
-    assert vec.slots == [None, None] and not (tmp_path / "default_1_1.visited").exists()
+    assert vec.slots == [None, None]
 
 
 def test_frontier_key(tmp_path):
@@ -198,7 +192,7 @@ def test_frontier_key(tmp_path):
     competes on score with the sector rollouts, and the best one is saved."""
     pairs = [(None, "1 1")] * 3
     vec = _FakeVec(3)
-    f = Frontier(tmp_path, True, pairs)
+    f = Frontier(True, pairs)
     assert f.update(vec, [_end(30, gained=0, key=True), _end(5, gained=1), _end(40, gained=0)]) \
         == {"default_1_1": 30}, "the key rollout outscores the sector one; no progress, no save"
     assert vec.slots == [b"save-of-env0"] * 3
@@ -241,28 +235,12 @@ def test_tic_budget():
     assert TicBudget(pairs, 525, 0).update([stuck] * 4) == {}, "cap <= base: off"
 
 
-def test_tic_budget_saved(tmp_path):
-    """With a path the budgets are saved when they change and loaded by
-    the next run (clamped to the new base and cap); an unreadable file is
-    ignored."""
-    from model import TicBudget
-    pairs = [(None, "1 1")] * 2
-    f = tmp_path / "frontier" / "tic_budget.json"
-    b = TicBudget(pairs, 525, 2100, path=f)
-    b.update([_end(0, gained=0)] * 2)
-    assert json.loads(f.read_text()) == {"default_1_1": 788}
-    assert TicBudget(pairs, 525, 2100, path=f).tics == {"default_1_1": 788}, "a resume keeps it"
-    assert TicBudget(pairs, 525, 700, path=f).tics == {"default_1_1": 700}, "clamped to the cap"
-    f.write_text("not json")
-    assert TicBudget(pairs, 525, 2100, path=f).tics == {"default_1_1": 525}
-
-
 def test_frontier_patience_waits_for_budget(tmp_path):
     """A batch without progress on a map whose tic budget is still growing
     doesn't count towards the frontier's patience."""
     pairs = [(None, "1 1")] * 2
     vec = _FakeVec(2)
-    f = Frontier(tmp_path, True, pairs, patience=1)
+    f = Frontier(True, pairs, patience=1)
     f.update(vec, [_end(1, gained=1), _end(0, gained=0)])
     assert f.update(vec, [_end(0, gained=0)] * 2, hold={"default_1_1"}) == {}, "budget growing: kept"
     assert f.update(vec, [_end(0, gained=0)] * 2) == {"default_1_1": None}, "at the cap: cleared"
@@ -286,10 +264,10 @@ def test_map_rotation():
     assert off.at(0) == pairs[:4] and off.at(10) is None, "every 0: the first pairs, for good"
 
 
-def test_move_groups(tmp_path):
+def test_move_groups():
     """Moved envs restart on their new map (set_map), get that map's
-    frontier from disk, and the tic budget keeps each map's limit while
-    it waits for its turn."""
+    frontier (kept in memory while it waited for its turn), and the tic
+    budget keeps each map's limit while it waits."""
     from model import TicBudget, move_groups
 
     class Vec:
@@ -299,9 +277,8 @@ def test_move_groups(tmp_path):
             self.calls.append((list(idx), name, args))
             return [None] * len(idx)
     a, b = [(None, "1 1")] * 2, [(None, "1 2")] * 2
-    (tmp_path / "default_1_2.dsg").write_bytes(b"e1m2-progress")
-    (tmp_path / "default_1_2.visited").write_text("ff")
-    f = Frontier(tmp_path, True, a)
+    f = Frontier(True, a)
+    f.data["default_1_2"], f.visited["default_1_2"] = b"e1m2-progress", "ff"   # from its last turn
     budget = TicBudget(a, 525, 2100)
     budget.tics["default_1_1"] = 1182
     vec = Vec()
@@ -399,10 +376,10 @@ elif a[0] == "upload":
 
 def test_hub(tmp_path, monkeypatch):
     """--hub-repo with a fake hf CLI: an empty repo pulls nothing; pushes
-    upload doom-runner.pt with frontier/ (progress saves, tic budgets) in
-    one commit (one at a time, the end uploads the newest), dropping
-    progress saves cleared since; a fresh run directory pulls both back,
-    and a run directory with a newer checkpoint keeps its own."""
+    upload doom-runner.pt alone (one at a time, the end uploads the
+    newest), removing progress saves an older version uploaded; a fresh
+    run directory pulls it back, and a run directory with a newer
+    checkpoint keeps its own."""
     from model import HUB_FILE, HubUploader, hub_pull
     bin_dir, hub = tmp_path / "bin", tmp_path / "hub"
     bin_dir.mkdir(); hub.mkdir()
@@ -414,43 +391,30 @@ def test_hub(tmp_path, monkeypatch):
     run = tmp_path / "run"
     run.mkdir()
     assert hub_pull("u/m", run) is None, "empty repo"
-    front = run / "frontier"
-    front.mkdir()
-    for name in ("A_1_1.dsg", "A_1_2.dsg", "tic_budget.json"):
-        (front / name).write_text(name)
-    (front / "A_1_3.dsg.tmp").write_text("half")         # a write in progress: not uploaded
+    (hub / "frontier").mkdir()
+    (hub / "frontier" / "A_1_1.dsg").write_text("old")    # uploaded by an older version
     up = HubUploader("u/m", run)
     save_checkpoint(run / CKPT_NAME, {"iteration": 9})
     assert up.push(run / CKPT_NAME, 9)
     up.finish(None, None)                 # waits for it
-    assert sorted(p.name for p in (hub / "frontier").iterdir()) == ["A_1_1.dsg", "A_1_2.dsg", "tic_budget.json"]
-    (front / "A_1_1.dsg").unlink()                        # cleared (an exit)
-    (front / "A_1_2.dsg").write_text("newer")
+    assert not list((hub / "frontier").iterdir()), "old progress saves removed from the repo"
     save_checkpoint(run / CKPT_NAME, {"iteration": 19})
     up = HubUploader("u/m", run)
     up.finish(run / CKPT_NAME, 19)
     assert (tmp_path / "commits").read_text() == "iteration 9\niteration 19\n"
     assert torch.load(hub / HUB_FILE, weights_only=False)["iteration"] == 19
-    assert sorted(p.name for p in (hub / "frontier").iterdir()) == ["A_1_2.dsg", "tic_budget.json"], \
-        "the cleared save is gone from the repo too"
+    assert sorted(f.name for f in hub.iterdir() if f.is_file()) == [HUB_FILE], "only the checkpoint"
     assert "iteration 19" in (run / "hub_upload.log").read_text()
 
     fresh = tmp_path / "fresh"
     fresh.mkdir()
-    (fresh / "frontier").mkdir()
-    (fresh / "frontier" / "stale.dsg").write_text("old")   # an older local point of the run
     assert hub_pull("u/m", fresh) == fresh / CKPT_NAME
     assert load_latest_checkpoint(fresh)["iteration"] == 19
-    assert sorted(p.name for p in (fresh / "frontier").iterdir()) == ["A_1_2.dsg", "tic_budget.json"]
-    assert (fresh / "frontier" / "A_1_2.dsg").read_text() == "newer"
 
     ahead = tmp_path / "ahead"
     ahead.mkdir()
     save_checkpoint(ahead / CKPT_NAME, {"iteration": 30})
-    (ahead / "frontier").mkdir()
-    (ahead / "frontier" / "mine.dsg").write_text("mine")
     assert hub_pull("u/m", ahead) is None
-    assert [p.name for p in (ahead / "frontier").iterdir()] == ["mine.dsg"], "the local progress is kept"
     assert load_latest_checkpoint(ahead)["iteration"] == 30, "the newer local checkpoint is kept"
 
     monkeypatch.setenv("PATH", "/nonexistent")

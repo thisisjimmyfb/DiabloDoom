@@ -134,7 +134,7 @@ def test_frontier_start():
     pairs = [(None, "1 1")] * 2
     vec = GroupVecEnv([functools.partial(make_env, None, "1 1", 1, 3, 150, None, []) for _ in pairs])
     try:
-        f = Frontier(None, True, pairs)
+        f = Frontier(True, pairs)
         _, infos = vec.reset([0, 1], [{"seed": 1}, {"seed": 1}])
         starts = [i["state"]["sectors"] for i in infos]
         assert all(i["slot"] == FRONTIER_SLOT for i in infos), "the map start is slot 4 too"

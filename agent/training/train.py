@@ -47,7 +47,7 @@ from model import (Frontier, HubUploader, MapRotation, TicBudget, add_env_args, 
                    FREE_CORES, available_cores, default_groups, env_label, hub_pull, move_groups,
                    resolve_maps,
                    iwad_label, make_env, parse_list, resolve_iwads, rng_state,
-                   save_checkpoint, CKPT_NAME, TIC_BUDGET_FILE)
+                   save_checkpoint, CKPT_NAME)
 from env import cleanup_stale  # noqa: E402  (model.py put env on sys.path)
 from env.vector import GroupVecEnv  # noqa: E402
 from eval import (heldout_eval, make_heldout_vec, print_eval, run_rollouts, sample_group_options,
@@ -171,10 +171,8 @@ def main():
         actor.requires_grad_(False)
 
     # Frontier starts: each map's best rollout end state so far.
-    frontier = Frontier(run_dir / "frontier", args.frontier, env_pairs, patience=args.frontier_patience)
-    frontier.install_all(vec)
-    budget = TicBudget(env_pairs, args.max_tics, args.max_tics_cap, args.tics_growth,
-                       path=run_dir / "frontier" / TIC_BUDGET_FILE)
+    frontier = Frontier(args.frontier, env_pairs, patience=args.frontier_patience)
+    budget = TicBudget(env_pairs, args.max_tics, args.max_tics_cap, args.tics_growth)
     print(f"[train] rollout limit {args.max_tics} tics per map, growing x{args.tics_growth} after a batch "
           f"without progress, up to {budget.cap}")
     print("[train] forced map glance " + (f"every {args.force_map} steps, {args.force_map_tics} tics on screen"
