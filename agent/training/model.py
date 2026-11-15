@@ -374,7 +374,7 @@ def add_env_args(p) -> None:
                    help="don't pull the --hub-repo checkpoint (start from --run-dir alone, e.g. fresh)")
     p.add_argument("--no-hub-upload", dest="hub_upload", action="store_false",
                    help="don't push checkpoints to --hub-repo")
-    p.add_argument("--hub-every", type=int, default=10,
+    p.add_argument("--hub-every", type=int, default=100,
                    help="push the checkpoint to --hub-repo every N updates (the end always pushes)")
     p.add_argument("--max-tics-cap", type=int, default=2100,
                    help="per-map tic budget: after a batch where no rollout on a map reaches a new "

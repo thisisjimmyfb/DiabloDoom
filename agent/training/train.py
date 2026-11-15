@@ -65,7 +65,9 @@ def parse_args():
     p.add_argument("--more", type=int, default=100,
                    help="without --iterations: train this many updates past the newest checkpoint "
                         "(a fresh run: this many in all)")
-    p.add_argument("--eval-every", type=int, default=10)
+    p.add_argument("--eval-every", type=int, default=0,
+                   help="held-out eval every N updates (and a baseline before the first); 0 (default) off: "
+                        "nothing in training reads it")
     p.add_argument("--overlap", action="store_true",
                    help="update on the GPU while the games play the next batch with the weights from "
                         "before the update (batches one version old; the clipped ratio allows for it)")

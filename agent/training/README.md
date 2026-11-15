@@ -209,9 +209,12 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   removed instead. Each is removed 5 s after spawning (or when a save
   holding one is loaded), and CONSULT on one pays `consult_hit` and
   removes it.
-- **Eval:** every `--eval-every` iterations (and before the first update),
-  `--eval-episodes` rollouts on each `--eval-maps` map (held out:
-  E1M5, E1M6) from a fixed start. Reports sectors gained and exit rate.
+- **Eval:** off by default (`--eval-every 0`); nothing in training reads
+  it. With `--eval-every N`, every N iterations (and before the first
+  update), `--eval-episodes` rollouts on each `--eval-maps` map (held out:
+  E1M5, E1M6) from a fixed start, with no time penalty, goals or progress
+  saves, so the numbers compare across versions. Reports sectors gained
+  and exit rate.
 - **Overlap:** `--overlap` runs each update on the GPU while the games
   play the next batch with the weights from before the update, so batches
   are one version old (`lag` 1 in `metrics.jsonl`; the clipped ratio
@@ -249,7 +252,7 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   `doom-runner.pt` is downloaded into the run directory, so training
   resumes from it (policy, optimizer, RNG and counters), unless the run
   directory's checkpoint is at that iteration or a newer one. While training, the newest checkpoint is
-  uploaded as `doom-runner.pt` every `--hub-every` (10) updates and at the
+  uploaded as `doom-runner.pt` every `--hub-every` (100) updates and at the
   end (Ctrl-C included), in the background, one upload at a time, so the
   repo's commit history ("iteration N") is the checkpoint history. Only
   the checkpoint goes up: a run on a fresh machine (a recycled VM)
