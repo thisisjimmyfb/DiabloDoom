@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Set up the training environment and run the trainer (SPEC.md §7.1, §7.5).
+# Set up the training environment and run the trainer (SPEC.md §7.1).
 #
 # Full training on one box (train.py):
 #   ./train.sh                       # 100 stage-1 updates in runs/stage1 (rerun: 100 more);
@@ -10,19 +10,8 @@
 #   ./train.sh --capture             # record continuous replay (off by default): the first
 #                                    # training env of each IWAD -> <run-dir>/replays/
 #
-# Split training (rollout workers feed one learner through a spool):
-#   ./train.sh --learn               # learner only (learn.py): runs/stage1, spool runs/stage1/spool;
-#                                    # the final checkpoint is copied to agent/
-#   ./train.sh --actor               # rollout worker only (eval.py) on runs/stage1/spool
-#   ./train.sh --actor --spool DIR --actor-id vm0 --device cpu   # e.g. on a Muse VM
-#   ./train.sh --heldout             # held-out eval of each new version -> runs/stage1/eval.jsonl
-#   ./train.sh --actor --capture     # --capture works in every mode but --learn (it plays no game):
-#                                    # actor: its first env per IWAD; heldout: the eval envs
-# Arguments after the mode pass through to learn.py / eval.py.
-#
 # Setup is idempotent and only does what is missing:
 #   - builds the game (Release) if build/src/chocolate-doom doesn't exist
-#     (not for --learn: the learner runs no game)
 #   - creates .venv (uv if available, else python3 -m venv)
 #   - installs the env package (editable) and torch (CUDA 12.8 build when
 #     an NVIDIA GPU is present, the RTX 5080 needs it; CPU build otherwise)
@@ -30,7 +19,7 @@ set -euo pipefail
 
 MODE=train
 case "${1:-}" in
-    --smoke|--learn|--actor|--heldout) MODE="${1#--}"; shift ;;
+    --smoke) MODE=smoke; shift ;;
 esac
 
 # --capture is train.sh's own (replay capture on): taken out of the
@@ -51,22 +40,20 @@ WAD_DIR="$REPO/wad"
 
 log() { printf '[train.sh] %s\n' "$*"; }
 
-# --- game binary and IWADs (everything but the learner plays the game) ----
+# --- game binary and IWADs ---------------------------------------------------
 IWADS=()
-if [[ "$MODE" != learn ]]; then
-    if [[ ! -x "$GAME" ]]; then
-        log "game not built; building (Release)"
-        "$REPO/scripts/build.sh" --release
-    fi
-    # Every .wad under wad/ (any case, any depth) whose header says IWAD.
-    # PWADs (mods, the avatar faces) are skipped: they can't be passed as -iwad.
-    while IFS= read -r -d '' f; do
-        [[ "$(head -c 4 "$f")" == IWAD ]] && IWADS+=("$f")
-    done < <(find "$WAD_DIR" -type f -iname '*.wad' -print0 | sort -z)
-    if (( ${#IWADS[@]} == 0 )); then
-        log "no IWAD found under $WAD_DIR"
-        exit 1
-    fi
+if [[ ! -x "$GAME" ]]; then
+    log "game not built; building (Release)"
+    "$REPO/scripts/build.sh" --release
+fi
+# Every .wad under wad/ (any case, any depth) whose header says IWAD.
+# PWADs (mods, the avatar faces) are skipped: they can't be passed as -iwad.
+while IFS= read -r -d '' f; do
+    [[ "$(head -c 4 "$f")" == IWAD ]] && IWADS+=("$f")
+done < <(find "$WAD_DIR" -type f -iname '*.wad' -print0 | sort -z)
+if (( ${#IWADS[@]} == 0 )); then
+    log "no IWAD found under $WAD_DIR"
+    exit 1
 fi
 
 # --- python environment ---------------------------------------------------
@@ -131,14 +118,15 @@ arg_value() {
 }
 
 # Defaults, each added only when not given: --run-dir runs/stage1
-# (checkpoints, metrics, replays, the spool; gitignored); the final
+# (checkpoints, metrics, rollout log, replays; gitignored); the final
 # checkpoint (full and resumable, ~20 MB) is copied to --outpath, the
 # repo's agent/ directory, so it can be committed; --iwads is every IWAD
 # found under wad/ (groups split evenly; --groups 8 trains all 4 maps on
 # both Freedoom and Ultimate Doom). The rest are the scripts' own
-# defaults (stage 1, 4 groups x 8, E1M1-E1M4, eval on E1M5/E1M6).
+# defaults (stage 1, 8 groups x 8, E1M1-E1M4, eval on E1M5/E1M6; --maps all
+# trains every map, the groups taking turns every --rotate-every batches).
 RUN_DIR="$(arg_value run-dir)"
-RUN_DIR="${RUN_DIR:-runs/stage1}"     # the default spool follows a given --run-dir
+RUN_DIR="${RUN_DIR:-runs/stage1}"
 pre=()
 add_iwads() {
     if ! has_arg iwads; then
@@ -148,21 +136,16 @@ add_iwads() {
 }
 add_run_dir() { has_arg run-dir || pre+=(--run-dir "$RUN_DIR"); }
 add_outpath() { has_arg outpath || pre+=(--outpath "$(dirname "$HERE")"); }
-add_spool() { has_arg spool || pre+=(--spool "$RUN_DIR/spool"); }
 # Games launch with -noblit (skip the SDL blit nobody sees headless: about
 # 4x more decisions/s, frames and replays unchanged) unless --no-noblit
 # (or --noblit) is given.
 add_noblit() { has_arg noblit || has_arg no-noblit || pre+=(--noblit); }
 # Replay capture (--continuous-capture in the games) only with --capture:
-# training and actors record their first env per IWAD (unless
-# --capture-envs is given), the held-out eval its eval envs.
+# the first training env of each IWAD records (unless --capture-envs is
+# given).
 add_capture() {
     (( CAPTURE )) || return 0
-    if [[ "$1" == eval ]]; then
-        has_arg capture-eval || pre+=(--capture-eval)
-    else
-        has_arg capture-envs || pre+=(--capture-envs 1)
-    fi
+    has_arg capture-envs || pre+=(--capture-envs 1)
 }
 
 case "$MODE" in
@@ -175,16 +158,6 @@ case "$MODE" in
         exec "$PY" train.py --run-dir runs/smoke --groups "$n_smoke" --group-size 2 \
             --iterations 1 --max-tics 350 --eval-every 0 --capture-envs 0 "${pre[@]}" "$@" ;;
     train)
-        add_run_dir; add_outpath; add_iwads; add_noblit; add_capture envs
+        add_run_dir; add_outpath; add_iwads; add_noblit; add_capture
         exec "$PY" train.py "${pre[@]}" "$@" ;;
-    learn)
-        (( CAPTURE )) && log "--capture ignored: the learner plays no game"
-        add_run_dir; add_outpath
-        exec "$PY" learn.py "${pre[@]}" "$@" ;;
-    actor)
-        add_spool; add_iwads; add_noblit; add_capture envs
-        exec "$PY" eval.py "${pre[@]}" "$@" ;;
-    heldout)
-        add_spool; add_run_dir; add_iwads; add_noblit; add_capture eval
-        exec "$PY" eval.py --heldout "${pre[@]}" "$@" ;;
 esac

@@ -136,6 +136,17 @@ def test_mechanism_once():
     assert e._new_mechanisms([]) is False
 
 
+def test_set_map():
+    """set_map moves an instance to another map: installed saves (the old
+    map's progress) are dropped and the warp changes; the same map is a
+    no-op. Never started: no game needed."""
+    e = make_env(engine=EngineConfig(warp="1 1"))
+    e.install_state(4, b"old-map-progress", "ff")
+    assert e.set_map(None, "1 1") is False and e._installed
+    assert e.set_map(None, "1 2") is True
+    assert e.cfg.engine.warp == "1 2" and not e._installed and not e._installed_visited
+
+
 def test_keys_once():
     """The key reward's bookkeeping: once per colour per rollout, keys
     held at the start never pay, and a state without the field (between

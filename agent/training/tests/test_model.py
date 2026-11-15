@@ -1,39 +1,23 @@
-"""Tests for model.py, the pieces shared by train.py, eval.py and learn.py
-(SPEC.md §7.1, §7.4, §7.5): the batch file format, IWAD/group allocation,
-checkpoint I/O and the spool's weights file. No game instances."""
+"""Tests for model.py, the pieces train.py, eval.py and learn.py share
+(SPEC.md §7.1, §7.4): IWAD/group allocation and map rotation, progress
+saves, tic budgets, checkpoint I/O and checkpoint upgrades. No game
+instances."""
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
+
+import pytest
 
 import numpy as np
 import torch
 
-from model import (BATCH_DIR, FRONTIER_SLOT, SAVE_SLOT, Frontier, Policy, allocate_groups, capture_dirs, export_latest_checkpoint,
-                   init_weights_if_absent, load_latest_checkpoint, pack_rollouts, publish_weights, read_weights,
-                   restore_rng, rng_state, save_checkpoint, unpack_rollouts)
+from model import (FRONTIER_SLOT, SAVE_SLOT, Frontier, Policy, allocate_groups, capture_dirs,
+                   export_latest_checkpoint, load_latest_checkpoint, restore_rng, rng_state, save_checkpoint)
 
 MAPS = ["1 1", "1 2", "1 3", "1 4"]
+REPO = Path(__file__).resolve().parents[3]
 TWO_IWADS = ["/w/FREEDOOM1.WAD", "/w/DOOM.WAD"]
-
-
-def test_pack_roundtrip(rng, make_rollout):
-    """Batch frames are stored once; every stack rebuilds exactly."""
-    recs = [make_rollout(int(n)) for n in rng.integers(1, 60, 6)]
-    arrays = pack_rollouts(recs, [0, 0, 0, 1, 1, 1], [0, 0, 1, 1, 0, 1])
-    back = unpack_rollouts(arrays, ["FREEDOOM1", "DOOM"])
-    for r, b in zip(recs, back):
-        assert np.array_equal(np.stack(r["obs"]), b["obs"]), "stacks must rebuild exactly"
-        assert np.allclose(np.stack(r["priv"]), b["priv"])
-        assert list(b["act"]) == r["act"] and b["tics"] == r["tics"] and b["len"] == r["len"]
-        assert np.allclose(b["logp"], r["logp"]) and np.allclose(b["rew"], r["rew"], atol=1e-6)
-        assert b["exit"] == r["exit"] and b["sectors_gained"] == r["sectors_gained"]
-    assert [b["group"] for b in back] == [0, 0, 0, 1, 1, 1]
-    assert [b["iwad"] for b in back] == ["FREEDOOM1", "FREEDOOM1", "DOOM", "DOOM", "FREEDOOM1", "DOOM"]
-    pushed = sum(1 for r in recs for a, b in zip(r["obs"], r["obs"][1:]) if not np.array_equal(a, b))
-    # One frame per rollout start plus one per push: nothing else stored.
-    assert arrays["frames"].shape[0] == len(recs) + pushed
 
 
 def test_allocate_groups_every_pair(capsys):
@@ -95,49 +79,6 @@ def test_rng_roundtrip():
     sampler2 = np.random.default_rng(0)
     restore_rng(state, sampler2)
     assert (np.random.rand(), torch.rand(1).item(), sampler2.integers(1 << 30)) == a
-
-
-def test_weights_file(tmp_path):
-    """weights.pt is versioned and loads into a fresh Policy; a missing or
-    half-written file reads as 'no weights yet'."""
-    assert read_weights(tmp_path) is None
-    (tmp_path / "weights.pt").write_bytes(b"partial")         # replaced mid-read
-    assert read_weights(tmp_path) is None
-    policy = Policy()
-    publish_weights(tmp_path, 7, policy, "run1")
-    w = read_weights(tmp_path)
-    assert w["version"] == 7 and w["run_id"] == "run1"
-    p2 = Policy()
-    p2.load_state_dict(w["policy"])
-    assert all(torch.equal(a, b) for a, b in zip(policy.state_dict().values(), p2.state_dict().values()))
-    assert not list(tmp_path.glob("*.tmp"))
-
-
-def test_batch_file(tmp_path, make_batch):
-    """A batch file as a worker writes it reads back through unpack_rollouts."""
-    bd = tmp_path / BATCH_DIR
-    bd.mkdir()
-    path = make_batch(bd, "vm0", 4, groups=2, G=3)
-    z = np.load(path, allow_pickle=False)
-    meta = json.loads(str(z["meta"]))
-    back = unpack_rollouts(z, meta["iwads"])
-    assert meta["version"] == 4 and [b["group"] for b in back] == [0, 0, 0, 1, 1, 1]
-    assert path.name.startswith("vm0_") and not list(bd.glob("*.tmp"))
-
-
-def test_init_weights_if_absent(tmp_path):
-    """Random version-0 weights are created once, never over existing ones."""
-    spool = tmp_path / "spool"
-    first, second = Policy(), Policy()
-    assert init_weights_if_absent(spool, first, "init-a") is True
-    assert init_weights_if_absent(spool, second, "init-b") is False, "never overwrites"
-    w = read_weights(spool)
-    assert w["version"] == 0 and w["run_id"] == "init-a"
-    assert all(torch.equal(a, b) for a, b in zip(first.state_dict().values(), w["policy"].values()))
-    assert sorted(p.name for p in spool.iterdir()) == ["weights.pt"], "no temp files left"
-    publish_weights(spool, 3, second, "learner")      # a learner's weights are never replaced
-    assert init_weights_if_absent(spool, Policy(), "init-c") is False
-    assert read_weights(spool)["run_id"] == "learner"
 
 
 class _FakeVec:
@@ -254,7 +195,7 @@ def test_tic_budget():
             self.calls.append((list(idx), name, args))
     vec = Vec()
     b.apply(vec)
-    assert vec.calls == [([0, 1], "set_max_tics", (525,)), ([2, 3], "set_max_tics", (525,))]
+    assert vec.calls == [([0, 1, 2, 3], "set_max_tics", (525,))]
     stuck, through = _end(0, gained=0), _end(0, gained=1)
     assert b.update([stuck, stuck, stuck, through]) == {"default_1_1": 788}
     assert b.growing() == {"default_1_1", "default_1_2"}
@@ -279,6 +220,66 @@ def test_frontier_patience_waits_for_budget(tmp_path):
     f.update(vec, [_end(1, gained=1), _end(0, gained=0)])
     assert f.update(vec, [_end(0, gained=0)] * 2, hold={"default_1_1"}) == {}, "budget growing: kept"
     assert f.update(vec, [_end(0, gained=0)] * 2) == {"default_1_1": None}, "at the cap: cleared"
+
+
+def test_map_rotation():
+    """More pairs than groups: the groups move on to the next block of
+    pairs every `every` batches and wrap around; enough groups (or every
+    0): one fixed allocation."""
+    from model import MapRotation
+    r = MapRotation(TWO_IWADS, MAPS, 4, every=2)
+    pairs = [(w, m) for m in MAPS for w in TWO_IWADS]
+    assert r.at(0) == pairs[:4] and r.at(1) is None
+    assert r.at(2) == pairs[4:] and r.at(3) is None
+    assert r.at(4) == pairs[:4], "a full cycle wraps around"
+    resumed = MapRotation(TWO_IWADS, MAPS, 4, every=2)
+    assert resumed.at(7) == pairs[4:], "a resumed run starts on its own rotation (3)"
+    fixed = MapRotation(TWO_IWADS, MAPS, 8, every=2)
+    assert fixed.every == 0 and fixed.at(0) == pairs and fixed.at(50) is None
+    off = MapRotation(TWO_IWADS, MAPS, 4, every=0)
+    assert off.at(0) == pairs[:4] and off.at(10) is None, "every 0: the first pairs, for good"
+
+
+def test_move_groups(tmp_path):
+    """Moved envs restart on their new map (set_map), get that map's
+    frontier from disk, and the tic budget keeps each map's limit while
+    it waits for its turn."""
+    from model import TicBudget, move_groups
+
+    class Vec:
+        def __init__(self):
+            self.calls = []
+        def call(self, idx, name, args=()):
+            self.calls.append((list(idx), name, args))
+            return [None] * len(idx)
+    a, b = [(None, "1 1")] * 2, [(None, "1 2")] * 2
+    (tmp_path / "default_1_2.dsg").write_bytes(b"e1m2-progress")
+    (tmp_path / "default_1_2.visited").write_text("ff")
+    f = Frontier(tmp_path, True, a)
+    budget = TicBudget(a, 525, 2100)
+    budget.tics["default_1_1"] = 1182
+    vec = Vec()
+    assert move_groups(vec, f, budget, a, b) == [0, 1]
+    assert ([0, 1], "set_map", (None, "1 2")) in vec.calls
+    assert ([0, 1], "install_state", (FRONTIER_SLOT, b"e1m2-progress", "ff")) in vec.calls
+    assert f.labels == ["default_1_2"] * 2 and budget.tics == {"default_1_1": 1182, "default_1_2": 525}
+    assert budget.growing() == {"default_1_2"}
+    vec.calls.clear()
+    assert move_groups(vec, f, budget, b, b) == [] and vec.calls == [], "no change: nothing moves"
+
+
+def test_resolve_maps_all():
+    """--maps all: the maps every IWAD has, minus the held-out maps and, in
+    stage 1, the boss-exit maps."""
+    from model import resolve_maps
+    wads = [str(REPO / "wad/FreedoomPhase1/FREEDOOM1.WAD"), str(REPO / "wad/UltimateDoom/DOOM.WAD")]
+    if not all(Path(w).exists() for w in wads):
+        pytest.skip("IWADs not present")
+    maps = resolve_maps("all", wads, 1, ["1 5", "1 6"])
+    assert len(maps) == 36 - 2 - 5 and maps[0] == "1 1" and maps[-1] == "4 9"
+    assert not {"1 5", "1 6", "1 8", "2 8", "3 8", "4 6", "4 8"} & set(maps)
+    assert "1 8" in resolve_maps("all", wads, 2, []), "stage 2 has the bosses"
+    assert resolve_maps("1 1, 1 2", wads, 1, []) == ["1 1", "1 2"]
 
 
 def test_capture_dirs():

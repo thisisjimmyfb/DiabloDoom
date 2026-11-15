@@ -1,42 +1,22 @@
-#!/usr/bin/env python3
-"""Rollout worker for the split trainer (SPEC.md §7.5).
-
-Plays GRPO groups with the newest weights the learner has published in
-the spool and writes each finished set of groups there as one batch file
-for learn.py. Any machine can run it, CPU or GPU, and several workers can
-feed one learner, each with its own --actor-id. Workers keep no state of
-their own: on restart they pull the newest weights and start new groups.
-
-With --heldout it instead plays the held-out maps from fixed starts once
-per new weights version and appends the results to <run-dir>/eval.jsonl;
-it never writes training data.
-
-Usage (from agent/training; the learner's spool, or a synced copy of it):
-    .venv/bin/python eval.py --spool runs/stage1/spool --actor-id vm0 --device cpu
-    .venv/bin/python eval.py --spool runs/stage1/spool --heldout --run-dir runs/stage1
-"""
+"""Rollouts for train.py (SPEC.md §7.1): run_rollouts plays every env of a
+batch to its end with the policy, sample_group_options draws the group
+starts (shared seed, slot and warm-up per group), rollout_log_rows /
+write_rollout_log write the per-rollout debugging log, and
+make_heldout_vec / heldout_eval / print_eval run the held-out maps."""
 
 from __future__ import annotations
 
-import argparse
 import functools
 import json
-import os
-import signal
-import socket
 import time
-import zlib
 from pathlib import Path
 
 import numpy as np
 import torch
 from torch.distributions import Categorical
 
-from model import (BATCH_DIR, DONE_FILE, WARMUP_ACTIONS, Frontier, TicBudget, Policy, add_env_args, allocate_groups,
-                   capture_dirs,
-                   check_slots, env_label, iwad_label, make_env, pack_rollouts, parse_list,
-                   init_weights_if_absent, privileged, read_weights, resolve_iwads, upgrade_policy_state)
-from env import ACTIONS, cleanup_stale, goal_dist  # noqa: E402  (model.py put env on sys.path)
+from model import WARMUP_ACTIONS, Policy, env_label, make_env, privileged
+from env import ACTIONS, goal_dist  # noqa: E402  (model.py put env on sys.path)
 from env.vector import GroupVecEnv  # noqa: E402
 
 
@@ -205,203 +185,3 @@ def print_eval(version: int, out: dict) -> None:
           f"return {out['eval_return']:.2f} per map {out['eval_per_map']}")
 
 
-# ---------------------------------------------------------------------------
-# Worker
-# ---------------------------------------------------------------------------
-
-def parse_args():
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--spool", required=True, help="the learner's spool directory (or a synced copy)")
-    p.add_argument("--actor-id", default=f"{socket.gethostname()}-{os.getpid()}".replace("_", "-"),
-                   help="names this worker's batch files; unique per worker, no '_' or '/'")
-    add_env_args(p)
-    p.add_argument("--max-pending", type=int, default=2,
-                   help="pause while this many of this worker's batches are unconsumed")
-    p.add_argument("--capture-envs", type=int, default=0,
-                   help="envs per IWAD (the first of each) that record continuous replay into "
-                        "--capture-dir/env<i>_<IWAD>/")
-    p.add_argument("--capture-dir", default=None, help="replay directory (default: <spool>/replays/<actor-id>)")
-    p.add_argument("--heldout", action="store_true",
-                   help="evaluate each new weights version on --eval-maps instead of producing batches")
-    p.add_argument("--run-dir", default=None, help="--heldout: where eval.jsonl goes (default: the spool's parent)")
-    p.add_argument("--capture-eval", action="store_true", help="--heldout: record the eval envs")
-    p.add_argument("--poll", type=float, default=1.0, help="seconds between spool checks")
-    p.add_argument("--seed", type=int, default=1)
-    p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
-    return p.parse_args()
-
-
-class Stop(Exception):
-    pass
-
-
-def main():
-    args = parse_args()
-    if "_" in args.actor_id or "/" in args.actor_id:
-        # Batch files are <actor>_<time>.npz; a '_' in the id would let one
-        # worker count another's files as its own pending batches.
-        raise SystemExit(f"--actor-id can't contain '_' or '/': {args.actor_id}")
-    spool = Path(args.spool)
-    batch_dir = spool / BATCH_DIR
-    device = torch.device(args.device)
-    maps, eval_maps = parse_list(args.maps), parse_list(args.eval_maps)
-    slots = [int(s) for s in args.slots.split(",") if s.strip()]
-    iwads = resolve_iwads(args.iwads)
-    check_slots(iwads, slots)
-    tag = "heldout" if args.heldout else f"actor {args.actor_id}"
-
-    def on_sigterm(signum, frame):
-        raise KeyboardInterrupt
-    signal.signal(signal.SIGTERM, on_sigterm)
-    cleanup_stale()
-
-    def wait(cond) -> None:
-        """Sleep until cond() is true; Stop when the learner is done."""
-        while not cond():
-            if (spool / DONE_FILE).exists():
-                raise Stop
-            time.sleep(args.poll)
-
-    policy = Policy().to(device)
-    version, run_id = -1, None
-
-    def is_new(w: dict | None) -> bool:
-        # A newer version of the same run, or another run altogether (a
-        # learner that started over, or adopted other weights).
-        return w is not None and (w.get("run_id") != run_id or w["version"] > version)
-
-    def load(w: dict) -> None:
-        nonlocal version, run_id
-        policy.load_state_dict(upgrade_policy_state(w["policy"]))
-        version, run_id = w["version"], w.get("run_id")
-
-    def wait_for_weights() -> None:
-        holder = {}
-
-        def got() -> bool:
-            w = read_weights(spool)
-            if is_new(w):
-                holder["w"] = w
-                return True
-            return False
-        wait(got)
-        load(holder["w"])
-
-    def refresh_weights() -> None:
-        """Load new weights if the learner published some; never waits."""
-        w = read_weights(spool)
-        if is_new(w):
-            load(w)
-
-    vec = None
-    rollouts_f = None
-    try:
-        if args.heldout:
-            run_dir = Path(args.run_dir) if args.run_dir else spool.parent
-            run_dir.mkdir(parents=True, exist_ok=True)
-            if not eval_maps:
-                raise SystemExit("--heldout needs --eval-maps")
-            vec, labels = make_heldout_vec(iwads, eval_maps, args, slots,
-                                           run_dir / "replays" if args.capture_eval else None)
-            print(f"[{tag}] {len(labels)} envs: {sorted(set(labels))}, device {device}")
-            with open(run_dir / "eval.jsonl", "a") as f:
-                while True:
-                    wait_for_weights()
-                    out = {"iteration": version, "kind": "eval", **heldout_eval(vec, labels, policy, device)}
-                    f.write(json.dumps(out) + "\n")
-                    f.flush()
-                    print_eval(version, out)
-
-        if args.groups is None:             # one group per IWAD/map pair
-            args.groups = len(iwads) * len(maps)
-        G, groups = args.group_size, args.groups
-        group_pairs = allocate_groups(iwads, maps, groups, tag)
-        env_pairs = [group_pairs[i // G] for i in range(G * groups)]
-        iwad_labels = [iwad_label(w) for w in iwads]
-        ro_group = [i // G for i in range(G * groups)]
-        ro_iwad = [iwads.index(w) for w, _ in env_pairs]
-        capture = Path(args.capture_dir) if args.capture_dir else spool / "replays" / args.actor_id
-        captures = capture_dirs(env_pairs, args.capture_envs, capture)
-        vec = GroupVecEnv([functools.partial(make_env, w, m, args.stage, args.skill, args.max_tics,
-                                             args.slots_dir, slots, captures[i],
-                                             spawn_tics=args.spawn_tics, nodraw=args.nodraw, noblit=args.noblit,
-                                         portal_goal=args.portal_goal, time_penalty=args.time_penalty,
-                                         force_map=args.force_map, force_map_tics=args.force_map_tics)
-                           for i, (w, m) in enumerate(env_pairs)])
-        # Frontier starts, per actor (its own maps and instances).
-        frontier = Frontier(spool / "frontier" / args.actor_id, args.frontier, env_pairs, tag,
-                            patience=args.frontier_patience)
-        frontier.install_all(vec)
-        budget = TicBudget(env_pairs, args.max_tics, args.max_tics_cap, args.tics_growth)
-        # One row per rollout, for debugging (rollout_log_rows).
-        (spool / "rollouts").mkdir(parents=True, exist_ok=True)
-        rollouts_f = open(spool / "rollouts" / f"{args.actor_id}.jsonl", "a")
-        group_labels_env = [env_label(w, m, iwads) for w, m in env_pairs]
-        print(f"[{tag}] forced map glance " + (f"every {args.force_map} steps, {args.force_map_tics} tics on screen"
-                                               if args.force_map > 0 else "off"))
-        # Workers keep no state, so a restart must not replay the same
-        # starts: the sampler mixes in the actor id and the start time.
-        sampler = np.random.default_rng([args.seed, zlib.crc32(args.actor_id.encode()), time.time_ns()])
-        print(f"[{tag}] {G * groups} envs ({groups} groups x {G}), stage {args.stage}, device {device}; "
-              f"groups: {[env_label(w, m, iwads) for w, m in group_pairs]}")
-
-        # No learner has published yet: start from random weights (a
-        # fresh learner adopts them, so no rollout is wasted).
-        torch.manual_seed(args.seed)
-        if init_weights_if_absent(spool, Policy(), f"init-{args.actor_id}"):
-            print(f"[{tag}] no weights in the spool: published new random weights as version 0")
-        wait_for_weights()
-        print(f"[{tag}] weights version {version} (run {run_id})")
-        n = 0
-        while True:
-            batch_dir.mkdir(parents=True, exist_ok=True)
-            wait(lambda: len(list(batch_dir.glob(f"{args.actor_id}_*.npz"))) < args.max_pending)
-            refresh_weights()
-            played_with, played_run = version, run_id
-            t0 = time.time()
-            options = frontier.options(sample_group_options(sampler, groups, G, slots, args.warmup_max),
-                                       G)
-            budget.apply(vec)
-            recs = run_rollouts(vec, policy, device, options)
-            saved = frontier.update(vec, recs, hold=budget.growing())    # before the next reset
-            changed = budget.update(recs, cleared={k for k, v in saved.items() if v is None})
-            write_rollout_log(rollouts_f, recs, options, group_labels_env, frontier,
-                              actor=args.actor_id, batch=n + 1, version=played_with)
-            t_roll = time.time() - t0
-            arrays = pack_rollouts(recs, ro_group, ro_iwad)
-            meta = {"actor": args.actor_id, "version": played_with, "run_id": played_run,
-                    "groups": groups, "group_size": G,
-                    "iwads": iwad_labels, "group_labels": [env_label(w, m, iwads) for w, m in group_pairs],
-                    "rollout_s": t_roll, "created": time.time()}
-            path = write_batch(batch_dir, args.actor_id, arrays, meta)
-            n += 1
-            steps = int(arrays["ro_len"].sum())
-            print(f"[{tag}] batch {n} v{played_with}: {steps} steps ({steps / t_roll:.0f}/s), "
-                  f"{arrays['frames'].shape[0]} frames, {path.stat().st_size / 1e6:.1f} MB, {t_roll:.1f}s"
-                  + (f"; frontier {saved}" if saved else "")
-                  + (f"; rollout limit (tics) {changed}" if changed else ""))
-    except Stop:
-        print(f"[{tag}] learner is done; exiting")
-    except KeyboardInterrupt:
-        print(f"[{tag}] interrupted")
-    finally:
-        if rollouts_f is not None:
-            rollouts_f.close()
-        if vec is not None:
-            vec.close()
-
-
-def write_batch(batch_dir: Path, actor_id: str, arrays: dict, meta: dict) -> Path:
-    """Atomic: the learner only ever sees complete .npz files."""
-    path = batch_dir / f"{actor_id}_{time.time_ns()}.npz"
-    tmp = path.with_name(path.name + ".tmp")
-    with open(tmp, "wb") as f:
-        np.savez_compressed(f, meta=np.array(json.dumps(meta)), **arrays)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, path)
-    return path
-
-
-if __name__ == "__main__":
-    main()

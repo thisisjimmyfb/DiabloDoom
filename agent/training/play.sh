@@ -2,7 +2,8 @@
 # Launch DiabloDoom locally, in a window with sound, with a trained policy
 # driving it (play.py; the game runs with -rldrive, in real time).
 #
-#   ./play.sh                                   # newest agent/ckpt_*.pt, Freedoom E1M1, monsters on
+#   ./play.sh                                   # newest agent/ckpt_*.pt, first IWAD under wad/, E1M1, monsters on
+#   IWAD_INDEX=2 ./play.sh                      # the second IWAD in the printed list
 #   ./play.sh --checkpoint agent/ckpt_000129.pt --warp "1 2"
 #   ./play.sh --greedy --delay 0.3              # most likely actions, slowed down for watching
 #   ./play.sh --no-monster                      # monsters off, as in stage-1 training
@@ -32,8 +33,35 @@ if [[ -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
     echo "[play.sh] warning: no DISPLAY or WAYLAND_DISPLAY; the game window can't open" >&2
 fi
 
+# IWADs: every .wad under wad/ (any case, any depth) whose header says
+# IWAD, sorted, as train.sh finds them. --iwad defaults to the first;
+# IWAD_INDEX=n picks the n-th of the listed ones (1-based). An --iwad
+# given on the command line wins over both.
+WAD_DIR="$REPO/wad"
+IWADS=()
+if [[ -d "$WAD_DIR" ]]; then
+    while IFS= read -r -d '' f; do
+        [[ "$(head -c 4 "$f")" == IWAD ]] && IWADS+=("$f")
+    done < <(find "$WAD_DIR" -type f -iname '*.wad' -print0 | sort -z)
+fi
+if (( ${#IWADS[@]} == 0 )); then
+    echo "[play.sh] no IWAD found under $WAD_DIR" >&2
+    exit 1
+fi
+IWAD_INDEX="${IWAD_INDEX:-1}"
+echo "[play.sh] IWADs (IWAD_INDEX=n picks one):"
+for i in "${!IWADS[@]}"; do
+    mark=" "; (( i + 1 == IWAD_INDEX )) && mark="*"
+    printf '  %s %d  %s\n' "$mark" "$((i + 1))" "${IWADS[$i]#"$WAD_DIR/"}"
+done
+if ! [[ "$IWAD_INDEX" =~ ^[0-9]+$ ]] || (( IWAD_INDEX < 1 || IWAD_INDEX > ${#IWADS[@]} )); then
+    echo "[play.sh] IWAD_INDEX=$IWAD_INDEX out of range (1..${#IWADS[@]})" >&2
+    exit 1
+fi
+IWAD="${IWADS[$((IWAD_INDEX - 1))]}"
+
 # --monster / --no-monster: play.py's --monsters / --no-monsters. The
-# default goes first, so one given on the command line wins.
+# defaults go first, so one given on the command line wins.
 args=()
 for a in "$@"; do
     case "$a" in
@@ -44,4 +72,4 @@ for a in "$@"; do
 done
 
 cd "$HERE"
-exec "$PY" play.py --monsters ${args[@]+"${args[@]}"}
+exec "$PY" play.py --monsters --iwad "$IWAD" ${args[@]+"${args[@]}"}

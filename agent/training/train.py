@@ -16,9 +16,9 @@ for a few epochs per batch. The value head (critic, with privileged
 HP/exit-distance inputs) is trained alongside on detached features, so
 it never shapes the policy during GRPO; Phase 6 PPO will need it.
 
-This runs rollouts and updates in one process, strictly alternating.
-To spread rollouts over several machines, run learn.py with one or more
-eval.py workers instead (SPEC.md §7.5); they share this file's pieces.
+This runs rollouts and updates in one process, strictly alternating
+(--overlap plays the next batch during the update); eval.py has the
+rollout and held-out eval pieces, learn.py the update.
 
 Usage (from agent/training):
     .venv/bin/python train.py --run-dir runs/stage1                # stage 1
@@ -42,7 +42,8 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from model import (Frontier, TicBudget, add_env_args, allocate_groups, capture_dirs, check_slots, env_label,
+from model import (Frontier, MapRotation, TicBudget, add_env_args, capture_dirs, check_slots, default_groups,
+                   env_label, move_groups, resolve_maps,
                    export_latest_checkpoint, iwad_label, make_env, parse_list, resolve_iwads, rng_state,
                    save_checkpoint)
 from env import cleanup_stale  # noqa: E402  (model.py put env on sys.path)
@@ -80,15 +81,16 @@ def main():
     run_dir = Path(args.run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
     device = torch.device(args.device)
-    maps, eval_maps = parse_list(args.maps), parse_list(args.eval_maps)
     slots = [int(s) for s in args.slots.split(",") if s.strip()]
     iwads = resolve_iwads(args.iwads)
-    if args.groups is None:                 # one group per IWAD/map pair
-        args.groups = len(iwads) * len(maps)
+    eval_maps = parse_list(args.eval_maps)
+    maps = resolve_maps(args.maps, iwads, args.stage, eval_maps)
+    if args.groups is None:                 # one group per IWAD/map pair, at most 8
+        args.groups = default_groups(iwads, maps)
     G, groups = args.group_size, args.groups
     n_envs = G * groups
     check_slots(iwads, slots)
-    group_pairs = allocate_groups(iwads, maps, groups)
+    rotation = MapRotation(iwads, maps, groups, args.rotate_every)
 
     # SIGTERM (the execution environment stopping) -> clean shutdown;
     # the last checkpoint is at the previous update boundary.
@@ -108,12 +110,17 @@ def main():
         print(f"[train] {run_dir} already has {start_it} updates (--iterations {args.iterations}); "
               f"nothing to do: pass a higher --iterations, or leave it out to train --more ({args.more}) more")
 
+    group_pairs = rotation.at(start_it)     # a resumed run picks up its rotation
     (run_dir / "config.json").write_text(json.dumps({**vars(args), "run_id": run_id}, indent=2))
     n_params = sum(p.numel() for p in policy.parameters())
     print(f"[train] run {run_id}: {n_envs} envs ({groups} groups x {G}), stage {args.stage}, "
           f"maps {maps}, eval {eval_maps}, {n_params / 1e6:.2f}M params, device {device}")
     print(f"[train] iwads {[iwad_label(w) for w in iwads]}; groups: "
           f"{[env_label(w, m, iwads) for w, m in group_pairs]}")
+    if rotation.every:
+        print(f"[train] {rotation.n_pairs} IWAD/map pairs, {groups} groups: they move on to the next "
+              f"pairs every {rotation.every} batches (a full cycle is "
+              f"{-(-rotation.n_pairs // groups) * rotation.every} batches)")
 
     env_pairs = [group_pairs[i // G] for i in range(n_envs)]
     replays = run_dir / "replays"
@@ -158,7 +165,16 @@ def main():
 
     def play(it: int) -> tuple[list[dict], float]:
         """The batch for update `it`."""
+        nonlocal group_pairs, env_pairs, env_labels
         t = time.time()
+        new = rotation.at(it)
+        if new is not None:
+            pairs = [new[i // G] for i in range(n_envs)]
+            moved = move_groups(vec, frontier, budget, env_pairs, pairs)
+            group_pairs, env_pairs = new, pairs
+            env_labels = [env_label(w, m, iwads) for w, m in env_pairs]
+            print(f"[train] rotation {rotation.rotation}: groups now play "
+                  f"{[env_label(w, m, iwads) for w, m in group_pairs]} ({len(moved)} envs restart)")
         options = frontier.options(sample_group_options(sampler, groups, G, slots, args.warmup_max),
                                    G)
         budget.apply(vec)
@@ -169,6 +185,8 @@ def main():
         # Before the next reset: every game is still where its rollout ended.
         saved = frontier.update(vec, recs, hold=budget.growing())
         recs[0]["frontier_saved"] = saved
+        if rotation.every:
+            recs[0]["groups"] = [env_label(w, m, iwads) for w, m in group_pairs]
         changed = budget.update(recs, cleared={k for k, v in saved.items() if v is None})
         if changed:
             print(f"[train] rollout limit (tics): {changed}")

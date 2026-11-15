@@ -130,8 +130,6 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   (100) updates past the newest checkpoint, so rerunning the same command
   keeps going 100 at a time. `--iterations N` instead sets the run's
   total: it stops at update N, and does nothing if the run already has N.
-  (`learn.py` keeps `--iterations` 1000, the total, since it writes the
-  DONE marker that stops the workers.)
 
 - **Policy:** the step-1 feedforward network: Nature CNN on the 4x84x84
   stack, 8 action logits (sampled), and a value head on detached
@@ -139,12 +137,25 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   line; 0 on a level without one). 1.69M parameters. The value head trains from the start
   but never shapes the policy during GRPO.
 - **Batch:** `--groups` x `--group-size` (8) instances; `--groups`
-  defaults to one group per IWAD/map pair (`train.sh` passes every IWAD
-  under `wad/`: 2 x E1M1-E1M4 = 8 groups). Groups go map by map with every
-  IWAD on each: group g plays `--maps[(g // I) % M]` on `iwads[g % I]`, so
-  E1M1 on Freedoom, E1M1 on The Ultimate Doom, then E1M2 on each, and the
-  first group of every IWAD (the one `--capture` records) is on E1M1.
-  Fewer groups drop the last maps. Eval runs every eval map on
+  defaults to one group per IWAD/map pair, at most 8 (`train.sh` passes
+  every IWAD under `wad/`: 2 x E1M1-E1M4 = 8 groups). Groups go map by map
+  with every IWAD on each: group g plays `--maps[(g // I) % M]` on
+  `iwads[g % I]`, so E1M1 on Freedoom, E1M1 on The Ultimate Doom, then
+  E1M2 on each, and the first group of every IWAD (the one `--capture`
+  records) is on E1M1.
+  **Map rotation:** with more IWAD/map pairs than groups, the groups take
+  turns: every `--rotate-every` (10) batches they move on to the next
+  block of pairs, wrapping around, so every pair gets trained without more
+  instances (`--rotate-every 0`: no rotation, the extra pairs never play).
+  A moved instance's game restarts on its new map (a few seconds); each
+  map keeps its progress save and tic budget while it waits for its turn.
+  A resume picks up its rotation from the iteration. The training line's metrics carry `groups`
+  (the maps played) while rotating. `--maps all` trains every map the
+  IWADs share, minus `--eval-maps` and, in stage 1, the boss-exit maps
+  (E1M8, E2M8, E3M8, E4M6, E4M8, Doom II's MAP07 and MAP30: their exits
+  need a boss death, impossible with `-nomonsters`): 29 maps per IWAD for
+  Freedoom and The Ultimate Doom, 58 pairs, a full cycle in 8 rotations
+  (80 batches) with 8 groups. Eval runs every eval map on
   every IWAD, and metrics add `sectors_<iwad>`/`exit_rate_<iwad>`. Save
   slots are IWAD-specific, so `--slots` needs a single IWAD. All members of a
   group start from the same slot, seed and `--warmup-max` random warm-up
@@ -173,8 +184,7 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   batch without progress keeps the current start; `--frontier-patience`
   (5) of them in a row at the full tic budget (a dead end) clear it, back to the map start. The
   save is also kept in `<run-dir>/frontier/<iwad>_<map>.dsg` (visited
-  list: `.visited`; `<spool>/frontier/<actor-id>/` for an `eval.py`
-  actor), so it survives a resume. A rollout that reaches the exit clears
+  list: `.visited`), so it survives a resume. A rollout that reaches the exit clears
   that map's frontier (the other rollouts of the batch still run to
   their own ends): slot 4 holds the map start again, and the cycle
   starts over. `front` in the training line is the share of rollouts that
@@ -208,8 +218,7 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   SIGTERM exits cleanly; rollouts in progress are discarded.
 - **Logs:** `runs/<name>/metrics.jsonl` (train and eval lines) and
   `config.json`, plus `runs/<name>/rollouts.jsonl` for debugging: one line
-  per training rollout (`<spool>/rollouts/<actor-id>.jsonl` for an
-  `eval.py` actor, with its batch and weights version) giving the env
+  per training rollout giving the env
   index, group and map, the start (`map` or `frontier`, slot, seed,
   warm-up length), why it ended (`end`: exit, death, portal, time,
   combat), its tics against that map's `max_tics`, the return split by
@@ -219,14 +228,13 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   rollout it saved or that exited). `wall_start`/`wall_end` are spelled
   like the replay file names, so a cut in a replay finds its rollout:
   `grep '"env": 8,' rollouts.jsonl`.
-- **Replays:** off by default. `./train.sh --capture` turns them on (for
-  training, actors and the held-out eval; the learner plays no game):
+- **Replays:** off by default. `./train.sh --capture` turns them on:
   the first `--capture-envs` training envs of each IWAD (train.sh sets 1;
   `train.py`'s own default is 0) launch with `--continuous-capture` and
   record continuous replay into `runs/<name>/replays/env<i>_<IWAD>/`
   (e.g. `env00_FREEDOOM1/`, `env08_DOOM/`), and
-  `--capture-eval` (what `./train.sh --heldout --capture` passes) records
-  the eval envs into `replays/eval<i>/`. Each
+  `train.py --capture-eval` records the held-out eval envs into
+  `replays/eval<i>/`. Each
   file is 15 s of game time at 35 fps (525 tics, about 2-3 MB), named
   `diablodoom_YYYYMMDD_HHMMSS_mmm.mp4` by the wall-clock time it was
   queued, so names are unique and sort chronologically. Segments run
@@ -244,26 +252,6 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   `--nodraw` (opt-in, benchmarks only) skips rendering as well, about 6x,
   but then the frame is never drawn, so the policy is blind, and replay
   capture is off.
-- **Spool** (`<run-dir>/spool` by default): the learner publishes
-  `weights.pt` (with its version and run id) at startup and after every
-  update. A worker that finds no `weights.pt` creates random version-0
-  weights there itself and plays with them, so a worker can start before
-  (or without) a learner; a fresh learner (no checkpoint, no `--init`)
-  adopts them, so those batches still count;
-  workers write `batches/<actor>_<time>.npz` (each distinct frame once,
-  about 5-7 KB per decision); the learner deletes what it consumes and
-  writes `DONE` when it finishes, and the workers exit.
-- **Learner:** updates once it holds `--min-groups` (4) groups, taking
-  every fresh batch; drops batches more than `--max-lag` (2) versions
-  old, and batches played with another run's weights. Checkpoints, `--keep`, `--outpath` and resuming work as in
-  `train.py`; `metrics.jsonl` adds the version, the actors, the lag and
-  per-IWAD numbers.
-- **Workers** are stateless: they take the env arguments (`--iwads`,
-  `--maps`, `--groups`, `--stage`, …), pause while `--max-pending` (2) of
-  their own batches are unconsumed, reload `weights.pt` when its version
-  or run changes, and need a unique `--actor-id` (no `_`). Replay capture is off unless `--capture-envs` is set (`./train.sh --actor --capture` sets 1).
-- **Across machines:** sync batches to the learner's spool and
-  `weights.pt` back (rsync/scp, or a shared mount).
 
 ## Playing (`play.sh`)
 
@@ -310,30 +298,23 @@ suite locally before pushing.
 
 `test.sh` passes its arguments to pytest; `.venv/bin/python -m pytest`
 from this directory works the same. One file per module, plus shared
-fixtures (fake rollouts and batch files) in `tests/conftest.py`:
+fixtures (fake rollouts) in `tests/conftest.py`:
 
 - `test_env.py` (game): gymnasium's `check_env`, a 10,000-decision random
   agent that never wedges, determinism (same slot, seed and actions give
   identical states and frames), 8-instance `AsyncVectorEnv` throughput,
   and explore strafes.
-- `test_model.py`: batch format and frame dedup, IWAD/group allocation,
-  checkpoints (keep N, corrupt fallback, export), RNG restore and the
-  spool's weights file.
-- `test_eval.py`: group starts, warm-up actions, atomic batch writes and
-  the `--actor-id` check. Game: `test_worker` and `test_heldout` run
-  `eval.py` against a fake learner (the test publishes `weights.pt` and
-  `DONE`), checking whole groups from one start, the `--max-pending`
-  pause, new weights, one eval per version and the exit on `DONE`.
-- `test_learn.py`: advantages, value targets, the update and spool intake
-  (stale, waiting, half-written batches); `test_learner` runs `learn.py`
-  on hand-written batches without the game (updates, checkpoints, `DONE`,
-  `--outpath`, resume, stale drop). Game: `test_split` runs `learn.py`
-  with real `eval.py` workers until `DONE`.
+- `test_model.py`: IWAD/group allocation, map rotation and moving groups,
+  `--maps all`, progress saves (frontier), tic budgets, checkpoints (keep
+  N, corrupt fallback, export), RNG restore and checkpoint upgrades.
+- `test_eval.py`: group starts and warm-up actions.
+- `test_learn.py`: advantages, value targets and the update.
 - `test_play.py`: a checkpoint from another action set is refused; game:
   `play.py` drives a headless game and quits, or leaves it running
   detached (no work directory or shared memory left for `cleanup_stale`).
 - `test_train.py` (game): `test_resume` runs `train.py` for 2 iterations
-  with evals and `--outpath`, then resumes it to 3; `test_iwads` splits
+  with evals and `--outpath` (checking `rollouts.jsonl`), then resumes it
+  to 3; `test_rotation` alternates two maps with `--rotate-every 1`; `test_iwads` splits
   groups over Freedoom and The Ultimate Doom (skipped without both);
   `test_capture` checks replay segments land in `replays/env00_<IWAD>/` with
   timestamped names.

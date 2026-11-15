@@ -446,6 +446,22 @@ class DiabloDoomEnv(gym.Env):
         info["max_tics"] = self.cfg.max_tics
         return obs, float(reward), terminated, truncated, info
 
+    def set_map(self, iwad: str | None, warp: str) -> bool:
+        """Move this instance to another map (and IWAD; None keeps the
+        current one): the game is closed now and starts on the new map at
+        the next reset, which saves that map's start again. Installed saves
+        (the old map's progress) are dropped. Returns whether it moved."""
+        if warp == self.cfg.engine.warp and (iwad is None or iwad == self.cfg.engine.iwad):
+            return False
+        self.engine.close()
+        self.cfg.engine.warp = warp
+        if iwad:
+            self.cfg.engine.iwad = iwad
+        self._installed.clear()
+        self._installed_visited.clear()
+        self._map_start = None
+        return True
+
     def set_max_tics(self, n: int) -> None:
         """Change the rollout limit in game tics; it takes effect from the
         next rollout (training's per-map tic budget, model.TicBudget)."""

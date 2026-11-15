@@ -49,7 +49,8 @@ def test_resume(tmp_path):
         "one row per training rollout"
     for r in rows:
         assert r["end"] in ("exit", "death", "portal", "time", "combat"), r
-        assert r["tics"] <= r["max_tics"] + 40 and r["steps"] == sum(r["actions"].values())
+        assert r["end"] != "time" or r["tics"] >= r["max_tics"], "time: the limit was used up"
+        assert r["steps"] == sum(r["actions"].values())
         assert abs(sum(r["terms"].values()) - r["return"]) < 0.01, "the terms add up to the return"
         assert r["pos"][0][2] >= 0 and r["wall_start"] <= r["wall_end"] and r["frontier"]
 
@@ -59,6 +60,23 @@ def test_resume(tmp_path):
         "the resumed run continues at iteration 2 (no repeat)"
     assert [r["iteration"] for r in metrics(run_dir, "eval")] == [0, 1, 2, 3], "no new baseline"
     assert (out / "ckpt_000002.pt").exists()
+
+
+def test_rotation(tmp_path):
+    """Two maps, one group, --rotate-every 1: the group alternates maps,
+    its games restart on the new one, and a map it comes back to starts
+    from that map's saved progress."""
+    run_dir = tmp_path / "run"
+    o = train(run_dir, "--maps", "1 1,1 2", "--rotate-every", "1", "--iterations", "3",
+              "--eval-every", "0", "--capture-envs", "0")
+    assert "rotation 1: groups now play ['1 2']" in o and "rotation 2: groups now play ['1 1']" in o
+    rows = [json.loads(l) for l in (run_dir / "rollouts.jsonl").read_text().splitlines()]
+    assert [r["map"] for r in rows if r["env"] == 0] == ["1 1", "1 2", "1 1"]
+    assert [m["groups"] for m in metrics(run_dir, "train")] == [["1 1"], ["1 2"], ["1 1"]]
+    back = [r for r in rows if r["iteration"] == 2]
+    first = [r for r in rows if r["iteration"] == 0]
+    if any(r.get("picked") and r["frontier"] == "saved" for r in first):
+        assert all(r["start"] == "frontier" for r in back), "E1M1's progress waited for its turn"
 
 
 def test_iwads(tmp_path):

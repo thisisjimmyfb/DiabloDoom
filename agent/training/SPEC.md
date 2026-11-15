@@ -160,7 +160,7 @@ screen (scene or automap, 84×84, 4 stacked)
 ### 7.1 GRPO (pretraining)
 
 - **Groups:** G = 8 rollouts from the same slot and seed; 4 groups per batch = 32 instances.
-- **IWADs:** training runs on every IWAD at once: Freedoom Phase 1 and The Ultimate Doom (`train.sh` passes every file under `wad/` whose header is `IWAD`; PWADs are skipped). With I IWADs and M maps, group g plays map `maps[(g // I) % M]` on IWAD `iwads[g % I]`: map by map, every IWAD on each map (E1M1 on both, then E1M2 on both, ...). The default group count is I×M (8 for 2 IWADs × E1M1–E1M4), one group per IWAD/map pair; with fewer, the last maps go untrained and the trainer warns which pairs. Eval plays every held-out map on every IWAD, and the logs report sectors and exit rate per IWAD.
+- **IWADs:** training runs on every IWAD at once: Freedoom Phase 1 and The Ultimate Doom (`train.sh` passes every file under `wad/` whose header is `IWAD`; PWADs are skipped). With I IWADs and M maps, group g plays map `maps[(g // I) % M]` on IWAD `iwads[g % I]`: map by map, every IWAD on each map (E1M1 on both, then E1M2 on both, ...). The default group count is I×M (8 for 2 IWADs × E1M1–E1M4), one group per IWAD/map pair, at most 8. With more pairs than groups the groups rotate: every `--rotate-every` (10) batches they move on to the next block of pairs (pair `(r · groups + g) mod I·M` in rotation r), wrapping around; a moved instance's game restarts on its new map, and each map keeps its frontier save and tic budget for its next turn. `--rotate-every 0` turns rotation off (the extra pairs go untrained, with a warning). `--maps all` is every map the IWADs share, minus the eval maps and, in stage 1, the maps whose exit needs a boss death (E1M8, E2M8, E3M8, E4M6, E4M8; Doom II MAP07, MAP30). Eval plays every held-out map on every IWAD, and the logs report sectors and exit rate per IWAD.
 - **Advantage:**
 
   ```
@@ -177,7 +177,7 @@ screen (scene or automap, 84×84, 4 stacked)
 
   A few epochs per batch. β = 0 to start (no reference policy). If the farm LLM's explore commands (paired with its frames) are behavior-cloned first, that clone becomes π_ref with β > 0.
 - **Group diversity:** `P_Random` is deterministic, so only action sampling separates rollouts. Use a small entropy bonus. Drop zero-std groups and log the collapsed share.
-- **Trainer:** a PPO-style clipped-ratio trainer with the GAE replaced by group advantages and group resets added. It runs either as one process on one box (`train.py`) or split into rollout workers and a learner across machines (§7.5).
+- **Trainer:** a PPO-style clipped-ratio trainer with the GAE replaced by group advantages and group resets added. It runs as one process on one box (`train.py`; the split rollout-worker/learner trainer was removed 2026-11-14, §7.5).
 - **Data:** mostly the game's own levels (they stay fixed) across both IWADs, so the runner sees two texture sets and two layouts of each map slot, plus filtered community maps so it isn't brittle. Randomize textures, player speed and turn rate. Optional early stage: generated mazes with a known shortest path.
 
 ### 7.2 Training stages
@@ -209,36 +209,10 @@ The execution environment can stop at any moment.
 - Discard rollouts in progress on restart.
 - Atomic writes (temp file, `fsync`, `os.replace`), keep the last 3 checkpoints, fall back if the newest fails to load.
 - On startup, delete stale FIFOs and `/dev/shm` segments and kill orphaned DiabloDoom processes. Only leftovers whose owner process is gone are touched, so several trainer processes can share one box.
-- In the split trainer (§7.5) only the learner checkpoints. Rollout workers are stateless: on restart they pull the newest weights and start new groups. Exact bit-for-bit resume of a multi-machine run is given up; the learner's weights, optimizer and version still resume exactly.
 
-### 7.5 Split trainer: rollout workers and learner
+### 7.5 Split trainer (removed)
 
-The game instances are the cost, and they are CPU-bound on every machine; the 1.7M-parameter policy is cheap to run on a CPU, and only the update wants the GPU. So the trainer splits in two, and the Muse VM (CPU only) contributes rollouts while the RTX 5080 box learns.
-
-- **`eval.py` (rollout worker, any machine, CPU or GPU):** spawns the env instances, samples group starts (seed, slot, warm-up), plays G×groups rollouts with the newest weights it has, and writes each finished set of groups to the spool as one batch file. Several workers can run at once, on one box or several, each with its own `--actor-id`.
-- **`eval.py --heldout` (held-out evaluation):** the same machinery on the held-out maps from fixed starts (seed 0, no warm-up), once per new weights version; writes metrics only, never training data.
-- **`learn.py` (learner, the 5080):** waits until the spool holds enough fresh groups, computes group advantages and value targets, runs the update, checkpoints (§7.4), and publishes the new weights.
-- **`model.py`:** shared by all three: the policy network, the env factory, IWAD/group allocation and checkpoint I/O.
-- **`train.py`:** the single-box driver, kept: rollouts and update in one process, strictly alternating, no spool. It's the reference for the split's math and the cheapest local run.
-
-**Spool** (a directory; the only interface between the two sides):
-- `weights.pt`: `{version, run_id, policy}`, written atomically by the learner at startup (version of the resumed or initial weights) and after every update (version = updates done). Workers reload it when the version or the run changes. A worker that finds no `weights.pt` creates random version-0 weights itself (create-if-absent, so of several workers starting at once exactly one writes) and plays with them; a fresh learner (no checkpoint, no `--init`) adopts the spool's weights and, for version 0, their run id, so those batches count.
-- `batches/<actor>_<time_ns>.npz`: one file per worker iteration, written atomically (temp file, `fsync`, `os.replace`), deleted by the learner once consumed.
-- `DONE`: written by the learner when it finishes its iterations; workers exit when they see it.
-
-**Batch contents** (per decision; §5.4 for the fields):
-- Frames deduplicated: each new decision pushes one frame onto the 4-frame stack, so a batch stores every distinct 84×84 frame once plus a 4-index stack per decision, and the learner rebuilds the stacks exactly. About 7 KB per decision instead of 28 KB, before compression.
-- `priv` (HP, exit distance), `act`, `logp` (under the acting weights, for the clipped ratio), `rew`, `tics`.
-- Per rollout: length, group id, IWAD, rollout tics, sectors gained, exit, death, terminated (metrics only; the learner recomputes everything it trains on).
-- Meta: actor id, weights version and run id the rollouts were played with, group labels (IWAD:map), timing.
-
-**Staleness and flow control:**
-- The clipped ratio uses the acting policy's log-probs, so rollouts a version or two old are still valid. Batches more than `--max-lag` versions (2) behind the learner, or played with another run's weights, are dropped and counted.
-- The learner updates once it holds at least `--min-groups` groups (4), taking every fresh batch in the spool at that moment, so the batch size grows with the number of workers.
-- A worker pauses while `--max-pending` (2) of its own batches are unconsumed, so a fast worker can't fill the disk or train the learner on its own starts only.
-- Groups are normalized within themselves, so groups from different workers, IWADs and maps mix freely in one update.
-
-**Across machines:** the spool is just files. The learner's spool is the source of truth; batches go from a worker's machine to it and `weights.pt` goes back (rsync/scp in a loop, or a shared mount). The transport is open (§12). A worker with only Freedoom contributes Freedoom groups; the learner doesn't care which IWADs a batch covers.
+Removed 2026-11-14. The trainer used to run optionally split, rollout workers (`eval.py`, Muse VMs among them) feeding a learner (`learn.py`) through a spool of batch and weights files. Muse VMs didn't gain from the split, so only the single-box `train.py` remains: `eval.py` keeps the rollout, rollout-log and held-out eval pieces and `learn.py` the update, both used by `train.py`. `train.sh` has no `--learn`, `--actor` or `--heldout` modes.
 
 ## 8. LLM/VLM handoff and items
 
@@ -299,7 +273,7 @@ Decided:
 - Training runs on the RTX 5080 box.
 - G = 8, 2,100 tics per rollout.
 - Training uses every IWAD under `wad/` (Freedoom Phase 1 and The Ultimate Doom), groups split evenly between them (§7.1).
-- Training can be split: rollout workers (`eval.py`, including CPU-only Muse VMs) feed a learner (`learn.py`, the RTX 5080) through a spool directory (§7.5). `train.py` stays as the single-box driver.
+- Training runs as one process on one box (`train.py`); the split worker/learner trainer was removed 2026-11-14 (§7.5).
 - CONSULT rewards and penalties as in §5.3; the backpack trigger is a dedicated backpack-full message on a failed pickup.
 - CONSULT is an environment signal that drives Muse VM; the game cannot hand off by itself. The policy is taught to switch to combat or inventory mode with it, and the monster reward is paid only for sightings while exploring. The policy must choose CONSULT itself in every case — including after combat has started, where it earns no reward but each step without it is penalized. No automatic consult, no mode mask.
 - The status bar stays in the policy's view.
@@ -308,4 +282,3 @@ Decided:
 Open:
 - Third stage: fine-tuning with the scripted combat stand-in and an HP-loss penalty. Kept in the plan; details later.
 - Reward magnitudes (§5.3).
-- Spool transport between a Muse VM and the 5080 box (§7.5): SSH/rsync, HTTP, or a shared mount, depending on what can reach what.

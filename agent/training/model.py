@@ -1,7 +1,7 @@
-"""Shared pieces of the trainer (SPEC.md §6, §7.1, §7.4, §7.5): the policy
-network, the env factory, IWAD/group allocation, checkpoint I/O and the
-spool's weights file. Used by train.py (single box), eval.py (rollout
-worker) and learn.py (learner)."""
+"""Shared pieces of the trainer (SPEC.md §6, §7.1, §7.4): the policy
+network, the env factory, IWAD/group allocation and map rotation, progress
+saves (Frontier), tic budgets and checkpoint I/O. Used by train.py, with
+eval.py (rollouts, logs, held-out eval) and learn.py (the update)."""
 
 from __future__ import annotations
 
@@ -179,20 +179,114 @@ def capture_dirs(env_pairs: list, n: int, root: Path) -> list[str | None]:
     return out
 
 
+def all_pairs(iwads: list[str | None], maps: list[str]) -> list[tuple[str | None, str]]:
+    """Every IWAD/map pair, map by map with every IWAD on each: E1M1 on
+    each IWAD, then E1M2 on each, ..."""
+    return [(w, m) for m in maps for w in iwads]
+
+
 def allocate_groups(iwads: list[str | None], maps: list[str], groups: int,
-                    tag: str = "train") -> list[tuple[str | None, str]]:
-    """Group g -> (iwad, map), map by map with every IWAD on each: group g
-    plays maps[(g // I) % M] on iwads[g % I] -- E1M1 on each IWAD, then
-    E1M2 on each, ... --groups I*M (the default) covers every IWAD/map
-    pair once, and the first group of every IWAD plays the first map.
-    Fewer groups drop the last maps. Warns about pairs no group plays."""
-    I, M = len(iwads), len(maps)
-    pairs = [(iwads[g % I], maps[(g // I) % M]) for g in range(groups)]
-    missing = [env_label(w, m, iwads) for w in iwads for m in maps if (w, m) not in pairs]
-    if missing:
-        print(f"[{tag}] warning: {groups} groups don't cover {missing}; "
-              f"use --groups {I * M} to train every IWAD/map pair")
-    return pairs
+                    tag: str = "train", rotation: int | None = None) -> list[tuple[str | None, str]]:
+    """Group g -> (iwad, map): pair (rotation * groups + g) of all_pairs,
+    wrapping around. Rotation 0 gives group g maps[(g // I) % M] on
+    iwads[g % I]; I*M groups cover every pair at once. With fewer groups
+    each rotation (MapRotation) moves them on to the next pairs, so every
+    pair gets its turn; rotation None (no rotation) warns about the pairs
+    no group plays."""
+    pairs = all_pairs(iwads, maps)
+    r = rotation or 0
+    out = [pairs[(r * groups + g) % len(pairs)] for g in range(groups)]
+    missing = [env_label(w, m, iwads) for w, m in pairs if (w, m) not in out]
+    if missing and rotation is None:
+        print(f"[{tag}] warning: {groups} groups don't cover {missing}; use --rotate-every to "
+              f"take turns, or --groups {len(pairs)} to train every IWAD/map pair at once")
+    return out
+
+
+# Maps whose exit needs a boss death (E1M8's walls, E2M8/E3M8/E4M6/E4M8
+# end the level when the boss dies; Doom II's MAP07 and MAP30): with
+# stage 1's -nomonsters they can't be finished, so --maps all skips them.
+BOSS_MAPS = {"1 8", "2 8", "3 8", "4 6", "4 8", "7", "30"}
+# --groups default: one group per IWAD/map pair, at most this many (the
+# rest take turns, --rotate-every).
+MAX_DEFAULT_GROUPS = 8
+
+
+def wad_maps(path: str) -> list[str]:
+    """The maps in a WAD, as -warp args ("1 1" for E1M1, "1" for MAP01)."""
+    import struct
+    with open(path, "rb") as f:
+        head = f.read(12)
+        n, off = struct.unpack_from("<4xii", head)
+        f.seek(off)
+        d = f.read(16 * n)
+    out = []
+    for i in range(n):
+        name = d[16 * i + 8:16 * i + 16].rstrip(b"\0").decode("ascii", "replace").upper()
+        if len(name) == 4 and name[0] == "E" and name[2] == "M" and name[1].isdigit() and name[3].isdigit():
+            out.append(f"{name[1]} {name[3]}")
+        elif len(name) == 5 and name.startswith("MAP") and name[3:].isdigit():
+            out.append(str(int(name[3:])))
+    return out
+
+
+def resolve_maps(spec: str, iwads: list[str | None], stage: int, eval_maps: list[str],
+                 tag: str = "train") -> list[str]:
+    """--maps: a comma-separated -warp list, or "all": every map all the
+    IWADs have, minus the held-out eval maps and, in stage 1, BOSS_MAPS."""
+    if spec.strip().lower() != "all":
+        return parse_list(spec)
+    from env.engine import DEFAULT_IWAD
+    lists = [wad_maps(w or str(DEFAULT_IWAD)) for w in iwads]
+    maps = [m for m in lists[0] if all(m in l for l in lists[1:])]
+    skip = set(eval_maps) | (BOSS_MAPS if stage == 1 else set())
+    maps = [m for m in maps if m not in skip]
+    print(f"[{tag}] --maps all: {len(maps)} maps ({', '.join(maps)}); skipped "
+          f"{sorted(skip & set(lists[0]))} (held out" + (", boss exits" if stage == 1 else "") + ")")
+    return maps
+
+
+def default_groups(iwads: list, maps: list) -> int:
+    return min(len(iwads) * len(maps), MAX_DEFAULT_GROUPS)
+
+
+class MapRotation:
+    """Groups take turns on the IWAD/map pairs when there are more pairs
+    than groups: every `every` batches they move on to the next block of
+    pairs (allocate_groups' rotation), so all of them get trained. Off
+    (one fixed allocation) when the groups cover every pair or every is 0."""
+
+    def __init__(self, iwads: list, maps: list, groups: int, every: int, tag: str = "train"):
+        self.iwads, self.maps, self.groups, self.tag = iwads, maps, groups, tag
+        self.n_pairs = len(iwads) * len(maps)
+        self.every = every if every > 0 and groups < self.n_pairs else 0
+        self.rotation: int | None = None
+
+    def at(self, batch: int) -> list | None:
+        """The group pairs for batch `batch` if they change (the first
+        call always returns them), else None."""
+        r = batch // self.every if self.every else 0
+        if r == self.rotation:
+            return None
+        self.rotation = r
+        return allocate_groups(self.iwads, self.maps, self.groups, self.tag,
+                               rotation=r if self.every else None)
+
+
+def move_groups(vec, frontier, budget, old_pairs: list, new_pairs: list) -> list[int]:
+    """Move the envs whose (iwad, map) changed: their games restart on the
+    new map at the next reset (set_map), and the frontier and tic budget
+    follow. Returns the moved envs."""
+    by_pair: dict = {}
+    for i, (o, n) in enumerate(zip(old_pairs, new_pairs)):
+        if o != n:
+            by_pair.setdefault(n, []).append(i)
+    for (w, m), idx in by_pair.items():
+        vec.call(idx, "set_map", (w, m))
+    moved = sorted(i for idx in by_pair.values() for i in idx)
+    frontier.assign(vec, new_pairs, moved)
+    budget.assign(new_pairs)
+    return moved
 
 
 def add_env_args(p) -> None:
@@ -214,14 +308,19 @@ def add_env_args(p) -> None:
                         "maps[(g // I) %% M] on iwads[g %% I]: every map on every IWAD, map by map; "
                         "the default --groups I*M covers every IWAD/map pair")
     p.add_argument("--maps", default="1 1,1 2,1 3,1 4",
-                   help="training maps as -warp args, comma-separated; group g uses maps[g %% len]")
+                   help="training maps as -warp args, comma-separated, or 'all': every map the IWADs "
+                        "share, minus --eval-maps and (stage 1) the boss-exit maps")
+    p.add_argument("--rotate-every", type=int, default=10,
+                   help="with more IWAD/map pairs than groups: batches a group plays its map before "
+                        "the groups move on to the next pairs (0: no rotation, the extra pairs never play)")
     p.add_argument("--eval-maps", default="1 5,1 6", help="held-out maps for evaluation ('' to skip)")
     p.add_argument("--eval-episodes", type=int, default=2, help="rollouts per eval map")
     p.add_argument("--skill", type=int, default=3)
     p.add_argument("--slots-dir", default=None, help="prepared save slots copied into each instance")
     p.add_argument("--slots", default="", help="start slots in --slots-dir, e.g. '3,4,5'")
     p.add_argument("--groups", type=int, default=None,
-                   help="GRPO groups (default: one per IWAD/map pair, len(--iwads) x len(--maps))")
+                   help="GRPO groups (default: one per IWAD/map pair, len(--iwads) x len(--maps), "
+                        "at most 8; with more pairs than groups they take turns, --rotate-every)")
     p.add_argument("--group-size", type=int, default=8)
     p.add_argument("--max-tics", type=int, default=525,
                    help="rollout limit in game tics (35/s; default 15 s)")
@@ -320,10 +419,28 @@ class Frontier:
     def _envs(self, label: str) -> list[int]:
         return [i for i, l in enumerate(self.labels) if l == label]
 
+    def assign(self, vec, env_pairs: list, moved: list[int]) -> None:
+        """The envs now play env_pairs (MapRotation): the moved envs get
+        their new map's frontier, from memory or root/ (kept per map, so a
+        map picks up where it was left)."""
+        self.labels = [f"{iwad_label(w)}_{m.replace(' ', '_')}" for w, m in env_pairs]
+        for label in set(self.labels):
+            if label not in self.data and self.root is not None and self.enabled:
+                f = self.root / f"{label}.dsg"
+                if f.exists():
+                    self.data[label] = f.read_bytes()
+                    v = self.root / f"{label}.visited"
+                    self.visited[label] = v.read_text().strip() if v.exists() else None
+        for label in set(self.labels[i] for i in moved):
+            idx = [i for i in moved if self.labels[i] == label]
+            if label in self.data:
+                vec.call(idx, "install_state", (FRONTIER_SLOT, self.data[label], self.visited.get(label)))
+
     def install_all(self, vec) -> None:
         """Copy the frontiers found in root/ into fresh instances."""
         for label, data in self.data.items():
-            vec.call(self._envs(label), "install_state", (FRONTIER_SLOT, data, self.visited.get(label)))
+            if self._envs(label):
+                vec.call(self._envs(label), "install_state", (FRONTIER_SLOT, data, self.visited.get(label)))
         if self.data:
             print(f"[{self.tag}] frontier starts restored: {sorted(self.data)}")
 
@@ -414,30 +531,41 @@ class TicBudget:
 
     def __init__(self, env_pairs: list, base: int, cap: int, growth: float = 1.5):
         self.base, self.cap, self.growth = base, max(cap, base), growth
+        self.tics: dict[str, int] = {}
+        self._applied: dict[int, int] = {}   # env -> the limit it was last sent
+        self.assign(env_pairs)
+
+    def assign(self, env_pairs: list) -> None:
+        """The envs now play env_pairs (MapRotation); a map's budget is
+        kept while other maps have their turn."""
         self.labels = [f"{iwad_label(w)}_{m.replace(' ', '_')}" for w, m in env_pairs]
-        self.tics = {label: base for label in self.labels}
-        self._applied: dict[str, int] = {}
+        for label in self.labels:
+            self.tics.setdefault(label, self.base)
 
     def _envs(self, label: str) -> list[int]:
         return [i for i, lab in enumerate(self.labels) if lab == label]
 
     def apply(self, vec) -> None:
-        """Before a batch: set each map's limit on its instances."""
-        for label, n in sorted(self.tics.items()):
-            if self._applied.get(label) != n:
-                vec.call(self._envs(label), "set_max_tics", (n,))
-                self._applied[label] = n
+        """Before a batch: set each env's map limit where it changed."""
+        by_n: dict[int, list[int]] = {}
+        for i, label in enumerate(self.labels):
+            n = self.tics[label]
+            if self._applied.get(i) != n:
+                by_n.setdefault(n, []).append(i)
+                self._applied[i] = n
+        for n, idx in sorted(by_n.items()):
+            vec.call(idx, "set_max_tics", (n,))
 
     def growing(self) -> frozenset:
-        """Maps whose budget is still below the cap."""
-        return frozenset(label for label, n in self.tics.items() if n < self.cap)
+        """Maps in play whose budget is still below the cap."""
+        return frozenset(label for label in self.labels if self.tics[label] < self.cap)
 
     def update(self, recs: list[dict], cleared=()) -> dict:
         """After a batch: grow or reset each map's budget; a map whose
         frontier was cleared (back to the map start) resets too. Returns
         {label: new limit} for the maps that changed."""
         changed = {}
-        for label in sorted(self.tics):
+        for label in sorted(set(self.labels)):
             idx = self._envs(label)
             progress = label in cleared or any(recs[i]["sectors_gained"] > 0 or recs[i]["exit"] for i in idx)
             n = self.base if progress else min(self.cap, int(round(self.tics[label] * self.growth)))
@@ -529,140 +657,3 @@ def restore_rng(state: dict, sampler: np.random.Generator | None = None) -> None
         torch.cuda.set_rng_state_all(state["cuda"])
     if sampler is not None and state.get("sampler") is not None:
         sampler.bit_generator.state = state["sampler"]
-
-
-# ---------------------------------------------------------------------------
-# Spool: weights file and stop marker (SPEC.md §7.5)
-# ---------------------------------------------------------------------------
-
-WEIGHTS_FILE = "weights.pt"
-DONE_FILE = "DONE"
-BATCH_DIR = "batches"
-
-
-def publish_weights(spool: Path, version: int, policy: nn.Module, run_id: str) -> None:
-    spool.mkdir(parents=True, exist_ok=True)
-    state = {k: v.detach().cpu() for k, v in policy.state_dict().items()}
-    atomic_torch_save({"version": version, "run_id": run_id, "policy": state}, spool / WEIGHTS_FILE)
-
-
-def init_weights_if_absent(spool: Path, policy: nn.Module, run_id: str) -> bool:
-    """Publish `policy` as version 0 unless the spool already has weights:
-    a worker started before any learner begins from random weights, and a
-    fresh learner then adopts them (learn.setup_learner). Create-if-absent
-    is atomic (a hard link fails if the name exists), so when several
-    workers start at once exactly one writes and all load the same file.
-    True if this call created weights.pt."""
-    spool.mkdir(parents=True, exist_ok=True)
-    path = spool / WEIGHTS_FILE
-    if path.exists():
-        return False
-    state = {k: v.detach().cpu() for k, v in policy.state_dict().items()}
-    tmp = path.with_name(f"{path.name}.{os.getpid()}.init.tmp")
-    with open(tmp, "wb") as f:
-        torch.save({"version": 0, "run_id": run_id, "policy": state}, f)
-        f.flush()
-        os.fsync(f.fileno())
-    try:
-        os.link(tmp, path)
-    except FileExistsError:
-        return False
-    finally:
-        tmp.unlink(missing_ok=True)
-    _fsync_dir(spool)
-    return True
-
-
-def read_weights(spool: Path) -> dict | None:
-    """The published {version, run_id, policy}, or None if there is none yet."""
-    path = spool / WEIGHTS_FILE
-    if not path.exists():
-        return None
-    try:
-        return torch.load(path, map_location="cpu", weights_only=False)
-    except Exception as e:  # replaced or synced mid-read: try again next poll
-        print(f"[spool] cannot read {path}: {e}")
-        return None
-
-
-# ---------------------------------------------------------------------------
-# Spool: batch files (SPEC.md §7.5)
-# ---------------------------------------------------------------------------
-
-def pack_rollouts(recs: list[dict], ro_group: list[int], ro_iwad: list[int]) -> dict[str, np.ndarray]:
-    """Rollout records -> flat arrays for one batch file. Frames are stored
-    once: each decision's stack is a row of indices into `frames`, so a
-    frame shared by consecutive stacks (or repeated in a reset stack) is
-    kept once and the learner rebuilds every stack exactly."""
-    frames: list[np.ndarray] = []
-    obs_idx: list[list[int]] = []
-    for r in recs:
-        prev_obs, prev_idx = None, None
-        for o in r["obs"]:
-            idx: list[int] = []
-            for k in range(o.shape[0]):
-                j = None
-                if prev_obs is not None:
-                    if k + 1 < o.shape[0] and np.array_equal(o[k], prev_obs[k + 1]):
-                        j = prev_idx[k + 1]          # the stack shifted by one frame
-                    elif np.array_equal(o[k], prev_obs[k]):
-                        j = prev_idx[k]              # no new frame (action not sent)
-                if j is None and k > 0 and np.array_equal(o[k], o[k - 1]):
-                    j = idx[k - 1]                   # reset stack: first frame repeated
-                if j is None:
-                    frames.append(o[k])
-                    j = len(frames) - 1
-                idx.append(j)
-            obs_idx.append(idx)
-            prev_obs, prev_idx = o, idx
-    cat = lambda key, dtype: np.concatenate([np.asarray(r[key], dtype=dtype) for r in recs])  # noqa: E731
-    return {
-        "frames": np.stack(frames).astype(np.uint8),
-        "obs_idx": np.asarray(obs_idx, dtype=np.int32),
-        "priv": np.concatenate([np.asarray(r["priv"], dtype=np.float32).reshape(-1, N_PRIV) for r in recs]),
-        "act": cat("act", np.int8),
-        "logp": cat("logp", np.float32),
-        "rew": cat("rew", np.float32),
-        "tics": cat("tics", np.int32),
-        "ro_len": np.array([r["len"] for r in recs], dtype=np.int32),
-        "ro_group": np.asarray(ro_group, dtype=np.int32),
-        "ro_iwad": np.asarray(ro_iwad, dtype=np.int16),
-        "ro_rollout_tics": np.array([r["rollout_tics"] for r in recs], dtype=np.int32),
-        "ro_sectors": np.array([r["sectors_gained"] for r in recs], dtype=np.int32),
-        "ro_exit": np.array([r["exit"] for r in recs], dtype=bool),
-        "ro_death": np.array([r["death"] for r in recs], dtype=bool),
-        "ro_portal": np.array([r.get("portal", False) for r in recs], dtype=bool),
-        "ro_terminated": np.array([r.get("terminated", False) for r in recs], dtype=bool),
-    }
-
-
-def unpack_rollouts(z, iwad_labels: list[str]) -> list[dict]:
-    """Inverse of pack_rollouts: one record per rollout, with the same
-    fields run_rollouts produces plus "group" (batch-local) and "iwad"."""
-    if hasattr(z, "files"):        # NpzFile decompresses on every access: read each array once
-        z = {k: z[k] for k in z.files if k != "meta"}
-    frames, obs_idx = z["frames"], z["obs_idx"]
-    ends = np.cumsum(z["ro_len"])
-    recs = []
-    for i, end in enumerate(ends):
-        s = slice(int(end - z["ro_len"][i]), int(end))
-        rew = z["rew"][s]
-        recs.append({
-            "obs": frames[obs_idx[s]],                      # (len, stack, H, W)
-            "priv": z["priv"][s],
-            "act": z["act"][s].astype(np.int64),
-            "logp": z["logp"][s],
-            "rew": rew.astype(np.float64).tolist(),
-            "tics": z["tics"][s].tolist(),
-            "len": int(z["ro_len"][i]),
-            "ret": float(rew.astype(np.float64).sum()),
-            "rollout_tics": int(z["ro_rollout_tics"][i]),
-            "sectors_gained": int(z["ro_sectors"][i]),
-            "exit": bool(z["ro_exit"][i]),
-            "death": bool(z["ro_death"][i]),
-            "portal": bool(z["ro_portal"][i]) if "ro_portal" in z else False,
-            "terminated": bool(z["ro_terminated"][i]),
-            "group": int(z["ro_group"][i]),
-            "iwad": iwad_labels[int(z["ro_iwad"][i])],
-        })
-    return recs
