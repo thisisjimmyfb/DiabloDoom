@@ -96,6 +96,7 @@ boolean P_DoCorpseRespawn(void)
 
 // Diablo equipment backend (mod).
 #include "d_diablo.h"
+#include "d_rlenv.h"
 
 #include "s_sound.h"
 
@@ -678,6 +679,7 @@ P_TouchSpecialThing
     int		i;
     fixed_t	delta;
     int		sound;
+    int		hp_before;
 		
     delta = special->z - toucher->z;
 
@@ -696,6 +698,7 @@ P_TouchSpecialThing
     // Can happen with a sliding player corpse.
     if (toucher->health <= 0)
 	return;
+    hp_before = player ? player->health : 0;
 
     // Diablo corpse recovery (2026-10-21): like Diablo, items
     // come off the corpse ONE BY ONE -- never a wholesale overwrite.
@@ -829,6 +832,8 @@ P_TouchSpecialThing
         {
             P_RemoveMobj(special);
             printf("[LOOT] picked up tier=%d idx=%d\n", tier, idx);
+            if (player == &players[consoleplayer])
+                RL_NotePickup("loot", 0);
             // Auto-save after loot pickup: don't lose the new item.
             // Saves both Doom savegame (slots 7-9) and progress.dat.
             {
@@ -1205,6 +1210,23 @@ P_TouchSpecialThing
 	I_Error ("P_SpecialThing: Unknown gettable thing");
     }
 	
+    if (player == &players[consoleplayer])
+    {
+	const char *kind = "other";
+	switch (special->sprite)
+	{
+	  case SPR_STIM: case SPR_MEDI: case SPR_BON1: case SPR_SOUL: case SPR_MEGA:
+	    kind = "health"; break;
+	  case SPR_ARM1: case SPR_ARM2: case SPR_BON2:
+	    kind = "armor"; break;
+	  case SPR_BKEY: case SPR_YKEY: case SPR_RKEY:
+	  case SPR_BSKU: case SPR_YSKU: case SPR_RSKU:
+	    kind = "key"; break;
+	  default:
+	    break;
+	}
+	RL_NotePickup(kind, player->health - hp_before);
+    }
     if (special->flags & MF_COUNTITEM)
 	player->itemcount++;
     P_RemoveMobj (special);

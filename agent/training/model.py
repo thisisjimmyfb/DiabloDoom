@@ -243,8 +243,14 @@ def add_env_args(p) -> None:
                         "exit, or --frontier-patience batches without progress, clears it (slot 4 holds "
                         "the map start again). --no-frontier: always the map start (still slot 4)")
     p.add_argument("--frontier-patience", type=int, default=5,
-                   help="batches in a row without progress from a map's frontier before it is "
-                        "cleared (a dead end: back to the map start)")
+                   help="batches in a row without progress from a map's frontier, at the full "
+                        "--max-tics-cap, before it is cleared (a dead end: back to the map start)")
+    p.add_argument("--max-tics-cap", type=int, default=2100,
+                   help="per-map tic budget: after a batch where no rollout on a map reaches a new "
+                        "sector (or the exit), that map's rollout limit grows by --tics-growth, up to "
+                        "this; progress puts it back to --max-tics (cap <= --max-tics: off)")
+    p.add_argument("--tics-growth", type=float, default=1.5,
+                   help="factor the per-map tic budget grows by after a batch without progress")
     p.add_argument("--force-map", type=int, default=4,
                    help="forced map glance: the env sends MAP itself after every N steps, so the "
                         "automap is in the frame stack and the vision layers learn to read it "
@@ -285,9 +291,12 @@ class Frontier:
     a restart). Every group starts from slot 4, so all members of a
     group start from the identical state: the agent moves on portal by
     portal. A batch without
-    progress keeps the current start; `patience` of them in a row (a
+    progress keeps the current start (and grows the map's tic budget,
+    TicBudget); `patience` of them in a row at the full budget (a
     dead end) clear the map's frontier, and so does a rollout reaching
-    the exit (the level is done): slot 4 holds the map start again."""
+    the exit (the level is done): slot 4 holds the map start again for
+    the next batch. Every rollout of the batch still runs to its own
+    end; an exit stops none of the others."""
 
     def __init__(self, root: Path | None, enabled: bool, env_pairs: list, tag: str = "train",
                  patience: int = 5):
@@ -296,6 +305,9 @@ class Frontier:
         self.data: dict[str, bytes] = {}
         self.visited: dict[str, str | None] = {}
         self.stale: dict[str, int] = {}
+        # What the last update did per map, for the rollout log:
+        # {label: {"result": saved|exit|stale|kept, "env": i, "stale": n}}.
+        self.last: dict[str, dict] = {}
         if root is not None and enabled:
             root.mkdir(parents=True, exist_ok=True)
             for label in set(self.labels):
@@ -326,9 +338,13 @@ class Frontier:
                     o["frontier"] = True
         return options
 
-    def update(self, vec, recs: list[dict]) -> dict:
+    def update(self, vec, recs: list[dict], hold=frozenset()) -> dict:
         """After a batch: save each map's best rollout end state (or clear
-        the map's frontier on an exit). Returns {label: return saved}."""
+        the map's frontier on an exit: every rollout still ran to its own
+        end). Returns {label: return saved}.
+        A batch without progress on a map in `hold` (its tic budget is
+        still growing, TicBudget.growing) doesn't count towards patience."""
+        self.last = {}
         if not self.enabled:
             return {}
         saved = {}
@@ -337,6 +353,7 @@ class Frontier:
             if any(recs[i]["exit"] for i in idx):
                 self._clear(vec, label, idx)
                 saved[label] = None
+                self.last[label] = {"result": "exit", "env": next(i for i in idx if recs[i]["exit"])}
                 continue
             ok = [i for i in idx if not recs[i]["death"] and recs[i]["sectors_gained"] > 0
                   and recs[i]["end_info"].get("mode") == "EXPLORE"]
@@ -347,11 +364,14 @@ class Frontier:
             if data is None:
                 # No progress from this start: keep it, unless it has
                 # been a dead end for `patience` batches in a row.
-                if label in self.data:
+                self.last[label] = {"result": "kept", "stale": self.stale.get(label, 0)}
+                if label in self.data and label not in hold:
                     self.stale[label] = self.stale.get(label, 0) + 1
+                    self.last[label]["stale"] = self.stale[label]
                     if self.stale[label] >= self.patience:
                         self._clear(vec, label, idx)
                         saved[label] = None
+                        self.last[label]["result"] = "stale"
                 continue
             visited = vec.call([best], "visited")[0]
             if visited is None and not getattr(self, "_warned", False):
@@ -360,6 +380,7 @@ class Frontier:
                       f"2026-11-14? rebuild with scripts/build.sh --release): progress saves carry no "
                       f"visited list, so the portal a rollout came in by counts as new")
             self.data[label], self.visited[label], self.stale[label] = data, visited, 0
+            self.last[label] = {"result": "saved", "env": best}
             vec.call(idx, "install_state", (SAVE_SLOT, data, visited))   # the new progress in 5...
             vec.call(idx, "swap_slots", (FRONTIER_SLOT, SAVE_SLOT))     # ...becomes the start in 4
             if self.root is not None:
@@ -380,6 +401,49 @@ class Frontier:
             if self.root is not None:
                 (self.root / f"{label}.dsg").unlink(missing_ok=True)
                 (self.root / f"{label}.visited").unlink(missing_ok=True)
+
+
+class TicBudget:
+    """Per (IWAD, map): the rollout limit in game tics. It starts at
+    `base` (--max-tics); after a batch where no rollout on the map reached
+    a new sector or the exit, it grows by `growth`, up to `cap`
+    (--max-tics-cap), and any progress puts it back to `base`. Progress
+    still means getting through a portal: a longer budget gives the agent
+    time to find the path, without rewarding a start that only got near
+    one. Not saved: a restart begins at `base`."""
+
+    def __init__(self, env_pairs: list, base: int, cap: int, growth: float = 1.5):
+        self.base, self.cap, self.growth = base, max(cap, base), growth
+        self.labels = [f"{iwad_label(w)}_{m.replace(' ', '_')}" for w, m in env_pairs]
+        self.tics = {label: base for label in self.labels}
+        self._applied: dict[str, int] = {}
+
+    def _envs(self, label: str) -> list[int]:
+        return [i for i, lab in enumerate(self.labels) if lab == label]
+
+    def apply(self, vec) -> None:
+        """Before a batch: set each map's limit on its instances."""
+        for label, n in sorted(self.tics.items()):
+            if self._applied.get(label) != n:
+                vec.call(self._envs(label), "set_max_tics", (n,))
+                self._applied[label] = n
+
+    def growing(self) -> frozenset:
+        """Maps whose budget is still below the cap."""
+        return frozenset(label for label, n in self.tics.items() if n < self.cap)
+
+    def update(self, recs: list[dict], cleared=()) -> dict:
+        """After a batch: grow or reset each map's budget; a map whose
+        frontier was cleared (back to the map start) resets too. Returns
+        {label: new limit} for the maps that changed."""
+        changed = {}
+        for label in sorted(self.tics):
+            idx = self._envs(label)
+            progress = label in cleared or any(recs[i]["sectors_gained"] > 0 or recs[i]["exit"] for i in idx)
+            n = self.base if progress else min(self.cap, int(round(self.tics[label] * self.growth)))
+            if n != self.tics[label]:
+                self.tics[label] = changed[label] = n
+        return changed
 
 
 def check_slots(iwads: list[str | None], slots: list[int]) -> None:

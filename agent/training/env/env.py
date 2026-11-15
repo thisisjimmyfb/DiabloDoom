@@ -41,8 +41,15 @@ class RewardConfig:
     """SPEC.md §5.3. Magnitudes are placeholders, to be tuned from curves."""
     sector: float = 1.0               # per newly visited sector
     exit: float = 100.0               # level complete triggered (ends the rollout): the top reward
+    death: float = -100.0             # the player died (ends the rollout): as big as the exit
     mechanism: float = 10.0           # USE that sets a new mechanism going (once per mechanism)
     key: float = 25.0                 # per key colour newly held (blue, yellow, red; once each)
+    # Pickups, from the engine's pickup events: each Diablo item picked
+    # up (or armor, which also grants one) pays `loot`; a health pickup
+    # pays `health` per HP it actually healed (a medikit 25 HP, a bonus
+    # 1), the mirror of hp_loss. A thing left on the ground pays nothing.
+    loot: float = 5.0
+    health: float = 0.2
     consult_hit: float = 5.0          # first CONSULT on an explore trigger
     trigger_miss: float = -8.0        # trigger unanswered after the grace window
     grace_decisions: int = 5
@@ -60,6 +67,10 @@ class RewardConfig:
     time: float = 0.0
     far_scale: float = 256.0
     portal: float = 5.0               # the portal goal reached (ends the rollout)
+    # Per HP lost, whatever the cause: passive damage (nukage, slime,
+    # crushers, barrels) in stage 1. Healing never pays; a death costs
+    # the HP it lost on the way plus `death`.
+    hp_loss: float = -0.2
 
 
 # A CONSULT handler answers a CONSULT: it may drive the engine with any
@@ -306,6 +317,7 @@ class DiabloDoomEnv(gym.Env):
         self._start_sectors = self._best_sectors
         self._goal = goal_dist(d)
         self._keys = d.get("keys", 0)     # keys held at the start (or from the warm-up) never pay
+        self._prev_hp = d.get("hp", 0)
         self._combat_steps = 0
         self._trig = {k: self._new_trigger() for k in ("monster", "backpack", "combat")}
         self._update_triggers(d)
@@ -317,7 +329,11 @@ class DiabloDoomEnv(gym.Env):
         if not self.action_space.contains(a):
             raise ValueError(f"invalid action {action!r}")
         rc = self.cfg.rewards
-        reward = 0.0
+        terms: dict[str, float] = {}      # the reward by term (info["terms"], for logs)
+
+        def add(term: str, value: float) -> None:
+            if value:
+                terms[term] = terms.get(term, 0.0) + value
         prev = self.state
         in_combat = prev.get("mode") in COMBAT_MODES
         self._handler_tics = 0
@@ -327,10 +343,10 @@ class DiabloDoomEnv(gym.Env):
         if a == CONSULT:
             kinds = [k for k, t in self._trig.items() if t["active"] and not t["consulted"]]
             if not kinds:
-                reward += rc.consult_false
+                add("consult", rc.consult_false)
             for k in kinds:
                 if k in ("monster", "backpack"):
-                    reward += rc.consult_hit
+                    add("consult", rc.consult_hit)
                 self._trig[k]["consulted"] = True
             d = self.consult_handler(self, prev, kinds)
             if d.get("mode") in COMBAT_MODES and not self._trig["combat"]["consulted"]:
@@ -364,50 +380,76 @@ class DiabloDoomEnv(gym.Env):
         if tics > 0 and rc.time:
             known = [g for g in (self._goal, goal) if g is not None]
             dist = sum(known) / len(known) if known else 0.0
-            reward -= rc.time * tics * (1.0 + dist / rc.far_scale)
+            add("time", -rc.time * tics * (1.0 + dist / rc.far_scale))
         if goal is not None or "x" in d:
             self._goal = goal
 
         # Exploration: newly visited sectors.
         if sec > self._best_sectors:
-            reward += rc.sector * (sec - self._best_sectors)
+            add("sector", rc.sector * (sec - self._best_sectors))
             self._best_sectors = sec
 
         # Triggers: start/age/end, and the grace-window miss penalty.
-        reward += self._update_triggers(d)
+        add("consult", self._update_triggers(d))
 
         # Mechanisms: a USE that sets a door, lift, floor, switch...
         # going pays once per mechanism per rollout (SPEC.md §5.3), so
         # reusing the same door or switch never pays again.
         if self._new_mechanisms(events):
-            reward += rc.mechanism
+            add("mechanism", rc.mechanism)
 
         # Keys: each colour pays once per rollout, when first held.
-        reward += rc.key * self._new_keys(d)
+        add("key", rc.key * self._new_keys(d))
+
+        # Pickups: loot and armor per item, health per HP healed.
+        for e in events:
+            if e.get("event") == "pickup":
+                if e.get("kind") in ("loot", "armor"):
+                    add("loot", rc.loot)
+                elif e.get("kind") == "health":
+                    add("health", rc.health * max(int(e.get("hp", 0)), 0))
+
+        # HP lost (a death to 0 included); healing just moves the mark up.
+        hp = max(d.get("hp", self._prev_hp), 0)
+        if hp < self._prev_hp:
+            add("hp_loss", rc.hp_loss * (self._prev_hp - hp))
+        self._prev_hp = hp
 
         terminated = truncated = False
         portal = False
         exited = any(e.get("event") == "exit" for e in events)
+        end = None
         if exited:
-            reward += rc.exit
-            terminated = True
+            add("exit", rc.exit)
+            terminated, end = True, "exit"
         elif d.get("dead"):
-            terminated = True             # ends the rollout; no reward term (no monsters in stage 1)
+            add("death", rc.death)
+            terminated, end = True, "death"
         elif self.cfg.portal_goal > 0 and self._best_sectors - self._start_sectors >= self.cfg.portal_goal:
-            reward += rc.portal
+            add("portal", rc.portal)
             terminated = portal = True
+            end = "portal"
         if not terminated:
             if self._tics >= self.cfg.max_tics:
-                truncated = True
+                truncated, end = True, "time"
             elif self._combat_steps >= self.cfg.max_combat_steps:
-                truncated = True
+                truncated, end = True, "combat"
+        reward = sum(terms.values())
 
         obs = self._stack.push(self._frame()) if sent else self._stack.get()
         info = self._info(tics, d)
         info["exit"] = exited
         info["portal"] = portal
         info["forced_map"] = bool(d.get("forced_map"))   # the engine's forced glance (FORCEMAP)
+        info["terms"] = terms             # the reward by term
+        info["end"] = end                 # why the rollout ended: exit, death, portal, time, combat
+        info["max_tics"] = self.cfg.max_tics
         return obs, float(reward), terminated, truncated, info
+
+    def set_max_tics(self, n: int) -> None:
+        """Change the rollout limit in game tics; it takes effect from the
+        next rollout (training's per-map tic budget, model.TicBudget)."""
+        self.cfg.max_tics = int(n)
 
     def set_force_map(self, every: int, tics: int | None = None) -> None:
         """Change the forced map glance period (0: off) and optionally how

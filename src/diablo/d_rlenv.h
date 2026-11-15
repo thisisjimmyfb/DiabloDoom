@@ -101,6 +101,7 @@ void RL_LevelSetup(void);
 void RL_Consult(void);
 // Explore detection found mo acquiring the player: if it is a practice
 // monster, remove it and return true (no combat); else false.
+struct mobj_s;
 boolean RL_PracticeAcquired(struct mobj_s *mo);
 
 // Mechanism use reporting (the env's mechanism reward, SPEC.md §5.3).
@@ -117,5 +118,15 @@ boolean RL_PracticeAcquired(struct mobj_s *mo);
 void RL_UseBegin(void);
 void RL_NoteSwitch(int line);
 void RL_UseEnd(void);
+
+// Pickups (2026-11-14): P_TouchSpecialThing sends a
+//   {"event":"pickup","kind":"...","hp":N,"gametic":N}
+// line for each thing the player picks up: kind "loot" (a Diablo item
+// into the backpack), "armor" (green/blue armor; green also grants an
+// item), "health" (stimpack, medikit, health bonus, soulsphere,
+// megasphere), "key", or "other"; hp is the health it gave. A thing
+// left on the ground (full backpack, full health) sends nothing.
+// No-ops without -rldrive.
+void RL_NotePickup(const char *kind, int hp);
 
 #endif

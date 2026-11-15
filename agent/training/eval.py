@@ -32,11 +32,11 @@ import numpy as np
 import torch
 from torch.distributions import Categorical
 
-from model import (BATCH_DIR, DONE_FILE, WARMUP_ACTIONS, Frontier, Policy, add_env_args, allocate_groups,
+from model import (BATCH_DIR, DONE_FILE, WARMUP_ACTIONS, Frontier, TicBudget, Policy, add_env_args, allocate_groups,
                    capture_dirs,
                    check_slots, env_label, iwad_label, make_env, pack_rollouts, parse_list,
                    init_weights_if_absent, privileged, read_weights, resolve_iwads, upgrade_policy_state)
-from env import cleanup_stale  # noqa: E402  (model.py put env on sys.path)
+from env import ACTIONS, cleanup_stale, goal_dist  # noqa: E402  (model.py put env on sys.path)
 from env.vector import GroupVecEnv  # noqa: E402
 
 
@@ -50,10 +50,12 @@ def run_rollouts(vec: GroupVecEnv, policy: Policy, device: torch.device,
     sampled actions. Returns one record per env."""
     n = len(options)
     obs, infos = vec.reset(range(n), options)
+    t_start = time.time()
     cur_obs = obs.copy()
     cur_priv = np.array([privileged(i) for i in infos], dtype=np.float32)
     recs = [{"obs": [], "priv": [], "act": [], "logp": [], "rew": [], "tics": [],
-             "start_sectors": infos[k]["state"].get("sectors", 0), "end_info": None}
+             "start_sectors": infos[k]["state"].get("sectors", 0), "end_info": None,
+             "start_state": infos[k]["state"], "wall_start": t_start, "terms": {}}
             for k in range(n)]
     active = list(range(n))
     policy.eval()
@@ -76,11 +78,14 @@ def run_rollouts(vec: GroupVecEnv, policy: Policy, device: torch.device,
             r["logp"].append(float(lp_np[k]))
             r["rew"].append(float(rew[k]))
             r["tics"].append(int(ninfo[k]["tics"]))
+            for t, v in ninfo[k].get("terms", {}).items():
+                r["terms"][t] = r["terms"].get(t, 0.0) + v
             cur_obs[i] = nobs[k]
             cur_priv[i] = privileged(ninfo[k])
             if term[k] or trunc[k]:
                 r["end_info"] = ninfo[k]
                 r["terminated"] = bool(term[k])
+                r["wall_end"] = time.time()
             else:
                 still.append(i)
         active = still
@@ -94,6 +99,61 @@ def run_rollouts(vec: GroupVecEnv, policy: Policy, device: torch.device,
         r["death"] = bool(s.get("dead"))
         r["portal"] = bool(r["end_info"].get("portal"))
     return recs
+
+
+def _clock(t: float) -> str:
+    """Local wall-clock time as the replay file names spell it."""
+    return time.strftime("%Y%m%d_%H%M%S", time.localtime(t)) + f"_{int(t * 1000) % 1000:03d}"
+
+
+def rollout_log_rows(recs: list[dict], options: list[dict], labels: list[str], **common) -> list[dict]:
+    """One debugging row per rollout (rollouts.jsonl): where it started,
+    how and where it ended, its return by reward term, and wall-clock
+    times spelled like the replay file names, so a cut in a replay can be
+    matched to its rollout. `common` (iteration, batch...) goes on every
+    row."""
+    rows = []
+    for i, (r, o) in enumerate(zip(recs, options)):
+        s0, e = r.get("start_state") or {}, r.get("end_info") or {}
+        s1 = e.get("state") or {}
+        acts = np.bincount(np.asarray(r["act"], dtype=np.int64), minlength=len(ACTIONS))
+        rows.append({
+            **common, "env": i, "group": o.get("group"), "map": labels[i],
+            "start": "frontier" if o.get("frontier") else "map",
+            "slot": e.get("slot", o.get("slot")), "seed": o.get("seed"), "warmup": len(o.get("warmup", [])),
+            "end": e.get("end"), "tics": r.get("rollout_tics"), "max_tics": e.get("max_tics"),
+            "steps": r.get("len"), "return": round(r.get("ret", 0.0), 3),
+            "terms": {k: round(v, 3) for k, v in sorted(r.get("terms", {}).items())},
+            "sectors": r.get("sectors_gained"),
+            "hp": [s0.get("hp"), s1.get("hp")],
+            "pos": [[s0.get("x"), s0.get("y"), s0.get("sector")], [s1.get("x"), s1.get("y"), s1.get("sector")]],
+            "goal_dist": [goal_dist(s0), goal_dist(s1)],
+            "mode": s1.get("mode"), "keys": s1.get("keys"),
+            "actions": dict(zip(ACTIONS, acts.tolist())),
+            "wall_start": _clock(r["wall_start"]) if "wall_start" in r else None,
+            "wall_end": _clock(r["wall_end"]) if "wall_end" in r else None,
+        })
+    return rows
+
+
+def write_rollout_log(f, recs: list[dict], options: list[dict], labels: list[str], frontier=None,
+                      **common) -> None:
+    """Append the batch's rollout rows to the open file f, with what the
+    frontier did for each row's map ("frontier": saved / exit / stale /
+    kept, and "picked" on the rollout it saved or that exited)."""
+    rows = rollout_log_rows(recs, options, labels, **common)
+    if frontier is not None:
+        for row, lab in zip(rows, frontier.labels):
+            last = frontier.last.get(lab)
+            if last:
+                row["frontier"] = last["result"]
+                if last.get("env") == row["env"]:
+                    row["picked"] = True
+                if "stale" in last:
+                    row["stale"] = last["stale"]
+    for row in rows:
+        f.write(json.dumps(row) + "\n")
+    f.flush()
 
 
 def sample_group_options(sampler: np.random.Generator, groups: int, G: int,
@@ -234,6 +294,7 @@ def main():
             load(w)
 
     vec = None
+    rollouts_f = None
     try:
         if args.heldout:
             run_dir = Path(args.run_dir) if args.run_dir else spool.parent
@@ -271,6 +332,11 @@ def main():
         frontier = Frontier(spool / "frontier" / args.actor_id, args.frontier, env_pairs, tag,
                             patience=args.frontier_patience)
         frontier.install_all(vec)
+        budget = TicBudget(env_pairs, args.max_tics, args.max_tics_cap, args.tics_growth)
+        # One row per rollout, for debugging (rollout_log_rows).
+        (spool / "rollouts").mkdir(parents=True, exist_ok=True)
+        rollouts_f = open(spool / "rollouts" / f"{args.actor_id}.jsonl", "a")
+        group_labels_env = [env_label(w, m, iwads) for w, m in env_pairs]
         print(f"[{tag}] forced map glance " + (f"every {args.force_map} steps, {args.force_map_tics} tics on screen"
                                                if args.force_map > 0 else "off"))
         # Workers keep no state, so a restart must not replay the same
@@ -295,8 +361,12 @@ def main():
             t0 = time.time()
             options = frontier.options(sample_group_options(sampler, groups, G, slots, args.warmup_max),
                                        G)
+            budget.apply(vec)
             recs = run_rollouts(vec, policy, device, options)
-            saved = frontier.update(vec, recs)    # before the next reset
+            saved = frontier.update(vec, recs, hold=budget.growing())    # before the next reset
+            changed = budget.update(recs, cleared={k for k, v in saved.items() if v is None})
+            write_rollout_log(rollouts_f, recs, options, group_labels_env, frontier,
+                              actor=args.actor_id, batch=n + 1, version=played_with)
             t_roll = time.time() - t0
             arrays = pack_rollouts(recs, ro_group, ro_iwad)
             meta = {"actor": args.actor_id, "version": played_with, "run_id": played_run,
@@ -308,12 +378,15 @@ def main():
             steps = int(arrays["ro_len"].sum())
             print(f"[{tag}] batch {n} v{played_with}: {steps} steps ({steps / t_roll:.0f}/s), "
                   f"{arrays['frames'].shape[0]} frames, {path.stat().st_size / 1e6:.1f} MB, {t_roll:.1f}s"
-                  + (f"; frontier {saved}" if saved else ""))
+                  + (f"; frontier {saved}" if saved else "")
+                  + (f"; rollout limit (tics) {changed}" if changed else ""))
     except Stop:
         print(f"[{tag}] learner is done; exiting")
     except KeyboardInterrupt:
         print(f"[{tag}] interrupted")
     finally:
+        if rollouts_f is not None:
+            rollouts_f.close()
         if vec is not None:
             vec.close()
 

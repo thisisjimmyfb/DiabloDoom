@@ -10,11 +10,11 @@ See agent/training/SPEC.md for the design and README.md for usage.
 from gymnasium.envs.registration import register
 
 from .engine import Engine, EngineConfig, EngineError, cleanup_stale
-from .env import (ACTIONS, CONSULT, DiabloDoomEnv, EnvConfig, RewardConfig,
+from .env import (ACTIONS, CONSULT, DiabloDoomEnv, EnvConfig, RewardConfig, goal_dist,
                   null_consult, standin_consult)
 
 register(id="DiabloDoom-v0", entry_point="env.env:DiabloDoomEnv")
 
 __all__ = ["ACTIONS", "CONSULT", "DiabloDoomEnv", "EnvConfig", "RewardConfig",
-           "Engine", "EngineConfig", "EngineError", "cleanup_stale",
+           "Engine", "EngineConfig", "EngineError", "cleanup_stale", "goal_dist",
            "null_consult", "standin_consult"]

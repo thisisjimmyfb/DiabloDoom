@@ -326,7 +326,7 @@ void RL_EmitState(const char *why, int tics)
                "\"x\":%d,\"y\":%d,\"z\":%d,\"angle\":%d,"
                "\"tp\":%d,\"tp_max\":%d,\"qlen\":%d,"
                "\"weapon\":%d,\"ammo\":%d,\"ammo_max\":%d,"
-               "\"kills\":%d,\"sectors\":%d",
+               "\"kills\":%d,\"sectors\":%d,\"sector\":%d",
                p->health,
                (p->playerstate == PST_DEAD || p->health <= 0) ? "true" : "false",
                D_EquippedDurabilitySum(p),
@@ -334,7 +334,8 @@ void RL_EmitState(const char *why, int tics)
                RL_AngleDeg(mo->angle),
                turnctrl.tp, turnctrl.tp_max, turnctrl.queue_len,
                (int) w, T_KitAmmo(w), T_KitMaxAmmo(w),
-               p->killcount, T_VisitedCount());
+               p->killcount, T_VisitedCount(),
+               mo->subsector ? (int) (mo->subsector->sector - sectors) : -1);
 
         // Key colours held, as a mask (1 blue, 2 yellow, 4 red): a
         // keycard and a skull key of one colour open the same doors.
@@ -499,6 +500,13 @@ void RL_UseEnd(void)
         len += snprintf(buf + len, sizeof(buf) - len, "%s%d", i ? "," : "", rl_use_lines[i]);
     snprintf(buf + len, sizeof(buf) - len, "],\"gametic\":%d}", gametic);
     RL_Emit("%s", buf);
+}
+
+
+void RL_NotePickup(const char *kind, int hp)
+{
+    RL_Emit("{\"event\":\"pickup\",\"kind\":\"%s\",\"hp\":%d,\"gametic\":%d}",
+            kind, hp, gametic);
 }
 
 

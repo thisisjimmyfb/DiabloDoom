@@ -230,11 +230,55 @@ def test_frontier_progress(tmp_path):
     f = Frontier(tmp_path, True, pairs, patience=2)
     assert f.update(vec, [_end(9, gained=0), _end(3, gained=0)]) == {}, "no progress: nothing saved"
     assert f.update(vec, [_end(1, gained=0), _end(2, gained=1)]) == {"default_1_1": 2}
+    assert f.last == {"default_1_1": {"result": "saved", "env": 1}}
     assert vec.slots == [b"save-of-env1"] * 2
     assert f.update(vec, [_end(5, gained=0)] * 2) == {}, "first stale batch keeps it"
     assert vec.slots == [b"save-of-env1"] * 2
+    assert f.last == {"default_1_1": {"result": "kept", "stale": 1}}
     assert f.update(vec, [_end(5, gained=0)] * 2) == {"default_1_1": None}, "second clears it"
+    assert f.last == {"default_1_1": {"result": "stale", "stale": 2}}
     assert vec.slots == [None, None] and not (tmp_path / "default_1_1.visited").exists()
+
+
+def test_tic_budget():
+    """A map's rollout limit grows x1.5 after a batch where nobody got a
+    new sector, up to the cap; progress (or a cleared frontier) resets it;
+    the limit reaches the envs only when it changes."""
+    from model import TicBudget
+    pairs = [(None, "1 1")] * 2 + [(None, "1 2")] * 2
+    b = TicBudget(pairs, 525, 2100)
+
+    class Vec:
+        calls = []
+        def call(self, idx, name, args):
+            self.calls.append((list(idx), name, args))
+    vec = Vec()
+    b.apply(vec)
+    assert vec.calls == [([0, 1], "set_max_tics", (525,)), ([2, 3], "set_max_tics", (525,))]
+    stuck, through = _end(0, gained=0), _end(0, gained=1)
+    assert b.update([stuck, stuck, stuck, through]) == {"default_1_1": 788}
+    assert b.growing() == {"default_1_1", "default_1_2"}
+    vec.calls.clear(); b.apply(vec)
+    assert vec.calls == [([0, 1], "set_max_tics", (788,))], "only the changed map"
+    for want in (1182, 1773, 2100, 2100):
+        b.update([stuck] * 4)
+        assert b.tics["default_1_1"] == want
+    assert b.growing() == frozenset(), "both maps at the cap"
+    assert b.update([_end(0, gained=0, exit=True), stuck, stuck, stuck])["default_1_1"] == 525, "an exit resets"
+    b.update([stuck] * 4)
+    assert b.update([stuck] * 4, cleared={"default_1_1"})["default_1_1"] == 525, "a cleared frontier resets"
+    assert TicBudget(pairs, 525, 0).update([stuck] * 4) == {}, "cap <= base: off"
+
+
+def test_frontier_patience_waits_for_budget(tmp_path):
+    """A batch without progress on a map whose tic budget is still growing
+    doesn't count towards the frontier's patience."""
+    pairs = [(None, "1 1")] * 2
+    vec = _FakeVec(2)
+    f = Frontier(tmp_path, True, pairs, patience=1)
+    f.update(vec, [_end(1, gained=1), _end(0, gained=0)])
+    assert f.update(vec, [_end(0, gained=0)] * 2, hold={"default_1_1"}) == {}, "budget growing: kept"
+    assert f.update(vec, [_end(0, gained=0)] * 2) == {"default_1_1": None}, "at the cap: cleared"
 
 
 def test_capture_dirs():

@@ -150,8 +150,11 @@ on demand; `SEED n` sets `prndindex` (send it after `LOAD`; saves don't
 store it); level completion sends an `exit` event, and a player USE that
 sets a mechanism going (a sector starts moving, or a switch flips) sends a
 `use` event listing those sectors and switch lines (the env pays its
-mechanism reward once per mechanism). Approach (2026-11-14): the state
-line carries `exit_dist` and `frontier_dist`, map units to the nearest
+mechanism reward once per mechanism). Pickups (2026-11-14): each thing the player
+picks up sends a `pickup` event (`kind` loot, armor, health, key or
+other; `hp` the health it gave) for the env's loot and health rewards. Approach (2026-11-14): the state
+line carries `exit_dist` and `frontier_dist` (and, since 2026-11-14, `sector`, the
+player's current sector index, for the training rollout log), map units to the nearest
 exit line and to the nearest passable opening into an unvisited sector
 (-1 when none), for the env's distance penalty only -- never a policy
 input, so the 2026-10-21 no-oracle ruling for the farm agent stands.

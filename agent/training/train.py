@@ -42,11 +42,13 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from model import (Frontier, add_env_args, allocate_groups, capture_dirs, check_slots, env_label, export_latest_checkpoint,
-                   iwad_label, make_env, parse_list, resolve_iwads, rng_state, save_checkpoint)
+from model import (Frontier, TicBudget, add_env_args, allocate_groups, capture_dirs, check_slots, env_label,
+                   export_latest_checkpoint, iwad_label, make_env, parse_list, resolve_iwads, rng_state,
+                   save_checkpoint)
 from env import cleanup_stale  # noqa: E402  (model.py put env on sys.path)
 from env.vector import GroupVecEnv  # noqa: E402
-from eval import heldout_eval, make_heldout_vec, print_eval, run_rollouts, sample_group_options
+from eval import (heldout_eval, make_heldout_vec, print_eval, run_rollouts, sample_group_options,
+                  write_rollout_log)
 from learn import (add_learn_args, build_batch, group_advantages, print_train, setup_learner,
                    train_metrics, update)
 
@@ -127,6 +129,9 @@ def main():
         eval_vec, eval_labels = make_heldout_vec(iwads, eval_maps, args, slots,
                                                  replays if args.capture_eval else None)
     metrics_f = open(run_dir / "metrics.jsonl", "a")
+    # One row per training rollout, for debugging (eval.rollout_log_rows).
+    rollouts_f = open(run_dir / "rollouts.jsonl", "a")
+    env_labels = [env_label(w, m, iwads) for w, m in env_pairs]
 
     def evaluate(it: int):
         out = {"iteration": it, "kind": "eval", **heldout_eval(eval_vec, eval_labels, policy, device)}
@@ -145,6 +150,9 @@ def main():
     # Frontier starts: each map's best rollout end state so far.
     frontier = Frontier(run_dir / "frontier", args.frontier, env_pairs, patience=args.frontier_patience)
     frontier.install_all(vec)
+    budget = TicBudget(env_pairs, args.max_tics, args.max_tics_cap, args.tics_growth)
+    print(f"[train] rollout limit {args.max_tics} tics per map, growing x{args.tics_growth} after a batch "
+          f"without progress, up to {budget.cap}")
     print("[train] forced map glance " + (f"every {args.force_map} steps, {args.force_map_tics} tics on screen"
                                            if args.force_map > 0 else "off"))
 
@@ -153,12 +161,18 @@ def main():
         t = time.time()
         options = frontier.options(sample_group_options(sampler, groups, G, slots, args.warmup_max),
                                    G)
+        budget.apply(vec)
         recs = run_rollouts(vec, actor, device, options)
         for i, r in enumerate(recs):
             r["iwad"] = iwad_label(env_pairs[i][0])
             r["frontier"] = bool(options[i].get("frontier"))
         # Before the next reset: every game is still where its rollout ended.
-        recs[0]["frontier_saved"] = frontier.update(vec, recs)
+        saved = frontier.update(vec, recs, hold=budget.growing())
+        recs[0]["frontier_saved"] = saved
+        changed = budget.update(recs, cleared={k for k, v in saved.items() if v is None})
+        if changed:
+            print(f"[train] rollout limit (tics): {changed}")
+        write_rollout_log(rollouts_f, recs, options, env_labels, frontier, iteration=it)
         return recs, time.time() - t
 
     try:
@@ -228,6 +242,7 @@ def main():
         print("[train] interrupted; the last checkpoint is at the previous update boundary")
     finally:
         metrics_f.close()
+        rollouts_f.close()
         vec.close()
         if eval_vec is not None:
             eval_vec.close()

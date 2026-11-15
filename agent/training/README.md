@@ -50,7 +50,12 @@ obs, reward, terminated, truncated, info = game.step(0)   # WALK 0
 - **Rewards:** `RewardConfig` (SPEC.md §5.3). The values are placeholders.
   The portal goal (`--portal-goal`, default 1): a rollout ends, with the
   `portal` bonus (5), once it enters a sector not yet visited;
-  `--max-tics` is 525 (15 s). Until it ends, time and distance cost one
+  `--max-tics` is 525 (15 s), per map a starting budget: after a batch
+  where no rollout on a map gets through a portal (or to the exit), that
+  map's limit grows x`--tics-growth` (1.5) up to `--max-tics-cap` (2100),
+  and any progress puts it back to 525 (`TicBudget`; a restart starts at
+  525). Progress still means finding the path, never just getting near a
+  portal. Until it ends, time and distance cost one
   penalty: every game tic costs `time` x (1 + d / `far_scale`), d the
   distance (map units, the mean of the step's start and end) to the
   nearest goal -- the exit line, or a frontier portal (a passable
@@ -64,9 +69,14 @@ obs, reward, terminated, truncated, info = game.step(0)   # WALK 0
   the state line (`exit_dist`, `frontier_dist`) and shape the reward only:
   the policy acts from the frames alone. The held-out eval keeps
   `--eval-max-tics` (2100) with no goal and no penalty, so its numbers
-  compare across versions. Stage 1 has no map monsters, so there is no
-  death, HP-loss, combat or stuck term (a death or a long combat still
-  ends the rollout).
+  compare across versions. Stage 1 has no map monsters, but passive
+  damage (nukage, slime, crushers, barrels) still hurts: every HP lost
+  costs `hp_loss` (-0.2; healing pays nothing), and a death ends the
+  rollout with `death` (-100, as big as the exit) on top. There is no
+  combat or stuck term (a long combat still ends the rollout).
+  Pickups pay from the engine's `pickup` events: `loot` (5) per Diablo
+  item or armor picked up, `health` (0.2) per HP a health pickup healed
+  (a medikit 5, a +1 health bonus 0.2), the mirror of `hp_loss`.
   Forced map glances (`--force-map`), done by the engine: the env sends
   `FORCEMAP N tics` when a game starts, and after every N gameplay
   commands (WALK, turns, strafes, USE, CONSULT; a LOAD resets the count)
@@ -161,11 +171,12 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   swap there: the progress is the next batch's start in 4, the old start
   sits in 5. With the portal goal the agent moves on portal by portal. A
   batch without progress keeps the current start; `--frontier-patience`
-  (5) of them in a row (a dead end) clear it, back to the map start. The
+  (5) of them in a row at the full tic budget (a dead end) clear it, back to the map start. The
   save is also kept in `<run-dir>/frontier/<iwad>_<map>.dsg` (visited
   list: `.visited`; `<spool>/frontier/<actor-id>/` for an `eval.py`
   actor), so it survives a resume. A rollout that reaches the exit clears
-  that map's frontier: slot 4 holds the map start again, and the cycle
+  that map's frontier (the other rollouts of the batch still run to
+  their own ends): slot 4 holds the map start again, and the cycle
   starts over. `front` in the training line is the share of rollouts that
   started from a frontier. `--no-frontier` turns it off (every start is
   the map start, still from slot 4). `--slots` can't include 4 or 5.
@@ -196,7 +207,18 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   and loading falls back to an older checkpoint if the newest is corrupt.
   SIGTERM exits cleanly; rollouts in progress are discarded.
 - **Logs:** `runs/<name>/metrics.jsonl` (train and eval lines) and
-  `config.json`.
+  `config.json`, plus `runs/<name>/rollouts.jsonl` for debugging: one line
+  per training rollout (`<spool>/rollouts/<actor-id>.jsonl` for an
+  `eval.py` actor, with its batch and weights version) giving the env
+  index, group and map, the start (`map` or `frontier`, slot, seed,
+  warm-up length), why it ended (`end`: exit, death, portal, time,
+  combat), its tics against that map's `max_tics`, the return split by
+  reward term (`terms`), sectors gained, HP, position and sector at the
+  start and end, goal distances, action counts, and what the frontier did
+  for its map (`frontier`: saved, exit, stale or kept; `picked` on the
+  rollout it saved or that exited). `wall_start`/`wall_end` are spelled
+  like the replay file names, so a cut in a replay finds its rollout:
+  `grep '"env": 8,' rollouts.jsonl`.
 - **Replays:** off by default. `./train.sh --capture` turns them on (for
   training, actors and the held-out eval; the learner plays no game):
   the first `--capture-envs` training envs of each IWAD (train.sh sets 1;

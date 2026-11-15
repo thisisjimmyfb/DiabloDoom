@@ -44,6 +44,14 @@ def test_resume(tmp_path):
     assert [r["iteration"] for r in metrics(run_dir, "eval")] == [0, 1, 2], \
         "a baseline eval, then one after every update"
     assert (out / "ckpt_000001.pt").exists(), "--outpath receives the final checkpoint"
+    rows = [json.loads(l) for l in (run_dir / "rollouts.jsonl").read_text().splitlines()]
+    assert [(r["iteration"], r["env"]) for r in rows] == [(0, 0), (0, 1), (1, 0), (1, 1)], \
+        "one row per training rollout"
+    for r in rows:
+        assert r["end"] in ("exit", "death", "portal", "time", "combat"), r
+        assert r["tics"] <= r["max_tics"] + 40 and r["steps"] == sum(r["actions"].values())
+        assert abs(sum(r["terms"].values()) - r["return"]) < 0.01, "the terms add up to the return"
+        assert r["pos"][0][2] >= 0 and r["wall_start"] <= r["wall_end"] and r["frontier"]
 
     o = train(run_dir, *args, "--iterations", "3")
     assert "resuming from" in o and "ckpt_000001.pt" in o

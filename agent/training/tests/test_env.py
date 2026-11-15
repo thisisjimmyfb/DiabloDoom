@@ -152,6 +152,59 @@ def test_keys_once():
     assert e._new_keys({"keys": 4}) == 0 and e._new_keys({"keys": 5}) == 1
 
 
+def test_hp_loss_and_death():
+    """HP lost costs hp_loss per point, healing pays nothing (it only moves
+    the mark up), and a death ends the rollout with the death penalty on
+    top of the HP it lost. Engine faked: no game needed."""
+    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
+                        consult_false=0, key=0, time=0, portal=0, hp_loss=-0.2, death=-100.0,
+                        loot=0, health=0)
+    e = make_env(rewards=only, max_tics=100000)
+    states = iter([{"mode": "EXPLORE", "hp": 90, "tics": 10},     # nukage: -10 hp
+                   {"mode": "EXPLORE", "hp": 100, "tics": 10},    # healed: nothing
+                   {"mode": "EXPLORE", "hp": 95, "tics": 10},     # -5 from the new mark
+                   {"mode": "EXPLORE", "hp": -3, "dead": True, "tics": 10}])
+    e.engine.command = lambda line: (next(states), [])
+    e._frame = lambda: np.zeros((200, 320), dtype=np.uint8)
+    e.state = {"mode": "EXPLORE", "hp": 100}
+    e._prev_hp, e._tics, e._combat_steps = 100, 0, 0
+    e._best_sectors = e._start_sectors = 0
+    e._keys, e._goal, e._group, e._slot, e._seed = 0, None, 0, None, 0
+    e._trig = {k: e._new_trigger() for k in ("monster", "backpack", "combat")}
+    e._stack.reset(e._frame())
+    rewards, ends = [], []
+    for _ in range(4):
+        _, r, term, trunc, _ = e.step(0)
+        rewards.append(round(r, 6))
+        ends.append(term)
+    assert rewards == [-2.0, 0.0, -1.0, -119.0], rewards     # 95 hp to 0: -19, plus -100
+    assert ends == [False, False, False, True]
+
+
+def test_pickup_rewards():
+    """Pickup events: loot and armor pay `loot` per item, health pays
+    `health` per HP healed, keys and other things pay nothing here (keys
+    pay through the state's key mask). Engine faked: no game needed."""
+    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
+                        consult_false=0, key=0, time=0, portal=0, hp_loss=0, death=0,
+                        loot=5.0, health=0.2)
+    e = make_env(rewards=only, max_tics=100000)
+    st = {"mode": "EXPLORE", "hp": 50, "tics": 5}
+    pick = lambda kind, hp=0: {"event": "pickup", "kind": kind, "hp": hp, "gametic": 1}
+    steps = iter([[pick("loot")], [pick("health", 25)], [pick("armor"), pick("loot")],
+                  [pick("key"), pick("other")], [pick("health", 1)]])
+    e.engine.command = lambda line: (dict(st), next(steps))
+    e._frame = lambda: np.zeros((200, 320), dtype=np.uint8)
+    e.state = dict(st)
+    e._prev_hp, e._tics, e._combat_steps = 50, 0, 0
+    e._best_sectors = e._start_sectors = 0
+    e._keys, e._goal, e._group, e._slot, e._seed = 0, None, 0, None, 0
+    e._trig = {k: e._new_trigger() for k in ("monster", "backpack", "combat")}
+    e._stack.reset(e._frame())
+    rewards = [round(e.step(0)[1], 6) for _ in range(5)]
+    assert rewards == [5.0, 5.0, 10.0, 0.0, 0.2], rewards
+
+
 @pytest.mark.game
 def test_mechanism_reward_once():
     """In E1M1: the first USE that opens a door pays the mechanism reward;
@@ -319,7 +372,7 @@ def test_time_distance_penalty():
     every other reward off each step costs time * its tics * (1 + d /
     far_scale), d the mean of its start and end goal distances."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0,
-                        trigger_miss=0, consult_false=0, key=0,
+                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0,
                         time=1.0, far_scale=256.0)
     e = make_env(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only,
                  max_tics=100000, consult_handler=standin_consult)
@@ -353,7 +406,7 @@ def test_portal_goal():
     list (VISITED) and reinstalled restores that visited count after the
     load (VISIT), so the next rollout's goal is a sector beyond it."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0,
-                        trigger_miss=0, consult_false=0, key=0,
+                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0,
                         time=0.01, far_scale=1e12, portal=5.0)   # time only
     e = DiabloDoomEnv(EnvConfig(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only,
                                 max_tics=100000, portal_goal=1, consult_handler=standin_consult))
@@ -388,7 +441,7 @@ def test_forced_map_glance():
     the next frame is the automap (state automap true) and nothing is
     charged."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0,
-                        trigger_miss=0, consult_false=0, key=0, time=0)
+                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, time=0)
     e = DiabloDoomEnv(EnvConfig(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only,
                                 max_tics=100000, force_map_every=2, consult_handler=standin_consult))
     tl = ACTIONS.index("TURNL")
