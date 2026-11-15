@@ -53,8 +53,8 @@ obs, reward, terminated, truncated, info = game.step(0)   # WALK 0
   `--max-tics` is 525 (15 s), per map a starting budget: after a batch
   where no rollout on a map gets through a portal (or to the exit), that
   map's limit grows x`--tics-growth` (1.5) up to `--max-tics-cap` (2100),
-  and any progress puts it back to 525 (`TicBudget`; a restart starts at
-  525). Progress still means finding the path, never just getting near a
+  and any progress puts it back to 525 (`TicBudget`; saved in
+  `<run-dir>/frontier/tic_budget.json`, so a resume keeps it). Progress still means finding the path, never just getting near a
   portal. Until it ends, time and distance cost one
   penalty: every game tic costs `time` x (1 + d / `far_scale`), d the
   distance (map units, the mean of the step's start and end) to the
@@ -140,7 +140,8 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   line; 0 on a level without one). 1.69M parameters. The value head trains from the start
   but never shapes the policy during GRPO.
 - **Batch:** `--groups` x `--group-size` (8) instances; `--groups`
-  defaults to one group per IWAD/map pair, at most 8 (`train.sh` passes
+  defaults to one group per IWAD/map pair, at most the logical cores
+  minus 2 (14 on a 16-thread CPU; the 2 stay free; `train.sh` passes
   every IWAD under `wad/`: 2 x E1M1-E1M4 = 8 groups). Groups go map by map
   with every IWAD on each: group g plays `--maps[(g // I) % M]` on
   `iwads[g % I]`, so E1M1 on Freedoom, E1M1 on The Ultimate Doom, then
@@ -157,8 +158,8 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   IWADs share, minus `--eval-maps` and, in stage 1, the boss-exit maps
   (E1M8, E2M8, E3M8, E4M6, E4M8, Doom II's MAP07 and MAP30: their exits
   need a boss death, impossible with `-nomonsters`): 29 maps per IWAD for
-  Freedoom and The Ultimate Doom, 58 pairs, a full cycle in 8 rotations
-  (80 batches) with 8 groups. Eval runs every eval map on
+  Freedoom and The Ultimate Doom, 58 pairs, a full cycle in 5 rotations
+  (50 batches) with 14 groups (16 logical cores). Eval runs every eval map on
   every IWAD, and metrics add `sectors_<iwad>`/`exit_rate_<iwad>`. Save
   slots are IWAD-specific, so `--slots` needs a single IWAD. All members of a
   group start from the same slot, seed and `--warmup-max` random warm-up
@@ -216,10 +217,13 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   ~28 s iteration). After a restart, the first batch is played with the
   resumed weights (`lag` 0), so an overlapped run that was interrupted is
   not bit-identical to one that wasn't; its start states still are.
-- **Checkpoints:** `runs/<name>/ckpt_NNNNNN.pt` at every update. Each
-  holds weights, optimizer, counters and every RNG state, including the
-  start-state sampler. Writes are atomic, the last `--keep` (3) are kept,
-  and loading falls back to an older checkpoint if the newest is corrupt.
+- **Checkpoints:** one file, `runs/<name>/doom-runner.pt`, replaced
+  after every update. It holds weights, optimizer, the iteration and
+  other counters, and every RNG state, including the start-state sampler.
+  Writes are atomic (a crash mid-write leaves the previous one); a
+  checkpoint that can't be loaded stops the run rather than starting it
+  fresh. A run directory from before 2026-11-15 resumes from its newest
+  `ckpt_NNNNNN.pt`. Older versions live in the Hub repo's commits.
   SIGTERM exits cleanly; rollouts in progress are discarded.
 - **Logs:** `runs/<name>/metrics.jsonl` (train and eval lines) and
   `config.json`, plus `runs/<name>/rollouts.jsonl` for debugging: one line
@@ -233,6 +237,26 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   rollout it saved or that exited). `wall_start`/`wall_end` are spelled
   like the replay file names, so a cut in a replay finds its rollout:
   `grep '"env": 8,' rollouts.jsonl`.
+- **Hugging Face Hub (`--hub-repo`):** `./train.sh` (not `--smoke`)
+  passes `--hub-repo thisisjimmy/DoomRunner`; `--no-hub` turns it off,
+  another `--hub-repo user/name` replaces it. `--no-hub-download` skips
+  the pull (to start over, with an empty `--run-dir`: the first push
+  then replaces the repo's checkpoint, the old one stays in its
+  history), and `--no-hub-upload` skips the pushes. Before training, the repo's
+  `doom-runner.pt` is downloaded into the run directory, so training
+  resumes from it (policy, optimizer, RNG and counters), unless the run
+  directory's checkpoint is at that iteration or a newer one. While training, the newest checkpoint is
+  uploaded as `doom-runner.pt` every `--hub-every` (10) updates and at the
+  end (Ctrl-C included), in the background, one upload at a time, so the
+  repo's commit history ("iteration N") is the checkpoint history. The
+  run's `frontier/` (every map's progress save and the tic budgets) goes
+  up in the same commit and comes down with the checkpoint, so a run on
+  a fresh machine (a recycled VM) resumes each map where it was, and the
+  rotation from the checkpoint's iteration. Metrics and logs stay local. Uses the
+  `hf` CLI (`hf auth login` once, with a write token), so the venv needs
+  no extra package; its output goes to `<run-dir>/hub_upload.log`. A repo
+  that can't be read (network, login) stops the run before training,
+  rather than starting fresh and overwriting the repo's checkpoint.
 - **Replays:** off by default. `./train.sh --capture` turns them on:
   the first `--capture-envs` training envs of each IWAD (train.sh sets 1;
   `train.py`'s own default is 0) launch with `--continuous-capture` and
@@ -266,8 +290,8 @@ driving it. The game runs with `-rldrive` (real time, normal play), and
 the policy trained on.
 
 ```sh
-./play.sh                                    # newest agent/ckpt_*.pt, Freedoom E1M1, monsters on
-./play.sh --checkpoint agent/ckpt_000129.pt --warp "1 2"
+./play.sh                                    # newest runs/*/doom-runner.pt, Freedoom E1M1, monsters on
+./play.sh --checkpoint runs/stage1/doom-runner.pt --warp "1 2"
 ./play.sh --greedy --delay 0.3               # most likely actions, slowed down for watching
 ./play.sh --no-monster                       # monsters off, as in stage-1 training (--no-monsters works too)
 ```
@@ -310,15 +334,16 @@ fixtures (fake rollouts) in `tests/conftest.py`:
   identical states and frames), 8-instance `AsyncVectorEnv` throughput,
   and explore strafes.
 - `test_model.py`: IWAD/group allocation, map rotation and moving groups,
-  `--maps all`, progress saves (frontier), tic budgets, checkpoints (keep
-  N, corrupt fallback, export), RNG restore and checkpoint upgrades.
+  `--maps all`, progress saves (frontier), tic budgets, checkpoints (one
+  file, old-name resume, corrupt stops), RNG restore, checkpoint upgrades and the
+  Hub pull and push (with a fake `hf`).
 - `test_eval.py`: group starts and warm-up actions.
 - `test_learn.py`: advantages, value targets and the update.
 - `test_play.py`: a checkpoint from another action set is refused; game:
   `play.py` drives a headless game and quits, or leaves it running
   detached (no work directory or shared memory left for `cleanup_stale`).
 - `test_train.py` (game): `test_resume` runs `train.py` for 2 iterations
-  with evals and `--outpath` (checking `rollouts.jsonl`), then resumes it
+  with evals (checking `rollouts.jsonl`), then resumes it
   to 3; `test_rotation` alternates two maps with `--rotate-every 1`; `test_iwads` splits
   groups over Freedoom and The Ultimate Doom (skipped without both);
   `test_capture` checks replay segments land in `replays/env00_<IWAD>/` with

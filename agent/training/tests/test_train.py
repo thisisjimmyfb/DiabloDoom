@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import torch
 
 pytestmark = pytest.mark.game
 
@@ -34,32 +35,32 @@ def metrics(run_dir: Path, kind: str) -> list[dict]:
 
 
 def test_resume(tmp_path):
-    """2 iterations with held-out evals and --outpath, then the same command
+    """2 iterations with held-out evals, then the same command
     with --iterations 3 resumes from the newest checkpoint."""
-    run_dir, out = tmp_path / "run", tmp_path / "out"
-    args = ["--eval-every", "1", "--capture-envs", "0", "--outpath", str(out)]
+    run_dir = tmp_path / "run"
+    args = ["--eval-every", "1", "--capture-envs", "0"]
     train(run_dir, *args, "--iterations", "2")
-    assert sorted(f.name for f in run_dir.glob("ckpt_*.pt")) == ["ckpt_000000.pt", "ckpt_000001.pt"]
+    assert sorted(f.name for f in run_dir.glob("*.pt")) == ["doom-runner.pt"], "one checkpoint file"
+    assert torch.load(run_dir / "doom-runner.pt", weights_only=False)["iteration"] == 1
     assert [r["iteration"] for r in metrics(run_dir, "train")] == [0, 1]
     assert [r["iteration"] for r in metrics(run_dir, "eval")] == [0, 1, 2], \
         "a baseline eval, then one after every update"
-    assert (out / "ckpt_000001.pt").exists(), "--outpath receives the final checkpoint"
     rows = [json.loads(l) for l in (run_dir / "rollouts.jsonl").read_text().splitlines()]
     assert [(r["iteration"], r["env"]) for r in rows] == [(0, 0), (0, 1), (1, 0), (1, 1)], \
         "one row per training rollout"
     for r in rows:
-        assert r["end"] in ("exit", "death", "portal", "time", "combat"), r
+        assert r["end"] in ("exit", "death", "key", "portal", "time", "combat"), r
         assert r["end"] != "time" or r["tics"] >= r["max_tics"], "time: the limit was used up"
         assert r["steps"] == sum(r["actions"].values())
         assert abs(sum(r["terms"].values()) - r["return"]) < 0.01, "the terms add up to the return"
         assert r["pos"][0][2] >= 0 and r["wall_start"] <= r["wall_end"] and r["frontier"]
 
     o = train(run_dir, *args, "--iterations", "3")
-    assert "resuming from" in o and "ckpt_000001.pt" in o
+    assert "resuming from" in o and "doom-runner.pt (iteration 1)" in o
     assert [r["iteration"] for r in metrics(run_dir, "train")] == [0, 1, 2], \
         "the resumed run continues at iteration 2 (no repeat)"
     assert [r["iteration"] for r in metrics(run_dir, "eval")] == [0, 1, 2, 3], "no new baseline"
-    assert (out / "ckpt_000002.pt").exists()
+    assert torch.load(run_dir / "doom-runner.pt", weights_only=False)["iteration"] == 2
 
 
 def test_rotation(tmp_path):
@@ -113,10 +114,9 @@ def test_overlap(tmp_path):
     run_dir = tmp_path / "run"
     args = ["--overlap", "--eval-every", "0", "--capture-envs", "0"]
     train(run_dir, *args, "--iterations", "3")
-    assert sorted(f.name for f in run_dir.glob("ckpt_*.pt")) == [f"ckpt_{i:06d}.pt" for i in range(3)]
     assert [(r["iteration"], r["lag"]) for r in metrics(run_dir, "train")] == [(0, 0), (1, 1), (2, 1)]
     o = train(run_dir, *args, "--iterations", "4")
-    assert "resuming from" in o and "ckpt_000002.pt" in o
+    assert "resuming from" in o and "doom-runner.pt (iteration 2)" in o
     assert [(r["iteration"], r["lag"]) for r in metrics(run_dir, "train")][-1] == (3, 0)
 
 

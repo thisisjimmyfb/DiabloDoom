@@ -2,9 +2,9 @@
 # Launch DiabloDoom locally, in a window with sound, with a trained policy
 # driving it (play.py; the game runs with -rldrive, in real time).
 #
-#   ./play.sh                                   # newest agent/ckpt_*.pt, first IWAD under wad/, E1M1, monsters on
+#   ./play.sh                                   # newest runs/*/doom-runner.pt, first IWAD under wad/, E1M1, monsters on
 #   IWAD_INDEX=2 ./play.sh                      # the second IWAD in the printed list
-#   ./play.sh --checkpoint agent/ckpt_000129.pt --warp "1 2"
+#   ./play.sh --checkpoint runs/stage1/doom-runner.pt --warp "1 2"
 #   ./play.sh --greedy --delay 0.3              # most likely actions, slowed down for watching
 #   ./play.sh --no-monster                      # monsters off, as in stage-1 training
 #

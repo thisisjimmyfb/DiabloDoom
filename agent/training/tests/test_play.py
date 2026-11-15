@@ -24,7 +24,7 @@ PY = sys.executable
 @pytest.fixture
 def checkpoint(tmp_path) -> Path:
     """A random-weights checkpoint in train.py's format."""
-    path = tmp_path / "ckpt_000000.pt"
+    path = tmp_path / "doom-runner.pt"
     torch.save({"policy": Policy().state_dict(), "iteration": 0}, path)
     return path
 

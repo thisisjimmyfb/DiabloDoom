@@ -1,14 +1,17 @@
 """Shared pieces of the trainer (SPEC.md §6, §7.1, §7.4): the policy
 network, the env factory, IWAD/group allocation and map rotation, progress
-saves (Frontier), tic budgets and checkpoint I/O. Used by train.py, with
+saves (Frontier), tic budgets, checkpoint I/O and the Hugging Face Hub copy
+of the checkpoint (hub_pull, HubUploader). Used by train.py, with
 eval.py (rollouts, logs, held-out eval) and learn.py (the update)."""
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import random
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -210,7 +213,21 @@ def allocate_groups(iwads: list[str | None], maps: list[str], groups: int,
 BOSS_MAPS = {"1 8", "2 8", "3 8", "4 6", "4 8", "7", "30"}
 # --groups default: one group per IWAD/map pair, at most this many (the
 # rest take turns, --rotate-every).
-MAX_DEFAULT_GROUPS = 8
+FREE_CORES = 2   # logical cores the default group count leaves unused
+
+
+def available_cores() -> int:
+    """Logical cores this process may run on (its CPU affinity)."""
+    try:
+        return len(os.sched_getaffinity(0))
+    except AttributeError:            # not Linux
+        return os.cpu_count() or 1
+
+
+def max_default_groups(cores: int | None = None) -> int:
+    """The default group count's ceiling: the logical cores minus
+    FREE_CORES (at least 1)."""
+    return max(1, (available_cores() if cores is None else cores) - FREE_CORES)
 
 
 def wad_maps(path: str) -> list[str]:
@@ -247,8 +264,10 @@ def resolve_maps(spec: str, iwads: list[str | None], stage: int, eval_maps: list
     return maps
 
 
-def default_groups(iwads: list, maps: list) -> int:
-    return min(len(iwads) * len(maps), MAX_DEFAULT_GROUPS)
+def default_groups(iwads: list, maps: list, cores: int | None = None) -> int:
+    """One group per IWAD/map pair, at most the logical cores minus
+    FREE_CORES (more pairs than that rotate, MapRotation)."""
+    return min(len(iwads) * len(maps), max_default_groups(cores))
 
 
 class MapRotation:
@@ -321,7 +340,8 @@ def add_env_args(p) -> None:
     p.add_argument("--slots", default="", help="start slots in --slots-dir, e.g. '3,4,5'")
     p.add_argument("--groups", type=int, default=None,
                    help="GRPO groups (default: one per IWAD/map pair, len(--iwads) x len(--maps), "
-                        "at most 8; with more pairs than groups they take turns, --rotate-every)")
+                        "at most the logical cores minus 2; with more pairs than groups they take "
+                        "turns, --rotate-every)")
     p.add_argument("--group-size", type=int, default=8)
     p.add_argument("--max-tics", type=int, default=525,
                    help="rollout limit in game tics (35/s; default 15 s)")
@@ -345,6 +365,17 @@ def add_env_args(p) -> None:
     p.add_argument("--frontier-patience", type=int, default=5,
                    help="batches in a row without progress from a map's frontier, at the full "
                         "--max-tics-cap, before it is cleared (a dead end: back to the map start)")
+    p.add_argument("--hub-repo", default=None,
+                   help="Hugging Face model repo (e.g. user/name): its doom-runner.pt is pulled into "
+                        "--run-dir before training (resumed from, unless the run directory has a newer "
+                        "one) and pushed back every --hub-every updates and at the end (uses the `hf` "
+                        "CLI, logged in with `hf auth login`)")
+    p.add_argument("--no-hub-download", dest="hub_download", action="store_false",
+                   help="don't pull the --hub-repo checkpoint (start from --run-dir alone, e.g. fresh)")
+    p.add_argument("--no-hub-upload", dest="hub_upload", action="store_false",
+                   help="don't push checkpoints to --hub-repo")
+    p.add_argument("--hub-every", type=int, default=10,
+                   help="push the checkpoint to --hub-repo every N updates (the end always pushes)")
     p.add_argument("--max-tics-cap", type=int, default=2100,
                    help="per-map tic budget: after a batch where no rollout on a map reaches a new "
                         "sector (or the exit), that map's rollout limit grows by --tics-growth, up to "
@@ -530,13 +561,30 @@ class TicBudget:
     (--max-tics-cap), and any progress puts it back to `base`. Progress
     still means getting through a portal (or a key): a longer budget gives the agent
     time to find the path, without rewarding a start that only got near
-    one. Not saved: a restart begins at `base`."""
+    one. Saved to `path` (beside the progress saves, so a resume, or the
+    Hub, brings them back together); without one a restart begins at
+    `base`."""
 
-    def __init__(self, env_pairs: list, base: int, cap: int, growth: float = 1.5):
-        self.base, self.cap, self.growth = base, max(cap, base), growth
+    def __init__(self, env_pairs: list, base: int, cap: int, growth: float = 1.5,
+                 path: Path | None = None):
+        self.base, self.cap, self.growth, self.path = base, max(cap, base), growth, path
         self.tics: dict[str, int] = {}
         self._applied: dict[int, int] = {}   # env -> the limit it was last sent
+        if path is not None and path.exists():
+            try:
+                saved = json.loads(path.read_text())
+                self.tics = {k: min(max(int(v), self.base), self.cap) for k, v in saved.items()}
+            except (ValueError, TypeError, AttributeError) as e:
+                print(f"[train] ignoring the unreadable tic budgets in {path}: {e}")
         self.assign(env_pairs)
+
+    def save(self) -> None:
+        if self.path is None:
+            return
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.path.with_name(self.path.name + ".tmp")
+        tmp.write_text(json.dumps(self.tics, sort_keys=True))
+        os.replace(tmp, self.path)
 
     def assign(self, env_pairs: list) -> None:
         """The envs now play env_pairs (MapRotation); a map's budget is
@@ -575,6 +623,8 @@ class TicBudget:
             n = self.base if progress else min(self.cap, int(round(self.tics[label] * self.growth)))
             if n != self.tics[label]:
                 self.tics[label] = changed[label] = n
+        if changed:
+            self.save()
         return changed
 
 
@@ -610,37 +660,177 @@ def atomic_torch_save(obj, path: Path) -> None:
     _fsync_dir(path.parent)
 
 
-def save_checkpoint(path: Path, state: dict, keep: int) -> None:
+# The run's one checkpoint, in --run-dir and in the Hub repo: replaced
+# (atomically) after every update. Its iteration is inside it ("iteration").
+CKPT_NAME = "doom-runner.pt"
+# The per-map rollout limits (TicBudget), kept with the progress saves in
+# <run-dir>/frontier/.
+TIC_BUDGET_FILE = "tic_budget.json"
+
+
+def save_checkpoint(path: Path, state: dict) -> None:
     atomic_torch_save(state, path)
-    for old in sorted(path.parent.glob("ckpt_*.pt"))[:-keep]:
-        old.unlink(missing_ok=True)
 
 
-def export_latest_checkpoint(run_dir: Path, out_dir: Path) -> Path | None:
-    """Copy the newest checkpoint in run_dir into out_dir (same file name)."""
-    ckpts = sorted(run_dir.glob("ckpt_*.pt"))
-    if not ckpts:
+# ---------------------------------------------------------------------------
+# Hugging Face Hub (--hub-repo): the checkpoint is pulled before training
+# and pushed back while it runs, with the `hf` CLI (logged in with
+# `hf auth login`), so the venv needs no extra package.
+# ---------------------------------------------------------------------------
+
+HUB_FILE = CKPT_NAME   # the same name in the repo (its history is the repo's commits)
+
+
+def _hf() -> str:
+    exe = shutil.which("hf")
+    if exe is None:
+        sys.exit("--hub-repo needs the Hugging Face CLI (`hf`) on PATH, logged in with `hf auth login`")
+    return exe
+
+
+def hub_files(repo: str) -> list[str]:
+    """The files in the model repo. Exits when the repo can't be read, so
+    a network or login problem never starts a fresh run that would then
+    replace the repo's checkpoint."""
+    out = subprocess.run([_hf(), "models", "info", repo], capture_output=True, text=True)
+    if out.returncode != 0 or "{" not in out.stdout:
+        sys.exit(f"[hub] cannot read {repo}: {(out.stderr or out.stdout).strip()[-500:]}")
+    info = json.loads(out.stdout[out.stdout.index("{"):])
+    return [s["rfilename"] for s in info.get("siblings", [])]
+
+
+HUB_FRONTIER = "frontier"   # the run's progress saves and tic budgets, mirrored in the repo
+
+
+def hub_pull(repo: str, run_dir: Path) -> Path | None:
+    """Download the repo's checkpoint (CKPT_NAME) and its progress saves
+    and tic budgets (frontier/) into run_dir, so training resumes from
+    them, unless run_dir's checkpoint is at that iteration or a newer one
+    (then the local run, with its own frontier/, wins). Returns the new
+    checkpoint, or None."""
+    files = hub_files(repo)
+    if HUB_FILE not in files:
+        print(f"[hub] {repo} has no {HUB_FILE} yet")
         return None
-    src = ckpts[-1]
-    out_dir.mkdir(parents=True, exist_ok=True)
-    dst = out_dir / src.name
-    tmp = dst.with_suffix(".pt.tmp")
-    shutil.copyfile(src, tmp)
-    os.replace(tmp, dst)
+    front = [f for f in files if f.startswith(HUB_FRONTIER + "/")]
+    dl = run_dir / "hub" / "download"
+    shutil.rmtree(dl, ignore_errors=True)
+    out = subprocess.run([_hf(), "download", repo, HUB_FILE, *front, "--local-dir", str(dl)],
+                         capture_output=True, text=True)
+    if out.returncode != 0:
+        sys.exit(f"[hub] cannot download from {repo}: {(out.stderr or out.stdout).strip()[-500:]}")
+    ckpt = torch.load(dl / HUB_FILE, map_location="cpu", weights_only=False)
+    it = int(ckpt["iteration"])
+    local = load_latest_checkpoint(run_dir, quiet=True)
+    if local is not None and int(local["iteration"]) >= it:
+        print(f"[hub] {repo} has iteration {it}; {run_dir} is at {local['iteration']}, so it is kept")
+        return None
+    dst = run_dir / CKPT_NAME
+    os.replace(dl / HUB_FILE, dst)
+    # The progress saves go with the checkpoint: the local ones belong to
+    # an older point of the run.
+    shutil.rmtree(run_dir / HUB_FRONTIER, ignore_errors=True)
+    if (dl / HUB_FRONTIER).is_dir():
+        os.replace(dl / HUB_FRONTIER, run_dir / HUB_FRONTIER)
+    print(f"[hub] pulled iteration {it} from {repo} -> {dst}"
+          + (f", with {len(front)} progress files" if front else ""))
     return dst
 
 
-def load_latest_checkpoint(run_dir: Path) -> dict | None:
-    for tmp in run_dir.glob("ckpt_*.pt.tmp"):
+class HubUploader:
+    """Pushes the checkpoint (as HUB_FILE) and the run's frontier/
+    (progress saves and tic budgets) to the repo in one commit, in the
+    background (one upload at a time; a push while one is running is
+    skipped). They are staged in run_dir/hub/upload first, so the next
+    save can't change them mid-upload. The hf output goes to
+    run_dir/hub_upload.log."""
+
+    def __init__(self, repo: str, run_dir: Path):
+        self.repo, self.run_dir, self.dir, self.hf = repo, run_dir, run_dir / "hub", _hf()
+        self.log = open(run_dir / "hub_upload.log", "a")
+        self.proc: subprocess.Popen | None = None
+        self.it: int | None = None         # the upload in flight (or last started)
+        self.done: int | None = None       # the last iteration uploaded
+
+    def busy(self) -> bool:
+        return self.proc is not None and self.proc.poll() is None
+
+    def _reap(self) -> None:
+        if self.proc is None:
+            return
+        rc = self.proc.wait()
+        self.proc = None
+        if rc == 0:
+            self.done = self.it
+            print(f"[hub] uploaded iteration {self.it} to {self.repo}")
+        else:
+            print(f"[hub] upload of iteration {self.it} failed (exit {rc}); see hub_upload.log")
+
+    def _stage(self, ckpt: Path) -> Path:
+        staged = self.dir / "upload"
+        shutil.rmtree(staged, ignore_errors=True)
+        (staged / HUB_FRONTIER).mkdir(parents=True)
+        shutil.copyfile(ckpt, staged / HUB_FILE)
+        src = self.run_dir / HUB_FRONTIER
+        for f in (src.iterdir() if src.is_dir() else []):
+            if f.is_file() and not f.name.endswith(".tmp"):
+                try:
+                    shutil.copyfile(f, staged / HUB_FRONTIER / f.name)
+                except FileNotFoundError:  # cleared meanwhile (--overlap plays during the upload)
+                    pass
+        return staged
+
+    def push(self, ckpt: Path, it: int) -> bool:
+        """Start uploading ckpt (at iteration it) and frontier/; False
+        (skipped) if an upload is running."""
+        if self.busy():
+            return False
+        self._reap()
+        staged = self._stage(ckpt)
+        self.it = it
+        self.log.write(f"--- iteration {self.it}\n")
+        self.log.flush()
+        # --delete: progress saves cleared since the last push (an exit,
+        # a dead end) go from the repo too.
+        self.proc = subprocess.Popen([self.hf, "upload", self.repo, str(staged), ".",
+                                      "--delete", f"{HUB_FRONTIER}/*",
+                                      "--commit-message", f"iteration {self.it}"],
+                                     stdout=self.log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+        return True
+
+    def finish(self, ckpt: Path | None, it: int | None) -> None:
+        """At the end: wait for the running upload, then upload ckpt (the
+        newest checkpoint, at iteration it) if the repo doesn't have it yet."""
+        if self.busy():
+            print(f"[hub] waiting for the upload of iteration {self.it}...")
+        self._reap()
+        if ckpt is not None and it is not None and it != self.done:
+            self.push(ckpt, it)
+            print(f"[hub] uploading iteration {self.it}...")
+            self._reap()
+        self.log.close()
+
+
+def load_latest_checkpoint(run_dir: Path, quiet: bool = False) -> dict | None:
+    """run_dir's checkpoint (CKPT_NAME), or for a run directory from before
+    2026-11-15 its newest ckpt_<iteration>.pt; None when there is none.
+    Exits if the checkpoint can't be loaded: a silent fresh start would
+    replace it (and the Hub's copy) at the next save."""
+    for tmp in run_dir.glob("*.pt.tmp"):
         tmp.unlink(missing_ok=True)       # interrupted write
-    for path in sorted(run_dir.glob("ckpt_*.pt"), reverse=True):
-        try:
-            ckpt = torch.load(path, map_location="cpu", weights_only=False)
-            print(f"[ckpt] resuming from {path}")
-            return ckpt
-        except Exception as e:  # corrupt or truncated: fall back to the previous one
-            print(f"[ckpt] cannot load {path}: {e}; trying an older one")
-    return None
+    path = run_dir / CKPT_NAME
+    if not path.exists():
+        old = sorted(run_dir.glob("ckpt_*.pt"))
+        if not old:
+            return None
+        path = old[-1]
+    try:
+        ckpt = torch.load(path, map_location="cpu", weights_only=False)
+    except Exception as e:
+        sys.exit(f"[ckpt] cannot load {path}: {e}; move it aside to start this run directory fresh")
+    if not quiet:
+        print(f"[ckpt] resuming from {path} (iteration {ckpt['iteration']})")
+    return ckpt
 
 
 def rng_state(sampler: np.random.Generator | None = None) -> dict:

@@ -186,10 +186,6 @@ def add_learn_args(p) -> None:
     p.add_argument("--beta", type=float, default=0.0, help="KL weight to --ref (0: no reference policy)")
     p.add_argument("--ref", default=None, help="reference policy checkpoint (e.g. a behavior clone)")
     p.add_argument("--init", default=None, help="initialize weights from a checkpoint (new run)")
-    p.add_argument("--outpath", default=None,
-                   help="directory the final checkpoint is copied to when training ends "
-                        "(checkpoints are saved to and resumed from --run-dir)")
-    p.add_argument("--keep", type=int, default=3, help="checkpoints to keep")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
 

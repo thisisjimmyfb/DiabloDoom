@@ -38,9 +38,10 @@ MAX_DROPPED = 20      # policy steps in combat without CONSULT before giving up 
 
 
 def default_checkpoint() -> Path | None:
-    """The newest checkpoint train.sh exported (agent/), else in runs/."""
-    for pattern in (HERE.parent.glob("ckpt_*.pt"), HERE.glob("runs/*/ckpt_*.pt")):
-        found = sorted(pattern, key=lambda p: p.stat().st_mtime)
+    """The newest run checkpoint (runs/*/doom-runner.pt), else the newest
+    older-style ckpt_*.pt in agent/ or runs/."""
+    for patterns in (["runs/*/doom-runner.pt"], ["../ckpt_*.pt", "runs/*/ckpt_*.pt"]):
+        found = sorted((p for pat in patterns for p in HERE.glob(pat)), key=lambda p: p.stat().st_mtime)
         if found:
             return found[-1]
     return None
@@ -60,7 +61,7 @@ def load_policy(path: Path, device: torch.device) -> Policy:
 
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--checkpoint", default=None, help="policy checkpoint (default: the newest agent/ckpt_*.pt)")
+    p.add_argument("--checkpoint", default=None, help="policy checkpoint (default: the newest runs/*/doom-runner.pt)")
     p.add_argument("--iwad", default=None, help="IWAD (default: Freedoom Phase 1)")
     p.add_argument("--warp", default="1 1", help="level, as -warp args (default: E1M1)")
     p.add_argument("--skill", type=int, default=3)

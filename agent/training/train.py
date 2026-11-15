@@ -24,8 +24,9 @@ Usage (from agent/training):
     .venv/bin/python train.py --run-dir runs/stage1                # stage 1
     .venv/bin/python train.py --run-dir runs/stage1                # resumes; 100 more updates each run (--more)
     .venv/bin/python train.py --stage 2 --run-dir runs/stage2 \\
-        --init runs/stage1/ckpt_000500.pt
+        --init runs/stage1/doom-runner.pt
     .venv/bin/python train.py --iwads FREEDOOM1.WAD DOOM.WAD --groups 8   # two IWADs
+    .venv/bin/python train.py --run-dir runs/stage1 --hub-repo user/name  # resume from / push to the Hub
 """
 
 from __future__ import annotations
@@ -42,10 +43,11 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from model import (Frontier, MapRotation, TicBudget, add_env_args, capture_dirs, check_slots, default_groups,
-                   env_label, move_groups, resolve_maps,
-                   export_latest_checkpoint, iwad_label, make_env, parse_list, resolve_iwads, rng_state,
-                   save_checkpoint)
+from model import (Frontier, HubUploader, MapRotation, TicBudget, add_env_args, capture_dirs, check_slots,
+                   FREE_CORES, available_cores, default_groups, env_label, hub_pull, move_groups,
+                   resolve_maps,
+                   iwad_label, make_env, parse_list, resolve_iwads, rng_state,
+                   save_checkpoint, CKPT_NAME, TIC_BUDGET_FILE)
 from env import cleanup_stale  # noqa: E402  (model.py put env on sys.path)
 from env.vector import GroupVecEnv  # noqa: E402
 from eval import (heldout_eval, make_heldout_vec, print_eval, run_rollouts, sample_group_options,
@@ -85,8 +87,10 @@ def main():
     iwads = resolve_iwads(args.iwads)
     eval_maps = parse_list(args.eval_maps)
     maps = resolve_maps(args.maps, iwads, args.stage, eval_maps)
-    if args.groups is None:                 # one group per IWAD/map pair, at most 8
+    if args.groups is None:                 # one group per IWAD/map pair, at most cores - 2
         args.groups = default_groups(iwads, maps)
+        print(f"[train] {args.groups} groups: one per IWAD/map pair, at most the "
+              f"{available_cores()} logical cores minus {FREE_CORES}")
     G, groups = args.group_size, args.groups
     n_envs = G * groups
     check_slots(iwads, slots)
@@ -98,6 +102,13 @@ def main():
         raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, on_sigterm)
     cleanup_stale()
+
+    # --hub-repo: the repo's checkpoint joins run_dir's, so the newest of
+    # the two is resumed below.
+    if args.hub_repo and args.hub_download:
+        hub_pull(args.hub_repo, run_dir)
+    elif args.hub_repo:
+        print(f"[hub] --no-hub-download: not pulling from {args.hub_repo}")
 
     sampler = np.random.default_rng(args.seed)
     policy, optimizer, ref, start_it, total_steps, total_tics, run_id = \
@@ -111,6 +122,10 @@ def main():
               f"nothing to do: pass a higher --iterations, or leave it out to train --more ({args.more}) more")
 
     group_pairs = rotation.at(start_it)     # a resumed run picks up its rotation
+    hub = HubUploader(args.hub_repo, run_dir) if args.hub_repo and args.hub_upload else None
+    if args.hub_repo and not args.hub_upload:
+        print(f"[hub] --no-hub-upload: not pushing to {args.hub_repo}")
+    saved_it = None                         # the last iteration saved by this run
     (run_dir / "config.json").write_text(json.dumps({**vars(args), "run_id": run_id}, indent=2))
     n_params = sum(p.numel() for p in policy.parameters())
     print(f"[train] run {run_id}: {n_envs} envs ({groups} groups x {G}), stage {args.stage}, "
@@ -158,7 +173,8 @@ def main():
     # Frontier starts: each map's best rollout end state so far.
     frontier = Frontier(run_dir / "frontier", args.frontier, env_pairs, patience=args.frontier_patience)
     frontier.install_all(vec)
-    budget = TicBudget(env_pairs, args.max_tics, args.max_tics_cap, args.tics_growth)
+    budget = TicBudget(env_pairs, args.max_tics, args.max_tics_cap, args.tics_growth,
+                       path=run_dir / "frontier" / TIC_BUDGET_FILE)
     print(f"[train] rollout limit {args.max_tics} tics per map, growing x{args.tics_growth} after a batch "
           f"without progress, up to {budget.cap}")
     print("[train] forced map glance " + (f"every {args.force_map} steps, {args.force_map_tics} tics on screen"
@@ -249,11 +265,16 @@ def main():
             print_train(it, m, upd, (f" fmap {args.force_map}" if args.force_map > 0 else "")
                         + f" ({m['sps']:.0f}/s) {t_all:.1f}s")
 
-            save_checkpoint(run_dir / f"ckpt_{it:06d}.pt", {
+            ckpt_path = run_dir / CKPT_NAME
+            save_checkpoint(ckpt_path, {
                 "policy": policy.state_dict(), "optimizer": optimizer.state_dict(),
                 "iteration": it, "total_steps": total_steps, "total_tics": total_tics,
                 "rng": rng, "run_id": run_id, "ref": args.ref, "args": vars(args),
-            }, args.keep)
+            })
+            saved_it = it
+            if hub is not None and args.hub_every > 0 and (it + 1) % args.hub_every == 0:
+                if not hub.push(ckpt_path, it):
+                    print(f"[hub] iteration {hub.it} is still uploading; skipped iteration {it}")
 
             if eval_vec is not None and (it + 1) % args.eval_every == 0:
                 evaluate(it + 1)
@@ -265,9 +286,8 @@ def main():
         vec.close()
         if eval_vec is not None:
             eval_vec.close()
-        if args.outpath:
-            dst = export_latest_checkpoint(run_dir, Path(args.outpath))
-            print(f"[ckpt] final checkpoint copied to {dst}" if dst else "[ckpt] no checkpoint to copy")
+        if hub is not None:
+            hub.finish(run_dir / CKPT_NAME if saved_it is not None else None, saved_it)
 
 
 if __name__ == "__main__":

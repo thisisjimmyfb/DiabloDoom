@@ -5,6 +5,7 @@ instances."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -13,7 +14,7 @@ import numpy as np
 import torch
 
 from model import (FRONTIER_SLOT, SAVE_SLOT, Frontier, Policy, allocate_groups, capture_dirs,
-                   export_latest_checkpoint, load_latest_checkpoint, restore_rng, rng_state, save_checkpoint)
+                   CKPT_NAME, load_latest_checkpoint, restore_rng, rng_state, save_checkpoint)
 
 MAPS = ["1 1", "1 2", "1 3", "1 4"]
 REPO = Path(__file__).resolve().parents[3]
@@ -52,23 +53,33 @@ def test_allocate_groups_multiples_and_default():
 
 
 def test_checkpoints(tmp_path):
-    """SPEC.md §7.4: keep N, fall back past a corrupt newest, clear
-    interrupted writes, export the newest."""
+    """SPEC.md §7.4: one checkpoint file, replaced at every save;
+    interrupted writes cleared; an older run directory's newest
+    ckpt_<iteration>.pt still resumes; an unreadable checkpoint stops the
+    run instead of starting it fresh."""
     run = tmp_path / "run"
     run.mkdir()
     for it in range(5):
-        save_checkpoint(run / f"ckpt_{it:06d}.pt", {"iteration": it}, keep=3)
-    assert sorted(p.name for p in run.iterdir()) == [f"ckpt_{i:06d}.pt" for i in (2, 3, 4)]
-    (run / "ckpt_000004.pt").write_bytes(b"truncated")       # newest is corrupt
-    (run / "ckpt_000005.pt.tmp").write_bytes(b"half")         # interrupted write
-    assert load_latest_checkpoint(run)["iteration"] == 3
+        save_checkpoint(run / CKPT_NAME, {"iteration": it})
+    assert sorted(p.name for p in run.iterdir()) == [CKPT_NAME]
+    (run / f"{CKPT_NAME}.tmp").write_bytes(b"half")           # interrupted write
+    assert load_latest_checkpoint(run)["iteration"] == 4
     assert not list(run.glob("*.tmp"))
-    dst = export_latest_checkpoint(run, tmp_path / "out")
-    assert dst.name == "ckpt_000004.pt" and dst.read_bytes() == b"truncated"
     empty = tmp_path / "empty"
     empty.mkdir()
-    assert export_latest_checkpoint(empty, tmp_path / "out") is None
     assert load_latest_checkpoint(empty) is None
+
+    old = tmp_path / "old"
+    old.mkdir()
+    for it in (7, 12):
+        torch.save({"iteration": it}, old / f"ckpt_{it:06d}.pt")
+    assert load_latest_checkpoint(old)["iteration"] == 12, "the newest old-style checkpoint"
+    save_checkpoint(old / CKPT_NAME, {"iteration": 13})
+    assert load_latest_checkpoint(old)["iteration"] == 13, "doom-runner.pt wins once saved"
+
+    (run / CKPT_NAME).write_bytes(b"truncated")
+    with pytest.raises(SystemExit):
+        load_latest_checkpoint(run)
 
 
 def test_rng_roundtrip():
@@ -230,6 +241,22 @@ def test_tic_budget():
     assert TicBudget(pairs, 525, 0).update([stuck] * 4) == {}, "cap <= base: off"
 
 
+def test_tic_budget_saved(tmp_path):
+    """With a path the budgets are saved when they change and loaded by
+    the next run (clamped to the new base and cap); an unreadable file is
+    ignored."""
+    from model import TicBudget
+    pairs = [(None, "1 1")] * 2
+    f = tmp_path / "frontier" / "tic_budget.json"
+    b = TicBudget(pairs, 525, 2100, path=f)
+    b.update([_end(0, gained=0)] * 2)
+    assert json.loads(f.read_text()) == {"default_1_1": 788}
+    assert TicBudget(pairs, 525, 2100, path=f).tics == {"default_1_1": 788}, "a resume keeps it"
+    assert TicBudget(pairs, 525, 700, path=f).tics == {"default_1_1": 700}, "clamped to the cap"
+    f.write_text("not json")
+    assert TicBudget(pairs, 525, 2100, path=f).tics == {"default_1_1": 525}
+
+
 def test_frontier_patience_waits_for_budget(tmp_path):
     """A batch without progress on a map whose tic budget is still growing
     doesn't count towards the frontier's patience."""
@@ -335,3 +362,108 @@ def test_upgrade_8_action_policy():
     new_opt = torch.optim.Adam(new.parameters())
     new_opt.load_state_dict(upgrade_optimizer_state(opt.state_dict(), new))
     assert upgrade_policy_state(new.state_dict())["policy_head.weight"].shape[0] == 7, "a current policy is unchanged"
+
+
+_FAKE_HF = r'''#!/usr/bin/env python3
+"""A stand-in for the hf CLI: the repo is the directory $FAKE_HUB."""
+import fnmatch, json, os, shutil, sys
+hub, a = os.environ["FAKE_HUB"], sys.argv[1:]
+def files():
+    return sorted(os.path.relpath(os.path.join(r, f), hub) for r, _, fs in os.walk(hub) for f in fs)
+def opt(name):
+    return a[a.index(name) + 1] if name in a else None
+if a[:2] == ["models", "info"]:
+    print(json.dumps({"id": a[2], "siblings": [{"rfilename": f} for f in files()]}))
+elif a[0] == "download":
+    d, i = opt("--local-dir"), a.index("--local-dir")
+    for f in a[2:i]:
+        os.makedirs(os.path.dirname(os.path.join(d, f)), exist_ok=True)
+        shutil.copyfile(os.path.join(hub, f), os.path.join(d, f))
+elif a[0] == "upload":
+    src, dst = a[2], a[3]
+    if os.path.isdir(src):
+        for f in files():
+            if opt("--delete") and fnmatch.fnmatch(f, opt("--delete")):
+                os.remove(os.path.join(hub, f))
+        for r, _, fs in os.walk(src):
+            for f in fs:
+                rel = os.path.normpath(os.path.join(dst, os.path.relpath(os.path.join(r, f), src)))
+                os.makedirs(os.path.dirname(os.path.join(hub, rel)) or hub, exist_ok=True)
+                shutil.copyfile(os.path.join(r, f), os.path.join(hub, rel))
+    else:
+        shutil.copyfile(src, os.path.join(hub, dst))
+    with open(os.path.join(hub, "..", "commits"), "a") as c:
+        c.write(opt("--commit-message") + "\n")
+'''
+
+
+def test_hub(tmp_path, monkeypatch):
+    """--hub-repo with a fake hf CLI: an empty repo pulls nothing; pushes
+    upload doom-runner.pt with frontier/ (progress saves, tic budgets) in
+    one commit (one at a time, the end uploads the newest), dropping
+    progress saves cleared since; a fresh run directory pulls both back,
+    and a run directory with a newer checkpoint keeps its own."""
+    from model import HUB_FILE, HubUploader, hub_pull
+    bin_dir, hub = tmp_path / "bin", tmp_path / "hub"
+    bin_dir.mkdir(); hub.mkdir()
+    (bin_dir / "hf").write_text(_FAKE_HF)
+    (bin_dir / "hf").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{Path('/usr/bin')}:{Path('/bin')}")
+    monkeypatch.setenv("FAKE_HUB", str(hub))
+
+    run = tmp_path / "run"
+    run.mkdir()
+    assert hub_pull("u/m", run) is None, "empty repo"
+    front = run / "frontier"
+    front.mkdir()
+    for name in ("A_1_1.dsg", "A_1_2.dsg", "tic_budget.json"):
+        (front / name).write_text(name)
+    (front / "A_1_3.dsg.tmp").write_text("half")         # a write in progress: not uploaded
+    up = HubUploader("u/m", run)
+    save_checkpoint(run / CKPT_NAME, {"iteration": 9})
+    assert up.push(run / CKPT_NAME, 9)
+    up.finish(None, None)                 # waits for it
+    assert sorted(p.name for p in (hub / "frontier").iterdir()) == ["A_1_1.dsg", "A_1_2.dsg", "tic_budget.json"]
+    (front / "A_1_1.dsg").unlink()                        # cleared (an exit)
+    (front / "A_1_2.dsg").write_text("newer")
+    save_checkpoint(run / CKPT_NAME, {"iteration": 19})
+    up = HubUploader("u/m", run)
+    up.finish(run / CKPT_NAME, 19)
+    assert (tmp_path / "commits").read_text() == "iteration 9\niteration 19\n"
+    assert torch.load(hub / HUB_FILE, weights_only=False)["iteration"] == 19
+    assert sorted(p.name for p in (hub / "frontier").iterdir()) == ["A_1_2.dsg", "tic_budget.json"], \
+        "the cleared save is gone from the repo too"
+    assert "iteration 19" in (run / "hub_upload.log").read_text()
+
+    fresh = tmp_path / "fresh"
+    fresh.mkdir()
+    (fresh / "frontier").mkdir()
+    (fresh / "frontier" / "stale.dsg").write_text("old")   # an older local point of the run
+    assert hub_pull("u/m", fresh) == fresh / CKPT_NAME
+    assert load_latest_checkpoint(fresh)["iteration"] == 19
+    assert sorted(p.name for p in (fresh / "frontier").iterdir()) == ["A_1_2.dsg", "tic_budget.json"]
+    assert (fresh / "frontier" / "A_1_2.dsg").read_text() == "newer"
+
+    ahead = tmp_path / "ahead"
+    ahead.mkdir()
+    save_checkpoint(ahead / CKPT_NAME, {"iteration": 30})
+    (ahead / "frontier").mkdir()
+    (ahead / "frontier" / "mine.dsg").write_text("mine")
+    assert hub_pull("u/m", ahead) is None
+    assert [p.name for p in (ahead / "frontier").iterdir()] == ["mine.dsg"], "the local progress is kept"
+    assert load_latest_checkpoint(ahead)["iteration"] == 30, "the newer local checkpoint is kept"
+
+    monkeypatch.setenv("PATH", "/nonexistent")
+    with pytest.raises(SystemExit):
+        hub_pull("u/m", fresh)
+
+
+def test_default_groups_leave_two_cores():
+    """The default group count is one per IWAD/map pair, at most the
+    logical cores minus 2 (at least 1)."""
+    from model import available_cores, default_groups, max_default_groups
+    assert default_groups(TWO_IWADS, MAPS, cores=16) == 8, "8 pairs fit under 14"
+    assert default_groups(TWO_IWADS, ["1 1"] * 29, cores=16) == 14, "58 pairs: 16 - 2"
+    assert default_groups(TWO_IWADS, MAPS, cores=8) == 6
+    assert default_groups(TWO_IWADS, MAPS, cores=2) == 1, "never below 1"
+    assert max_default_groups() == max(1, available_cores() - 2)

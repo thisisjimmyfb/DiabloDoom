@@ -3,12 +3,21 @@
 #
 # Full training on one box (train.py):
 #   ./train.sh                       # 100 stage-1 updates in runs/stage1 (rerun: 100 more);
-#                                    # the final checkpoint is copied to agent/
+#                                    # the checkpoint is pulled from / pushed to the Hub
 #   ./train.sh --smoke               # smallest run: 1 group of 2 per IWAD, 1 iteration, no eval
 #   ./train.sh --run-dir runs/x ...  # any train.py arguments pass through
 #   ./train.sh --no-noblit           # also blit (games run with -noblit by default)
 #   ./train.sh --capture             # record continuous replay (off by default): the first
 #                                    # training env of each IWAD -> <run-dir>/replays/
+#   ./train.sh --no-hub              # don't pull from / push to the Hugging Face repo
+#   ./train.sh --no-hub-download     # don't pull (start over: with a new --run-dir); still push
+#   ./train.sh --no-hub-upload       # pull, but never push
+#   ./train.sh --hub-repo user/name  # another repo (default thisisjimmy/DoomRunner)
+#
+# Hugging Face Hub (train mode, not --smoke): the repo's doom-runner.pt is
+# pulled into the run directory first (resumed from unless the run
+# directory has a newer checkpoint) and pushed back every --hub-every (10)
+# updates and at the end. Needs the hf CLI, logged in: hf auth login.
 #
 # Setup is idempotent and only does what is missing:
 #   - builds the game (Release) if build/src/chocolate-doom doesn't exist
@@ -22,12 +31,19 @@ case "${1:-}" in
     --smoke) MODE=smoke; shift ;;
 esac
 
-# --capture is train.sh's own (replay capture on): taken out of the
-# arguments passed through, wherever it appears.
+# --capture (replay capture on) and --no-hub (no Hugging Face repo) are
+# train.sh's own: taken out of the arguments passed through, wherever they
+# appear.
+HUB_REPO=thisisjimmy/DoomRunner
 CAPTURE=0
+HUB=1
 rest=()
 for a in "$@"; do
-    if [[ "$a" == --capture ]]; then CAPTURE=1; else rest+=("$a"); fi
+    case "$a" in
+        --capture) CAPTURE=1 ;;
+        --no-hub) HUB=0 ;;
+        *) rest+=("$a") ;;
+    esac
 done
 set -- ${rest[@]+"${rest[@]}"}
 
@@ -118,12 +134,12 @@ arg_value() {
 }
 
 # Defaults, each added only when not given: --run-dir runs/stage1
-# (checkpoints, metrics, rollout log, replays; gitignored); the final
-# checkpoint (full and resumable, ~20 MB) is copied to --outpath, the
-# repo's agent/ directory, so it can be committed; --iwads is every IWAD
+# (checkpoints, metrics, rollout log, replays; gitignored; the checkpoint
+# goes to the Hugging Face repo, see above); --iwads is every IWAD
 # found under wad/ (groups split evenly; --groups 8 trains all 4 maps on
 # both Freedoom and Ultimate Doom). The rest are the scripts' own
-# defaults (stage 1, 8 groups x 8, E1M1-E1M4, eval on E1M5/E1M6; --maps all
+# defaults (stage 1, one group of 8 per IWAD/map pair up to the logical
+# cores minus 2, E1M1-E1M4, eval on E1M5/E1M6; --maps all
 # trains every map, the groups taking turns every --rotate-every batches).
 RUN_DIR="$(arg_value run-dir)"
 RUN_DIR="${RUN_DIR:-runs/stage1}"
@@ -135,7 +151,6 @@ add_iwads() {
     fi
 }
 add_run_dir() { has_arg run-dir || pre+=(--run-dir "$RUN_DIR"); }
-add_outpath() { has_arg outpath || pre+=(--outpath "$(dirname "$HERE")"); }
 # Games launch with -noblit (skip the SDL blit nobody sees headless: about
 # 4x more decisions/s, frames and replays unchanged) unless --no-noblit
 # (or --noblit) is given.
@@ -146,6 +161,17 @@ add_noblit() { has_arg noblit || has_arg no-noblit || pre+=(--noblit); }
 add_capture() {
     (( CAPTURE )) || return 0
     has_arg capture-envs || pre+=(--capture-envs 1)
+}
+# The Hugging Face repo, unless --no-hub or another --hub-repo is given.
+add_hub() {
+    (( HUB )) || return 0
+    has_arg hub-repo && return 0
+    if ! command -v hf >/dev/null; then
+        log "the hf CLI isn't on PATH: install it and run 'hf auth login', or pass --no-hub"
+        exit 1
+    fi
+    pre+=(--hub-repo "$HUB_REPO")
+    log "checkpoints: pulled from and pushed to huggingface.co/$HUB_REPO"
 }
 
 case "$MODE" in
@@ -158,6 +184,6 @@ case "$MODE" in
         exec "$PY" train.py --run-dir runs/smoke --groups "$n_smoke" --group-size 2 \
             --iterations 1 --max-tics 350 --eval-every 0 --capture-envs 0 "${pre[@]}" "$@" ;;
     train)
-        add_run_dir; add_outpath; add_iwads; add_noblit; add_capture
+        add_run_dir; add_iwads; add_noblit; add_capture; add_hub
         exec "$PY" train.py "${pre[@]}" "$@" ;;
 esac
