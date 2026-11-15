@@ -46,23 +46,32 @@ obs, reward, terminated, truncated, info = game.step(0)   # WALK 0
   would signal Muse VM instead. Handlers send driver commands through
   `game.consult_command(line)` (`game` being the `DiabloDoomEnv` instance).
 - **Rewards:** `RewardConfig` (SPEC.md §5.3). The values are placeholders.
-  `approach` (1/256 per map unit) pays progress toward the nearest goal:
-  the exit line, or a frontier portal (a passable two-sided line from a
-  visited sector into an unvisited one; doors and lifts count by their
-  special). It pays the change in distance, so a rollout's total is the
-  start distance minus the end one and hovering earns nothing; a step
-  that visits a new sector re-measures without pay. The distances come
-  from the state line (`exit_dist`, `frontier_dist`) and shape the reward
-  only: the policy acts from the frames alone.
   The portal goal (`--portal-goal`, default 1): a rollout ends, with the
-  `portal` bonus (5), once it enters a sector not yet visited, and
-  `--time-penalty` (1/3 per game second) is charged until it ends, so the
-  faster crossing wins its group; `--max-tics` is 525 (15 s). A per-tic
-  penalty does nothing without the goal: rollouts that all run to the
-  limit pay the same, and the group-relative advantage cancels it. The
-  held-out eval keeps `--eval-max-tics` (2100) with no goal and no
-  penalty, so its numbers compare across versions.
-  `key` (10) pays each key colour (blue, yellow, red) the first time it is
+  `portal` bonus (5), once it enters a sector not yet visited;
+  `--max-tics` is 525 (15 s). Until it ends, time and distance cost one
+  penalty: every game tic costs `time` x (1 + d / `far_scale`), d the
+  distance (map units, the mean of the step's start and end) to the
+  nearest goal -- the exit line, or a frontier portal (a passable
+  two-sided line from a visited sector into an unvisited one; doors and
+  lifts count by their special). `time` is `--time-penalty` (1/3 per game
+  second) and `far_scale` 256, so the clock runs at 1/3 point per second
+  beside a goal and twice that 256 units away: being far costs more the
+  longer it lasts, and the faster crossing wins its group. It does little
+  without the goal: rollouts that all run to the limit pay alike, and the
+  group-relative advantage cancels most of it. The distances come from
+  the state line (`exit_dist`, `frontier_dist`) and shape the reward only:
+  the policy acts from the frames alone. The held-out eval keeps
+  `--eval-max-tics` (2100) with no goal and no penalty, so its numbers
+  compare across versions. Stage 1 has no map monsters, so there is no
+  death, HP-loss, combat or stuck term (a death or a long combat still
+  ends the rollout).
+  `map_toggle` (-0.1) is charged for every `MAP` (the automap opens for
+  half a second), so the policy opens it when it helps.
+  Positive reinforcement: `exit` (100, the top reward) for triggering the
+  level complete (ends the rollout), `key` (25) per key colour, `mechanism`
+  (10) for each new mechanism set going, `portal` (5) for the portal goal,
+  `sector` (1) per new sector.
+  `key` (25) pays each key colour (blue, yellow, red) the first time it is
   held in a rollout, from the state line's `keys` mask; keys held at the
   start pay nothing.
 - **info:** `tics` for this step, `rollout_tics`, `mode`, `group`, `slot`,
@@ -106,11 +115,13 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   features plus HP and exit distance (straight-line distance to the exit
   line; 0 on a level without one). 1.69M parameters. The value head trains from the start
   but never shapes the policy during GRPO.
-- **Batch:** `--groups` (4) x `--group-size` (8) instances. Group g plays
-  map `--maps[g % M]` (E1M1-E1M4 by default). With several `--iwads`
-  (`train.sh` passes every IWAD under `wad/`), group g runs on
-  `iwads[(g % M + g // M) % I]`: the IWADs split the groups evenly, and
-  `--groups I*M` covers every IWAD/map pair. Eval runs every eval map on
+- **Batch:** `--groups` x `--group-size` (8) instances; `--groups`
+  defaults to one group per IWAD/map pair (`train.sh` passes every IWAD
+  under `wad/`: 2 x E1M1-E1M4 = 8 groups). Groups go map by map with every
+  IWAD on each: group g plays `--maps[(g // I) % M]` on `iwads[g % I]`, so
+  E1M1 on Freedoom, E1M1 on The Ultimate Doom, then E1M2 on each, and the
+  first group of every IWAD (the one `--capture` records) is on E1M1.
+  Fewer groups drop the last maps. Eval runs every eval map on
   every IWAD, and metrics add `sectors_<iwad>`/`exit_rate_<iwad>`. Save
   slots are IWAD-specific, so `--slots` needs a single IWAD. All members of a
   group start from the same slot, seed and `--warmup-max` random warm-up
@@ -125,24 +136,26 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   (`--ref`, `--beta`).
 - **Frontier starts:** a rollout stops at `--max-tics` (or at the portal
   goal), so on its own training would only ever see the start of each
-  map. After every batch, each map's highest-return rollout that ended
-  alive, exploring, short of the exit and with progress (a new sector)
-  saves the game where it stopped (`SAVE 4`) along with its visited
+  map. Every group loads its start from slot 4 (the map start until there
+  is progress), so all its members start from the identical state. After
+  every batch, each map's highest-return rollout that ended alive,
+  exploring, short of the exit and with progress (a new sector) -- only
+  that one -- saves the game where it stopped to slot 5 (`SAVE 5`, so the
+  start in slot 4 is never overwritten mid-batch) along with its visited
   sectors (`VISITED`; replayed with `VISIT` after each load, since saves
-  don't store them, so the portal it came in by is not new). With the
-  portal goal the agent moves on portal by portal. A batch without
-  progress keeps the current start; `--frontier-patience` (5) of them in a
-  row (a dead end) clear it, back to the map start. The save
-  goes to `<run-dir>/frontier/<iwad>_<map>.dsg` (visited list: `.visited`) (or
-  `<spool>/frontier/<actor-id>/` for an `eval.py` actor), so it survives a
-  resume, and is copied into slot 4 of every instance on that map, where
-  it replaces the map start. Every group starts from slot 4, so training
-  always saves and loads its progress there. A rollout that reaches the
-  exit clears that map's frontier: slot 4 holds the map start again, and
-  the cycle starts over. `front` in the training line is the share of
-  rollouts that started from a frontier. `--no-frontier` turns it off
-  (every start is the map start, still from slot 4). `--slots` can't
-  include 4.
+  don't store them, so the portal it came in by is not new). The save is
+  copied into slot 5 of every instance on that map, then slots 4 and 5
+  swap there: the progress is the next batch's start in 4, the old start
+  sits in 5. With the portal goal the agent moves on portal by portal. A
+  batch without progress keeps the current start; `--frontier-patience`
+  (5) of them in a row (a dead end) clear it, back to the map start. The
+  save is also kept in `<run-dir>/frontier/<iwad>_<map>.dsg` (visited
+  list: `.visited`; `<spool>/frontier/<actor-id>/` for an `eval.py`
+  actor), so it survives a resume. A rollout that reaches the exit clears
+  that map's frontier: slot 4 holds the map start again, and the cycle
+  starts over. `front` in the training line is the share of rollouts that
+  started from a frontier. `--no-frontier` turns it off (every start is
+  the map start, still from slot 4). `--slots` can't include 4 or 5.
 - **Stages:** `--stage 1` runs with `-nomonsters` (vanilla's flag, which is
   the spec's `-rlnocombat`); `--stage 2` has the map's monsters. Both
   spawn practice monsters on screen while exploring (`--spawn-tics`,

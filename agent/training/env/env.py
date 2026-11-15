@@ -8,7 +8,6 @@ never in the observation.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
@@ -41,32 +40,26 @@ COMBAT_MODES = {"PLANNING", "TARGETING", "CONFIRM", "PULSE", "REACTION", "ROUND_
 class RewardConfig:
     """SPEC.md §5.3. Magnitudes are placeholders, to be tuned from curves."""
     sector: float = 1.0               # per newly visited sector
-    exit: float = 50.0                # level exit reached (ends the rollout)
-    mechanism: float = 2.0            # USE that sets a new mechanism going (once per mechanism)
-    key: float = 10.0                 # per key colour newly held (blue, yellow, red; once each)
-    # Progress toward the nearest goal -- an exit line or a frontier
-    # portal (a passable opening from a visited sector into an unvisited
-    # one) -- per map unit closer, negative for moving away. Pays the
-    # change in distance, so a rollout's total is start minus end
-    # distance and hovering or oscillating earns nothing; when a step
-    # visits a new sector (the frontier moves on) the distance is
-    # re-measured without pay.
-    approach: float = 1.0 / 256
-    death: float = -20.0              # ends the rollout
-    stuck: float = -1.0               # per stuck_tics without moving stuck_dist
-    stuck_tics: int = 105
-    stuck_dist: int = 16
+    exit: float = 100.0               # level complete triggered (ends the rollout): the top reward
+    mechanism: float = 10.0           # USE that sets a new mechanism going (once per mechanism)
+    key: float = 25.0                 # per key colour newly held (blue, yellow, red; once each)
     consult_hit: float = 5.0          # first CONSULT on an explore trigger
     trigger_miss: float = -8.0        # trigger unanswered after the grace window
     grace_decisions: int = 5
     consult_false: float = -0.5       # CONSULT with no live, unanswered trigger
-    combat_unconsulted_step: float = -0.5  # per step in combat before CONSULT
-    hp_loss: float = 0.0              # per HP lost (third stage only)
-    map_toggle: float = 0.0           # per MAP action (only if flicker appears)
-    # Per game tic, every step (0 off). Only works with a portal goal
-    # (EnvConfig.portal_goal): rollouts that all run to max_tics pay the
-    # same, and a group-relative advantage cancels it.
+    map_toggle: float = -0.1          # per MAP action: a small cost, so the map is opened when it helps
+    # Time and distance, one penalty: every game tic costs
+    #   time * (1 + d / far_scale)
+    # where d is the distance (map units) to the nearest goal -- an exit
+    # line or a frontier portal (a passable opening from a visited sector
+    # into an unvisited one), the mean of the step's start and end -- so
+    # the clock runs at `time` beside a goal and twice as fast far_scale
+    # units away: being far costs more the longer it lasts. 0 turns it
+    # off. Only works with a portal goal (EnvConfig.portal_goal): rollouts
+    # that all run to max_tics pay alike, and a group-relative advantage
+    # cancels most of it.
     time: float = 0.0
+    far_scale: float = 256.0
     portal: float = 5.0               # the portal goal reached (ends the rollout)
 
 
@@ -214,6 +207,23 @@ class DiabloDoomEnv(gym.Env):
         if self.engine.workdir is not None:
             self._write_installed(slot)
 
+    def swap_slots(self, a: int, b: int) -> None:
+        """Swap two slots' savegames and visited lists (training: the new
+        progress saved to 5 becomes the start in 4, the old start goes
+        to 5). The bootstrap slot without an installed save holds the
+        map start, and swaps as that."""
+        def held(slot):
+            data = self._installed.get(slot)
+            if data is None and slot == self.cfg.bootstrap_slot:
+                data = self._map_start
+            return data, self._installed_visited.get(slot)
+        (da, va), (db, vb) = held(a), held(b)
+        self._installed[a], self._installed_visited[a] = db, vb
+        self._installed[b], self._installed_visited[b] = da, va
+        if self.engine.workdir is not None:
+            self._write_installed(a)
+            self._write_installed(b)
+
     def _write_installed(self, slot: int) -> None:
         path = self.engine.savedir / f"doomsav{slot}.dsg"
         data = self._installed.get(slot)
@@ -289,9 +299,6 @@ class DiabloDoomEnv(gym.Env):
         self._start_sectors = self._best_sectors
         self._goal = goal_dist(d)
         self._keys = d.get("keys", 0)     # keys held at the start (or from the warm-up) never pay
-        self._prev_hp = d.get("hp", 0)
-        self._anchor = (d.get("x", 0), d.get("y", 0))
-        self._stuck_acc = 0
         self._combat_steps = 0
         self._trig = {k: self._new_trigger() for k in ("monster", "backpack", "combat")}
         self._update_triggers(d)
@@ -338,21 +345,21 @@ class DiabloDoomEnv(gym.Env):
 
         self.state = d
         self._tics += tics
-        reward -= rc.time * tics
 
-        # Combat before CONSULT: per-step penalty; capped (frozen world).
+        # Steps in combat (capped: the world is frozen until CONSULT).
         if d.get("mode") in COMBAT_MODES:
             self._combat_steps += 1
-            if not self._trig["combat"]["consulted"]:
-                reward += rc.combat_unconsulted_step
         else:
             self._combat_steps = 0
 
-        # Progress toward the nearest exit line or frontier portal.
+        # Time and distance: every tic costs time * (1 + d / far_scale),
+        # d the distance to the nearest exit line or frontier portal.
         sec = d.get("sectors", self._best_sectors)
         goal = goal_dist(d)
-        if goal is not None and self._goal is not None and sec <= self._best_sectors:
-            reward += rc.approach * (self._goal - goal)
+        if tics > 0 and rc.time:
+            known = [g for g in (self._goal, goal) if g is not None]
+            dist = sum(known) / len(known) if known else 0.0
+            reward -= rc.time * tics * (1.0 + dist / rc.far_scale)
         if goal is not None or "x" in d:
             self._goal = goal
 
@@ -360,24 +367,6 @@ class DiabloDoomEnv(gym.Env):
         if sec > self._best_sectors:
             reward += rc.sector * (sec - self._best_sectors)
             self._best_sectors = sec
-
-        # Stuck: no displacement of stuck_dist over stuck_tics game tics.
-        if "x" in d:
-            dx, dy = d["x"] - self._anchor[0], d["y"] - self._anchor[1]
-            if math.hypot(dx, dy) >= rc.stuck_dist:
-                self._anchor = (d["x"], d["y"])
-                self._stuck_acc = 0
-            else:
-                self._stuck_acc += tics
-                if self._stuck_acc >= rc.stuck_tics:
-                    reward += rc.stuck
-                    self._stuck_acc = 0
-
-        # HP loss (third stage only; 0 by default).
-        hp = d.get("hp", self._prev_hp)
-        if hp < self._prev_hp:
-            reward += rc.hp_loss * (self._prev_hp - hp)
-        self._prev_hp = hp
 
         # Triggers: start/age/end, and the grace-window miss penalty.
         reward += self._update_triggers(d)
@@ -398,8 +387,7 @@ class DiabloDoomEnv(gym.Env):
             reward += rc.exit
             terminated = True
         elif d.get("dead"):
-            reward += rc.death
-            terminated = True
+            terminated = True             # ends the rollout; no reward term (no monsters in stage 1)
         elif self.cfg.portal_goal > 0 and self._best_sectors - self._start_sectors >= self.cfg.portal_goal:
             reward += rc.portal
             terminated = portal = True

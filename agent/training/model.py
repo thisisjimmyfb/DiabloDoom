@@ -147,13 +147,13 @@ def capture_dirs(env_pairs: list, n: int, root: Path) -> list[str | None]:
 
 def allocate_groups(iwads: list[str | None], maps: list[str], groups: int,
                     tag: str = "train") -> list[tuple[str | None, str]]:
-    """Group g -> (iwad, map). The map is maps[g % M] as with one IWAD, so
-    --groups M still trains every map; the IWAD rotates with the map
-    index and shifts by one each time the maps wrap, so the IWADs split
-    the groups evenly and --groups I*M covers every IWAD/map pair.
-    Warns about pairs no group plays."""
+    """Group g -> (iwad, map), map by map with every IWAD on each: group g
+    plays maps[(g // I) % M] on iwads[g % I] -- E1M1 on each IWAD, then
+    E1M2 on each, ... --groups I*M (the default) covers every IWAD/map
+    pair once, and the first group of every IWAD plays the first map.
+    Fewer groups drop the last maps. Warns about pairs no group plays."""
     I, M = len(iwads), len(maps)
-    pairs = [(iwads[(g % M + g // M) % I], maps[g % M]) for g in range(groups)]
+    pairs = [(iwads[g % I], maps[(g // I) % M]) for g in range(groups)]
     missing = [env_label(w, m, iwads) for w in iwads for m in maps if (w, m) not in pairs]
     if missing:
         print(f"[{tag}] warning: {groups} groups don't cover {missing}; "
@@ -177,8 +177,8 @@ def add_env_args(p) -> None:
                         "capture is off (benchmarks only)")
     p.add_argument("--iwads", nargs="+", default=None, metavar="WAD",
                    help="IWADs to train on (default: the env's, Freedoom Phase 1). Group g plays "
-                        "maps[g %% M] on iwads[(g %% M + g // M) %% I]: the IWADs split the groups "
-                        "evenly, and --groups I*M covers every IWAD/map pair")
+                        "maps[(g // I) %% M] on iwads[g %% I]: every map on every IWAD, map by map; "
+                        "the default --groups I*M covers every IWAD/map pair")
     p.add_argument("--maps", default="1 1,1 2,1 3,1 4",
                    help="training maps as -warp args, comma-separated; group g uses maps[g %% len]")
     p.add_argument("--eval-maps", default="1 5,1 6", help="held-out maps for evaluation ('' to skip)")
@@ -186,7 +186,8 @@ def add_env_args(p) -> None:
     p.add_argument("--skill", type=int, default=3)
     p.add_argument("--slots-dir", default=None, help="prepared save slots copied into each instance")
     p.add_argument("--slots", default="", help="start slots in --slots-dir, e.g. '3,4,5'")
-    p.add_argument("--groups", type=int, default=4)
+    p.add_argument("--groups", type=int, default=None,
+                   help="GRPO groups (default: one per IWAD/map pair, len(--iwads) x len(--maps))")
     p.add_argument("--group-size", type=int, default=8)
     p.add_argument("--max-tics", type=int, default=525,
                    help="rollout limit in game tics (35/s; default 15 s)")
@@ -201,11 +202,12 @@ def add_env_args(p) -> None:
                    help="held-out eval rollout limit (no portal goal, no time penalty: sectors "
                         "visited in 60 s, comparable across versions)")
     p.add_argument("--frontier", action=argparse.BooleanOptionalAction, default=True,
-                   help="keep progress: after each batch, save each map's best rollout that made "
-                        "progress (with its visited sectors) to save slot 4 and start every group from "
-                        "it, so training moves on portal by portal past the --max-tics limit; an exit, "
-                        "or --frontier-patience batches without progress, clears it (slot 4 holds the "
-                        "map start again). --no-frontier: always the map start (still slot 4)")
+                   help="keep progress: every group loads its start from save slot 4; after each "
+                        "batch, each map's highest-scoring rollout that made progress saves to slot 5 "
+                        "(with its visited sectors) and slots 4 and 5 swap, so the next batch starts "
+                        "from it and training moves on portal by portal past the --max-tics limit; an "
+                        "exit, or --frontier-patience batches without progress, clears it (slot 4 holds "
+                        "the map start again). --no-frontier: always the map start (still slot 4)")
     p.add_argument("--frontier-patience", type=int, default=5,
                    help="batches in a row without progress from a map's frontier before it is "
                         "cleared (a dead end: back to the map start)")
@@ -217,22 +219,29 @@ def add_env_args(p) -> None:
 # Frontier starts (SPEC.md §5.4): progress kept across the rollout limit
 # ---------------------------------------------------------------------------
 
-# Training saves and loads progress in save slot 4 only: the env keeps the
-# map start there (EnvConfig.bootstrap_slot) until a frontier replaces it.
+# Every group loads its start from slot 4 (the env keeps the map start
+# there, EnvConfig.bootstrap_slot, until a frontier replaces it); the best
+# rollout saves its progress to slot 5, so the start is never overwritten
+# mid-batch; then slots 4 and 5 swap on every instance of that map.
 FRONTIER_SLOT = 4
+SAVE_SLOT = 5
 
 
 class Frontier:
     """Per (IWAD, map): the end state of the best rollout so far, as a
     start state. After each batch, the highest-return rollout on a map
     that ended alive, exploring, short of the exit and with progress
-    (a new sector: with a portal goal, through the portal) saves the game
-    (SAVE 4, where it stopped) and its visited sectors (VISITED); both
-    are kept in root/ (so they survive a restart) and copied into slot 4
-    of every instance on that map, where the save replaces the map start
-    and the visited list is replayed after each load (so the portal it
-    came through is not new). The next batches start every group from
-    slot 4: the agent moves on portal by portal. A batch without
+    (a new sector: with a portal goal, through the portal) -- only the
+    highest score -- saves the game to slot 5 (SAVE 5, where it stopped;
+    slot 4, the start every group loaded, stays untouched) with its
+    visited sectors (VISITED). The save is copied into slot 5 of every
+    instance on that map, and then slots 4 and 5 swap there: the
+    progress is the next batch's start in slot 4 (the visited list is
+    replayed after each load, so the portal it came through is not new),
+    and the old start sits in 5. Both are kept in root/ (so they survive
+    a restart). Every group starts from slot 4, so all members of a
+    group start from the identical state: the agent moves on portal by
+    portal. A batch without
     progress keeps the current start; `patience` of them in a row (a
     dead end) clear the map's frontier, and so does a rollout reaching
     the exit (the level is done): slot 4 holds the map start again."""
@@ -290,8 +299,8 @@ class Frontier:
                   and recs[i]["end_info"].get("mode") == "EXPLORE"]
             data = None
             if ok:
-                best = max(ok, key=lambda i: recs[i]["ret"])
-                data = vec.call([best], "save_state", (FRONTIER_SLOT,))[0]
+                best = max(ok, key=lambda i: recs[i]["ret"])   # only the highest score is saved
+                data = vec.call([best], "save_state", (SAVE_SLOT,))[0]
             if data is None:
                 # No progress from this start: keep it, unless it has
                 # been a dead end for `patience` batches in a row.
@@ -308,7 +317,8 @@ class Frontier:
                       f"2026-11-14? rebuild with scripts/build.sh --release): progress saves carry no "
                       f"visited list, so the portal a rollout came in by counts as new")
             self.data[label], self.visited[label], self.stale[label] = data, visited, 0
-            vec.call(idx, "install_state", (FRONTIER_SLOT, data, visited))
+            vec.call(idx, "install_state", (SAVE_SLOT, data, visited))   # the new progress in 5...
+            vec.call(idx, "swap_slots", (FRONTIER_SLOT, SAVE_SLOT))     # ...becomes the start in 4
             if self.root is not None:
                 for name, blob in ((f"{label}.dsg", data), (f"{label}.visited", (visited or "").encode())):
                     tmp = self.root / f"{name}.tmp"
@@ -334,8 +344,9 @@ def check_slots(iwads: list[str | None], slots: list[int]) -> None:
     # maps is garbage), so they can't be mixed.
     if len(iwads) > 1 and slots:
         sys.exit("--slots can't be combined with several --iwads (save slots are IWAD-specific)")
-    if FRONTIER_SLOT in slots:
-        sys.exit(f"--slots can't use slot {FRONTIER_SLOT}: training keeps the map start and its progress there")
+    if FRONTIER_SLOT in slots or SAVE_SLOT in slots:
+        sys.exit(f"--slots can't use slots {FRONTIER_SLOT} or {SAVE_SLOT}: training loads its start from "
+                 f"{FRONTIER_SLOT} and saves progress to {SAVE_SLOT}")
 
 
 # ---------------------------------------------------------------------------

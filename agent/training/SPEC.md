@@ -108,21 +108,18 @@ No per-state action masks (they would leak engine state). No mode mask either: t
 
 | Term | Sign | Notes |
 |---|---|---|
-| New sector discovered | + | Dense exploration signal |
-| Exit reached | + large | Ends the rollout |
-| Approach | + / − | Progress toward the nearest goal, per map unit: the exit line, or a frontier portal (a passable two-sided line from a visited sector into an unvisited one; a line with a special, a door or lift, always counts). Pays the change in distance (negative moving away), so the rollout total is start minus end distance and hovering earns nothing; a step that visits a new sector re-measures without pay. From the state line's `exit_dist` and `frontier_dist` (§4), reward only: the policy never sees them. |
-| Portal goal | + | With `--portal-goal n` (default 1): the rollout ends once it has entered n sectors not yet visited (a start from a progress save counts that save's visited sectors as visited). Lets the time penalty work, and with frontier starts the agent advances portal by portal. |
-| Time | − | Per game tic until the rollout ends (`--time-penalty`, 1/3 per second), so the faster portal crossing wins its group. Needs the portal goal: rollouts that all run to the limit pay the same, which the group-relative advantage cancels. |
-| Key picked up | + | Each key colour (blue, yellow, red; a keycard and a skull key of one colour are the same colour) the first time it is held in a rollout; keys held at the start or picked up in the warm-up never pay. From the state line's `keys` mask (1 blue, 2 yellow, 4 red; §4). |
-| Mechanism used | + | A USE that sets a mechanism going: a sector starts moving (door, lift, floor, ceiling, stairs) or a switch flips (including lights and the exit switch). Once per mechanism per rollout, so reusing a door or switch, or using a door from its other side, pays nothing; mechanisms used during the warm-up count as used. From the engine's `use` event (§4). |
-| Death | − | Ends the rollout |
-| Stuck | − | No position change over N tics |
+| New sector discovered | +1 | Dense exploration signal |
+| Exit reached | +100 | Level complete triggered (exit switch or line): the top reward. Ends the rollout. |
+| Time and distance | − | One penalty, every game tic until the rollout ends: `time` × (1 + d / `far_scale`), d the distance (map units, the mean of the step's start and end) to the nearest goal: the exit line, or a frontier portal (a passable two-sided line from a visited sector into an unvisited one; a line with a special, a door or lift, always counts). `time` is `--time-penalty` (1/3 per second), `far_scale` 256: the clock runs twice as fast 256 units from a goal, so being far costs more the longer it lasts and the faster portal crossing wins its group. Needs the portal goal (rollouts that all run to the limit pay alike, which the group-relative advantage cancels). From the state line's `exit_dist` and `frontier_dist` (§4), reward only: the policy never sees them. |
+| Portal goal | +5 | With `--portal-goal n` (default 1): the rollout ends once it has entered n sectors not yet visited (a start from a progress save counts that save's visited sectors as visited). Lets the time penalty work, and with frontier starts the agent advances portal by portal. |
+| Key picked up | +25 | Each key colour (blue, yellow, red; a keycard and a skull key of one colour are the same colour) the first time it is held in a rollout; keys held at the start or picked up in the warm-up never pay. From the state line's `keys` mask (1 blue, 2 yellow, 4 red; §4). |
+| Mechanism used | +10 | A USE that sets a mechanism going: a sector starts moving (door, lift, floor, ceiling, stairs) or a switch flips (including lights and the exit switch). Once per mechanism per rollout, so reusing a door or switch, or using a door from its other side, pays nothing; mechanisms used during the warm-up count as used. From the engine's `use` event (§4). |
 | CONSULT on trigger | + large | Paid only while exploring (EXPLORE). Trigger = a monster seen before it acquires the player (`MONSTERVIS`, §4), or the backpack-full message up. First consult per trigger only. |
-| Combat started unconsulted | − per step | No positive reward for consulting once combat has started (the sighting was missed). Every step in PLANNING without CONSULT costs a penalty, so the policy learns to consult quickly; combat also counts as an unanswered trigger for the grace-window penalty below. |
 | Trigger unanswered | − large | Applied after a grace window of a few decisions |
 | CONSULT with no trigger | − small | Discourages random consults |
-| HP loss | − | Third training stage only (open, §12) |
-| `MAP` toggle | − small | Only if map flicker appears (§11) |
+| `MAP` toggle | − small | -0.1 per `MAP` sent while exploring (`map_toggle`): opening the map costs a little, so the policy opens it when it helps rather than as a free no-op. |
+
+No death, HP-loss, combat-before-CONSULT or stuck term: stage 1 has no map monsters (a death or a long combat still ends the rollout), and the time penalty already covers standing still.
 
 Magnitudes are tuned from training curves. Start with the consult reward near a few sectors' worth, the miss penalty somewhat larger.
 
@@ -131,7 +128,7 @@ Magnitudes are tuned from training curves. Start with the consult reward near a 
 - **Rollout:** 2,100 game tics (60 s) from one start state, about 50–200 decisions. Ends early on death or exit. Produces one score R_i.
 - **Unconsulted-combat cap:** the world is frozen in PLANNING, so steps there spend no tics and the 2,100-tic budget never runs out. After M policy steps in PLANNING without CONSULT, the rollout ends (with the per-step penalties already accrued).
 - **Reset:** `LOAD n` from prepared save slots spread across each level, then `SEED s` to set `prndindex` (§4). With a 256-entry table a seed is one of 256 start offsets; variety comes mostly from slots. Slots near the exit come first in training. Some slots start with the backpack one or two items from full.
-- **Frontier starts:** a rollout ends at 2,100 tics, so from the map start alone training never sees past the first minute of a level. After each batch, per (IWAD, map), the highest-return rollout that ended alive, in EXPLORE, short of the exit and with progress (a new sector) saves the game where it stopped (`SAVE 4`) with its visited sectors (`VISITED`, replayed by `VISIT` after each load); a batch without progress keeps the start, and `--frontier-patience` (5) such batches in a row clear it; the save is kept in the run directory and copied into slot 4 of every instance on that map, where it replaces the map start, and every group starts from slot 4: training always saves and loads its progress there. An exit clears the map's frontier, so slot 4 holds the map start again and the level is replayed from the start. `--no-frontier` turns it off (map starts only, still slot 4).
+- **Frontier starts:** a rollout ends at 2,100 tics, so from the map start alone training never sees past the first minute of a level. After each batch, per (IWAD, map), the highest-return rollout that ended alive, in EXPLORE, short of the exit and with progress (a new sector) saves the game where it stopped to slot 5 (`SAVE 5`; slot 4, the start every group loaded, is never overwritten mid-batch) with its visited sectors (`VISITED`, replayed by `VISIT` after each load); only that highest-scoring rollout is saved. The save is copied into slot 5 of every instance on that map and slots 4 and 5 swap, so the progress is the next batch's start in slot 4, the same for every member of a group. A batch without progress keeps the start, and `--frontier-patience` (5) such batches in a row clear it; the save is also kept in the run directory. An exit clears the map's frontier, so slot 4 holds the map start again and the level is replayed from the start. `--no-frontier` turns it off (map starts only, still slot 4).
 - **Group reset:** all G instances in a group load the same slot and seed.
 - **IWAD:** each instance runs one IWAD (`-iwad`) for its whole life, so an instance's IWAD and map are fixed when it is spawned. Save slots belong to one IWAD (a save loaded under another IWAD's maps is garbage), so slots and multiple IWADs can't be mixed until slots are prepared per IWAD.
 - **Training stand-ins:** a CONSULT is answered cheaply: the stand-in (`standin_consult`) sends the `CONSULT` driver command, which removes the monster (then `END` closes a combat round), or salvages the backpack until it has room. Both stages run `-rlspawn` practice monsters (`--spawn-tics`, default 700), so CONSULT on sighting is trained from stage 1.
@@ -159,7 +156,7 @@ screen (scene or automap, 84×84, 4 stacked)
 ### 7.1 GRPO (pretraining)
 
 - **Groups:** G = 8 rollouts from the same slot and seed; 4 groups per batch = 32 instances.
-- **IWADs:** training runs on every IWAD at once: Freedoom Phase 1 and The Ultimate Doom (`train.sh` passes every file under `wad/` whose header is `IWAD`; PWADs are skipped). With I IWADs and M maps, group g plays map `maps[g % M]` on IWAD `iwads[(g % M + g // M) % I]`. Every map is trained at any group count of at least M, the IWADs split the groups evenly, and I×M groups (8 for 2 IWADs × E1M1–E1M4) cover every IWAD/map pair; with fewer, the trainer warns which pairs go untrained. Eval plays every held-out map on every IWAD, and the logs report sectors and exit rate per IWAD.
+- **IWADs:** training runs on every IWAD at once: Freedoom Phase 1 and The Ultimate Doom (`train.sh` passes every file under `wad/` whose header is `IWAD`; PWADs are skipped). With I IWADs and M maps, group g plays map `maps[(g // I) % M]` on IWAD `iwads[g % I]`: map by map, every IWAD on each map (E1M1 on both, then E1M2 on both, ...). The default group count is I×M (8 for 2 IWADs × E1M1–E1M4), one group per IWAD/map pair; with fewer, the last maps go untrained and the trainer warns which pairs. Eval plays every held-out map on every IWAD, and the logs report sectors and exit rate per IWAD.
 - **Advantage:**
 
   ```
@@ -283,7 +280,7 @@ Phases 0–3 are the first trainable env, about 4½ days.
 | `P_Random` is a 256-entry table | Variety comes from start states, not the RNG | Many save slots across maps and NG+ loops |
 | GRPO groups collapse | Identical rollouts give zero gradient | Entropy bonus; skip zero-std groups; log the collapsed share |
 | No critic during GRPO | One advantage per rollout, coarse credit | Process-reward variant; PPO baseline on the same env if curves stall |
-| Pixels-only loops | The policy revisits rooms or spins | `MAP`, GRU memory, stuck penalty |
+| Pixels-only loops | The policy revisits rooms or spins | `MAP`, GRU memory, the time-and-distance penalty |
 | Map flicker | More decisions per rollout, flickering replays | Log toggle rate; small toggle cost if needed |
 | Rendering cost | The renderer runs every decision | Render only at decisions; Phase 3 measures it |
 | HUD churn | Every HUD change shifts the policy's input — including world-space overlays (enemy health bars, floating damage numbers, depth scaling, added after `5fa94f8`) | Eval gate per build; randomize HUD details in training if churn continues |

@@ -245,7 +245,7 @@ def test_standin_consult():
 @pytest.mark.game
 def test_consult_clears_combat():
     """Monsters on, E1M1: once combat starts, other actions are dropped
-    and penalized; CONSULT (the stand-in's CONSULT command) ends the fight with
+    (no tics, no reward); CONSULT (the stand-in's CONSULT command) ends the fight with
     the monster killed and no penalty."""
     e = make_env(engine=EngineConfig(warp="1 1"), consult_handler=standin_consult, max_tics=100000)
     try:
@@ -263,7 +263,7 @@ def test_consult_clears_combat():
             pytest.fail("no combat in 500 random steps")
         before = info["state"]
         _, r, _, _, info = e.step(0)                      # WALK in combat: dropped
-        assert info["tics"] == 0 and r <= -0.5, f"dropped and penalized (reward {r})"
+        assert info["tics"] == 0 and r == 0, f"dropped (reward {r})"
         _, r, _, _, info = e.step(ACTIONS.index("CONSULT"))
         after = info["state"]
         assert after["mode"] == "EXPLORE", f"consult should end combat, still {after['mode']}"
@@ -303,7 +303,7 @@ def test_spawn_consult():
 
 
 def test_goal_dist():
-    """The approach reward's goal: the nearer of the exit line and the
+    """The distance penalty's goal: the nearer of the exit line and the
     nearest frontier portal; -1 (none) and missing fields are ignored."""
     from env.env import goal_dist
     assert goal_dist({"exit_dist": 900, "frontier_dist": 40}) == 40
@@ -314,13 +314,13 @@ def test_goal_dist():
 
 
 @pytest.mark.game
-def test_approach_reward():
+def test_time_distance_penalty():
     """E1M1: the state line carries exit_dist and frontier_dist, and with
-    every other reward off a rollout's approach total is the start goal
-    distance minus the end one, summed over the stretches between new
-    sectors (never more than the distances walked)."""
-    only = RewardConfig(sector=0, exit=0, mechanism=0, death=0, stuck=0, consult_hit=0,
-                        trigger_miss=0, consult_false=0, combat_unconsulted_step=0, key=0, approach=1.0)
+    every other reward off each step costs time * its tics * (1 + d /
+    far_scale), d the mean of its start and end goal distances."""
+    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0,
+                        trigger_miss=0, consult_false=0, key=0,
+                        map_toggle=0, time=1.0, far_scale=256.0)
     e = make_env(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only,
                  max_tics=100000, consult_handler=standin_consult)
     try:
@@ -334,8 +334,8 @@ def test_approach_reward():
             _, r, term, trunc, info = e.step(int(rng.choice([0, 0, 1, 2, 3, 4])))
             s2 = info["state"]
             g = goal_dist(s2)
-            if s2["sectors"] == s["sectors"] and g is not None and prev is not None:
-                expect += prev - g
+            if info["tics"] > 0:
+                expect -= info["tics"] * (1 + (prev + g) / 2 / 256.0)
             prev, s = g, s2
             got += r
             if term or trunc:
@@ -352,9 +352,9 @@ def test_portal_goal():
     is the bonus minus time * tics. Its end state saved with its visited
     list (VISITED) and reinstalled restores that visited count after the
     load (VISIT), so the next rollout's goal is a sector beyond it."""
-    only = RewardConfig(sector=0, exit=0, mechanism=0, death=0, stuck=0, consult_hit=0,
-                        trigger_miss=0, consult_false=0, combat_unconsulted_step=0, key=0,
-                        approach=0, time=0.01, portal=5.0)
+    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0,
+                        trigger_miss=0, consult_false=0, key=0,
+                        map_toggle=0, time=0.01, far_scale=1e12, portal=5.0)   # time only
     e = DiabloDoomEnv(EnvConfig(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only,
                                 max_tics=100000, portal_goal=1, consult_handler=standin_consult))
     try:
@@ -378,5 +378,24 @@ def test_portal_goal():
         _, info = e.reset(options={"seed": 0, "slot": 4})
         assert info["state"]["sectors"] == start + 1, "the visited list survives the load"
         assert e.visited() == visited
+    finally:
+        e.close()
+
+
+@pytest.mark.game
+def test_map_penalty():
+    """E1M1: MAP opens the automap and costs map_toggle; with every other
+    reward off that is the step's whole reward."""
+    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0,
+                        trigger_miss=0, consult_false=0, key=0,
+                        time=0, map_toggle=-0.1)
+    e = DiabloDoomEnv(EnvConfig(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only,
+                                max_tics=100000, consult_handler=standin_consult))
+    try:
+        e.reset(options={"seed": 0})
+        _, r, *_ = e.step(ACTIONS.index("MAP"))
+        assert abs(r + 0.1) < 1e-9, r
+        _, r, *_ = e.step(ACTIONS.index("TURNL"))
+        assert r == 0
     finally:
         e.close()

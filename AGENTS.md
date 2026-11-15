@@ -146,7 +146,7 @@ sets a mechanism going (a sector starts moving, or a switch flips) sends a
 mechanism reward once per mechanism). Approach (2026-11-14): the state
 line carries `exit_dist` and `frontier_dist`, map units to the nearest
 exit line and to the nearest passable opening into an unvisited sector
-(-1 when none), for the env's approach reward only -- never a policy
+(-1 when none), for the env's distance penalty only -- never a policy
 input, so the 2026-10-21 no-oracle ruling for the farm agent stands.
 Keys (2026-11-14): it also carries `keys`, the key colours held (1 blue,
 2 yellow, 4 red; card or skull), for the env's once-per-colour key reward.

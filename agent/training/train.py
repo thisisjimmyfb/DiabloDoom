@@ -80,9 +80,11 @@ def main():
     device = torch.device(args.device)
     maps, eval_maps = parse_list(args.maps), parse_list(args.eval_maps)
     slots = [int(s) for s in args.slots.split(",") if s.strip()]
+    iwads = resolve_iwads(args.iwads)
+    if args.groups is None:                 # one group per IWAD/map pair
+        args.groups = len(iwads) * len(maps)
     G, groups = args.group_size, args.groups
     n_envs = G * groups
-    iwads = resolve_iwads(args.iwads)
     check_slots(iwads, slots)
     group_pairs = allocate_groups(iwads, maps, groups)
 

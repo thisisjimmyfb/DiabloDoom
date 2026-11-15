@@ -251,6 +251,8 @@ def main():
                     f.flush()
                     print_eval(version, out)
 
+        if args.groups is None:             # one group per IWAD/map pair
+            args.groups = len(iwads) * len(maps)
         G, groups = args.group_size, args.groups
         group_pairs = allocate_groups(iwads, maps, groups, tag)
         env_pairs = [group_pairs[i // G] for i in range(G * groups)]

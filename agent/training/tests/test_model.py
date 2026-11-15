@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from model import (BATCH_DIR, FRONTIER_SLOT, Frontier, Policy, allocate_groups, capture_dirs, export_latest_checkpoint,
+from model import (BATCH_DIR, FRONTIER_SLOT, SAVE_SLOT, Frontier, Policy, allocate_groups, capture_dirs, export_latest_checkpoint,
                    init_weights_if_absent, load_latest_checkpoint, pack_rollouts, publish_weights, read_weights,
                    restore_rng, rng_state, save_checkpoint, unpack_rollouts)
 
@@ -43,12 +43,19 @@ def test_allocate_groups_every_pair(capsys):
     assert capsys.readouterr().out == ""
 
 
+def test_allocate_groups_order():
+    """Map by map, every IWAD on each map: E1M1 on both IWADs first, so
+    the first group of each IWAD plays the first map."""
+    pairs = allocate_groups(TWO_IWADS, MAPS, 8)
+    assert pairs == [(w, m) for m in MAPS for w in TWO_IWADS]
+
+
 def test_allocate_groups_split_and_warning(capsys):
-    """M groups: every map trained, IWADs split evenly, the gaps are named."""
+    """Fewer groups: the first maps on every IWAD, the gaps are named."""
     pairs = allocate_groups(TWO_IWADS, MAPS, 4)
     warn = capsys.readouterr().out
-    assert [m for _, m in pairs] == MAPS
-    assert sum(w == TWO_IWADS[0] for w, _ in pairs) == 2 and "warning" in warn
+    assert pairs == [(w, m) for m in MAPS[:2] for w in TWO_IWADS]
+    assert "warning" in warn
     missing = {(w, m) for w in TWO_IWADS for m in MAPS} - set(pairs)
     assert all(f"{Path(w).stem}:{m}" in warn for w, m in missing)
 
@@ -138,20 +145,32 @@ class _FakeVec:
     savegame naming the env; install_state is recorded per env."""
 
     def __init__(self, n):
-        self.slots = [None] * n
-        self.vis = [None] * n
+        self.store = [{} for _ in range(n)]   # per env: slot -> (data, visited)
+        self.saved_to = []
+
+    @property
+    def slots(self):                          # what each env loads its start from (slot 4)
+        return [s.get(FRONTIER_SLOT, (None, None))[0] for s in self.store]
+
+    @property
+    def vis(self):
+        return [s.get(FRONTIER_SLOT, (None, None))[1] for s in self.store]
 
     def call(self, idx, name, args=()):
         out = []
         for i in idx:
             if name == "save_state":
+                self.saved_to.append(args[0])
                 out.append(f"save-of-env{i}".encode())
             elif name == "visited":
                 out.append(f"v{i}")
             elif name == "install_state":
-                assert args[0] == FRONTIER_SLOT
-                self.slots[i] = args[1]
-                self.vis[i] = args[2] if len(args) > 2 else None
+                self.store[i][args[0]] = (args[1], args[2] if len(args) > 2 else None)
+                out.append(None)
+            elif name == "swap_slots":
+                a, b = args
+                s = self.store[i]
+                s[a], s[b] = s.get(b, (None, None)), s.get(a, (None, None))
                 out.append(None)
         return out
 
@@ -176,6 +195,8 @@ def test_frontier(tmp_path):
     assert saved == {"default_1_1": 3, "default_1_2": 1}
     assert vec.slots == [b"save-of-env1"] * 2 + [b"save-of-env2"] * 2
     assert vec.vis == ["v1"] * 2 + ["v2"] * 2, "the visited list goes with the save"
+    assert set(vec.saved_to) == {SAVE_SLOT}, "progress is saved to slot 5, never over the start in 4"
+    assert vec.store[0][SAVE_SLOT] == (None, None), "after the swap slot 5 holds the old start"
     assert (tmp_path / "default_1_1.dsg").read_bytes() == b"save-of-env1"
     assert (tmp_path / "default_1_1.visited").read_text() == "v1"
 
@@ -218,11 +239,13 @@ def test_frontier_progress(tmp_path):
 
 def test_capture_dirs():
     """--capture-envs n records the first n envs of each IWAD (groups take
-    the IWADs in rotation, so env 0..7 are all the first IWAD)."""
+    the IWADs in rotation, so env 0..7 are all the first IWAD); both are
+    on the first map."""
     groups = allocate_groups(TWO_IWADS, MAPS, 4)
     pairs = [groups[i // 8] for i in range(32)]
     dirs = capture_dirs(pairs, 1, Path("/r"))
     assert {i: d for i, d in enumerate(dirs) if d} == {0: "/r/env00_FREEDOOM1", 8: "/r/env08_DOOM"}
+    assert pairs[0][1] == pairs[8][1] == MAPS[0]
     assert sum(d is not None for d in capture_dirs(pairs, 2, Path("/r"))) == 4
     assert capture_dirs(pairs, 0, Path("/r")) == [None] * 32
     assert capture_dirs([(None, "1 1")] * 2, 1, Path("/r")) == ["/r/env00_default", None]
