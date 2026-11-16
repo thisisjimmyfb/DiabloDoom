@@ -82,7 +82,7 @@ def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
         # A fast tic pays back the clock's base rate (RewardConfig.fast);
         # facing a way on pays up to half of it (RewardConfig.look).
         rewards=RewardConfig(time=time_penalty / 35.0, fast=time_penalty / 35.0,
-                             look=time_penalty / 35.0 / 2),
+                             look=time_penalty / 35.0 / 2, wall_look=-time_penalty / 35.0),
     ))
 
 

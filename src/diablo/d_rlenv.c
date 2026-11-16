@@ -339,6 +339,80 @@ static boolean RL_IsPortalOf(const line_t *ld, const sector_t *s)
         && top - bottom >= 56 * FRACUNIT;
 }
 
+// wall_dist (2026-11-16): the distance along the facing to the first line
+// the player can't pass -- one-sided, blocking, or an opening too low or
+// a step too high -- within RL_WALL_RANGE; -1 when none. The env's
+// wall_look penalty (staring at a wall up close). Reward shaping only.
+#define RL_WALL_RANGE 128
+static mobj_t *rl_wall_mo;
+static int rl_wall_dist;
+static boolean rl_wall_special;    // the line the trace stopped at has a special
+
+static boolean RL_WallTraverse(intercept_t *in)
+{
+    line_t *li;
+    if (!in->isaline)
+        return true;
+    li = in->d.line;
+    if (li->backsector != NULL && !(li->flags & ML_BLOCKING))
+    {
+        P_LineOpening(li);
+        if (openrange >= 56 * FRACUNIT && openbottom - rl_wall_mo->z <= 24 * FRACUNIT)
+            return true;                    // passable: look on through it
+    }
+    rl_wall_dist = FixedMul(in->frac, RL_WALL_RANGE * FRACUNIT) >> FRACBITS;
+    rl_wall_special = li->special != 0;
+    return false;
+}
+
+static int RL_WallDist(mobj_t *mo)
+{
+    int a = mo->angle >> ANGLETOFINESHIFT;
+    rl_wall_mo = mo;
+    rl_wall_dist = -1;
+    rl_wall_special = false;
+    P_PathTraverse(mo->x, mo->y,
+                   mo->x + RL_WALL_RANGE * finecosine[a], mo->y + RL_WALL_RANGE * finesine[a],
+                   PT_ADDLINES, RL_WallTraverse);
+    return rl_wall_dist;
+}
+
+// wall_use: a usable wall in reach -- a line with a special that the
+// player can't walk through by the wall trace's own rule (a switch, a
+// closed or still half-open door; walk-over triggers are passable and
+// don't count) within USE range (64) of the player and within 45 degrees
+// of the facing. The env never charges wall_look then, so lining up on a
+// switch or waiting at a door as it opens costs nothing.
+static boolean RL_WallUse(mobj_t *mo)
+{
+    double px = mo->x / (double) FRACUNIT, py = mo->y / (double) FRACUNIT;
+    int i;
+    for (i = 0; i < numlines; i++)
+    {
+        line_t *li = &lines[i];
+        double cx, cy, rel;
+        if (li->special == 0)
+            continue;
+        if (li->backsector != NULL && !(li->flags & ML_BLOCKING))
+        {
+            P_LineOpening(li);
+            if (openrange >= 56 * FRACUNIT && openbottom - mo->z <= 24 * FRACUNIT)
+                continue;                   // passable: a walk-over line, an open door
+        }
+        RL_SegClosest(px, py, li, &cx, &cy);
+        if ((cx - px) * (cx - px) + (cy - py) * (cy - py) > 64.0 * 64.0)
+            continue;
+        rel = atan2(cy - py, cx - px) * 180.0 / M_PI - RL_AngleDeg(mo->angle);
+        while (rel > 180.0)
+            rel -= 360.0;
+        while (rel <= -180.0)
+            rel += 360.0;
+        if (rel >= -45.0 && rel <= 45.0)
+            return true;
+    }
+    return false;
+}
+
 void RL_EmitState(const char *why, int tics)
 {
     char buf[3600];
@@ -478,6 +552,14 @@ void RL_EmitState(const char *why, int tics)
                     rel += 360.0;
                 RL_PUT(",\"portal_rel\":%d", (int) (rel < 0 ? rel - 0.5 : rel + 0.5));
             }
+        }
+        {
+            // wall_use also when the wall straight ahead is itself a
+            // usable line in reach: approached at a slant, a door's
+            // closest point can lie more than 45 degrees off the facing.
+            int wd = RL_WallDist(mo);
+            boolean use = (rl_wall_special && wd >= 0 && wd <= 64) || RL_WallUse(mo);
+            RL_PUT(",\"wall_dist\":%d,\"wall_use\":%s", wd, use ? "true" : "false");
         }
 
         // CONSULT triggers (SPEC.md §5.3). monstervis: a living monster

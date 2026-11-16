@@ -96,7 +96,11 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   A quick large drop -- freefall past 8 units a tic, 64 units or more in
   all -- costs `fall` (-1 per 64 units, on landing, 2026-11-16): it
   usually means the player left the intended path. Lifts, stairs, going
-  up and teleports never cost. The held-out eval keeps
+  up and teleports never cost.
+  Staring at a wall up close costs `wall_look` (the clock's base rate, per
+  tic, 2026-11-16): the wall straight ahead nearer than 48 units, from the
+  engine's `wall_dist`. Not while a switch or door is in reach
+  (`wall_use`), so using mechanisms is free. The held-out eval keeps
   `--eval-max-tics` (2100) with no goal and no penalty, so its numbers
   compare across versions. Stage 1 has no map monsters, but passive
   damage (nukage, slime, crushers, barrels) still hurts: every HP lost

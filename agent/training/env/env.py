@@ -129,6 +129,17 @@ class RewardConfig:
     fall: float = -1.0
     fall_min: float = 64.0
     fall_speed: float = 8.0
+    # Staring at a wall up close (2026-11-16): every tic the first line the
+    # player can't pass straight ahead (the engine's wall_dist) is nearer
+    # than wall_look_dist units costs wall_look -- a view of bare wall
+    # tells the policy nothing. Never while a usable wall is in reach (the
+    # engine's wall_use: a switch or closed door within USE range and 45
+    # degrees of the facing), so lining up on a switch or waiting at a
+    # door is free. The default equals the clock's base rate (model.make_env
+    # ties it to --time-penalty): staring at a wall costs the clock twice.
+    # 0 turns it off.
+    wall_look: float = -1 / 3 / 35
+    wall_look_dist: float = 48.0
     # Per HP lost, whatever the cause: passive damage (nukage, slime,
     # crushers, barrels) in stage 1. Healing never pays; a death costs
     # the HP it lost on the way plus `death`.
@@ -463,6 +474,12 @@ class DiabloDoomEnv(gym.Env):
         # by the facing at the step's end (one tic, under per-tic decisions).
         if sent and rc.look and d.get("portal_rel") is not None:
             add("look", rc.look * tics * max(0.0, float(np.cos(np.radians(d["portal_rel"])))))
+        # Staring at a wall up close (RewardConfig.wall_look).
+        wd = d.get("wall_dist")
+        if (sent and rc.wall_look and wd is not None and 0 <= wd < rc.wall_look_dist
+                and not d.get("wall_use")):
+            add("wall_look", rc.wall_look * tics)
+
         # Falls: charged on landing (RewardConfig.fall).
         if sent and rc.fall:
             add("fall", self._fall_step(prev, d, tics))
