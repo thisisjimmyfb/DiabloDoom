@@ -29,7 +29,7 @@ import numpy as np
 import torch
 from torch.distributions import Categorical
 
-from model import Policy, hub_fetch_checkpoint, load_weights, privileged
+from model import Policy, avatar_args, hub_fetch_checkpoint, load_weights, privileged
 from env import ACTIONS, CONSULT, Engine, EngineConfig, EngineError  # noqa: E402
 from env.env import EXPLORE  # noqa: E402
 from env.obs import FrameStack, Preprocessor  # noqa: E402
@@ -103,7 +103,8 @@ def main():
     policy = load_policy(ckpt, device)
 
     cfg = EngineConfig(warp=args.warp, skill=args.skill, drive=True, headless=args.headless,
-                       extra_args=[] if args.monsters else ["-nomonsters"], step_timeout=120.0)
+                       extra_args=([] if args.monsters else ["-nomonsters"]) + avatar_args(),
+                       step_timeout=120.0)
     if args.iwad:
         cfg.iwad = str(Path(args.iwad).resolve())
     engine = Engine(cfg, tag="play")

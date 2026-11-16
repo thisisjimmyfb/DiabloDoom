@@ -9,7 +9,7 @@ Wrap DiabloDoom as a Gymnasium environment that runs headless, many instances at
 | In scope for the policy | Out of scope for the policy |
 |---|---|
 | Moving, turning, strafing, using doors and switches | Combat turns (LLM/VLM) |
-| Toggling the automap | Gear: equip, unequip, salvage (LLM/VLM plus item cascade) |
+| Choosing the keys held every game tic (W/S, A/D, turn) | Gear: equip, unequip, salvage (LLM/VLM plus item cascade) |
 | Deciding when to CONSULT the LLM/VLM | Reading logs, state JSON or map coordinates |
 
 Standing rules:
@@ -49,9 +49,9 @@ The replay system (`d_replay.c`) records 15-second MP4 video, not inputs, and `T
 
 - **One game per process.** Doom keeps all game state in globals, so `AsyncVectorEnv` scales by adding processes.
 - **Two pipes plus shared memory per instance:** a command pipe in, a state pipe out (one JSON line per event), and the frame in shared memory.
-- **Event-driven steps.** The engine answers only when a decision is due, so one `env.step()` can cover one tic or a long walk.
+- **Event-driven steps.** The engine answers only when a decision is due: every tic in EXPLORE (per-tic decisions, 2026-11-15), so one `env.step()` is one tic; only a multi-tic driver command (the farm's WALK, GOTO, ...) or a frozen PLANNING step differs.
 - **CONSULT is the only route to the LLM/VLM.** The game cannot hand off by itself; CONSULT is an environment signal that drives Muse VM to make a decision (combat or inventory). The policy must choose CONSULT itself — nothing sends it automatically. That includes when combat starts before the policy consults (a monster acquired the player first): the game stays in PLANNING until the policy recognizes combat from the screen and chooses CONSULT. Control returns to the policy back in EXPLORE.
-- **In-process library** (`libdiablodoom.so` + pybind11) only if Phase 3 profiling shows pipe overhead matters.
+- **In-process library** (`libdiablodoom.so` + pybind11) if Phase 3 profiling shows the pipe round trip dominates. With a decision every tic that is likely: 32 instances mean 32 round trips and one batched forward pass per game tic.
 
 ## 4. Engine changes
 
@@ -62,7 +62,7 @@ The replay system (`d_replay.c`) records 15-second MP4 video, not inputs, and `T
 | `-cmdpipe <path>`, `-statepipe <path>` | Per-instance pipes (today the FIFO is hardcoded to `/tmp/doom_cmd.txt`). |
 | `STATE` command and auto-emit | One JSON line: mode, TP, queue, HP, position, angle, weapon kit and magazine, loot prompt, up to 9 targets (type, HP, distance, relative angle), kill/damage/sector counters. Emitted automatically when a decision is due: in EXPLORE every tic (2026-11-15) unless a multi-tic command (WAIT, a 45° turn, SURVEY, WALK, GOTO, COLLECT) still runs, then on the tic it ends, and on entering PLANNING (the policy must then choose CONSULT, §3). |
 | Frame to shared memory | At each decision, copy `I_VideoBuffer` (320×200, 8-bit) and the palette. No PNG, no SDL surface. |
-| Render only at decisions | Skip `D_Display` on tics between decisions. |
+| Render only at decisions | Skip `D_Display` on tics between decisions. Moot since per-tic decisions (2026-11-15): every tic is a decision, so every tic renders. |
 | `STATEHASH` command | Hash of player, mobj and turn-controller state, for determinism checks. |
 | `MAP [tics]` command (new) | Opens the automap via `AM_Start`, as Tab does, for <tics> game tics (default 18, 0.5 s; clamped to 1–350), then closes it (`AM_Stop`); `MAP` while it is open closes it at once. Training never sends it (no `MAP` action, no forced glances). Follow mode, fixed zoom. Explore only (combat hides the map on entry; `MAP` in combat does nothing). Movement keeps working with the map open. |
 | Automap rotation | Rotate the automap to the player's heading (vanilla points north). |
@@ -82,9 +82,9 @@ The replay system (`d_replay.c`) records 15-second MP4 video, not inputs, and `T
 
 ### 5.1 Observation
 
-- The screen as displayed: the scene (status bar kept) or, after `MAP`, the full-screen automap.
+- The screen as displayed: the scene, status bar kept. Training never shows the automap (no `MAP` action, no forced glances; §12).
 - Downsampled to 84×84, last 4 frames stacked.
-- Nothing from the state pipe. The automap shows only lines the player has seen.
+- Nothing from the state pipe.
 
 ### 5.2 Actions
 
@@ -134,7 +134,7 @@ Magnitudes are tuned from training curves. Start with the consult reward near a 
 
 ### 5.4 Episodes, rollouts and resets
 
-- **Rollout:** 2,100 game tics (60 s) from one start state, about 50–200 decisions. Ends early on death or exit. Produces one score R_i.
+- **Rollout:** up to 2,100 game tics (60 s) from one start state, and with a decision every tic up to 2,100 decisions. Ends early on death or exit. Produces one score R_i.
 - **Unconsulted-combat cap:** the world is frozen in PLANNING, so steps there spend no tics and the 2,100-tic budget never runs out. After M policy steps in PLANNING without CONSULT, the rollout ends (with the per-step penalties already accrued).
 - **Reset:** `LOAD n` from prepared save slots spread across each level, then `SEED s` to set `prndindex` (§4). With a 256-entry table a seed is one of 256 start offsets; variety comes mostly from slots. Slots near the exit come first in training. Some slots start with the backpack one or two items from full.
 - **Frontier starts:** a rollout ends at 2,100 tics, so from the map start alone training never sees past the first minute of a level. After each batch, per (IWAD, map), the highest-return rollout that ended alive, in EXPLORE, short of the exit and with progress (a new sector, or a new key: the key goal ends the rollout there) saves the game where it stopped to slot 5 (`SAVE 5`; slot 4, the start every group loaded, is never overwritten mid-batch) with its visited sectors (`VISITED`, replayed by `VISIT` after each load); only that highest-scoring rollout is saved. The save is copied into slot 5 of every instance on that map and slots 4 and 5 swap, so the progress is the next batch's start in slot 4, the same for every member of a group. A batch without progress keeps the start and grows that map's rollout limit (`TicBudget`: x`--tics-growth` 1.5 from `--max-tics` up to `--max-tics-cap` 2100; progress, an exit or a cleared frontier puts it back to `--max-tics`), so the agent gets time to find the path while a new sector or key stays the only progress; `--frontier-patience` (5) such batches in a row at the full budget clear it; the saves and tic budgets are never written to disk (2026-11-15): a new run starts every map from its beginning, and only the map rotation resumes, from the checkpoint's iteration (a save only loads in the exact IWAD file it was made with, and machines may have different releases). An exit clears the map's frontier (the batch's other rollouts still run to their own ends), so slot 4 holds the map start again and the level is replayed from the start. `--no-frontier` turns it off (map starts only, still slot 4).
@@ -146,19 +146,18 @@ Magnitudes are tuned from training curves. Start with the consult reward near a 
 ## 6. Policy architecture
 
 ```
-screen (scene or automap, 84×84, 4 stacked)
+screen (scene, 84×84, 4 stacked)
    → Nature CNN (3 conv) → 512 features
-   → GRU core, 256 units   ──▶ action head: 8 logits, sampled
+   → GRU core, 256 units   ──▶ action head: 29 logits, sampled
                             └▶ value head (+ HP, exit distance)  [critic, training only]
 ```
 
-- **One encoder** for both views; the network tells them apart from pixels.
-- **GRU** carries working memory and remembers the view that isn't showing. GRU rather than LSTM because it is simpler (one state vector instead of two, fewer parameters); they perform about the same.
+- **GRU** carries working memory: where the player has been and what is no longer on screen. GRU rather than LSTM because it is simpler (one state vector instead of two, fewer parameters); they perform about the same.
 - **Actions are sampled**, not greedy, which is what makes a GRPO group's rollouts differ.
 - **Value head** (one linear layer on the GRU output, plus HP and exit path distance as privileged inputs) trains from day one. GRPO ignores it; Phase 6 PPO needs it.
 - **Hidden state** starts at zero for each training rollout. Phase 6 logs it at the start of each logged segment.
 - **Size:** about 2 million parameters.
-- **Two-step build:** step 1 is feedforward, using the map only while it is in the 4-frame stack. Step 2 adds the GRU; keep it only if it loops less or finds exits faster on held-out maps.
+- **The GRU is required, not an optional second step.** With a decision every tic, the 4-frame stack holds about 0.1 s of play, so a feedforward policy is nearly memoryless: it can't remember a turn it made a second ago or a room it just left. (The current trainer still runs the feedforward network; adding the GRU, and carrying its state through rollouts and the update, is open work.)
 
 ## 7. Training
 
@@ -181,7 +180,7 @@ screen (scene or automap, 84×84, 4 stacked)
   ```
 
   A few epochs per batch. β = 0 to start (no reference policy). If the farm LLM's explore commands (paired with its frames) are behavior-cloned first, that clone becomes π_ref with β > 0.
-- **Group diversity:** `P_Random` is deterministic, so only action sampling separates rollouts. Use a small entropy bonus. Drop zero-std groups and log the collapsed share.
+- **Group diversity:** `P_Random` is deterministic, so only action sampling separates rollouts. Use a small entropy bonus. Drop zero-std groups and log the collapsed share. Read the logged entropy against the uniform policy's, ln 29 ≈ 3.37 for the 29 actions (§5.2).
 - **Trainer:** a PPO-style clipped-ratio trainer with the GAE replaced by group advantages and group resets added. It runs as one process on one box (`train.py`; the split rollout-worker/learner trainer was removed 2026-11-14, §7.5).
 - **Data:** mostly the game's own levels (they stay fixed) across both IWADs, so the runner sees two texture sets and two layouts of each map slot, plus filtered community maps so it isn't brittle. Randomize textures, player speed and turn rate. Optional early stage: generated mazes with a known shortest path.
 
@@ -193,15 +192,15 @@ screen (scene or automap, 84×84, 4 stacked)
 
 ### 7.3 Phase 6: session fine-tuning with PPO
 
-- The runner plays live sessions with frozen weights and no search, logging every decision: the frame, the action and its probability, the reward, the game build (`VERSION`), and the GRU state at the start of each segment (about every 128 decisions). An hour of play is about 5,000 decisions; pool sessions from several farm instances when one is too small.
+- The runner plays live sessions with frozen weights and no search, logging every decision: the frame, the action and its probability, the reward, the game build (`VERSION`), and the GRU state at the start of each segment (about every 128 decisions). An hour of play is about 126,000 decisions (one per tic); pool sessions from several farm instances when one is too small.
 - A session visits each state once, so there are no groups. PPO's critic scores each step:
 
   ```
-  δ_t = r_t + γ^(tics_t)·V(s_{t+1}) − V(s_t)
-  A_t = δ_t + (γλ)·δ_{t+1} + (γλ)²·δ_{t+2} + …        γ ≈ 0.99, λ ≈ 0.95
+  δ_t = r_t + γ·V(s_{t+1}) − V(s_t)
+  A_t = δ_t + (γλ)·δ_{t+1} + (γλ)²·δ_{t+2} + …        γ ≈ 0.999, λ ≈ 0.95
   ```
 
-  The discount is raised to the tics a step took, so a long walk counts as more time than a quick turn.
+  A step is one tic (per-tic decisions), so γ is a plain per-step discount; at one tic per step γ ≈ 0.999 gives a horizon of about 1,000 tics (≈ 30 s). Frozen PLANNING steps spend no tics and are rare. (Before per-tic decisions, steps spanned very different tic counts and the discount was raised to each step's tics.)
 - **Critic:** before the first update on a session, fit the value head to that session's returns for a few epochs with the policy frozen. Normalize or clip returns, since CONSULT rewards are spiky. The last step bootstraps from V, because the game never really ends.
 - **Update:** a few PPO epochs with a KL anchor to the shipped version. Data is discarded afterward (on-policy).
 - **Eval gate:** run the fine-tuned runner on a fixed eval set (the game's own maps plus a few held-out ones). Ship only if it beats the shipped version. Run the same gate on each new game build.
@@ -235,9 +234,9 @@ Removed 2026-11-14. The trainer used to run optionally split, rollout workers (`
 |---|---|---|
 | 0 (½ day) | `-rlenv`, per-instance pipes, `singletics`, skip wipes/ENDOOM/capture | 8 headless instances answer `VERSION` on their own pipes, faster than 35 tics/s |
 | 1 (1 day) | `STATE` line and auto-emit, frame to shared memory, `DiabloDoomEnv` | `check_env` passes; a random agent runs 10,000 decisions without wedging |
-| 2 (1½ days) | Action allowlist, explore strafes, `MAP`, rewards, group resets, GRPO trainer | GRPO with the step-1 policy raises sectors visited on save slots it never trained on |
-| 3 (1 day) | Render only at decisions; NVTX + `nsys` profiling | SPS table: rendering every tic vs only at decisions, 1 vs 8 vs 32 instances |
-| 4 (if Phase 3 says so) | `libdiablodoom.so` with `dd_create` / `dd_reset` / `dd_step` / `dd_destroy`, pybind11 | Pipe overhead gone from the profile |
+| 2 (1½ days) | Action allowlist, explore strafes, rewards, group resets, GRPO trainer | GRPO with the feedforward policy raises sectors visited on save slots it never trained on |
+| 3 (1 day) | NVTX + `nsys` profiling of the per-tic loop | Time per tic split into the pipe round trip, the policy's forward pass and the update, for 1 vs 8 vs 32 instances |
+| 4 (likely, with per-tic decisions) | `libdiablodoom.so` with `dd_create` / `dd_reset` / `dd_step` / `dd_destroy`, pybind11 | Pipe round trip gone from the profile |
 | 5 | Item deferral (§8) | Items flow to the VLM at CONSULT; item model trained on farm logs |
 | 6 | Session fine-tuning with PPO (§7.3) | A version fine-tuned on one session beats the shipped one on the eval set; one build change passes the eval gate end to end |
 
@@ -248,7 +247,7 @@ Phases 0–3 are the first trainable env, about 4½ days.
 - **Determinism:** same slot, seed and command list, run twice: final `STATE` lines match byte for byte; `STATEHASH` matches mid-episode. GRPO depends on this.
 - **Fast equals real time:** the same command list with and without `-rlenv` ends in the same state. Suspects if not: `T_TickCadence` cooldowns, the replay encoder, anything reading `I_GetTime` or `time(NULL)`. Known wall-clock reads as of `c0e8fedb`: the idle Zug Zug timer (`I_GetTimeMS`, sound only, suppressed under `-rlenv`), the Zug Zug date gate (`time(NULL)`, sound only), and `SURVEY` filename timestamps (not a policy action). None touch game state.
 - **Env contract:** `check_env` passes; shapes and dtypes match the declared spaces; the observation contains nothing from the state pipe.
-- **Throughput:** random-agent decisions per second for 1, 8 and 32 instances, rendering every tic vs only at decisions.
+- **Throughput:** random-agent decisions (tics) per second for 1, 8 and 32 instances, and the share of each tic spent in the pipe round trip.
 - **Policy checks:** report exit rate and time to exit on held-out maps.
 
 ## 11. Risks
@@ -256,16 +255,15 @@ Phases 0–3 are the first trainable env, about 4½ days.
 | Risk | Why it matters | Mitigation |
 |---|---|---|
 | Hidden wall-clock dependencies | Fast runs diverge from real play | Fast-equals-real-time check; grep for `I_GetTime`, `time(NULL)` |
-| Decisions span very different tic counts | Noisy credit assignment | Fixed tic budget per rollout; tics per step in `info`; tic-based discount in PPO |
-| Pipe parsing overhead | CPU cost at high step rates | Measure in Phase 3; Phase 4 only if needed |
+| Long rollouts in decisions | Up to 2,100 per-tic steps per rollout dilute one advantage over many near-identical steps | Process-reward variant; PPO with a critic; a larger minibatch keeps updates small (watch the KL) |
+| Pipe round trip per tic | With a decision every tic, the pipe and IPC cost is paid 35 times per game second per instance | Measure in Phase 3; Phase 4's in-process library is likely needed |
 | Exploration trained without combat | The runner may walk into fights the VLM then has to win | Third stage (open) |
 | Sparse exit reward | Exits are rare | Dense sector reward; slots near exits first |
 | `P_Random` is a 256-entry table | Variety comes from start states, not the RNG | Many save slots across maps and NG+ loops |
 | GRPO groups collapse | Identical rollouts give zero gradient | Entropy bonus; skip zero-std groups; log the collapsed share |
 | No critic during GRPO | One advantage per rollout, coarse credit | Process-reward variant; PPO baseline on the same env if curves stall |
-| Pixels-only loops | The policy revisits rooms or spins | `MAP`, GRU memory, the time-and-distance penalty |
-| Map flicker | More decisions per rollout, flickering replays | Log toggle rate; small toggle cost if needed |
-| Rendering cost | The renderer runs every decision | Render only at decisions; Phase 3 measures it |
+| Pixels-only loops | The policy revisits rooms or spins | GRU memory, the time-and-distance penalty, the look reward |
+| Rendering cost | The renderer runs every tic, every tic being a decision | `-noblit` (skip the SDL blit); Phase 3 measures what is left |
 | HUD churn | Every HUD change shifts the policy's input — including world-space overlays (enemy health bars, floating damage numbers, depth scaling, added after `5fa94f8`) | Eval gate per build; randomize HUD details in training if churn continues |
 | CONSULT reward farming | Large rewards get exploited | Grace window, first consult per trigger, stand-in clears the trigger, small cost without a trigger |
 | CPU-bound on one box | 32 single-threaded instances want about 32 threads | Size instance count from the Phase 3 table; keep repo, pipes and `/dev/shm` on the Linux filesystem under WSL2 |

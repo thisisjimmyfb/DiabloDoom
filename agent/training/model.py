@@ -67,6 +67,7 @@ def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
         # No rendering at all (D_Display and the blit skipped): faster
         # still, but the frame is never drawn and replays are off.
         extra.append("-nodraw")
+    extra += avatar_args()
     engine = EngineConfig(warp=warp, skill=skill, extra_args=extra,
                           savedir_template=slots_dir, capture_dir=capture_dir)
     if iwad:
@@ -83,6 +84,17 @@ def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
         rewards=RewardConfig(time=time_penalty / 35.0, fast=time_penalty / 35.0,
                              look=time_penalty / 35.0 / 2),
     ))
+
+
+# The status-bar avatar (AGENTS.md): every game training or play.py
+# launches loads it with -file when it exists (2026-11-16).
+AVATAR_PWAD = Path(__file__).resolve().parents[1] / "jolly.wad"
+
+
+def avatar_args() -> list[str]:
+    """-file agent/jolly.wad (absolute: each game runs in its own temp
+    directory), or nothing when the file isn't there."""
+    return ["-file", str(AVATAR_PWAD)] if AVATAR_PWAD.is_file() else []
 
 
 def run_env(args, slots: list[int], iwad: str | None, warp: str, capture_dir: str | None = None,
