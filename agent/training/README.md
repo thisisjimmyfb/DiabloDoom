@@ -37,8 +37,10 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   forward/back, A/D strafe, L/R turn about 7° a tic; `PRESS` alone holds
   nothing), then `USE` and `CONSULT`. The engine's multi-tic commands
   (`WALK`, `GOTO`, the 45° `TURNL`/`TURNR`, ...) stay for the farm driver.
-  There is no `MAP` action (removed 2026-11-14): the map is shown only by
-  the env's forced glances. Older checkpoints are upgraded on load: each
+  There is no `MAP` action (removed 2026-11-14), and no forced map
+  glances either (removed 2026-11-16: with 4 frames of memory the policy
+  can't use a map it saw a moment ago), so training never shows the
+  automap. Older checkpoints are upgraded on load: each
   old output keeps its weights in the place of the action it carries over
   to (`WALK 0` -> `PRESS W`, the turns -> `PRESS L`/`R`, the strafes ->
   `PRESS A`/`D`, `USE`, `CONSULT`; `MAP` dropped), the new outputs start
@@ -87,20 +89,6 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   Pickups pay from the engine's `pickup` events: `loot` (5) per Diablo
   item or armor picked up, `health` (0.2) per HP a health pickup healed
   (a medikit 5, a +1 health bonus 0.2), the mirror of `hp_loss`.
-  Forced map glances (`--force-map`), done by the engine: the env sends
-  `FORCEMAP N tics` when a game starts, and after every N gameplay
-  commands (PRESS -- every tic --, USE, CONSULT, and the multi-tic WALK, turns
-  and strafes; a LOAD resets the count)
-  the next decision point in explore mode opens the automap, runs that
-  tic and publishes the frame with the map on it (`"forced_map":true`;
-  skipped while the map is open, never charged), so the automap sits in
-  the frame stack and the vision layers learn to read it. `--force-map N`
-  (default 120: a step is a tic, so about every 3.4 s; 0 off) is fixed for the run; to change it, stop and resume
-  with another N. A forced glance keeps the map up `--force-map-tics`
-  game tics (default 1: the policy gets the map as its next frame, keeps
-  it in its frame stack, and on screen it closes on the first tic of the
-  next action -- one video frame per glance, every few seconds). The held-out eval never forces
-  glances. The training line shows `fmap N` while on.
   Positive reinforcement: `exit` (100, the top reward) for triggering the
   level complete (ends the rollout), `key` (25) per key colour, `sector`
   (15) per new sector (more than a mechanism: getting somewhere new is

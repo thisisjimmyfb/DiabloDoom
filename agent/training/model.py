@@ -46,8 +46,7 @@ N_PRIV = 2  # privileged critic inputs: HP/100, exit path distance (SPEC.md §6)
 def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
              slots_dir: str | None, slots: list[int], capture_dir: str | None = None,
              spawn_tics: int = 0, nodraw: bool = False, noblit: bool = False,
-             portal_goal: int = 0, time_penalty: float = 0.0,
-             force_map: int = 0, force_map_tics: int = 1, key_goal: bool = False):
+             portal_goal: int = 0, time_penalty: float = 0.0, key_goal: bool = False):
     """time_penalty: reward per game second (negative pays, e.g. 1/3
     costs a point every 3 s), with portal_goal n > 0 ending a rollout
     once it reaches n new sectors, and key_goal ending it on a new key."""
@@ -79,8 +78,6 @@ def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
         consult_handler=standin_consult,
         portal_goal=portal_goal,
         key_goal=key_goal,
-        force_map_every=force_map,
-        force_map_tics=force_map_tics,
         # A fast tic pays back the clock's base rate (RewardConfig.fast).
         rewards=RewardConfig(time=time_penalty / 35.0, fast=time_penalty / 35.0),
     ))
@@ -92,12 +89,10 @@ def run_env(args, slots: list[int], iwad: str | None, warp: str, capture_dir: st
     both are built from the same arguments and scored by the same rewards
     (the time penalty included). Only the rollout rules differ: held out,
     a rollout runs the full --eval-max-tics, never ended early by the
-    portal or key goal, and without forced map glances (§5.3), so its
-    sectors compare across versions."""
+    portal or key goal, so its sectors compare across versions."""
     import functools
     rules = (dict(max_tics=args.eval_max_tics) if held_out else
-             dict(max_tics=args.max_tics, portal_goal=args.portal_goal, key_goal=True,
-                  force_map=args.force_map, force_map_tics=args.force_map_tics))
+             dict(max_tics=args.max_tics, portal_goal=args.portal_goal, key_goal=True))
     return functools.partial(make_env, iwad, warp, args.stage, args.skill, slots_dir=args.slots_dir,
                              slots=slots, capture_dir=capture_dir, spawn_tics=args.spawn_tics,
                              nodraw=args.nodraw, noblit=args.noblit, time_penalty=args.time_penalty,
@@ -436,16 +431,6 @@ def add_env_args(p) -> None:
                         "this; progress puts it back to --max-tics (cap <= --max-tics: off)")
     p.add_argument("--tics-growth", type=float, default=1.5,
                    help="factor the per-map tic budget grows by after a batch without progress")
-    p.add_argument("--force-map", type=int, default=120,
-                   help="forced map glance: the env sends MAP itself after every N steps (a step is "
-                        "a game tic: default about every 3.4 s), so the "
-                        "automap is in the frame stack and the vision layers learn to read it "
-                        "(0: off). Fixed for the run; resume with another N to change it. The "
-                        "held-out eval never forces glances")
-    p.add_argument("--force-map-tics", type=int, default=1,
-                   help="game tics a forced glance keeps the map on screen (MAP <tics>, 1-350; default "
-                        "1: the policy still gets the map as its next frame, and it closes on the "
-                        "first tic of the next action)")
     p.add_argument("--warmup-max", type=int, default=40,
                    help="random warm-up actions per group start (0..N, each held for WARMUP_HOLD "
                         "tics), for start-state variety")

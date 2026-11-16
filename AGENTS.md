@@ -162,8 +162,10 @@ passable opening of the player's current sector into any other sector
 (the env's distance penalty uses this one) -- reward shaping only, never
 a policy input, so the 2026-10-21 no-oracle ruling for the farm agent
 stands.
-Automap (2026-11-14): it also carries `automap` (the map is on screen),
-which the env's forced map glances check before sending `MAP`.
+Automap (2026-11-14): it also carries `automap` (the map is on screen).
+Training's forced map glances, which used it and the engine's
+`FORCEMAP`, were removed 2026-11-16 (the policy's 4 frames of memory
+can't hold a glance); `FORCEMAP` / `-rlforcemap` stay, off unless sent.
 Keys (2026-11-14): it also carries `keys`, the key colours held (1 blue,
 2 yellow, 4 red; card or skull), for the env's once-per-colour key reward.
 Fast movement (2026-11-15): `-rlfast <units>` (`-rlenv` only) makes the

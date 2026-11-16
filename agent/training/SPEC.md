@@ -64,7 +64,7 @@ The replay system (`d_replay.c`) records 15-second MP4 video, not inputs, and `T
 | Frame to shared memory | At each decision, copy `I_VideoBuffer` (320×200, 8-bit) and the palette. No PNG, no SDL surface. |
 | Render only at decisions | Skip `D_Display` on tics between decisions. |
 | `STATEHASH` command | Hash of player, mobj and turn-controller state, for determinism checks. |
-| `MAP [tics]` command (new) | Opens the automap via `AM_Start`, as Tab does, for <tics> game tics (default 18, 0.5 s; clamped to 1–350), then closes it (`AM_Stop`); `MAP` while it is open closes it at once. The policy's action sends plain `MAP`; forced glances send `MAP <--force-map-tics>`. Follow mode, fixed zoom. Explore only (combat hides the map on entry; `MAP` in combat does nothing). Movement keeps working with the map open. |
+| `MAP [tics]` command (new) | Opens the automap via `AM_Start`, as Tab does, for <tics> game tics (default 18, 0.5 s; clamped to 1–350), then closes it (`AM_Stop`); `MAP` while it is open closes it at once. Training never sends it (no `MAP` action, no forced glances). Follow mode, fixed zoom. Explore only (combat hides the map on entry; `MAP` in combat does nothing). Movement keeps working with the map open. |
 | Automap rotation | Rotate the automap to the player's heading (vanilla points north). |
 | Explore-mode strafes | Today `STRAFE_L/R` queue a TP-costing turn move that only previews until END TURN. Under `-rlenv` in EXPLORE they take a fixed sideways step without turning, like `WALK <angle>`. |
 | `-rlnocombat` | Removes every monster at level load. Reuse the existing `nomonsters` flag (`d_main.c`) rather than new removal code. |
@@ -117,7 +117,6 @@ No per-state action masks (they would leak engine state). No mode mask either: t
 | CONSULT on trigger | + large | Paid only while exploring (EXPLORE). Trigger = a monster seen before it acquires the player (`MONSTERVIS`, §4), or the backpack-full message up. First consult per trigger only. |
 | Trigger unanswered | −8 | Applied after a grace window: 150 game tics for a monster in view or a full backpack, 5 steps in combat (frozen: no tics pass) |
 | CONSULT with no trigger | −1.5 | Discourages random consults |
-| Forced map glance | 0 | `--force-map N` (default 120, about every 3.4 s now that a step is a tic; 0 off; fixed for the run, changed by resuming with another N): the engine (`FORCEMAP N tics`, sent by the env at game start; or `-rlforcemap N [tics]`) opens the automap at the next decision point after every N gameplay commands and publishes that frame (`"forced_map":true`; never charged, skipped while the map is open), so the automap is in the frame stack and the vision layers learn to read it. There is no `MAP` action (removed 2026-11-14): the policy never opens the map itself. The held-out eval never forces glances. |
 | High velocity | +1/105 per tic | Every game tic on which the player actually moved at least `fast_speed` (4) map units: position, not momentum, so pushing into a wall or a barrel never counts. The engine counts the tics (`-rlfast <units>`, which the env adds; the state line's `fast_tics` since the last decision). It pays back the time penalty's base rate (`--time-penalty` / 35, tied to it), so during a fast tic only the distance part of the clock is charged: moving fast is nearly free, while standing still or pushing into a wall pays the full clock. Running (`PRESS W`) passes 4 units/tic on its third tic from rest. It replaced the per-step straight-movement reward (2026-11-15): a step is one tic now, and this pays unimpeded movement tic by tic. No separate wall penalty (removed 2026-11-15): a blocked move earns no fast tics, so it pays the whole clock. |
 | Loot picked up | +5 per item | A Diablo item into the backpack, or armor (green armor also grants an item). From the engine's `pickup` event (§4); a thing left on the ground (full backpack) pays nothing. |
 | Health picked up | +0.2 per HP healed | Stimpack, medikit, health bonus, soulsphere, megasphere: the HP it actually gave (the `pickup` event's `hp`), so a medikit pays 5 and a +1 bonus 0.2; the mirror of HP lost. |
@@ -245,7 +244,7 @@ Phases 0–3 are the first trainable env, about 4½ days.
 - **Fast equals real time:** the same command list with and without `-rlenv` ends in the same state. Suspects if not: `T_TickCadence` cooldowns, the replay encoder, anything reading `I_GetTime` or `time(NULL)`. Known wall-clock reads as of `c0e8fedb`: the idle Zug Zug timer (`I_GetTimeMS`, sound only, suppressed under `-rlenv`), the Zug Zug date gate (`time(NULL)`, sound only), and `SURVEY` filename timestamps (not a policy action). None touch game state.
 - **Env contract:** `check_env` passes; shapes and dtypes match the declared spaces; the observation contains nothing from the state pipe.
 - **Throughput:** random-agent decisions per second for 1, 8 and 32 instances, rendering every tic vs only at decisions.
-- **Policy checks:** evaluate with and without forced map glances to confirm the map is used; report exit rate and time to exit on held-out maps.
+- **Policy checks:** report exit rate and time to exit on held-out maps.
 
 ## 11. Risks
 
@@ -270,7 +269,7 @@ Phases 0–3 are the first trainable env, about 4½ days.
 
 Decided:
 - Exploration trains with `-rlnocombat` (monsters removed), then a monsters-on stage for CONSULT.
-- The automap counts as screen visual, shown by the env's forced glances (the policy has no `MAP` action).
+- The automap counts as screen visual, but training never shows it: no `MAP` action, and no forced glances (removed 2026-11-16: the policy's 4 frames of memory can't hold a glance).
 - Training runs on the RTX 5080 box.
 - G = 8, 2,100 tics per rollout.
 - Training uses every IWAD under `wad/` (Freedoom Phase 1 and The Ultimate Doom), groups split evenly between them (§7.1).

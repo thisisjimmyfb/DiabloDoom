@@ -49,7 +49,7 @@ from model import (Frontier, HubUploader, MapRotation, TicBudget, add_env_args, 
                    save_checkpoint, CKPT_NAME)
 from env import cleanup_stale  # noqa: E402  (model.py put env on sys.path)
 from env.vector import GroupVecEnv  # noqa: E402
-from eval import (heldout_eval, make_heldout_vec, print_eval, print_eval_delta, run_rollouts, sample_group_options,
+from eval import (heldout_eval, make_heldout_vec, nvtx, print_eval, print_eval_delta, run_rollouts, sample_group_options,
                   write_rollout_log)
 from learn import (add_learn_args, build_batch, group_advantages, print_train, setup_learner,
                    train_metrics, update)
@@ -186,8 +186,6 @@ def main():
     budget = TicBudget(env_pairs, args.max_tics, args.max_tics_cap, args.tics_growth)
     print(f"[train] rollout limit {args.max_tics} tics per map, growing x{args.tics_growth} after a batch "
           f"without progress, up to {budget.cap}")
-    print("[train] forced map glance " + (f"every {args.force_map} steps, {args.force_map_tics} tics on screen"
-                                           if args.force_map > 0 else "off"))
 
     def play(it: int) -> tuple[list[dict], float]:
         """The batch for update `it`."""
@@ -204,7 +202,8 @@ def main():
         options = frontier.options(sample_group_options(sampler, groups, G, slots, args.warmup_max),
                                    G)
         budget.apply(vec)
-        recs = run_rollouts(vec, actor, device, options)
+        with nvtx("rollout"):
+            recs = run_rollouts(vec, actor, device, options)
         for i, r in enumerate(recs):
             r["iwad"] = iwad_label(env_pairs[i][0])
             r["frontier"] = bool(options[i].get("frontier"))
@@ -232,6 +231,13 @@ def main():
         print_eval_delta(first_eval, last)
         return last
 
+    def timed_update(batch) -> dict:
+        """One update, its wall time in upd["update_s"] (NVTX "update")."""
+        t = time.perf_counter()
+        with nvtx("update"):
+            upd = update(policy, optimizer, ref, batch, args, device) if batch is not None else {}
+        return {**upd, "update_s": time.perf_counter() - t}
+
     try:
         if eval_vec is not None:
             first_eval = last_eval = evaluate(start_it)
@@ -244,9 +250,10 @@ def main():
                 (recs, t_roll), lag = ahead, 1
                 ahead = None
 
-            advs, collapsed = group_advantages([recs[g * G:(g + 1) * G] for g in range(groups)],
-                                               args.advantage)
-            batch = build_batch(recs, advs, args.gamma_tic)
+            with nvtx("batch"):
+                advs, collapsed = group_advantages([recs[g * G:(g + 1) * G] for g in range(groups)],
+                                                   args.advantage)
+                batch = build_batch(recs, advs, args.gamma_tic)
             # What a checkpoint for this update must hold: the RNGs as they
             # are before the next batch is drawn and played, so a restart
             # (which discards a batch in flight) replays the same starts.
@@ -256,7 +263,7 @@ def main():
 
                 def run_update():
                     try:
-                        box["upd"] = update(policy, optimizer, ref, batch, args, device) if batch is not None else {}
+                        box["upd"] = timed_update(batch)
                     except BaseException as e:      # re-raised on the main thread
                         box["err"] = e
                 th = upd_thread = threading.Thread(target=run_update, daemon=True)
@@ -270,7 +277,7 @@ def main():
                 # the rollouts the CUDA one, so keep the update's CPU state.
                 rng["torch"] = torch.get_rng_state()
             else:
-                upd = update(policy, optimizer, ref, batch, args, device) if batch is not None else {}
+                upd = timed_update(batch)
                 rng = rng_state(sampler)
             if actor is not policy:
                 actor.load_state_dict(policy.state_dict())
@@ -279,13 +286,18 @@ def main():
             m = train_metrics(recs, groups, collapsed)
             total_steps += m["steps"]
             total_tics += m["tics"]
+            # Rollout wall time by phase (eval.run_rollouts): env steps (the
+            # workers and games), policy forward passes, resets, bookkeeping.
+            timing = recs[0].get("timing", {})
             m = {"iteration": it, "kind": "train", **m,
                  "total_steps": total_steps, "total_tics": total_tics,
-                 "sps": m["steps"] / t_roll, "rollout_s": t_roll, "iter_s": t_all, "lag": lag, **upd}
+                 "sps": m["steps"] / t_roll, "rollout_s": t_roll, "iter_s": t_all, "lag": lag,
+                 **timing, **upd}
             metrics_f.write(json.dumps(m) + "\n")
             metrics_f.flush()
-            print_train(it, m, upd, (f" fmap {args.force_map}" if args.force_map > 0 else "")
-                        + f" ({m['sps']:.0f}/s) {t_all:.1f}s")
+            print_train(it, m, upd, f" ({m['sps']:.0f}/s) {t_all:.1f}s"
+                        + (f" [env {timing['env_s']:.1f}s policy {timing['policy_s']:.1f}s "
+                           f"update {upd.get('update_s', 0.0):.1f}s]" if timing else ""))
 
             ckpt_path = run_dir / CKPT_NAME
             save_checkpoint(ckpt_path, {

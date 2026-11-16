@@ -583,42 +583,10 @@ def test_portal_goal():
 
 
 @pytest.mark.game
-def test_forced_map_glance():
-    """force_map_every=2: after every 2nd step the env sends MAP itself --
-    the next frame is the automap (state automap true) and nothing is
-    charged."""
-    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0,
-                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, fast=0, time=0)
-    e = DiabloDoomEnv(EnvConfig(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only,
-                                max_tics=100000, force_map_every=2, consult_handler=standin_consult))
-    tl = ACTIONS.index("PRESS L")
-    try:
-        _, info = e.reset(options={"seed": 0})
-        assert info["state"]["automap"] is False
-        forced = []
-        for _ in range(6):
-            obs, r, *_, info = e.step(tl)
-            forced.append(info["forced_map"])
-            assert r == 0, "a forced glance is never charged"
-            if info["forced_map"]:
-                assert info["state"]["automap"] is True
-                assert (obs[-1] < 8).mean() > 0.5, "the frame the policy sees is the automap"
-        assert forced == [False, True] * 3 or forced == [False, True, False, False, True, False], forced
-        e.set_force_map(0)
-        for _ in range(4):
-            _, _, _, _, info = e.step(tl)
-            assert not info["forced_map"]
-    finally:
-        e.close()
-
-
-@pytest.mark.game
 def test_map_tics():
-    """MAP <tics> keeps the automap up that many game tics (plain MAP: 18),
-    and a forced glance uses force_map_tics."""
+    """MAP <tics> keeps the automap up that many game tics (plain MAP: 18)."""
     e = DiabloDoomEnv(EnvConfig(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]),
                                 max_tics=100000, consult_handler=standin_consult))
-    tl = ACTIONS.index("PRESS L")
     try:
         e.reset(options={"seed": 0})
 
@@ -632,15 +600,5 @@ def test_map_tics():
             return t
         assert 10 < shown_for("MAP") <= 20, "plain MAP: 18 tics"
         assert 60 < shown_for("MAP 70") <= 80
-        e.set_force_map(1, 40)
-        _, _, _, _, info = e.step(tl)
-        assert info["forced_map"] and info["state"]["automap"]
-        t = 0
-        while True:
-            _, _, _, _, info = e.step(tl)
-            t += info["tics"] - (1 if info["forced_map"] else 0)
-            if info["forced_map"] or not info["state"]["automap"]:
-                break
-        assert 30 < t <= 50, t
     finally:
         e.close()

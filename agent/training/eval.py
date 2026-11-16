@@ -6,6 +6,7 @@ make_heldout_vec / heldout_eval / print_eval run the held-out maps."""
 
 from __future__ import annotations
 
+import contextlib
 import json
 import time
 from pathlib import Path
@@ -23,12 +24,21 @@ from env.vector import GroupVecEnv  # noqa: E402
 # Rollouts (shared with train.py)
 # ---------------------------------------------------------------------------
 
+def nvtx(name: str):
+    """An NVTX range for nsys timelines (`nsys stats --report nvtx_sum`);
+    a no-op without CUDA."""
+    return torch.cuda.nvtx.range(name) if torch.cuda.is_available() else contextlib.nullcontext()
+
+
 def run_rollouts(vec: GroupVecEnv, policy: Policy, device: torch.device,
                  options: list[dict]) -> list[dict]:
     """Reset every env with its options and run each to its end with
     sampled actions. Returns one record per env."""
     n = len(options)
-    obs, infos = vec.reset(range(n), options)
+    t0 = time.perf_counter()
+    with nvtx("reset"):
+        obs, infos = vec.reset(range(n), options)
+    timing = {"reset_s": time.perf_counter() - t0, "env_s": 0.0, "policy_s": 0.0, "record_s": 0.0}
     t_start = time.time()
     cur_obs = obs.copy()
     cur_priv = np.array([privileged(i) for i in infos], dtype=np.float32)
@@ -39,15 +49,19 @@ def run_rollouts(vec: GroupVecEnv, policy: Policy, device: torch.device,
     active = list(range(n))
     policy.eval()
     while active:
-        with torch.no_grad():
+        t0 = time.perf_counter()
+        with nvtx("policy"), torch.no_grad():
             o = torch.as_tensor(cur_obs[active], device=device)
             p = torch.as_tensor(cur_priv[active], device=device)
             logits, _ = policy(o, p)
             dist = Categorical(logits=logits)
             a = dist.sample()
             lp = dist.log_prob(a)
-        a_np, lp_np = a.cpu().numpy(), lp.cpu().numpy()
-        nobs, rew, term, trunc, ninfo = vec.step(active, a_np)
+            a_np, lp_np = a.cpu().numpy(), lp.cpu().numpy()   # waits for the GPU
+        t1 = time.perf_counter()
+        with nvtx("env_step"):
+            nobs, rew, term, trunc, ninfo = vec.step(active, a_np)
+        t2 = time.perf_counter()
         still = []
         for k, i in enumerate(active):
             r = recs[i]
@@ -68,6 +82,11 @@ def run_rollouts(vec: GroupVecEnv, policy: Policy, device: torch.device,
             else:
                 still.append(i)
         active = still
+        t3 = time.perf_counter()
+        timing["policy_s"] += t1 - t0
+        timing["env_s"] += t2 - t1
+        timing["record_s"] += t3 - t2
+    recs[0]["timing"] = timing    # rollout wall time by phase, for the train metrics
     for r in recs:
         s = r["end_info"]["state"]
         r["ret"] = float(sum(r["rew"]))

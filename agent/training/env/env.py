@@ -165,12 +165,9 @@ class EnvConfig:
     # True: picking up a key of a colour not held yet ends the rollout
     # (terminated, end "key"), so its end state can become the next start.
     key_goal: bool = False
-    # n > 0: a forced map glance every n actions, done by the engine
-    # (FORCEMAP, sent when the game starts): after every n gameplay
-    # commands the next decision shows the automap for force_map_tics,
-    # so it is in the frame stack and the vision layers learn to read it.
-    force_map_every: int = 0
-    force_map_tics: int = 1           # game tics a forced glance keeps the map up (MAP <tics>): 1 = only the next frame
+    # No forced map glances (removed 2026-11-16): with 4 frames of memory
+    # the policy can't use a map it saw a moment ago. The engine's
+    # FORCEMAP / -rlforcemap stay, off unless sent.
     consult_handler: Optional[ConsultHandler] = None
 
 
@@ -295,8 +292,6 @@ class DiabloDoomEnv(gym.Env):
             self._map_start = boot.read_bytes() if boot.exists() else None
             for slot in self._installed:
                 self._write_installed(slot)
-            # Forced map glances run in the engine (FORCEMAP).
-            self.engine.command(f"FORCEMAP {self.cfg.force_map_every} {self.cfg.force_map_tics}")
             self._pre = Preprocessor(self.engine.width, self.engine.height, self.cfg.size)
 
         slot = opts.get("slot")
@@ -473,7 +468,6 @@ class DiabloDoomEnv(gym.Env):
         info["exit"] = exited
         info["portal"] = portal
         info["key"] = got_key             # the key goal reached (EnvConfig.key_goal)
-        info["forced_map"] = bool(d.get("forced_map"))   # the engine's forced glance (FORCEMAP)
         info["terms"] = terms             # the reward by term
         info["end"] = end                 # why the rollout ended: exit, death, key, portal, time, combat
         info["max_tics"] = self.cfg.max_tics
@@ -499,15 +493,6 @@ class DiabloDoomEnv(gym.Env):
         """Change the rollout limit in game tics; it takes effect from the
         next rollout (training's per-map tic budget, model.TicBudget)."""
         self.cfg.max_tics = int(n)
-
-    def set_force_map(self, every: int, tics: int | None = None) -> None:
-        """Change the forced map glance period (0: off) and optionally how
-        many tics a forced glance shows the map (the engine's FORCEMAP)."""
-        self.cfg.force_map_every = int(every)
-        if tics is not None:
-            self.cfg.force_map_tics = int(tics)
-        if self.engine.proc is not None and self.engine.proc.poll() is None:
-            self.engine.command(f"FORCEMAP {self.cfg.force_map_every} {self.cfg.force_map_tics}")
 
     def render(self):
         if self.render_mode == "rgb_array":
