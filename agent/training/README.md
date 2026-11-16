@@ -85,7 +85,7 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   unvisited sector (`portal_rel`; none: nothing), at half the clock's
   base rate (`--time-penalty` / 70), so it softens the clock for facing
   the right way but never pays for standing still.
-  Turning back and forth costs `turn_flip` (-0.015, 2026-11-16) for each
+  Turning back and forth costs `turn_flip` (-0.005, 2026-11-16) for each
   turn key pressed at most 4 tics after the last turn key the other way;
   turning one way, or starting and stopping a turn, costs nothing.
   Forward and back the same way: W within 4 tics of S, or S of W, costs

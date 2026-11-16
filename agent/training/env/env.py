@@ -109,9 +109,11 @@ class RewardConfig:
     # Turn reversals (2026-11-16): a turn key pressed at most
     # turn_flip_window tics after the last turn key the other way (L, then
     # R up to 4 tics later) costs turn_flip -- the left-right wobble. Turning steadily one way, starting or stopping a turn, and
-    # running while turning cost nothing. -0.015 is about 1.5 tics of the
-    # clock's base rate. 0 turns it off.
-    turn_flip: float = -0.015
+    # running while turning cost nothing. -0.005 is about half a tic of the
+    # clock's base rate (lowered from -0.015 2026-11-16: at that size,
+    # always turning one way to avoid it became a habit -- the policy drifted
+    # to 81% right turns). 0 turns it off.
+    turn_flip: float = -0.005
     turn_flip_window: int = 4
     # The same for forward and back: W at most move_flip_window tics after
     # S, or S after W, costs move_flip. Strafing back and forth (A/D) is
