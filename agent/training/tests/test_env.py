@@ -169,7 +169,7 @@ def test_hp_loss_and_death():
     top of the HP it lost. Engine faked: no game needed."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hp_loss=-0.2, death=-100.0,
-                        loot=0, health=0, straight=0)
+                        loot=0, health=0, straight=0, wall=0)
     e = make_env(rewards=only, max_tics=100000)
     states = iter([{"mode": "EXPLORE", "hp": 90, "tics": 10},     # nukage: -10 hp
                    {"mode": "EXPLORE", "hp": 100, "tics": 10},    # healed: nothing
@@ -193,42 +193,71 @@ def test_hp_loss_and_death():
 
 
 def test_straight_walk():
-    """A run of one move (WALK 0, STRAFE_L or STRAFE_R) whose steps move
-    pays straight x the run length (capped); another move, a turn or a
-    blocked step starts the run over, and turns never pay. Engine faked:
-    no game needed."""
+    """Straight movement pays from where the player actually went, not the
+    action: consecutive unimpeded strides (86..192 map units) within 15
+    degrees of each other pay straight x the run length (capped); a step
+    cut short by a wall, a slide off at an angle, a turn in place or a
+    teleport starts the run over. Engine faked: no game needed."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hp_loss=0, death=0,
-                        loot=0, health=0, straight=0.02, straight_cap=3)
+                        loot=0, health=0, straight=0.02, straight_cap=3, wall=0)
     e = make_env(rewards=only, max_tics=100000)
-    pos = [0, 0]
-    step = {"WALK 0": (96, 0), "STRAFE_L": (0, 96), "STRAFE_R": (0, -96)}
-
-    def command(line):                   # moves 96 units, except walking past x=480 (a wall)
-        dx, dy = step.get(line, (0, 0))
-        if pos[0] + dx <= 480:
-            pos[0] += dx
-            pos[1] += dy
-        return {"mode": "EXPLORE", "hp": 100, "tics": 28, "x": pos[0], "y": pos[1]}, []
-    e.engine.command = command
+    walk, turn, left = (ACTIONS.index(a) for a in ("WALK 0", "TURNL", "STRAFE_L"))
+    # (action, where the player ends up, the reward)
+    plan = [(walk, (96, 0), 0.02), (walk, (192, 0), 0.04),      # strides east: 1x, 2x
+            (walk, (288, 5), 0.06), (walk, (384, 5), 0.06),     # 3 degrees off still counts; capped at 3x
+            (walk, (414, 5), 0.0),                              # into a wall: cut short
+            (walk, (414, 5), 0.0),                              # still the wall: the action alone never pays
+            (turn, (414, 5), 0.0),                              # a turn doesn't move the player
+            (left, (414, 101), 0.02), (left, (414, 197), 0.04),  # strafing north: a new run
+            (walk, (500, 240), 0.02),                           # 27 degrees off (deflected): a new run
+            (walk, (2000, 240), 0.0),                           # a teleport is no stride
+            (walk, (2096, 240), 0.02)]
+    moves = iter(plan)
+    e.engine.command = lambda line: ((lambda p: {"mode": "EXPLORE", "hp": 100, "tics": 28,
+                                                 "x": p[0], "y": p[1]})(next(moves)[1]), [])
     e._frame = lambda: np.zeros((200, 320), dtype=np.uint8)
     e.state = {"mode": "EXPLORE", "hp": 100, "x": 0, "y": 0}
-    e._prev_hp, e._tics, e._combat_steps, e._straight_run, e._straight_move = 100, 0, 0, 0, None
+    e._prev_hp, e._tics, e._combat_steps, e._straight_run, e._straight_dir = 100, 0, 0, 0, None
     e._best_sectors = e._start_sectors = 0
     e._keys, e._goal, e._group, e._slot, e._seed = 0, None, 0, None, 0
     e._trig = {k: e._new_trigger() for k in ("monster", "backpack", "combat")}
     e._stack.reset(e._frame())
-    walk, turn, left, right = (ACTIONS.index(a) for a in ("WALK 0", "TURNL", "STRAFE_L", "STRAFE_R"))
-    plan = [(walk, 0.02), (walk, 0.04), (walk, 0.06), (walk, 0.06),   # 1x, 2x, 3x, capped at 3x
-            (turn, 0.0), (turn, 0.0),                                 # turns never pay, and reset
-            (left, 0.02), (left, 0.04),                               # a strafe run
-            (right, 0.02),                                            # the other way: a new run
-            (walk, 0.02), (walk, 0.0), (walk, 0.0)]                   # the wall at x=480 blocks
-    got = []
-    for a, _ in plan:
-        _, r, *_ = e.step(a)
-        got.append(round(r, 6))
-    assert got == [want for _, want in plan], got
+    got = [round(e.step(a)[1], 6) for a, _, _ in plan]
+    assert got == [want for _, _, want in plan], got
+
+
+
+def test_wall_bump():
+    """A move (walk or strafe) that the geometry stops short of half a step
+    costs `wall`; a full step, a turn, or a move in combat costs nothing.
+    Engine faked: no game needed."""
+    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
+                        consult_false=0, key=0, time=0, hp_loss=0, death=0,
+                        loot=0, health=0, straight=0, wall=-0.1)
+    e = make_env(rewards=only, max_tics=100000)
+    walk, turn, right = (ACTIONS.index(a) for a in ("WALK 0", "TURNL", "STRAFE_R"))
+    plan = [(walk, (96, 0), 0.0),        # a full step
+            (walk, (126, 0), -0.1),      # reaches the wall after 30 units
+            (walk, (126, 0), -0.1),      # pressing into it
+            (right, (126, 0), -0.1),     # strafing into a wall too
+            (turn, (126, 0), 0.0),       # turning never moves the player: no bump
+            (walk, (126, 96), 0.0)]      # off along the new heading
+    moves = iter(plan)
+    e.engine.command = lambda line: ((lambda p: {"mode": "EXPLORE", "hp": 100, "tics": 28,
+                                                 "x": p[0], "y": p[1]})(next(moves)[1]), [])
+    e._frame = lambda: np.zeros((200, 320), dtype=np.uint8)
+    e.state = {"mode": "EXPLORE", "hp": 100, "x": 0, "y": 0}
+    e._prev_hp, e._tics, e._combat_steps, e._straight_run, e._straight_dir = 100, 0, 0, 0, None
+    e._best_sectors = e._start_sectors = 0
+    e._keys, e._goal, e._group, e._slot, e._seed = 0, None, 0, None, 0
+    e._trig = {k: e._new_trigger() for k in ("monster", "backpack", "combat")}
+    e._stack.reset(e._frame())
+    got = [round(e.step(a)[1], 6) for a, _, _ in plan]
+    assert got == [want for _, _, want in plan], got
+    # In combat a move is dropped (the world is frozen): no bump.
+    e.state = {"mode": "PLANNING", "hp": 100, "x": 126, "y": 96}
+    assert e.step(walk)[2:4] == (False, False) and e.step(walk)[1] == 0.0
 
 
 def test_key_goal():
@@ -237,7 +266,7 @@ def test_key_goal():
     without key_goal a key only pays. Engine faked: no game needed."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=25.0, time=0, hp_loss=0, death=0,
-                        loot=0, health=0, straight=0)
+                        loot=0, health=0, straight=0, wall=0)
     for goal in (True, False):
         e = make_env(rewards=only, max_tics=100000, key_goal=goal)
         states = iter([{"mode": "EXPLORE", "hp": 100, "tics": 5, "keys": 1},    # blue held from the start
@@ -451,7 +480,7 @@ def test_time_distance_penalty():
     every other reward off each step costs time * its tics * (1 + d /
     far_scale), d the mean of its start and end goal distances."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0,
-                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, straight=0,
+                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, straight=0, wall=0,
                         time=1.0, far_scale=256.0)
     e = make_env(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only,
                  max_tics=100000, consult_handler=standin_consult)
@@ -485,7 +514,7 @@ def test_portal_goal():
     list (VISITED) and reinstalled restores that visited count after the
     load (VISIT), so the next rollout's goal is a sector beyond it."""
     only = RewardConfig(sector=15.0, exit=0, mechanism=0, consult_hit=0,
-                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, straight=0,
+                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, straight=0, wall=0,
                         time=0.01, far_scale=1e12)   # time and sector only
     e = DiabloDoomEnv(EnvConfig(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only,
                                 max_tics=100000, portal_goal=1, consult_handler=standin_consult))
@@ -520,7 +549,7 @@ def test_forced_map_glance():
     the next frame is the automap (state automap true) and nothing is
     charged."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0,
-                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, straight=0, time=0)
+                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, straight=0, wall=0, time=0)
     e = DiabloDoomEnv(EnvConfig(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only,
                                 max_tics=100000, force_map_every=2, consult_handler=standin_consult))
     tl = ACTIONS.index("TURNL")

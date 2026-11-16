@@ -32,8 +32,8 @@ ACTIONS = [
     "CONSULT",
 ]
 CONSULT = ACTIONS.index("CONSULT")
-# The moves whose runs pay RewardConfig.straight (never the turns).
-STRAIGHT_MOVES = {ACTIONS.index(m) for m in ("WALK 0", "STRAFE_L", "STRAFE_R")}
+# The moves that try to move the player (RewardConfig.wall).
+MOVES = {ACTIONS.index(m) for m in ("WALK 0", "STRAFE_L", "STRAFE_R")}
 EXPLORE = "EXPLORE"
 COMBAT_MODES = {"PLANNING", "TARGETING", "CONFIRM", "PULSE", "REACTION", "ROUND_END"}
 
@@ -71,19 +71,33 @@ class RewardConfig:
     # cancels most of it.
     time: float = 0.0
     far_scale: float = 256.0
-    # Moving on in a straight line: a run of the same move -- WALK 0, or
-    # STRAFE_L, or STRAFE_R -- each step of which moves the player at
-    # least straight_min map units (a full step is about 96) pays
-    # straight x the step's place in the run, capped at straight_cap --
-    # 1x, 2x, 3x, ... -- so the longer the run, the more each step is
-    # worth. A different action (another move, a turn, USE...) or a
-    # blocked step starts the run over; turns never pay (that would
-    # teach spinning in place). At the defaults a step pays at most 0.2,
-    # under the time penalty a step costs (28 tics, at least 0.27), so it
-    # softens the clock for moving on but never makes a slow rollout pay.
+    # Unimpeded movement in a straight line, judged from where the player
+    # actually went, never from the action: a step is a stride when the
+    # player moved at least straight_min map units (an unimpeded WALK 0
+    # or strafe moves about 96; one cut short or deflected by a wall
+    # moves less), and at most straight_max (more is a teleport or a
+    # lift, not a stride). A run is consecutive strides each within
+    # straight_angle degrees of the one before; each stride pays
+    # straight x its place in the run, capped at straight_cap -- 1x, 2x,
+    # 3x, ... -- so the longer the run, the more each stride is worth.
+    # Anything else -- a step into a wall, a slide along one, a turn
+    # (which doesn't move the player), a change of direction -- starts
+    # the run over. At the defaults a stride pays at most 0.2, under the
+    # time penalty a step costs (28 tics, at least 0.27), so it softens
+    # the clock for moving on but never makes a slow rollout pay.
     straight: float = 0.02
     straight_cap: int = 10
-    straight_min: float = 48.0
+    straight_min: float = 86.0
+    straight_max: float = 192.0
+    straight_angle: float = 15.0
+    # Walking into walls, gently: a move (WALK 0, STRAFE_L, STRAFE_R)
+    # made while exploring that moves the player less than wall_min map
+    # units (half an unimpeded step) costs `wall`. Small next to the time
+    # the bump wastes (a blocked step still takes ~38 tics, ~0.36); it
+    # tells the agent the bump itself was the mistake. A closed door
+    # counts as a wall: USE opens it.
+    wall: float = -0.1
+    wall_min: float = 48.0
     # Per HP lost, whatever the cause: passive damage (nukage, slime,
     # crushers, barrels) in stage 1. Healing never pays; a death costs
     # the HP it lost on the way plus `death`.
@@ -339,8 +353,8 @@ class DiabloDoomEnv(gym.Env):
         self._keys = d.get("keys", 0)     # keys held at the start (or from the warm-up) never pay
         self._prev_hp = d.get("hp", 0)
         self._combat_steps = 0
-        self._straight_run = 0            # consecutive steps of one move that moved (RewardConfig.straight)
-        self._straight_move = None        # that move's action
+        self._straight_run = 0            # consecutive strides in one direction (RewardConfig.straight)
+        self._straight_dir = None         # the last stride's direction (unit vector)
         self._trig = {k: self._new_trigger() for k in ("monster", "backpack", "combat")}
         self._update_triggers(d)
         obs = self._stack.reset(self._frame())
@@ -406,16 +420,14 @@ class DiabloDoomEnv(gym.Env):
         if goal is not None or "x" in d:
             self._goal = goal
 
-        # Straight-line moving: a run of one move (WALK 0, STRAFE_L or
-        # STRAFE_R) whose steps all moved.
-        moved = (prev.get("x") is not None and d.get("x") is not None
-                 and float(np.hypot(d["x"] - prev["x"], d["y"] - prev["y"])) >= rc.straight_min)
-        if a in STRAIGHT_MOVES and sent and moved:
-            self._straight_run = self._straight_run + 1 if a == self._straight_move else 1
-            self._straight_move = a
-            add("straight", rc.straight * min(self._straight_run, rc.straight_cap))
-        else:
-            self._straight_run, self._straight_move = 0, None
+        # Straight-line movement: a run of unimpeded strides in one
+        # direction, from the player's positions, whatever the action.
+        add("straight", self._stride(prev, d))
+        # A move the geometry stopped short (RewardConfig.wall).
+        if (a in MOVES and sent and prev.get("mode") == EXPLORE and d.get("mode") == EXPLORE
+                and prev.get("x") is not None and d.get("x") is not None
+                and float(np.hypot(d["x"] - prev["x"], d["y"] - prev["y"])) < rc.wall_min):
+            add("wall", rc.wall)
 
         # Exploration: newly visited sectors.
         if sec > self._best_sectors:
@@ -482,6 +494,25 @@ class DiabloDoomEnv(gym.Env):
         info["end"] = end                 # why the rollout ended: exit, death, key, portal, time, combat
         info["max_tics"] = self.cfg.max_tics
         return obs, float(reward), terminated, truncated, info
+
+    def _stride(self, prev: dict, d: dict) -> float:
+        """The straight-movement reward for the step from prev to d
+        (RewardConfig.straight), keeping the run of strides."""
+        rc = self.cfg.rewards
+        if prev.get("x") is None or d.get("x") is None:
+            self._straight_run, self._straight_dir = 0, None
+            return 0.0
+        v = np.array([d["x"] - prev["x"], d["y"] - prev["y"]], dtype=float)
+        n = float(np.hypot(*v))
+        if not rc.straight_min <= n <= rc.straight_max:
+            self._straight_run, self._straight_dir = 0, None
+            return 0.0
+        v /= n
+        same = (self._straight_dir is not None
+                and float(v @ self._straight_dir) >= np.cos(np.radians(rc.straight_angle)))
+        self._straight_run = self._straight_run + 1 if same else 1
+        self._straight_dir = v
+        return rc.straight * min(self._straight_run, rc.straight_cap)
 
     def set_map(self, iwad: str | None, warp: str) -> bool:
         """Move this instance to another map (and IWAD; None keeps the
