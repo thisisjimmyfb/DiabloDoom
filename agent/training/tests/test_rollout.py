@@ -1,4 +1,4 @@
-"""Tests for eval.py's group starts (no game). Its rollouts, rollout log
+"""Tests for rollout.py's group starts (no game). Its rollouts, rollout log
 and held-out eval run inside train.py's end-to-end tests (test_train.py)."""
 
 from __future__ import annotations
@@ -6,7 +6,7 @@ from __future__ import annotations
 import numpy as np
 
 from env import ACTIONS, CONSULT
-from eval import eval_delta_lines, sample_group_options
+from rollout import eval_delta_lines, sample_group_options
 from model import WARMUP_ACTIONS
 
 

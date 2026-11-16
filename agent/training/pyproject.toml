@@ -24,7 +24,7 @@ packages = ["env"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# The trainer scripts (model.py, eval.py, learn.py, train.py) import as
+# The trainer scripts (model.py, rollout.py, learn.py, train.py) import as
 # top-level modules from this directory.
 pythonpath = ["."]
 markers = [

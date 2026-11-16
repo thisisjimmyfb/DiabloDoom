@@ -17,7 +17,7 @@ HP/exit-distance inputs) is trained alongside on detached features, so
 it never shapes the policy during GRPO; Phase 6 PPO will need it.
 
 This runs rollouts and updates in one process, strictly alternating
-(--overlap plays the next batch during the update); eval.py has the
+(--overlap plays the next batch during the update); rollout.py has the
 rollout and held-out eval pieces, learn.py the update.
 
 Usage (from agent/training):
@@ -49,7 +49,7 @@ from model import (Frontier, HubUploader, MapRotation, TicBudget, add_env_args, 
                    save_checkpoint, CKPT_NAME)
 from env import cleanup_stale  # noqa: E402  (model.py put env on sys.path)
 from env.vector import GroupVecEnv  # noqa: E402
-from eval import (heldout_eval, make_heldout_vec, nvtx, print_eval, print_eval_delta, run_rollouts, sample_group_options,
+from rollout import (heldout_eval, make_heldout_vec, nvtx, print_eval, print_eval_delta, run_rollouts, sample_group_options,
                   write_rollout_log)
 from learn import (add_learn_args, build_batch, group_advantages, print_train, setup_learner,
                    train_metrics, update)
@@ -157,7 +157,7 @@ def main():
         eval_vec, eval_labels = make_heldout_vec(iwads, eval_maps, args, slots,
                                                  replays if args.capture_eval else None)
     metrics_f = open(run_dir / "metrics.jsonl", "a")
-    # One row per training rollout, for debugging (eval.rollout_log_rows).
+    # One row per training rollout, for debugging (rollout.rollout_log_rows).
     rollouts_f = open(run_dir / "rollouts.jsonl", "a")
     env_labels = [env_label(w, m, iwads) for w, m in env_pairs]
 
@@ -286,7 +286,7 @@ def main():
             m = train_metrics(recs, groups, collapsed)
             total_steps += m["steps"]
             total_tics += m["tics"]
-            # Rollout wall time by phase (eval.run_rollouts): env steps (the
+            # Rollout wall time by phase (rollout.run_rollouts): env steps (the
             # workers and games), policy forward passes, resets, bookkeeping.
             timing = recs[0].get("timing", {})
             m = {"iteration": it, "kind": "train", **m,

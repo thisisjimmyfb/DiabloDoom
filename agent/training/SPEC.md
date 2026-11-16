@@ -216,7 +216,7 @@ The execution environment can stop at any moment.
 
 ### 7.5 Split trainer (removed)
 
-Removed 2026-11-14. The trainer used to run optionally split, rollout workers (`eval.py`, Muse VMs among them) feeding a learner (`learn.py`) through a spool of batch and weights files. Muse VMs didn't gain from the split, so only the single-box `train.py` remains: `eval.py` keeps the rollout, rollout-log and held-out eval pieces and `learn.py` the update, both used by `train.py`. `train.sh` has no `--learn`, `--actor` or `--heldout` modes.
+Removed 2026-11-14. The trainer used to run optionally split, rollout workers (`eval.py`, now `rollout.py`; Muse VMs among them) feeding a learner (`learn.py`) through a spool of batch and weights files. Muse VMs didn't gain from the split, so only the single-box `train.py` remains: `eval.py` keeps the rollout, rollout-log and held-out eval pieces and `learn.py` the update, both used by `train.py`. `train.sh` has no `--learn`, `--actor` or `--heldout` modes.
 
 ## 8. LLM/VLM handoff and items
 

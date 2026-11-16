@@ -27,7 +27,7 @@ def rng() -> np.random.Generator:
 @pytest.fixture
 def make_rollout(rng):
     """make_rollout(n_steps, iwad="FREEDOOM1") -> a rollout record as
-    eval.run_rollouts makes it, with observations from the env's own
+    rollout.run_rollouts makes it, with observations from the env's own
     FrameStack: a mix of pushed frames and dropped actions (no new frame)."""
     def make(n_steps: int, iwad: str = "FREEDOOM1") -> dict:
         st = FrameStack(4, 84)

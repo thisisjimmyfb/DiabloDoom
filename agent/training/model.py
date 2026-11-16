@@ -2,7 +2,7 @@
 network, the env factory, IWAD/group allocation and map rotation, progress
 saves (Frontier), tic budgets, checkpoint I/O and the Hugging Face Hub copy
 of the checkpoint (hub_pull, HubUploader). Used by train.py, with
-eval.py (rollouts, logs, held-out eval) and learn.py (the update)."""
+rollout.py (rollouts, logs, held-out eval) and learn.py (the update)."""
 
 from __future__ import annotations
 

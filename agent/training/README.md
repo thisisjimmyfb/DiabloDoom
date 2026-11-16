@@ -375,7 +375,7 @@ fixtures (fake rollouts) in `tests/conftest.py`:
   `--maps all`, progress saves (frontier), tic budgets, checkpoints (one
   file, old-name resume, corrupt stops), RNG restore, checkpoint upgrades and the
   Hub pull and push (with a fake `hf`).
-- `test_eval.py`: group starts and warm-up actions.
+- `test_rollout.py`: group starts and warm-up actions.
 - `test_learn.py`: advantages, value targets and the update.
 - `test_play.py`: a checkpoint from another action set is refused; game:
   `play.py` drives a headless game and quits, or leaves it running

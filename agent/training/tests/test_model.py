@@ -1,4 +1,4 @@
-"""Tests for model.py, the pieces train.py, eval.py and learn.py share
+"""Tests for model.py, the pieces train.py, rollout.py and learn.py share
 (SPEC.md §7.1, §7.4): IWAD/group allocation and map rotation, progress
 saves, tic budgets, checkpoint I/O and checkpoint upgrades. No game
 instances."""
