@@ -18,22 +18,18 @@ from gymnasium import spaces
 from .engine import Engine, EngineConfig, EngineError
 from .obs import FrameStack, Preprocessor
 
-# SPEC.md §5.2. Index = action id.
-ACTIONS = [
-    # Forward step only: turning is TURNL/TURNR (smooth, 5 deg/tic).
-    # WALK <angle> snaps the facing in one tic, so the policy never
-    # sends an angle.
-    "WALK 0",
-    "TURNL", "TURNR",
-    "STRAFE_L", "STRAFE_R",
-    "USE",
-    # No MAP (removed 2026-11-14): the policy never opens the map itself;
-    # the env's forced glances (EnvConfig.force_map_every) do.
-    "CONSULT",
-]
+# SPEC.md §5.2. Index = action id. A decision every game tic
+# (2026-11-15): each action is the keys held for the next tic, the way a
+# keyboard is played. PRESS <keys>: W/S run forward/back, A/D strafe,
+# L/R turn (about 7 degrees a tic), every combination of one key from
+# each pair or none: 27, "PRESS" alone (nothing held) first. Then USE
+# and CONSULT. The engine's multi-tic commands (WALK, GOTO, the 45-degree
+# TURNL/TURNR, ...) stay for the farm driver; the policy doesn't send them.
+# No MAP (removed 2026-11-14): the env's forced glances show the map.
+ACTIONS = [("PRESS " + f + s + t).rstrip()
+           for f in ("", "W", "S") for s in ("", "A", "D") for t in ("", "L", "R")] + ["USE", "CONSULT"]
 CONSULT = ACTIONS.index("CONSULT")
-# The moves that try to move the player (RewardConfig.wall).
-MOVES = {ACTIONS.index(m) for m in ("WALK 0", "STRAFE_L", "STRAFE_R")}
+
 EXPLORE = "EXPLORE"
 COMBAT_MODES = {"PLANNING", "TARGETING", "CONFIRM", "PULSE", "REACTION", "ROUND_END"}
 
@@ -57,47 +53,36 @@ class RewardConfig:
     health: float = 0.2
     consult_hit: float = 5.0          # first CONSULT on an explore trigger
     trigger_miss: float = -8.0        # trigger unanswered after the grace window
-    grace_decisions: int = 5
+    grace_tics: int = 150             # a monster / full backpack: game tics to CONSULT
+    grace_decisions: int = 5          # combat (frozen, no tics pass): steps to CONSULT
     consult_false: float = -1.5       # CONSULT with no live, unanswered trigger
     # Time and distance, one penalty: every game tic costs
     #   time * (1 + d / far_scale)
-    # where d is the distance (map units) to the nearest goal -- an exit
-    # line or a frontier portal (a passable opening from a visited sector
-    # into an unvisited one), the mean of the step's start and end -- so
-    # the clock runs at `time` beside a goal and twice as fast far_scale
-    # units away: being far costs more the longer it lasts. 0 turns it
+    # where d is the distance (map units) to the nearest portal of the
+    # player's current sector (2026-11-16: a passable two-sided line into
+    # any other sector, visited or not; goal_dist), the mean of the step's
+    # start and end -- so the clock runs at `time` beside a way out of the
+    # room and twice as fast far_scale units away: being far costs more
+    # the longer it lasts. No portal (a sealed sector): base rate. 0 turns it
     # off. Only works with a portal goal (EnvConfig.portal_goal): rollouts
     # that all run to max_tics pay alike, and a group-relative advantage
     # cancels most of it.
     time: float = 0.0
     far_scale: float = 256.0
-    # Unimpeded movement in a straight line, judged from where the player
-    # actually went, never from the action: a step is a stride when the
-    # player moved at least straight_min map units (an unimpeded WALK 0
-    # or strafe moves about 96; one cut short or deflected by a wall
-    # moves less), and at most straight_max (more is a teleport or a
-    # lift, not a stride). A run is consecutive strides each within
-    # straight_angle degrees of the one before; each stride pays
-    # straight x its place in the run, capped at straight_cap -- 1x, 2x,
-    # 3x, ... -- so the longer the run, the more each stride is worth.
-    # Anything else -- a step into a wall, a slide along one, a turn
-    # (which doesn't move the player), a change of direction -- starts
-    # the run over. At the defaults a stride pays at most 0.2, under the
-    # time penalty a step costs (28 tics, at least 0.27), so it softens
-    # the clock for moving on but never makes a slow rollout pay.
-    straight: float = 0.02
-    straight_cap: int = 10
-    straight_min: float = 86.0
-    straight_max: float = 192.0
-    straight_angle: float = 15.0
-    # Walking into walls, gently: a move (WALK 0, STRAFE_L, STRAFE_R)
-    # made while exploring that moves the player less than wall_min map
-    # units (half an unimpeded step) costs `wall`. Small next to the time
-    # the bump wastes (a blocked step still takes ~38 tics, ~0.36); it
-    # tells the agent the bump itself was the mistake. A closed door
-    # counts as a wall: USE opens it.
-    wall: float = -0.1
-    wall_min: float = 48.0
+    # High velocity: every game tic on which the player actually moved at
+    # least fast_speed map units (position, not momentum: pushing into a
+    # wall never counts) pays `fast`. The engine counts the tics
+    # (-rlfast, the state line's fast_tics; the env adds the flag). The
+    # default equals the time penalty's base rate (1/3 per second, per
+    # tic; model.make_env ties it to --time-penalty), so a fast tic pays
+    # back the clock's base and only the distance part (d / far_scale)
+    # is still charged: moving fast is nearly free, standing still and
+    # bumping into walls cost the full clock. Running (PRESS W) passes 4
+    # units/tic on its third tic from rest. 0 turns it off. (It replaced
+    # the per-step straight-movement reward, 2026-11-15: a step is one
+    # tic now, and this pays the unimpeded movement tic by tic.)
+    fast: float = 1 / 3 / 35
+    fast_speed: int = 4
     # Per HP lost, whatever the cause: passive damage (nukage, slime,
     # crushers, barrels) in stage 1. Healing never pays; a death costs
     # the HP it lost on the way plus `death`.
@@ -112,10 +97,13 @@ ConsultHandler = Callable[["DiabloDoomEnv", dict, list], dict]
 
 
 def goal_dist(state: dict) -> float | None:
-    """Distance (map units) to the nearest exit line or frontier portal in
-    a state line, or None when there is neither (or no level)."""
-    ds = [state[k] for k in ("exit_dist", "frontier_dist") if state.get(k) is not None and state[k] >= 0]
-    return float(min(ds)) if ds else None
+    """The time penalty's distance (map units, 2026-11-16): to the nearest
+    portal of the player's current sector -- a passable two-sided line
+    into any other sector, visited or not (the engine's portal_dist) --
+    or None when the sector has none (or there is no level). It used to
+    be the nearer of the exit line and the nearest frontier portal."""
+    d = state.get("portal_dist")
+    return float(d) if d is not None and d >= 0 else None
 
 
 def null_consult(env: "DiabloDoomEnv", state: dict, kinds: list) -> dict:
@@ -199,6 +187,8 @@ class DiabloDoomEnv(gym.Env):
         self.cfg = cfg
         self.render_mode = render_mode
         self.consult_handler = cfg.consult_handler or null_consult
+        if cfg.rewards.fast and cfg.rewards.fast_speed > 0 and "-rlfast" not in cfg.engine.extra_args:
+            cfg.engine.extra_args = [*cfg.engine.extra_args, "-rlfast", str(cfg.rewards.fast_speed)]
         DiabloDoomEnv._instances += 1
         self.engine = Engine(cfg.engine, tag=str(DiabloDoomEnv._instances))
         self.observation_space = spaces.Box(0, 255, (cfg.frame_stack, cfg.size, cfg.size), np.uint8)
@@ -353,8 +343,6 @@ class DiabloDoomEnv(gym.Env):
         self._keys = d.get("keys", 0)     # keys held at the start (or from the warm-up) never pay
         self._prev_hp = d.get("hp", 0)
         self._combat_steps = 0
-        self._straight_run = 0            # consecutive strides in one direction (RewardConfig.straight)
-        self._straight_dir = None         # the last stride's direction (unit vector)
         self._trig = {k: self._new_trigger() for k in ("monster", "backpack", "combat")}
         self._update_triggers(d)
         obs = self._stack.reset(self._frame())
@@ -420,14 +408,10 @@ class DiabloDoomEnv(gym.Env):
         if goal is not None or "x" in d:
             self._goal = goal
 
-        # Straight-line movement: a run of unimpeded strides in one
-        # direction, from the player's positions, whatever the action.
-        add("straight", self._stride(prev, d))
-        # A move the geometry stopped short (RewardConfig.wall).
-        if (a in MOVES and sent and prev.get("mode") == EXPLORE and d.get("mode") == EXPLORE
-                and prev.get("x") is not None and d.get("x") is not None
-                and float(np.hypot(d["x"] - prev["x"], d["y"] - prev["y"])) < rc.wall_min):
-            add("wall", rc.wall)
+        # High velocity: the tics the engine counted at fast_speed or more
+        # (a dropped action re-reads the last state line: nothing new).
+        if sent:
+            add("fast", rc.fast * max(int(d.get("fast_tics", 0)), 0))
 
         # Exploration: newly visited sectors.
         if sec > self._best_sectors:
@@ -435,7 +419,7 @@ class DiabloDoomEnv(gym.Env):
             self._best_sectors = sec
 
         # Triggers: start/age/end, and the grace-window miss penalty.
-        add("consult", self._update_triggers(d))
+        add("consult", self._update_triggers(d, tics))
 
         # Mechanisms: a USE that sets a door, lift, floor, switch...
         # going pays once per mechanism per rollout (SPEC.md §5.3), so
@@ -494,25 +478,6 @@ class DiabloDoomEnv(gym.Env):
         info["end"] = end                 # why the rollout ended: exit, death, key, portal, time, combat
         info["max_tics"] = self.cfg.max_tics
         return obs, float(reward), terminated, truncated, info
-
-    def _stride(self, prev: dict, d: dict) -> float:
-        """The straight-movement reward for the step from prev to d
-        (RewardConfig.straight), keeping the run of strides."""
-        rc = self.cfg.rewards
-        if prev.get("x") is None or d.get("x") is None:
-            self._straight_run, self._straight_dir = 0, None
-            return 0.0
-        v = np.array([d["x"] - prev["x"], d["y"] - prev["y"]], dtype=float)
-        n = float(np.hypot(*v))
-        if not rc.straight_min <= n <= rc.straight_max:
-            self._straight_run, self._straight_dir = 0, None
-            return 0.0
-        v /= n
-        same = (self._straight_dir is not None
-                and float(v @ self._straight_dir) >= np.cos(np.radians(rc.straight_angle)))
-        self._straight_run = self._straight_run + 1 if same else 1
-        self._straight_dir = v
-        return rc.straight * min(self._straight_run, rc.straight_cap)
 
     def set_map(self, iwad: str | None, warp: str) -> bool:
         """Move this instance to another map (and IWAD; None keeps the
@@ -605,7 +570,11 @@ class DiabloDoomEnv(gym.Env):
             return bool(d["monstervis"])
         return len(d.get("targets", [])) > 0
 
-    def _update_triggers(self, d: dict) -> float:
+    def _update_triggers(self, d: dict, tics: int = 0) -> float:
+        """Start, age and end the CONSULT triggers; the miss penalty once
+        one goes unanswered past its grace: grace_tics game tics for a
+        monster or a full backpack, grace_decisions steps in combat
+        (frozen: no tics pass there)."""
         rc = self.cfg.rewards
         live = {
             "monster": self._monster_visible(d),
@@ -618,11 +587,12 @@ class DiabloDoomEnv(gym.Env):
             if on and not t["active"]:
                 self._trig[k] = t = {"active": True, "consulted": False, "age": 0, "penalized": False}
             elif on:
-                t["age"] += 1
+                t["age"] += 1 if k == "combat" else tics
             else:
                 t["active"] = False
+            grace = rc.grace_decisions if k == "combat" else rc.grace_tics
             if (t["active"] and not t["consulted"] and not t["penalized"]
-                    and t["age"] >= rc.grace_decisions):
+                    and t["age"] >= grace):
                 penalty += rc.trigger_miss
                 t["penalized"] = True
         return penalty

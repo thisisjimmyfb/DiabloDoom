@@ -177,7 +177,7 @@ static void T_ForceMapParse(void)
 static void T_ForceMapNoteCommand(const char *cmd)
 {
     static const char *acts[] = { "WALK", "TURNL", "TURNR", "STRAFE_L", "STRAFE_R",
-                                  "USE", "CONSULT", NULL };
+                                  "PRESS", "USE", "CONSULT", NULL };
     int i;
     if (!strncmp(cmd, "LOAD", 4) && (cmd[4] == '\0' || cmd[4] == ' '))
     {
@@ -367,6 +367,7 @@ void T_ExploreTick(void)
     // on combat entry; blocks FIFO input while active).
     T_CollectTick();
     RL_SpawnTick();              // -rlenv -rlspawn: CONSULT practice monsters
+    RL_MoveTick();               // -rlenv -rlfast: count the fast tics
     T_MapTick();                 // driver MAP: close the map after 0.5 s
     if (++explore_sight_tic >= 7)
     {
@@ -1174,6 +1175,74 @@ static int cmd_wait_tics = 0;
 static int cmd_turn_tics_left = 0;  // >0 while a smooth turn runs
 static int cmd_turn_dir = 0;        // +1 left, -1 right
 
+// PRESS <keys> (2026-11-15): the keys held for the next tic, the
+// policy's per-tic input. Letters: W/S run forward/back, A/D strafe
+// left/right, L/R turn left/right ("PRESS" alone holds nothing).
+// G_BuildTiccmd adds T_DriverPress() to the ticcmd, so P_MovePlayer
+// moves the player exactly as those keys held on a keyboard do (run
+// speed, the run turn rate: 1280 angle units, about 7 degrees a tic).
+// Under -rlenv a decision follows every tic, so the next PRESS
+// replaces them; under -rldrive they stay held until the next
+// command line. Any gameplay line releases them first (cmd_dispatch),
+// so a line without PRESS (USE alone, WALK, ...) holds nothing, and
+// several PRESS commands in one line (PRESS W; PRESS A) add up.
+// Explore only.
+static int press_forward = 0;       // +1 W, -1 S
+static int press_side = 0;          // +1 D, -1 A
+static int press_turn = 0;          // +1 L, -1 R
+
+static void T_PressRelease(void)
+{
+    press_forward = press_side = press_turn = 0;
+}
+
+static boolean T_IsPress(const char *cmd)
+{
+    return !strncmp(cmd, "PRESS", 5) && (cmd[5] == '\0' || cmd[5] == ' ');
+}
+
+// Adds keys to the held set (the line dispatcher releases them once at
+// the start of each line). Opposite keys cancel, as on a keyboard.
+static void T_PressAdd(const char *keys)
+{
+    const char *k;
+    for (k = keys; *k != '\0'; k++)
+    {
+        switch (*k)
+        {
+            case 'W': press_forward += 1; break;
+            case 'S': press_forward -= 1; break;
+            case 'D': press_side += 1; break;
+            case 'A': press_side -= 1; break;
+            case 'L': press_turn += 1; break;
+            case 'R': press_turn -= 1; break;
+            case ' ': break;
+            default:
+                printf("[PRESS] unknown key '%c' (W A S D L R)\n", *k);
+                break;
+        }
+    }
+    press_forward = press_forward > 0 ? 1 : press_forward < 0 ? -1 : 0;
+    press_side = press_side > 0 ? 1 : press_side < 0 ? -1 : 0;
+    press_turn = press_turn > 0 ? 1 : press_turn < 0 ? -1 : 0;
+}
+
+void T_DriverPress(int *forward, int *side, short *turn)
+{
+    extern fixed_t angleturn[3];
+    if (!(press_forward || press_side || press_turn))
+        return;
+    if (gamestate != GS_LEVEL || !T_InExplore()
+     || players[consoleplayer].mo == NULL || players[consoleplayer].health <= 0)
+    {
+        T_PressRelease();
+        return;
+    }
+    *forward += press_forward * forwardmove[1];
+    *side += press_side * sidemove[1];
+    *turn += press_turn * angleturn[1];
+}
+
 // SURVEY: one driver command for a full 360-degree survey spin.
 // Same smooth-turn machinery as TURNL/TURNR, but at double the
 // step (10 degrees per tic), so 36 tics for the full circle
@@ -1403,20 +1472,18 @@ static void cmd_ingest(void)
 // ------------------------------------------------------------------
 // -rlenv decision points (agent/training/SPEC.md). A decision is due
 // when the driver is idle and the game is waiting on its next input:
-// - EXPLORE: no queued command, no WAIT/turn/survey gate, no
-//   walk/GOTO/COLLECT running, and the player has stopped sliding
-//   (momentum zero) or RL_SETTLE_MAX tics have passed since the
-//   driver went idle (a conveyor or a slope must not stall a step);
+// - EXPLORE: every tic (2026-11-15: the policy's input is per tic,
+//   PRESS), unless a multi-tic command still runs -- a WAIT/turn/
+//   survey gate or a WALK/GOTO/COLLECT -- and then on the tic it ends;
+//   no queued command;
 // - PLANNING / TARGETING / CONFIRM: waiting for planning input;
 // - the player is dead, or the game is between levels.
 // At a decision the engine publishes the frame, sends one "decision"
 // STATE line, and blocks on the command pipe until a line arrives.
 // ------------------------------------------------------------------
-#define RL_SETTLE_MAX 35
 static void cmd_drain(void (*dispatch)(const char *));
 static void cmd_dispatch(const char *cmd);
 static int rl_last_decision_tic = 0;
-static int rl_settle_tics = 0;
 
 static boolean rl_decision_due(void)
 {
@@ -1432,23 +1499,9 @@ static boolean rl_decision_due(void)
     if (pl->mo == NULL || pl->playerstate == PST_DEAD || pl->health <= 0)
         return true;
     if (cmd_wait_tics > 0 || cmd_turn_tics_left > 0 || cmd_survey_log_pending)
-    {
-        rl_settle_tics = 0;
         return false;
-    }
     if (T_InExplore())
-    {
-        if (T_WalkActive() || T_GotoActive() || T_CollectActive())
-        {
-            rl_settle_tics = 0;
-            return false;
-        }
-        if ((pl->mo->momx == 0 && pl->mo->momy == 0)
-         || rl_settle_tics >= RL_SETTLE_MAX)
-            return true;
-        rl_settle_tics++;
-        return false;
-    }
+        return !(T_WalkActive() || T_GotoActive() || T_CollectActive());
     if ((turnctrl.state == TS_PLANNING || turnctrl.state == TS_TARGETING
          || turnctrl.state == TS_CONFIRM) && !turnctrl.executing)
         return true;
@@ -1469,7 +1522,7 @@ static void rl_decision_point(void)
     RL_EmitState("decision", gametic - rl_last_decision_tic);
     rl_fmap_frame = false;
     rl_last_decision_tic = gametic;
-    rl_settle_tics = 0;
+    RL_DecisionMade();
     pfd.fd = cmdfd;
     pfd.events = POLLIN;
     while (cmd_q_count == 0)
@@ -1517,7 +1570,7 @@ static void rl_decision_publish(void)
     RL_EmitState("decision", gametic - rl_last_decision_tic);
     rl_fmap_frame = false;
     rl_last_decision_tic = gametic;
-    rl_settle_tics = 0;
+    RL_DecisionMade();
     rl_published_kind = kind;
 }
 
@@ -1851,11 +1904,46 @@ static void T_SnapToNearestWall(void)
     }
 }
 
-// Dispatch a single driver command line from the FIFO.
-static void cmd_dispatch(const char *cmd)
+// Dispatch a single driver command line from the FIFO (2026-11-15):
+// commands joined with ';' all run in this tic, in order, with no gate
+// between them ("PRESS W; PRESS A; USE": run, strafe and use on one
+// tic). Separate lines still run one per tic, so a USE, WAIT, GOTO
+// batch keeps its spacing. Per line, not per command: the forced-map
+// count (once, by the line's first command) and the PRESS key release
+// (any gameplay line starts from nothing held).
+static void cmd_dispatch_one(const char *cmd);
+
+static void cmd_dispatch(const char *line)
 {
+    char buf[CMD_LINE_MAX];
+    char *part, *next;
+
     T_ForceMapParse();
-    T_ForceMapNoteCommand(cmd);
+    T_ForceMapNoteCommand(line);
+    if (!cmd_is_diagnostic(line))
+        T_PressRelease();
+    M_StringCopy(buf, line, sizeof(buf));
+    for (part = buf; part != NULL; part = next)
+    {
+        char *end;
+        next = strchr(part, ';');
+        if (next != NULL)
+            *next++ = '\0';
+        while (*part == ' ' || *part == '\t')
+            part++;
+        end = part + strlen(part);
+        while (end > part && (end[-1] == ' ' || end[-1] == '\t'))
+            *--end = '\0';
+        // Empty pieces (";;", a trailing ';') are skipped; an empty
+        // line still dispatches as before.
+        if (*part != '\0' || (part == buf && next == NULL))
+            cmd_dispatch_one(part);
+    }
+}
+
+// One driver command.
+static void cmd_dispatch_one(const char *cmd)
+{
     // Any driver command counts as activity for the idle Zug Zug timer.
     {
         extern void D_UINoteActivity(void);
@@ -1878,7 +1966,9 @@ static void cmd_dispatch(const char *cmd)
             mode_str = "REACTION";
         else if (turnctrl.state == TS_OFF)
             mode_str = "OFF";
-        printf("[CMD] %s (mode=%s)\n", cmd, mode_str);
+        // PRESS comes every tic: no log line (it would flood the log).
+        if (!T_IsPress(cmd))
+            printf("[CMD] %s (mode=%s)\n", cmd, mode_str);
     }
     // Show the executed command as an on-screen status message
     // (2026-10-24): the vanilla message pipeline -- HU_Ticker
@@ -1890,7 +1980,7 @@ static void cmd_dispatch(const char *cmd)
     // only when they actually execute.
     // Not under -rlenv: the echo would put the policy's last action
     // into its own observation and churn the HUD message line.
-    if (cmd[0] != '\0' && !rlenv)
+    if (cmd[0] != '\0' && !rlenv && !T_IsPress(cmd))
     {
         static char cmd_msg[96];
         M_snprintf(cmd_msg, sizeof(cmd_msg), "CMD %s", cmd);
@@ -2048,6 +2138,23 @@ static void cmd_dispatch(const char *cmd)
         {
             cmd_turn_tics_left = CMD_TURN_TICS;
             cmd_turn_dir = -1;
+        }
+    }
+    else if (T_IsPress(cmd))
+    {
+        // PRESS <keys>: the keys held for the next tic (see
+        // T_DriverPress). Explore only; a press cancels a running
+        // WALK / GOTO, the way a key press takes the player back --
+        // only a running one: cancelling a GOTO zeroes the momentum,
+        // which on every tic would pin the player in place.
+        player_t *pl = &players[consoleplayer];
+        if (T_InExplore() && pl->mo != NULL && pl->health > 0)
+        {
+            if (T_WalkActive())
+                T_WalkCancel();
+            if (T_GotoActive())
+                T_GotoCancel();
+            T_PressAdd(cmd + 5);
         }
     }
     else if (!strcmp(cmd, "SURVEY"))

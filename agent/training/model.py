@@ -22,10 +22,20 @@ import torch.nn as nn
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from env import ACTIONS, CONSULT  # noqa: E402
 
-# Warm-up uses movement only (no CONSULT).
+# Warm-up uses movement only (no CONSULT), each action held for
+# WARMUP_HOLD tics (decisions are per tic: single random tics would
+# barely move the player).
 WARMUP_ACTIONS = [i for i in range(len(ACTIONS)) if i != CONSULT]
-# The action set before MAP was removed (2026-11-14): MAP was output 6 of 8.
-OLD_ACTIONS_WITH_MAP, OLD_MAP_INDEX = 8, 6
+WARMUP_HOLD = 15
+# Older action sets, by output count, and the current action each old
+# output carries over to (2026-11-15: per-tic PRESS keys replaced the
+# multi-tic WALK 0 / TURNL / TURNR / STRAFE_L / STRAFE_R).
+OLD_ACTION_SETS = {
+    8: ["WALK 0", "TURNL", "TURNR", "STRAFE_L", "STRAFE_R", "USE", "MAP", "CONSULT"],
+    7: ["WALK 0", "TURNL", "TURNR", "STRAFE_L", "STRAFE_R", "USE", "CONSULT"],
+}
+OLD_TO_NEW = {"WALK 0": "PRESS W", "TURNL": "PRESS L", "TURNR": "PRESS R",
+              "STRAFE_L": "PRESS A", "STRAFE_R": "PRESS D", "USE": "USE", "CONSULT": "CONSULT"}
 N_PRIV = 2  # privileged critic inputs: HP/100, exit path distance (SPEC.md §6)
 
 
@@ -71,7 +81,8 @@ def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
         key_goal=key_goal,
         force_map_every=force_map,
         force_map_tics=force_map_tics,
-        rewards=RewardConfig(time=time_penalty / 35.0),
+        # A fast tic pays back the clock's base rate (RewardConfig.fast).
+        rewards=RewardConfig(time=time_penalty / 35.0, fast=time_penalty / 35.0),
     ))
 
 
@@ -132,33 +143,58 @@ class Policy(nn.Module):
         return logits, value
 
 
+def _old_rows(n_old: int) -> dict[int, int]:
+    """{current output: older output} for an older action set's head."""
+    old = OLD_ACTION_SETS[n_old]
+    return {ACTIONS.index(OLD_TO_NEW[name]): i for i, name in enumerate(old) if name in OLD_TO_NEW}
+
+
+def _upgrade_rows(t: torch.Tensor, fresh: torch.Tensor) -> torch.Tensor:
+    """Policy-head rows (or their Adam moments) of an older action set ->
+    the current one: each old output that carries over keeps its row,
+    every other current output takes the fresh row."""
+    out = fresh.to(t).clone()
+    for new, old in _old_rows(t.shape[0]).items():
+        out[new] = t[old]
+    return out
+
+
 def upgrade_policy_state(state: dict) -> dict:
-    """A policy state dict from the 8-action set (with MAP) -> the
-    current one: drop MAP's row of the policy head (every other output
-    keeps its weights, so the policy acts the same minus MAP). Anything
-    else is returned unchanged."""
+    """A policy state dict from an older action set (OLD_ACTION_SETS) ->
+    the current one. Each old output keeps its weights in the place of
+    the action it carries over to (OLD_TO_NEW: WALK 0 -> PRESS W, the
+    45-degree turns -> PRESS L/R, the strafes -> PRESS A/D; MAP is
+    dropped); the other outputs are initialised like a new head (a fixed
+    seed, so every load gives the same policy) with the old outputs'
+    mean bias, so each starts near an average action's probability.
+    A current-size state, or one of an action set this version doesn't
+    know (the caller reports the mismatch), is returned unchanged."""
     w = state.get("policy_head.weight")
-    if w is not None and w.shape[0] == OLD_ACTIONS_WITH_MAP and len(ACTIONS) == OLD_ACTIONS_WITH_MAP - 1:
-        keep = [i for i in range(OLD_ACTIONS_WITH_MAP) if i != OLD_MAP_INDEX]
-        state = dict(state)
-        state["policy_head.weight"] = w[keep].clone()
-        state["policy_head.bias"] = state["policy_head.bias"][keep].clone()
-        print("[ckpt] upgraded an 8-action policy (MAP removed)")
+    if w is None or w.shape[0] not in OLD_ACTION_SETS:
+        return state
+    state = dict(state)
+    gen = torch.Generator().manual_seed(0)
+    fresh_w = torch.empty(len(ACTIONS), w.shape[1])
+    nn.init.orthogonal_(fresh_w, 0.01, generator=gen)
+    b = state["policy_head.bias"]
+    state["policy_head.weight"] = _upgrade_rows(w, fresh_w)
+    state["policy_head.bias"] = _upgrade_rows(b, torch.full((len(ACTIONS),), float(b.mean())))
+    print(f"[ckpt] upgraded a {w.shape[0]}-action policy to {len(ACTIONS)} actions")
     return state
 
 
 def upgrade_optimizer_state(opt_state: dict, policy) -> dict:
-    """The Adam state of an 8-action checkpoint -> the current policy:
-    drop MAP's row from the policy head's moment estimates."""
+    """The Adam state of an older action set's checkpoint -> the current
+    policy: the policy head's moment estimates follow its rows (zeros
+    for the outputs that are new)."""
     names = [n for n, _ in policy.named_parameters()]
-    keep = [i for i in range(OLD_ACTIONS_WITH_MAP) if i != OLD_MAP_INDEX]
     for idx in (names.index("policy_head.weight"), names.index("policy_head.bias")):
         st = opt_state["state"].get(idx)
         if not st:
             continue
         for k in ("exp_avg", "exp_avg_sq"):
-            if k in st and st[k].shape[0] == OLD_ACTIONS_WITH_MAP:
-                st[k] = st[k][keep].clone()
+            if k in st and st[k].shape[0] != len(ACTIONS):
+                st[k] = _upgrade_rows(st[k], torch.zeros((len(ACTIONS), *st[k].shape[1:])))
     return opt_state
 
 
@@ -400,8 +436,9 @@ def add_env_args(p) -> None:
                         "this; progress puts it back to --max-tics (cap <= --max-tics: off)")
     p.add_argument("--tics-growth", type=float, default=1.5,
                    help="factor the per-map tic budget grows by after a batch without progress")
-    p.add_argument("--force-map", type=int, default=4,
-                   help="forced map glance: the env sends MAP itself after every N steps, so the "
+    p.add_argument("--force-map", type=int, default=120,
+                   help="forced map glance: the env sends MAP itself after every N steps (a step is "
+                        "a game tic: default about every 3.4 s), so the "
                         "automap is in the frame stack and the vision layers learn to read it "
                         "(0: off). Fixed for the run; resume with another N to change it. The "
                         "held-out eval never forces glances")
@@ -410,7 +447,8 @@ def add_env_args(p) -> None:
                         "1: the policy still gets the map as its next frame, and it closes on the "
                         "first tic of the next action)")
     p.add_argument("--warmup-max", type=int, default=40,
-                   help="random warm-up actions per group start (0..N), for start-state variety")
+                   help="random warm-up actions per group start (0..N, each held for WARMUP_HOLD "
+                        "tics), for start-state variety")
 
 
 # ---------------------------------------------------------------------------

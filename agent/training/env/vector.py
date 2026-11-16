@@ -11,6 +11,7 @@ is asked to.
 from __future__ import annotations
 
 import multiprocessing as mp
+import signal
 import traceback
 from typing import Callable, Sequence
 
@@ -18,6 +19,10 @@ import numpy as np
 
 
 def _worker(remote, env_fn):
+    # Ctrl-C reaches the whole foreground process group, workers included;
+    # the trainer decides what happens (an end-of-run eval, then close()),
+    # so a worker never dies of it on its own.
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
     env = None
     try:
         env = env_fn()

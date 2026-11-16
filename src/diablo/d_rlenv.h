@@ -97,6 +97,17 @@ void RL_NoteBackpackFull(void);
 // killed (kill count and Diablo drops, as if the VLM had fought it).
 void RL_SpawnTick(void);
 void RL_SpawnSeed(int n);
+
+// Fast movement (-rlenv, for the env's velocity reward). With
+//   -rlfast <units>      map units per tic
+// RL_MoveTick (each explore tic) counts the tics on which the player
+// actually moved at least <units> since the tic before -- position, not
+// momentum, so pushing into a wall never counts -- and the state line
+// carries the count since the last decision as "fast_tics" (absent
+// when off). A jump of more than 64 units in one tic (a teleport, a
+// LOAD) is not movement. RL_DecisionMade resets the count.
+void RL_MoveTick(void);
+void RL_DecisionMade(void);
 void RL_LevelSetup(void);
 void RL_Consult(void);
 // Explore detection found mo acquiring the player: if it is a practice

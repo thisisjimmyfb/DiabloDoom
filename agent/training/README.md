@@ -26,16 +26,23 @@ game = gym.make("DiabloDoom-v0", config=EnvConfig(
     consult_handler=standin_consult,
 ))
 obs, info = game.reset(options={"slot": 5, "seed": 17, "group": 0})
-obs, reward, terminated, truncated, info = game.step(0)   # WALK 0
+obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward for one tic
 ```
 
 - **Observation:** `uint8 (4, 84, 84)`, the last 4 decision frames in
   grayscale, area-resampled from the 320x200 screen (status bar kept).
-- **Actions:** `Discrete(7)`, see `env.ACTIONS`: `WALK 0` (a fixed step
-  forward), `TURNL`/`TURNR` (45°), `STRAFE_L`/`STRAFE_R`, `USE`,
-  `CONSULT`. There is no `MAP` action (removed 2026-11-14): the map is
-  shown only by the env's forced glances. An 8-action checkpoint (with
-  `MAP`) is upgraded on load: `MAP`'s output is dropped, the rest kept. In combat,
+- **Actions:** `Discrete(29)`, one decision every game tic (2026-11-15),
+  see `env.ACTIONS`: `PRESS <keys>`, the keys held for the next tic, in
+  every combination of one key or none from each pair (W/S run
+  forward/back, A/D strafe, L/R turn about 7° a tic; `PRESS` alone holds
+  nothing), then `USE` and `CONSULT`. The engine's multi-tic commands
+  (`WALK`, `GOTO`, the 45° `TURNL`/`TURNR`, ...) stay for the farm driver.
+  There is no `MAP` action (removed 2026-11-14): the map is shown only by
+  the env's forced glances. Older checkpoints are upgraded on load: each
+  old output keeps its weights in the place of the action it carries over
+  to (`WALK 0` -> `PRESS W`, the turns -> `PRESS L`/`R`, the strafes ->
+  `PRESS A`/`D`, `USE`, `CONSULT`; `MAP` dropped), the new outputs start
+  fresh, and the optimizer state follows. In combat,
   every action except `CONSULT` is dropped: no command is sent, no game
   time passes, and the step is penalized until the policy consults.
 - **CONSULT** calls `EnvConfig.consult_handler(game, state, kinds)`.
@@ -59,15 +66,17 @@ obs, reward, terminated, truncated, info = game.step(0)   # WALK 0
   portal. Until it ends, time and distance cost one
   penalty: every game tic costs `time` x (1 + d / `far_scale`), d the
   distance (map units, the mean of the step's start and end) to the
-  nearest goal -- the exit line, or a frontier portal (a passable
-  two-sided line from a visited sector into an unvisited one; doors and
-  lifts count by their special). `time` is `--time-penalty` (1/3 per game
+  nearest portal of the player's current sector (2026-11-16: a passable
+  two-sided line into any other sector, visited or not; doors and lifts
+  count by their special; before, the nearer of the exit line and the
+  nearest frontier portal). `time` is `--time-penalty` (1/3 per game
   second) and `far_scale` 256, so the clock runs at 1/3 point per second
-  beside a goal and twice that 256 units away: being far costs more the
-  longer it lasts, and the faster crossing wins its group. It does little
+  beside a way out of the room and twice that 256 units away: being far
+  costs more the longer it lasts, and the faster crossing wins its group.
+  A sector with no portal costs the base rate. It does little
   without the goal: rollouts that all run to the limit pay alike, and the
-  group-relative advantage cancels most of it. The distances come from
-  the state line (`exit_dist`, `frontier_dist`) and shape the reward only:
+  group-relative advantage cancels most of it. The distance comes from
+  the state line (`portal_dist`) and shapes the reward only:
   the policy acts from the frames alone. The held-out eval keeps
   `--eval-max-tics` (2100) with no goal and no penalty, so its numbers
   compare across versions. Stage 1 has no map monsters, but passive
@@ -80,12 +89,13 @@ obs, reward, terminated, truncated, info = game.step(0)   # WALK 0
   (a medikit 5, a +1 health bonus 0.2), the mirror of `hp_loss`.
   Forced map glances (`--force-map`), done by the engine: the env sends
   `FORCEMAP N tics` when a game starts, and after every N gameplay
-  commands (WALK, turns, strafes, USE, CONSULT; a LOAD resets the count)
+  commands (PRESS -- every tic --, USE, CONSULT, and the multi-tic WALK, turns
+  and strafes; a LOAD resets the count)
   the next decision point in explore mode opens the automap, runs that
   tic and publishes the frame with the map on it (`"forced_map":true`;
   skipped while the map is open, never charged), so the automap sits in
   the frame stack and the vision layers learn to read it. `--force-map N`
-  (default 4, 0 off) is fixed for the run; to change it, stop and resume
+  (default 120: a step is a tic, so about every 3.4 s; 0 off) is fixed for the run; to change it, stop and resume
   with another N. A forced glance keeps the map up `--force-map-tics`
   game tics (default 1: the policy gets the map as its next frame, keeps
   it in its frame stack, and on screen it closes on the first tic of the
@@ -166,7 +176,7 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   every IWAD, and metrics add `sectors_<iwad>`/`exit_rate_<iwad>`. Save
   slots are IWAD-specific, so `--slots` needs a single IWAD. All members of a
   group start from the same slot, seed and `--warmup-max` random warm-up
-  actions, so only action sampling separates them. Until prepared save
+  actions (each held for 15 tics), so only action sampling separates them. Until prepared save
   slots exist (`--slots-dir`, `--slots`), the warm-up is what varies the
   start states.
 - **Advantage:** group-normalized return (`--advantage outcome`) or the
@@ -214,7 +224,11 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   removes it.
 - **Eval:** at the start and at the end of each run, and every
   `--eval-every N` iterations as well when N > 0 (default 0); the end
-  prints the change per IWAD and map (`[eval delta]`). `--eval-maps ''`
+  prints the change per IWAD and map (`[eval delta]`). A run stopped
+  with Ctrl-C (or SIGTERM) still evals at the end: the last saved
+  checkpoint's weights (reloaded, since the update in progress is
+  dropped); a second Ctrl-C skips it, and an interrupt during an eval
+  or before the first update finished has none. `--eval-maps ''`
   turns evals off; nothing in training reads them. Each eval plays
   `--eval-episodes` rollouts on each `--eval-maps` map (held out:
   E1M5, E1M6) from a fixed start (no progress saves), scored with the

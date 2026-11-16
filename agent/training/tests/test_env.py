@@ -15,6 +15,7 @@ RANDOM_STEPS = 10000      # random agent: decisions across resets
 DETERM_STEPS = 1500       # determinism: decisions per run
 VECTOR_K = 8              # throughput: instances
 VECTOR_STEPS = 1000       # throughput: steps per instance
+MOVES = [i for i, a in enumerate(ACTIONS) if a != "CONSULT"]   # every action but CONSULT
 
 
 def make_env(**kw) -> DiabloDoomEnv:
@@ -70,7 +71,7 @@ def test_determinism():
             e.reset(options={"seed": 42})
             state, frames = None, []
             for _ in range(DETERM_STEPS):
-                obs, r, term, trunc, info = e.step(int(rng.integers(len(ACTIONS) - 1)))
+                obs, r, term, trunc, info = e.step(int(rng.choice(MOVES)))
                 state = info["state"]
                 frames.append(int(obs.astype(np.int64).sum()))
                 if term or trunc:
@@ -103,12 +104,13 @@ def test_vector_throughput():
 
 @pytest.mark.game
 def test_explore_strafe():
-    """An explore strafe moves sideways without turning."""
+    """Holding A (PRESS A, 10 tics) moves sideways without turning."""
     e = make_env()
     try:
         e.reset(options={"seed": 0})
         s0 = e.state
-        _, _, _, _, info = e.step(ACTIONS.index("STRAFE_L"))
+        for _ in range(10):
+            _, _, _, _, info = e.step(ACTIONS.index("PRESS A"))
         s1 = info["state"]
     finally:
         e.close()
@@ -169,7 +171,7 @@ def test_hp_loss_and_death():
     top of the HP it lost. Engine faked: no game needed."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hp_loss=-0.2, death=-100.0,
-                        loot=0, health=0, straight=0, wall=0)
+                        loot=0, health=0, fast=0)
     e = make_env(rewards=only, max_tics=100000)
     states = iter([{"mode": "EXPLORE", "hp": 90, "tics": 10},     # nukage: -10 hp
                    {"mode": "EXPLORE", "hp": 100, "tics": 10},    # healed: nothing
@@ -192,72 +194,95 @@ def test_hp_loss_and_death():
     assert ends == [False, False, False, True]
 
 
-def test_straight_walk():
-    """Straight movement pays from where the player actually went, not the
-    action: consecutive unimpeded strides (86..192 map units) within 15
-    degrees of each other pay straight x the run length (capped); a step
-    cut short by a wall, a slide off at an angle, a turn in place or a
-    teleport starts the run over. Engine faked: no game needed."""
+@pytest.mark.game
+def test_fast_tics():
+    """E1M1: running (PRESS W) passes 4 units/tic within a few tics and
+    then every tic counts (fast_tics, -rlfast added by the env), each
+    paying `fast`; running into a wall has none."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hp_loss=0, death=0,
-                        loot=0, health=0, straight=0.02, straight_cap=3, wall=0)
-    e = make_env(rewards=only, max_tics=100000)
-    walk, turn, left = (ACTIONS.index(a) for a in ("WALK 0", "TURNL", "STRAFE_L"))
-    # (action, where the player ends up, the reward)
-    plan = [(walk, (96, 0), 0.02), (walk, (192, 0), 0.04),      # strides east: 1x, 2x
-            (walk, (288, 5), 0.06), (walk, (384, 5), 0.06),     # 3 degrees off still counts; capped at 3x
-            (walk, (414, 5), 0.0),                              # into a wall: cut short
-            (walk, (414, 5), 0.0),                              # still the wall: the action alone never pays
-            (turn, (414, 5), 0.0),                              # a turn doesn't move the player
-            (left, (414, 101), 0.02), (left, (414, 197), 0.04),  # strafing north: a new run
-            (walk, (500, 240), 0.02),                           # 27 degrees off (deflected): a new run
-            (walk, (2000, 240), 0.0),                           # a teleport is no stride
-            (walk, (2096, 240), 0.02)]
-    moves = iter(plan)
-    e.engine.command = lambda line: ((lambda p: {"mode": "EXPLORE", "hp": 100, "tics": 28,
-                                                 "x": p[0], "y": p[1]})(next(moves)[1]), [])
-    e._frame = lambda: np.zeros((200, 320), dtype=np.uint8)
-    e.state = {"mode": "EXPLORE", "hp": 100, "x": 0, "y": 0}
-    e._prev_hp, e._tics, e._combat_steps, e._straight_run, e._straight_dir = 100, 0, 0, 0, None
-    e._best_sectors = e._start_sectors = 0
-    e._keys, e._goal, e._group, e._slot, e._seed = 0, None, 0, None, 0
-    e._trig = {k: e._new_trigger() for k in ("monster", "backpack", "combat")}
-    e._stack.reset(e._frame())
-    got = [round(e.step(a)[1], 6) for a, _, _ in plan]
-    assert got == [want for _, _, want in plan], got
+                        loot=0, health=0, fast=0.005, fast_speed=4)
+    e = make_env(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only, max_tics=100000)
+    try:
+        assert e.cfg.engine.extra_args[-2:] == ["-rlfast", "4"]
+        e.reset(options={"seed": 1})
+        w = ACTIONS.index("PRESS W")
+        fast = []
+        for _ in range(12):
+            _, r, _, _, info = e.step(w)
+            fast.append(info["state"]["fast_tics"])
+            assert info["tics"] == 1 and r == pytest.approx(0.005 * fast[-1])
+        assert fast[:2] == [0, 0] and fast[-6:] == [1] * 6, fast
+        for _ in range(200):                # on until a wall stops the player
+            _, r, _, _, info = e.step(w)
+        assert info["state"]["fast_tics"] == 0 and r == 0.0, "pushing into a wall is not moving"
+    finally:
+        e.close()
 
 
+@pytest.mark.game
+def test_press():
+    """E1M1, a decision every tic: PRESS W runs (accelerating, facing
+    unchanged), PRESS L turns about 7 degrees a tic in place, PRESS WL
+    does both at once, PRESS alone lets the player coast to a stop. The
+    engine's multi-tic commands still run to their end (WALK 0, TURNL),
+    and the next decision is one tic later again."""
+    e = make_env(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), max_tics=100000)
+    try:
+        def hold(name, n):
+            x, y, a = e.state["x"], e.state["y"], e.state["angle"]
+            for _ in range(n):
+                _, _, _, _, info = e.step(ACTIONS.index(name))
+                assert info["tics"] == 1, (name, info["tics"])
+            d = info["state"]
+            return float(np.hypot(d["x"] - x, d["y"] - y)), (d["angle"] - a) % 360
+        e.reset(options={"seed": 1})
+        moved, turned = hold("PRESS W", 10)
+        assert moved > 45 and turned == 0, (moved, turned)
+        moved, turned = hold("PRESS", 40)
+        assert moved > 10 and e.state["x"] == e.step(ACTIONS.index("PRESS"))[4]["state"]["x"], "coasts, then stops"
+        moved, turned = hold("PRESS L", 10)
+        assert moved < 3 and 55 <= turned <= 75, (moved, turned)
+        moved, turned = hold("PRESS WL", 10)
+        assert moved > 40 and 55 <= turned <= 75, (moved, turned)
+        hold("PRESS", 40)
+        d, _ = e.engine.command("TURNL")
+        assert d["tics"] == 10, "a legacy 45-degree turn runs to its end"
+        d, _ = e.engine.command("WALK 0")
+        assert d["tics"] > 10
+        hold("PRESS", 1)
+    finally:
+        e.close()
 
-def test_wall_bump():
-    """A move (walk or strafe) that the geometry stops short of half a step
-    costs `wall`; a full step, a turn, or a move in combat costs nothing.
-    Engine faked: no game needed."""
-    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
-                        consult_false=0, key=0, time=0, hp_loss=0, death=0,
-                        loot=0, health=0, straight=0, wall=-0.1)
-    e = make_env(rewards=only, max_tics=100000)
-    walk, turn, right = (ACTIONS.index(a) for a in ("WALK 0", "TURNL", "STRAFE_R"))
-    plan = [(walk, (96, 0), 0.0),        # a full step
-            (walk, (126, 0), -0.1),      # reaches the wall after 30 units
-            (walk, (126, 0), -0.1),      # pressing into it
-            (right, (126, 0), -0.1),     # strafing into a wall too
-            (turn, (126, 0), 0.0),       # turning never moves the player: no bump
-            (walk, (126, 96), 0.0)]      # off along the new heading
-    moves = iter(plan)
-    e.engine.command = lambda line: ((lambda p: {"mode": "EXPLORE", "hp": 100, "tics": 28,
-                                                 "x": p[0], "y": p[1]})(next(moves)[1]), [])
-    e._frame = lambda: np.zeros((200, 320), dtype=np.uint8)
-    e.state = {"mode": "EXPLORE", "hp": 100, "x": 0, "y": 0}
-    e._prev_hp, e._tics, e._combat_steps, e._straight_run, e._straight_dir = 100, 0, 0, 0, None
-    e._best_sectors = e._start_sectors = 0
-    e._keys, e._goal, e._group, e._slot, e._seed = 0, None, 0, None, 0
-    e._trig = {k: e._new_trigger() for k in ("monster", "backpack", "combat")}
-    e._stack.reset(e._frame())
-    got = [round(e.step(a)[1], 6) for a, _, _ in plan]
-    assert got == [want for _, _, want in plan], got
-    # In combat a move is dropped (the world is frozen): no bump.
-    e.state = {"mode": "PLANNING", "hp": 100, "x": 126, "y": 96}
-    assert e.step(walk)[2:4] == (False, False) and e.step(walk)[1] == 0.0
+
+@pytest.mark.game
+def test_command_batch():
+    """Commands joined with ';' run on one tic: PRESS W; PRESS A holds both
+    keys (the same run as PRESS WA), PRESS W; USE runs and uses in one
+    1-tic decision, and a line without PRESS releases the keys. Separate
+    lines still run one per tic."""
+    e = make_env(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), max_tics=100000)
+    try:
+        def run(lines):
+            e.reset(options={"seed": 1})
+            x, y = e.state["x"], e.state["y"]
+            for line in lines:
+                d, _ = e.engine.command(line)
+                assert d["tics"] == 1, (line, d["tics"])
+            return d["x"], d["y"], float(np.hypot(d["x"] - x, d["y"] - y))
+        one = run(["PRESS WA"] * 10)
+        assert run(["PRESS W; PRESS A"] * 10) == one, "two PRESS commands in a line add up"
+        assert run([" PRESS W ;PRESS A; "] * 10) == one, "spaces and an empty piece are ignored"
+        assert run(["PRESS W; PRESS S; PRESS A"] * 10) == run(["PRESS A"] * 10), "W and S cancel"
+        assert run(["PRESS W; USE"] * 10)[2] > 45, "USE in the line doesn't release the keys"
+        held = run(["PRESS W"] * 15)[2]
+        released = run(["PRESS W"] * 10 + ["USE"] * 5)[2]
+        assert released < held - 5, (released, held)
+        e.reset(options={"seed": 1})
+        d, _ = e.engine.command("PRESS W\nPRESS A")
+        assert d["tics"] == 2, "separate lines: one per tic"
+    finally:
+        e.close()
 
 
 def test_key_goal():
@@ -266,7 +291,7 @@ def test_key_goal():
     without key_goal a key only pays. Engine faked: no game needed."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=25.0, time=0, hp_loss=0, death=0,
-                        loot=0, health=0, straight=0, wall=0)
+                        loot=0, health=0, fast=0)
     for goal in (True, False):
         e = make_env(rewards=only, max_tics=100000, key_goal=goal)
         states = iter([{"mode": "EXPLORE", "hp": 100, "tics": 5, "keys": 1},    # blue held from the start
@@ -320,7 +345,8 @@ def test_mechanism_reward_once():
     rc = RewardConfig(mechanism=100.0)    # large, so it stands out from the other terms
     e = DiabloDoomEnv(EnvConfig(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]),
                                 max_tics=100000, rewards=rc))
-    use, turn_l, turn_r = ACTIONS.index("USE"), ACTIONS.index("TURNL"), ACTIONS.index("TURNR")
+    use, noop = ACTIONS.index("USE"), ACTIONS.index("PRESS")
+    moves = [ACTIONS.index(a) for a in ("PRESS W", "PRESS L", "PRESS R", "PRESS A", "PRESS D", "PRESS WL", "PRESS WR")]
     events = []
     command = e.engine.command
 
@@ -332,23 +358,29 @@ def test_mechanism_reward_once():
     try:
         rng = np.random.default_rng(1)
         e.reset(options={"seed": 0})
+        found = False
         for _ in range(4000):                 # random explore, heavy on USE, until a door opens
-            n = len(events)
-            _, r, term, trunc, _ = e.step(use if rng.random() < 0.3 else int(rng.choice([0, 1, 2, 3, 4])))
-            if len(events) > n:
+            # a move is held for 8 tics (single random tics barely move)
+            act, n_tics = (use, 1) if rng.random() < 0.3 else (int(rng.choice(moves)), 8)
+            for _ in range(n_tics):
+                n = len(events)
+                _, r, term, trunc, _ = e.step(act)
+                if len(events) > n:
+                    found = True
+                    break
+                if term or trunc:
+                    e.reset(options={"seed": 0})
+            if found:
                 break
-            if term or trunc:
-                e.reset(options={"seed": 0})
         else:
-            pytest.fail("no mechanism used in 4000 random steps")
+            pytest.fail("no mechanism used in 4000 random actions")
         first = events[-1]
         assert first["sectors"] and r >= 90, f"the first use pays ({first}, reward {r})"
 
         reopened = 0
-        for _ in range(3):                    # ~300 tics: the door closes, then reopen it
-            for _ in range(17):
-                e.step(turn_l)
-                e.step(turn_r)
+        for _ in range(3):                    # ~340 tics: the door closes, then reopen it
+            for _ in range(340):
+                e.step(noop)
             n = len(events)
             _, r, *_ = e.step(use)
             if len(events) > n:
@@ -414,16 +446,20 @@ def test_consult_clears_combat():
         _, info = e.reset(options={"seed": 0})
         for k in ("monstervis", "backpack_full", "bp_count"):
             assert k in info["state"], f"state line lacks {k}"
-        for _ in range(500):
+        w, l, r = (ACTIONS.index(a) for a in ("PRESS W", "PRESS L", "PRESS R"))
+        act = w
+        for t in range(6000):              # run and turn at random, each held 8 tics
             if info["mode"] != "EXPLORE":
                 break
-            _, _, term, trunc, info = e.step(int(rng.choice([0, 0, 0, 1, 2])))
+            if t % 8 == 0:
+                act = int(rng.choice([w, w, w, l, r]))
+            _, _, term, trunc, info = e.step(act)
             if term or trunc:
                 _, info = e.reset(options={"seed": 0})
         else:
-            pytest.fail("no combat in 500 random steps")
+            pytest.fail("no combat in 6000 random tics")
         before = info["state"]
-        _, r, _, _, info = e.step(0)                      # WALK in combat: dropped
+        _, r, _, _, info = e.step(0)                      # PRESS in combat: dropped
         assert info["tics"] == 0 and r == 0, f"dropped (reward {r})"
         _, r, _, _, info = e.step(ACTIONS.index("CONSULT"))
         after = info["state"]
@@ -464,23 +500,25 @@ def test_spawn_consult():
 
 
 def test_goal_dist():
-    """The distance penalty's goal: the nearer of the exit line and the
-    nearest frontier portal; -1 (none) and missing fields are ignored."""
+    """The distance penalty's goal: the nearest portal of the current
+    sector (portal_dist); the exit and frontier distances don't count, and
+    -1 (none) or a missing field is no distance."""
     from env.env import goal_dist
-    assert goal_dist({"exit_dist": 900, "frontier_dist": 40}) == 40
-    assert goal_dist({"exit_dist": 30, "frontier_dist": 40}) == 30
-    assert goal_dist({"exit_dist": 900, "frontier_dist": -1}) == 900
-    assert goal_dist({"exit_dist": -1, "frontier_dist": -1}) is None
+    assert goal_dist({"portal_dist": 40, "exit_dist": 10, "frontier_dist": 5}) == 40
+    assert goal_dist({"portal_dist": 0}) == 0
+    assert goal_dist({"portal_dist": -1, "exit_dist": 900}) is None
+    assert goal_dist({"exit_dist": 30, "frontier_dist": 40}) is None
     assert goal_dist({"mode": "INTERMISSION"}) is None
 
 
 @pytest.mark.game
 def test_time_distance_penalty():
-    """E1M1: the state line carries exit_dist and frontier_dist, and with
-    every other reward off each step costs time * its tics * (1 + d /
-    far_scale), d the mean of its start and end goal distances."""
+    """E1M1: the state line carries exit_dist, frontier_dist and
+    portal_dist, and with every other reward off each step costs time *
+    its tics * (1 + d / far_scale), d the mean of its start and end
+    distances to the nearest portal of the current sector."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0,
-                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, straight=0, wall=0,
+                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, fast=0,
                         time=1.0, far_scale=256.0)
     e = make_env(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only,
                  max_tics=100000, consult_handler=standin_consult)
@@ -488,11 +526,12 @@ def test_time_distance_penalty():
         from env.env import goal_dist
         _, info = e.reset(options={"seed": 0})
         s = info["state"]
-        assert s["exit_dist"] > 0 and s["frontier_dist"] >= 0 and s["keys"] == 0
+        assert s["exit_dist"] > 0 and s["frontier_dist"] >= 0 and s["portal_dist"] > 0 and s["keys"] == 0
         rng = np.random.default_rng(2)
         expect, got, prev = 0.0, 0.0, goal_dist(s)
-        for _ in range(200):
-            _, r, term, trunc, info = e.step(int(rng.choice([0, 0, 1, 2, 3, 4])))
+        moves = [ACTIONS.index(a) for a in ("PRESS W", "PRESS W", "PRESS WL", "PRESS L", "PRESS A", "PRESS")]
+        for _ in range(400):
+            _, r, term, trunc, info = e.step(int(rng.choice(moves)))
             s2 = info["state"]
             g = goal_dist(s2)
             if info["tics"] > 0:
@@ -514,7 +553,7 @@ def test_portal_goal():
     list (VISITED) and reinstalled restores that visited count after the
     load (VISIT), so the next rollout's goal is a sector beyond it."""
     only = RewardConfig(sector=15.0, exit=0, mechanism=0, consult_hit=0,
-                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, straight=0, wall=0,
+                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, fast=0,
                         time=0.01, far_scale=1e12)   # time and sector only
     e = DiabloDoomEnv(EnvConfig(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only,
                                 max_tics=100000, portal_goal=1, consult_handler=standin_consult))
@@ -549,10 +588,10 @@ def test_forced_map_glance():
     the next frame is the automap (state automap true) and nothing is
     charged."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0,
-                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, straight=0, wall=0, time=0)
+                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, fast=0, time=0)
     e = DiabloDoomEnv(EnvConfig(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only,
                                 max_tics=100000, force_map_every=2, consult_handler=standin_consult))
-    tl = ACTIONS.index("TURNL")
+    tl = ACTIONS.index("PRESS L")
     try:
         _, info = e.reset(options={"seed": 0})
         assert info["state"]["automap"] is False
@@ -579,7 +618,7 @@ def test_map_tics():
     and a forced glance uses force_map_tics."""
     e = DiabloDoomEnv(EnvConfig(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]),
                                 max_tics=100000, consult_handler=standin_consult))
-    tl = ACTIONS.index("TURNL")
+    tl = ACTIONS.index("PRESS L")
     try:
         e.reset(options={"seed": 0})
 

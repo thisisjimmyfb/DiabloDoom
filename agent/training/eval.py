@@ -14,7 +14,7 @@ import numpy as np
 import torch
 from torch.distributions import Categorical
 
-from model import WARMUP_ACTIONS, Policy, env_label, privileged, run_env
+from model import WARMUP_ACTIONS, WARMUP_HOLD, Policy, env_label, privileged, run_env
 from env import ACTIONS, goal_dist  # noqa: E402  (model.py put env on sys.path)
 from env.vector import GroupVecEnv  # noqa: E402
 
@@ -144,7 +144,7 @@ def sample_group_options(sampler: np.random.Generator, groups: int, G: int,
         seed = int(sampler.integers(256))
         slot = int(sampler.choice(slots)) if slots else None
         n_warm = int(sampler.integers(warmup_max + 1)) if warmup_max > 0 else 0
-        warm = [int(x) for x in sampler.choice(WARMUP_ACTIONS, size=n_warm)]
+        warm = [int(x) for x in sampler.choice(WARMUP_ACTIONS, size=n_warm) for _ in range(WARMUP_HOLD)]
         opt = {"seed": seed, "group": g, "warmup": warm}
         if slot is not None:
             opt["slot"] = slot

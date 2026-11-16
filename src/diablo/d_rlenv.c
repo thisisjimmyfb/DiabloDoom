@@ -242,6 +242,12 @@ static int RL_AngleDeg(angle_t a)
     return (int) (((uint64_t) a * 360) >> 32);
 }
 
+static int rl_fast_speed = -1;          // -rlfast (map units per tic); -1 unparsed, 0 off
+static int rl_fast_tics;                // tics at or over it since the last decision
+static mobj_t *rl_move_mo;              // the player mobj at the last explore tic
+static fixed_t rl_move_x, rl_move_y;
+static int rl_move_tic = -1;
+
 static int rl_bpfull_tic = -1000000;   // gametic of the last failed pickup on a full backpack
 
 void RL_NoteBackpackFull(void)
@@ -299,6 +305,33 @@ static boolean RL_IsFrontier(const line_t *ld)
         && top - bottom >= 56 * FRACUNIT;
 }
 
+// A portal of sector s (2026-11-16): a two-sided line between s and
+// another sector, visited or not, that the player could pass from s --
+// the same test as a frontier: a step up of at most 24 units and room to
+// stand (56), or a special of its own (a door or lift opened from it).
+// Blocking lines never count.
+static boolean RL_IsPortalOf(const line_t *ld, const sector_t *s)
+{
+    const sector_t *b;
+    fixed_t top, bottom;
+    if (ld->frontsector == NULL || ld->backsector == NULL || (ld->flags & ML_BLOCKING))
+        return false;
+    if (ld->frontsector == s)
+        b = ld->backsector;
+    else if (ld->backsector == s)
+        b = ld->frontsector;
+    else
+        return false;
+    if (b == s)
+        return false;
+    if (ld->special != 0)
+        return true;
+    top = s->ceilingheight < b->ceilingheight ? s->ceilingheight : b->ceilingheight;
+    bottom = s->floorheight > b->floorheight ? s->floorheight : b->floorheight;
+    return b->floorheight - s->floorheight <= 24 * FRACUNIT
+        && top - bottom >= 56 * FRACUNIT;
+}
+
 void RL_EmitState(const char *why, int tics)
 {
     char buf[3600];
@@ -336,6 +369,9 @@ void RL_EmitState(const char *why, int tics)
                (int) w, T_KitAmmo(w), T_KitMaxAmmo(w),
                p->killcount, T_VisitedCount(),
                mo->subsector ? (int) (mo->subsector->sector - sectors) : -1);
+
+        if (rl_fast_speed > 0)
+            RL_PUT(",\"fast_tics\":%d", rl_fast_tics);
 
         // Key colours held, as a mask (1 blue, 2 yellow, 4 red): a
         // keycard and a skull key of one colour open the same doors.
@@ -391,6 +427,23 @@ void RL_EmitState(const char *why, int tics)
             }
             RL_PUT(",\"exit_dist\":%d,\"frontier_dist\":%d",
                    ex < 0 ? -1 : (int) (ex + 0.5), fr < 0 ? -1 : (int) (fr + 0.5));
+        }
+        // portal_dist (2026-11-16): to the nearest portal of the player's
+        // current sector (RL_IsPortalOf), -1 when it has none: the time
+        // penalty's distance. Reward shaping only, like frontier_dist.
+        {
+            double px = mo->x / (double) FRACUNIT, py = mo->y / (double) FRACUNIT;
+            double pd = -1;
+            sector_t *s = mo->subsector ? mo->subsector->sector : NULL;
+            if (s != NULL)
+                for (i = 0; i < s->linecount; i++)
+                    if (RL_IsPortalOf(s->lines[i], s))
+                    {
+                        double d = RL_SegDist(px, py, s->lines[i]);
+                        if (pd < 0 || d < pd)
+                            pd = d;
+                    }
+            RL_PUT(",\"portal_dist\":%d", pd < 0 ? -1 : (int) (pd + 0.5));
         }
 
         // CONSULT triggers (SPEC.md §5.3). monstervis: a living monster
@@ -609,6 +662,43 @@ static boolean RL_TrySpawn(mobj_t *pmo)
         }
     }
     return false;
+}
+
+void RL_MoveTick(void)
+{
+    mobj_t *mo = players[consoleplayer].mo;
+
+    if (rl_fast_speed < 0)
+    {
+        int p = M_CheckParmWithArgs("-rlfast", 1);
+        rl_fast_speed = (rlenv && p > 0) ? atoi(myargv[p + 1]) : 0;
+        if (rl_fast_speed < 0)
+            rl_fast_speed = 0;
+    }
+    if (rl_fast_speed == 0 || mo == NULL)
+    {
+        rl_move_mo = NULL;
+        return;
+    }
+    // Only tic-to-tic movement of the same mobj counts (a LOAD or level
+    // change makes a new one; a skipped tic leaves a gap).
+    if (mo == rl_move_mo && rl_move_tic == gametic - 1)
+    {
+        double dx = (double) (mo->x - rl_move_x) / FRACUNIT;
+        double dy = (double) (mo->y - rl_move_y) / FRACUNIT;
+        double d2 = dx * dx + dy * dy;
+        if (d2 >= (double) rl_fast_speed * rl_fast_speed && d2 <= 64.0 * 64.0)
+            rl_fast_tics++;
+    }
+    rl_move_mo = mo;
+    rl_move_x = mo->x;
+    rl_move_y = mo->y;
+    rl_move_tic = gametic;
+}
+
+void RL_DecisionMade(void)
+{
+    rl_fast_tics = 0;
 }
 
 void RL_SpawnTick(void)

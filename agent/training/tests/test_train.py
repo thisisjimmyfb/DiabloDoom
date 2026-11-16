@@ -67,6 +67,34 @@ def test_resume(tmp_path):
     assert torch.load(run_dir / "doom-runner.pt", weights_only=False)["iteration"] == 2
 
 
+def test_interrupt_eval(tmp_path):
+    """Ctrl-C mid-run (SIGINT to the whole process group, workers included,
+    as a terminal sends it): the run still evals the last saved checkpoint
+    and prints the start-to-end delta."""
+    import os
+    import signal
+    import time
+    run_dir = tmp_path / "run"
+    p = subprocess.Popen([PY, "train.py", "--run-dir", str(run_dir), *TINY, "--iterations", "50",
+                          "--capture-envs", "0"], cwd=HERE, stdout=subprocess.PIPE,
+                         stderr=subprocess.STDOUT, text=True, start_new_session=True)
+    try:
+        deadline = time.time() + 300
+        while not (run_dir / "metrics.jsonl").exists() or not metrics(run_dir, "train"):
+            assert p.poll() is None and time.time() < deadline, "no update finished"
+            time.sleep(0.5)
+        os.killpg(p.pid, signal.SIGINT)
+        out, _ = p.communicate(timeout=300)
+    finally:
+        if p.poll() is None:
+            os.killpg(p.pid, signal.SIGKILL)
+    assert p.returncode == 0, out[-3000:]
+    assert "end-of-run eval of that checkpoint" in out, out[-3000:]
+    saved = torch.load(run_dir / "doom-runner.pt", weights_only=False)["iteration"]
+    assert [r["iteration"] for r in metrics(run_dir, "eval")] == [0, saved + 1]
+    assert f"[eval delta] iteration 0 -> {saved + 1}" in out
+
+
 def test_rotation(tmp_path):
     """Two maps, one group, --rotate-every 1: the group alternates maps,
     its games restart on the new one, and a map it comes back to starts
@@ -143,7 +171,7 @@ def test_frontier_start():
         starts = [i["state"]["sectors"] for i in infos]
         assert all(i["slot"] == FRONTIER_SLOT for i in infos), "the map start is slot 4 too"
         start = (infos[0]["state"]["x"], infos[0]["state"]["y"])
-        walk, turn = ACTIONS.index("WALK 0"), ACTIONS.index("TURNL")
+        walk, turn = ACTIONS.index("PRESS W"), ACTIONS.index("PRESS L")
         recs, ends, active = [], [None, None], [0, 1]
         rets = [0.0, 0.0]
         while active:                    # env 0 walks, env 1 turns in place

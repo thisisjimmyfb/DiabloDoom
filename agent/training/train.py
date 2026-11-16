@@ -161,8 +161,13 @@ def main():
     rollouts_f = open(run_dir / "rollouts.jsonl", "a")
     env_labels = [env_label(w, m, iwads) for w, m in env_pairs]
 
+    eval_busy = False   # an eval was interrupted: its games still have requests in flight
+
     def evaluate(it: int):
+        nonlocal eval_busy
+        eval_busy = True
         out = {"iteration": it, "kind": "eval", **heldout_eval(eval_vec, eval_labels, policy, device)}
+        eval_busy = False
         metrics_f.write(json.dumps(out) + "\n")
         metrics_f.flush()
         print_eval(it, out)
@@ -217,6 +222,16 @@ def main():
     # Held-out evals: one at the start of the run and one at the end, whose
     # difference is printed per IWAD and map; --eval-every N adds more.
     first_eval = last_eval = None
+    upd_thread = None   # --overlap: the update running in the background
+
+    def end_of_run_eval(last: dict, done_it: int) -> dict:
+        """The eval after done_it updates (unless one just ran) and the
+        start-to-end delta."""
+        if last["iteration"] != done_it:
+            last = evaluate(done_it)
+        print_eval_delta(first_eval, last)
+        return last
+
     try:
         if eval_vec is not None:
             first_eval = last_eval = evaluate(start_it)
@@ -244,7 +259,7 @@ def main():
                         box["upd"] = update(policy, optimizer, ref, batch, args, device) if batch is not None else {}
                     except BaseException as e:      # re-raised on the main thread
                         box["err"] = e
-                th = threading.Thread(target=run_update, daemon=True)
+                th = upd_thread = threading.Thread(target=run_update, daemon=True)
                 th.start()
                 ahead = play(it + 1)                # still the pre-update weights
                 th.join()
@@ -285,13 +300,33 @@ def main():
 
             if eval_vec is not None and args.eval_every > 0 and (it + 1) % args.eval_every == 0:
                 last_eval = evaluate(it + 1)
-        if eval_vec is not None:
-            if last_eval["iteration"] != args.iterations:
-                last_eval = evaluate(args.iterations)
-            print_eval_delta(first_eval, last_eval)
+        if eval_vec is not None and saved_it is not None:
+            last_eval = end_of_run_eval(last_eval, saved_it + 1)
     except KeyboardInterrupt:
-        print("[train] interrupted; the last checkpoint is at the previous update boundary"
-              + ("; no end-of-run eval" if eval_vec is not None else ""))
+        # Ctrl-C (or SIGTERM): still the end-of-run eval, of the last saved
+        # checkpoint -- the policy in memory may be part-way through an
+        # update, so its weights are reloaded from that checkpoint first.
+        msg = "[train] interrupted; the last checkpoint is at the previous update boundary"
+        if eval_vec is None:
+            print(msg)
+        elif eval_busy or first_eval is None:
+            print(msg + "; no end-of-run eval (interrupted during an eval)")
+        elif saved_it is None:
+            print(msg + "; no end-of-run eval (no update finished)")
+        else:
+            print(msg + f"; end-of-run eval of that checkpoint (iteration {saved_it}; Ctrl-C again to skip it)")
+            try:
+                if upd_thread is not None:
+                    upd_thread.join()       # --overlap: let a background update finish first
+                ckpt = torch.load(run_dir / CKPT_NAME, map_location=device, weights_only=False)
+                policy.load_state_dict(ckpt["policy"])
+                # the checkpoint's own iteration: an interrupt between its
+                # write and saved_it's update would leave saved_it behind
+                last_eval = end_of_run_eval(last_eval, ckpt["iteration"] + 1)
+            except KeyboardInterrupt:
+                print("[train] end-of-run eval skipped")
+            except Exception as e:          # e.g. the games were stopped too (SIGTERM to the group)
+                print(f"[train] end-of-run eval failed: {e!r}")
     finally:
         metrics_f.close()
         rollouts_f.close()

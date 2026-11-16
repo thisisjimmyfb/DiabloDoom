@@ -143,8 +143,9 @@ uncapped clock still plays back at 35 fps), named
 resets), the game waits for the encoder rather than dropping frames,
 and QUIT flushes the partial last segment. Stepping is
 decision-driven: when the driver is idle and the game is waiting for
-input (explore with the player settled, planning, dead, or between
-levels), the engine publishes the frame, sends one `decision` line, and
+input (explore: every tic since 2026-11-15, unless a multi-tic command
+-- WAIT, a 45-degree turn, SURVEY, WALK, GOTO, COLLECT -- still runs;
+planning, dead, or between levels), the engine publishes the frame, sends one `decision` line, and
 blocks on the pipe until the next command. `STATE` sends a state line
 on demand; `SEED n` sets `prndindex` (send it after `LOAD`; saves don't
 store it); level completion sends an `exit` event, and a player USE that
@@ -156,12 +157,36 @@ other; `hp` the health it gave) for the env's loot and health rewards. Approach 
 line carries `exit_dist` and `frontier_dist` (and, since 2026-11-14, `sector`, the
 player's current sector index, for the training rollout log), map units to the nearest
 exit line and to the nearest passable opening into an unvisited sector
-(-1 when none), for the env's distance penalty only -- never a policy
-input, so the 2026-10-21 no-oracle ruling for the farm agent stands.
+(-1 when none), and since 2026-11-16 `portal_dist`, to the nearest
+passable opening of the player's current sector into any other sector
+(the env's distance penalty uses this one) -- reward shaping only, never
+a policy input, so the 2026-10-21 no-oracle ruling for the farm agent
+stands.
 Automap (2026-11-14): it also carries `automap` (the map is on screen),
 which the env's forced map glances check before sending `MAP`.
 Keys (2026-11-14): it also carries `keys`, the key colours held (1 blue,
 2 yellow, 4 red; card or skull), for the env's once-per-colour key reward.
+Fast movement (2026-11-15): `-rlfast <units>` (`-rlenv` only) makes the
+state line carry `fast_tics`, the explore tics since the last decision on
+which the player actually moved at least <units> map units since the tic
+before (position, not momentum, so pushing into a wall never counts; a
+jump over 64 units -- a teleport or LOAD -- is not movement), for the
+env's velocity reward; the env adds the flag itself.
+Per-tic input (2026-11-15): `PRESS <keys>` holds keys for the next tic
+through the keyboard path (`G_BuildTiccmd` adds `T_DriverPress()` to
+the ticcmd): W/S run forward/back, A/D strafe, L/R turn at the run turn
+rate (about 7 degrees a tic), any combination, `PRESS` alone holds
+nothing. Explore only; it cancels a running WALK/GOTO (only a running
+one: cancelling a GOTO zeroes momentum), every gameplay command line
+starts by releasing the keys, and under `-rldrive` they stay held until
+the next line. PRESS is never logged or echoed (it comes every tic). This
+is the policy's input; the multi-tic commands stay for the farm driver.
+Command batches (2026-11-15): commands joined with `;` on one line all
+run in the same tic, in order, with no gate between them (`PRESS W;
+PRESS A; USE` runs, strafes and uses on one tic; several PRESS commands
+in a line add their keys up). Separate lines still run one per tic, so
+a `USE` / `WAIT` / `GOTO` batch keeps its spacing. A line counts once
+toward FORCEMAP's command count (by its first command).
 CONSULT (2026-11-13): the state line carries `monstervis` (a living
 monster on screen while exploring), `backpack_full` and `bp_count`, the
 CONSULT triggers; `-rlspawn <tics>`
