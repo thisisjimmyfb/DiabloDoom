@@ -255,20 +255,27 @@ void RL_NoteBackpackFull(void)
     rl_bpfull_tic = gametic;
 }
 
-// Distance from (px,py) to the segment v1-v2, in map units.
-static double RL_SegDist(double px, double py, const line_t *ld)
+// The point of the segment v1-v2 closest to (px,py), in map units.
+static void RL_SegClosest(double px, double py, const line_t *ld, double *cx, double *cy)
 {
     double ax = ld->v1->x / (double) FRACUNIT, ay = ld->v1->y / (double) FRACUNIT;
     double bx = ld->v2->x / (double) FRACUNIT, by = ld->v2->y / (double) FRACUNIT;
-    double dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy, t = 0, ex, ey;
+    double dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy, t = 0;
     if (len2 > 0)
     {
         t = ((px - ax) * dx + (py - ay) * dy) / len2;
         t = t < 0 ? 0 : t > 1 ? 1 : t;
     }
-    ex = ax + t * dx - px;
-    ey = ay + t * dy - py;
-    return sqrt(ex * ex + ey * ey);
+    *cx = ax + t * dx;
+    *cy = ay + t * dy;
+}
+
+// Distance from (px,py) to the segment v1-v2, in map units.
+static double RL_SegDist(double px, double py, const line_t *ld)
+{
+    double cx, cy;
+    RL_SegClosest(px, py, ld, &cx, &cy);
+    return sqrt((cx - px) * (cx - px) + (cy - py) * (cy - py));
 }
 
 static boolean RL_IsExitLine(const line_t *ld)
@@ -431,19 +438,46 @@ void RL_EmitState(const char *why, int tics)
         // portal_dist (2026-11-16): to the nearest portal of the player's
         // current sector (RL_IsPortalOf), -1 when it has none: the time
         // penalty's distance. Reward shaping only, like frontier_dist.
+        // portal_rel (2026-11-16): the angle (degrees, -180..180, positive
+        // to the left) from the player's facing to the closest point of
+        // the nearest portal of the current sector into an unvisited
+        // sector; left out when the sector has none. The env's look
+        // reward. Reward shaping only.
         {
             double px = mo->x / (double) FRACUNIT, py = mo->y / (double) FRACUNIT;
-            double pd = -1;
+            double pd = -1, ud = -1;
+            const line_t *uline = NULL;
             sector_t *s = mo->subsector ? mo->subsector->sector : NULL;
             if (s != NULL)
                 for (i = 0; i < s->linecount; i++)
-                    if (RL_IsPortalOf(s->lines[i], s))
+                {
+                    const line_t *ld = s->lines[i];
+                    const sector_t *other;
+                    double d;
+                    if (!RL_IsPortalOf(ld, s))
+                        continue;
+                    d = RL_SegDist(px, py, ld);
+                    if (pd < 0 || d < pd)
+                        pd = d;
+                    other = ld->frontsector == s ? ld->backsector : ld->frontsector;
+                    if (!T_SectorVisited(other - sectors) && (ud < 0 || d < ud))
                     {
-                        double d = RL_SegDist(px, py, s->lines[i]);
-                        if (pd < 0 || d < pd)
-                            pd = d;
+                        ud = d;
+                        uline = ld;
                     }
+                }
             RL_PUT(",\"portal_dist\":%d", pd < 0 ? -1 : (int) (pd + 0.5));
+            if (uline != NULL)
+            {
+                double cx, cy, rel;
+                RL_SegClosest(px, py, uline, &cx, &cy);
+                rel = atan2(cy - py, cx - px) * 180.0 / M_PI - RL_AngleDeg(mo->angle);
+                while (rel > 180.0)
+                    rel -= 360.0;
+                while (rel <= -180.0)
+                    rel += 360.0;
+                RL_PUT(",\"portal_rel\":%d", (int) (rel < 0 ? rel - 0.5 : rel + 0.5));
+            }
         }
 
         // CONSULT triggers (SPEC.md §5.3). monstervis: a living monster

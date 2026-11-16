@@ -78,8 +78,10 @@ def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
         consult_handler=standin_consult,
         portal_goal=portal_goal,
         key_goal=key_goal,
-        # A fast tic pays back the clock's base rate (RewardConfig.fast).
-        rewards=RewardConfig(time=time_penalty / 35.0, fast=time_penalty / 35.0),
+        # A fast tic pays back the clock's base rate (RewardConfig.fast);
+        # facing a way on pays up to half of it (RewardConfig.look).
+        rewards=RewardConfig(time=time_penalty / 35.0, fast=time_penalty / 35.0,
+                             look=time_penalty / 35.0 / 2),
     ))
 
 

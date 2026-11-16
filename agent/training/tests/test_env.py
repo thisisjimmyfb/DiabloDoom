@@ -171,7 +171,7 @@ def test_hp_loss_and_death():
     top of the HP it lost. Engine faked: no game needed."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hp_loss=-0.2, death=-100.0,
-                        loot=0, health=0, fast=0)
+                        loot=0, health=0, fast=0, look=0)
     e = make_env(rewards=only, max_tics=100000)
     states = iter([{"mode": "EXPLORE", "hp": 90, "tics": 10},     # nukage: -10 hp
                    {"mode": "EXPLORE", "hp": 100, "tics": 10},    # healed: nothing
@@ -201,7 +201,7 @@ def test_fast_tics():
     paying `fast`; running into a wall has none."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hp_loss=0, death=0,
-                        loot=0, health=0, fast=0.005, fast_speed=4)
+                        loot=0, health=0, fast=0.005, fast_speed=4, look=0)
     e = make_env(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only, max_tics=100000)
     try:
         assert e.cfg.engine.extra_args[-2:] == ["-rlfast", "4"]
@@ -256,6 +256,30 @@ def test_press():
 
 
 @pytest.mark.game
+def test_look_reward():
+    """E1M1: turning a full circle in place, every tic pays look x
+    max(0, cos(portal_rel)) -- portal_rel, the angle to the nearest
+    portal of the current sector into an unvisited sector -- so full
+    credit facing it and nothing facing away."""
+    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
+                        consult_false=0, key=0, time=0, hp_loss=0, death=0,
+                        loot=0, health=0, fast=0, look=1.0)
+    e = make_env(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only, max_tics=100000)
+    try:
+        e.reset(options={"seed": 1})
+        got = []
+        for _ in range(55):                 # about 7 degrees a tic: a full turn
+            _, r, _, _, info = e.step(ACTIONS.index("PRESS L"))
+            rel = info["state"].get("portal_rel")
+            assert rel is not None and -180 <= rel <= 180, info["state"]
+            assert r == pytest.approx(max(0.0, np.cos(np.radians(rel))), abs=1e-9), (r, rel)
+            got.append(r)
+        assert max(got) > 0.99 and min(got) == 0.0, (max(got), min(got))
+    finally:
+        e.close()
+
+
+@pytest.mark.game
 def test_command_batch():
     """Commands joined with ';' run on one tic: PRESS W; PRESS A holds both
     keys (the same run as PRESS WA), PRESS W; USE runs and uses in one
@@ -291,7 +315,7 @@ def test_key_goal():
     without key_goal a key only pays. Engine faked: no game needed."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=25.0, time=0, hp_loss=0, death=0,
-                        loot=0, health=0, fast=0)
+                        loot=0, health=0, fast=0, look=0)
     for goal in (True, False):
         e = make_env(rewards=only, max_tics=100000, key_goal=goal)
         states = iter([{"mode": "EXPLORE", "hp": 100, "tics": 5, "keys": 1},    # blue held from the start
@@ -518,7 +542,7 @@ def test_time_distance_penalty():
     its tics * (1 + d / far_scale), d the mean of its start and end
     distances to the nearest portal of the current sector."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0,
-                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, fast=0,
+                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, fast=0, look=0,
                         time=1.0, far_scale=256.0)
     e = make_env(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only,
                  max_tics=100000, consult_handler=standin_consult)
@@ -553,7 +577,7 @@ def test_portal_goal():
     list (VISITED) and reinstalled restores that visited count after the
     load (VISIT), so the next rollout's goal is a sector beyond it."""
     only = RewardConfig(sector=15.0, exit=0, mechanism=0, consult_hit=0,
-                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, fast=0,
+                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, fast=0, look=0,
                         time=0.01, far_scale=1e12)   # time and sector only
     e = DiabloDoomEnv(EnvConfig(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only,
                                 max_tics=100000, portal_goal=1, consult_handler=standin_consult))

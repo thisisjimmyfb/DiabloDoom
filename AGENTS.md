@@ -159,7 +159,10 @@ player's current sector index, for the training rollout log), map units to the n
 exit line and to the nearest passable opening into an unvisited sector
 (-1 when none), and since 2026-11-16 `portal_dist`, to the nearest
 passable opening of the player's current sector into any other sector
-(the env's distance penalty uses this one) -- reward shaping only, never
+(the env's distance penalty uses this one), and `portal_rel`, the angle
+(degrees, positive left) from the facing to the nearest portal of the
+current sector into an unvisited sector, left out when it has none (the
+env's look reward) -- reward shaping only, never
 a policy input, so the 2026-10-21 no-oracle ruling for the farm agent
 stands.
 Automap (2026-11-14): it also carries `automap` (the map is on screen).

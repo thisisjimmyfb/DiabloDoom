@@ -83,6 +83,17 @@ class RewardConfig:
     # tic now, and this pays the unimpeded movement tic by tic.)
     fast: float = 1 / 3 / 35
     fast_speed: int = 4
+    # Looking toward a way on (2026-11-16): every tic pays
+    #   look * max(0, cos(a))
+    # a the angle between the player's facing and the closest point of
+    # the nearest portal of the current sector into an unvisited sector
+    # (the engine's portal_rel): full credit facing it, nothing facing
+    # 90 degrees or more away, nothing when the sector has no such portal.
+    # Only unvisited ones: right after a crossing the nearest portal is
+    # usually the one just used, behind the player. The default is half
+    # the clock's base rate (model.make_env ties it to --time-penalty), so
+    # it can't pay for standing still. 0 turns it off.
+    look: float = 1 / 3 / 35 / 2
     # Per HP lost, whatever the cause: passive damage (nukage, slime,
     # crushers, barrels) in stage 1. Healing never pays; a death costs
     # the HP it lost on the way plus `death`.
@@ -407,6 +418,10 @@ class DiabloDoomEnv(gym.Env):
         # (a dropped action re-reads the last state line: nothing new).
         if sent:
             add("fast", rc.fast * max(int(d.get("fast_tics", 0)), 0))
+        # Looking toward the nearest unvisited portal of the current sector,
+        # by the facing at the step's end (one tic, under per-tic decisions).
+        if sent and rc.look and d.get("portal_rel") is not None:
+            add("look", rc.look * tics * max(0.0, float(np.cos(np.radians(d["portal_rel"])))))
 
         # Exploration: newly visited sectors.
         if sec > self._best_sectors:

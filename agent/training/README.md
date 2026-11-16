@@ -79,7 +79,12 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   without the goal: rollouts that all run to the limit pay alike, and the
   group-relative advantage cancels most of it. The distance comes from
   the state line (`portal_dist`) and shapes the reward only:
-  the policy acts from the frames alone. The held-out eval keeps
+  the policy acts from the frames alone. Facing a way on pays too
+  (`look`, 2026-11-16): every tic, `look` x max(0, cos a), a the angle
+  from the facing to the nearest portal of the current sector into an
+  unvisited sector (`portal_rel`; none: nothing), at half the clock's
+  base rate (`--time-penalty` / 70), so it softens the clock for facing
+  the right way but never pays for standing still. The held-out eval keeps
   `--eval-max-tics` (2100) with no goal and no penalty, so its numbers
   compare across versions. Stage 1 has no map monsters, but passive
   damage (nukage, slime, crushers, barrels) still hurts: every HP lost
