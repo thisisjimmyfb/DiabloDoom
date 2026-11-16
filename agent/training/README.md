@@ -92,7 +92,11 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   `move_flip` (-0.015); strafing back and forth is free.
   A USE that sets nothing going (no engine `use` event: a plain wall,
   empty space) costs `use_miss` (-0.05, 2026-11-16); opening a door,
-  even one used before, costs nothing. The held-out eval keeps
+  even one used before, costs nothing.
+  A quick large drop -- freefall past 8 units a tic, 64 units or more in
+  all -- costs `fall` (-1 per 64 units, on landing, 2026-11-16): it
+  usually means the player left the intended path. Lifts, stairs, going
+  up and teleports never cost. The held-out eval keeps
   `--eval-max-tics` (2100) with no goal and no penalty, so its numbers
   compare across versions. Stage 1 has no map monsters, but passive
   damage (nukage, slime, crushers, barrels) still hurts: every HP lost

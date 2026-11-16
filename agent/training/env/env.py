@@ -118,6 +118,17 @@ class RewardConfig:
     # free.
     move_flip: float = -0.015
     move_flip_window: int = 4
+    # Falls (2026-11-16): a quick large drop usually means the player left
+    # the path the map intends. A fall is an unbroken run of tics going
+    # down that at some point drops faster than fall_speed units a tic
+    # (only freefall does: lifts lower at most 8 a tic, a stair step is
+    # 8-24 units with flat treads between) and totals at least fall_min
+    # units; on landing it costs fall per fall_min units dropped (-1 for
+    # 64, -2 for 128). Going up never costs; a teleport (a jump of more
+    # than 64 units sideways) is no fall. 0 turns it off.
+    fall: float = -1.0
+    fall_min: float = 64.0
+    fall_speed: float = 8.0
     # Per HP lost, whatever the cause: passive damage (nukage, slime,
     # crushers, barrels) in stage 1. Healing never pays; a death costs
     # the HP it lost on the way plus `death`.
@@ -235,6 +246,7 @@ class DiabloDoomEnv(gym.Env):
         self._installed_visited: dict[int, str | None] = {}  # their visited lists (VISITED hex)
         self._turn_dir, self._turn_tic = 0, -10 ** 9          # the last turn key and its rollout tic
         self._move_dir, self._move_tic = 0, -10 ** 9          # the last W/S key and its rollout tic
+        self._fall_top, self._fall_peak = None, 0.0           # a fall in progress: its start z, fastest tic
         self.state: dict = {}
 
     # -- engine access for CONSULT handlers ------------------------
@@ -377,6 +389,7 @@ class DiabloDoomEnv(gym.Env):
         self._combat_steps = 0
         self._turn_dir, self._turn_tic = 0, -10 ** 9
         self._move_dir, self._move_tic = 0, -10 ** 9
+        self._fall_top, self._fall_peak = None, 0.0
         self._trig = {k: self._new_trigger() for k in ("monster", "backpack", "combat")}
         self._update_triggers(d)
         obs = self._stack.reset(self._frame())
@@ -450,6 +463,10 @@ class DiabloDoomEnv(gym.Env):
         # by the facing at the step's end (one tic, under per-tic decisions).
         if sent and rc.look and d.get("portal_rel") is not None:
             add("look", rc.look * tics * max(0.0, float(np.cos(np.radians(d["portal_rel"])))))
+        # Falls: charged on landing (RewardConfig.fall).
+        if sent and rc.fall:
+            add("fall", self._fall_step(prev, d, tics))
+
         # Turn and forward/back reversals: this step's key against the last
         # one on the same axis. The key acts on the tic this step played
         # (self._tics is its end).
@@ -571,6 +588,29 @@ class DiabloDoomEnv(gym.Env):
         new = held & ~self._keys
         self._keys |= held
         return bin(new).count("1")
+
+    def _fall_step(self, prev: dict, d: dict, tics: int) -> float:
+        """Track a fall across steps (RewardConfig.fall); the penalty on the
+        step it ends, else 0."""
+        rc = self.cfg.rewards
+        z0, z1 = prev.get("z"), d.get("z")
+        if z0 is None or z1 is None or tics <= 0 or None in (prev.get("x"), d.get("x")) \
+                or np.hypot(d["x"] - prev["x"], d["y"] - prev["y"]) > 64 * tics:
+            self._fall_top, self._fall_peak = None, 0.0     # no level, or a teleport
+            return 0.0
+        drop = z0 - z1
+        if drop > 0:                                       # going down: start or continue
+            if self._fall_top is None:
+                self._fall_top, self._fall_peak = z0, 0.0
+            self._fall_peak = max(self._fall_peak, drop / tics)
+            return 0.0
+        out = 0.0
+        if self._fall_top is not None:                     # landed (or started going up)
+            total = self._fall_top - z0
+            if self._fall_peak > rc.fall_speed and total >= rc.fall_min:
+                out = rc.fall * total / rc.fall_min
+        self._fall_top, self._fall_peak = None, 0.0
+        return out
 
     def _new_mechanisms(self, events: list) -> bool:
         """Record the mechanisms in this step's "use" events (the sectors
