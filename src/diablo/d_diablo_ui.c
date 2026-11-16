@@ -30,6 +30,10 @@
 #include "v_video.h"
 #include "w_wad.h"
 #include "z_zone.h"
+#include "m_misc.h"
+
+// Declared here once (their definitions' headers aren't included).
+void D_AutoSaveGame(void);   // d_progress.c
 
 // ---------------------------------------------------------------------------
 // Layout (320x200).
@@ -348,7 +352,6 @@ static boolean UIStashHeld(player_t *player)
     ui_held_dur = 0;
     // Autosave: inventory changed (item moved).
     {
-        extern void D_AutoSaveGame(void);
         D_AutoSaveGame();
     }
     return true;
@@ -1100,7 +1103,6 @@ static void UIKbSalvage(player_t *player)
            tier, essence, player->diablo_essence);
     // Autosave: inventory changed.
     {
-        extern void D_AutoSaveGame(void);
         D_AutoSaveGame();
     }
 }
@@ -1172,7 +1174,6 @@ static void UIKbRepair(player_t *player)
            cost, player->diablo_essence);
     // Autosave: inventory changed.
     {
-        extern void D_AutoSaveGame(void);
         D_AutoSaveGame();
     }
 }
@@ -1572,7 +1573,7 @@ static int UITooltipLines(int id, int dur, char lines[12][48])
     {
         char namebuf[96];
         D_ItemDisplayName(def, namebuf, sizeof(namebuf));
-        snprintf(lines[n++], 48, "%s", namebuf);
+        snprintf(lines[n++], 48, "%.47s", namebuf);   // a long name is cut to the line
     }
     snprintf(lines[n++], 48, "%s", ui_tiernames[def->tier]);
 

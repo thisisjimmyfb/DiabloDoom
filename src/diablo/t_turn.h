@@ -246,6 +246,7 @@ boolean T_GotoActive(void);
 void T_GotoCancel(void);
 void T_GotoTick(void);      // step along the GOTO path (explore mode)
 void T_WalkStart(void);     // WALK: persistent forward movement
+boolean T_WalkActive(void); // a WALK is running
 void T_WalkStartStep(int degrees); // WALK <angle>: relative turn (-90..+90), step forward
 void T_WalkCancel(void);
 void T_WalkTick(void);      // keep walking until enemy/loot/blocked (explore)
@@ -344,6 +345,7 @@ void T_KillBanner(const char *title, const char *sub);
 
 // Floating combat text (e.g. "MISS" above an enemy).
 void T_SpawnFloatText(mobj_t *mo, const char *text);
+void T_TickFloatText(void);
 void T_DrawFloatText(void);
 
 // Enemy health bars (2026-11-11): a 32-entry window of the most

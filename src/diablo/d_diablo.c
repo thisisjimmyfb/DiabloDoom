@@ -50,6 +50,7 @@
 #include "s_sound.h"
 #include "t_combat.h"
 #include "w_wad.h"
+#include <stdlib.h>
 
 // Shorthand for the long positional initializers below.
 // Fields: name, tier, slot, grid_w, grid_h, consumable, usekind, heal,
@@ -1219,7 +1220,6 @@ void D_DumpEquippedGear(void)
         const diablo_itemdef_t *def;
         char name[128];
         char affix[1024];
-        char tmp[64];
         int dur;
         int maxdur;
         const char *tiername;
@@ -2439,7 +2439,6 @@ int D_DifficultyTier(void)
 // Only items with diff_tier <= current difficulty can drop.
 int D_RollItemForDifficulty(int tier)
 {
-    extern int P_Random(void);
     int count = 0;
     int i, pick, idx;
     const diablo_itemdef_t *table;

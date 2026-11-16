@@ -71,13 +71,12 @@ static int T_Roll100(void)
 
 void T_DeriveStats(player_t *player, t_combatstats_t *out)
 {
-    int str, dex, vit, ene;
+    int str, dex, ene;   // vitality isn't a combat stat here
     int dmg_min, dmg_max;
 
     // Base 10 in every attribute; equipment adds on top.
     str = 10 + player->diablo_stats[DSTAT_STR];
     dex = 10 + player->diablo_stats[DSTAT_DEX];
-    vit = 10 + player->diablo_stats[DSTAT_VIT];
     ene = 10 + player->diablo_stats[DSTAT_ENE];
 
     dmg_min = player->diablo_stats[DSTAT_DMG_MIN];

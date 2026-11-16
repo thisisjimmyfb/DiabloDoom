@@ -553,43 +553,6 @@ static boolean T_GridWalkable(mobj_t *mo, int gx, int gy, fixed_t *floor_out)
     return T_PosWalkable(mo, x, y, floor_out);
 }
 
-// Find the nearest Diablo loot mobj to the player. Returns NULL if none.
-static mobj_t *T_FindNearestLoot(mobj_t *player_mo)
-{
-    mobj_t *mo;
-    mobj_t *best = NULL;
-    fixed_t best_dist = 0x7fffffff; // MAXINT
-    thinker_t *th;
-
-    for (th = thinkercap.next; th != &thinkercap; th = th->next)
-    {
-        if (th->function.acp1 != (actionf_p1)P_MobjThinker)
-            continue;
-        mo = (mobj_t *)th;
-        if (mo->type < MT_LOOT_NORMAL || mo->type > MT_LOOT_UNIQUE)
-            continue;
-        // Skip if already picked up (removed)
-        if (mo->health <= 0)
-        {
-            printf("[COLLECT] loot type=%d at (%d,%d,%d) skipped: health=%d\n",
-                   mo->type, mo->x >> 16, mo->y >> 16, mo->floorz >> 16, mo->health);
-            continue;
-        }
-        {
-            fixed_t dx = mo->x - player_mo->x;
-            fixed_t dy = mo->y - player_mo->y;
-            // Approximate distance squared (avoid sqrt)
-            fixed_t dist = (dx >> 16) * (dx >> 16) + (dy >> 16) * (dy >> 16);
-            if (dist < best_dist)
-            {
-                best_dist = dist;
-                best = mo;
-            }
-        }
-    }
-    return best;
-}
-
 // Public: collect live Diablo loot mobjs into list (up to max). Returns count.
 int T_GetLootList(mobj_t **list, int max)
 {
@@ -1625,7 +1588,7 @@ static boolean collect_start_leg(void)
         {
             char namebuf[96];
             D_ItemDisplayName(def, namebuf, sizeof(namebuf));
-            snprintf(msg, sizeof(msg), "COLLECTING: %s", namebuf);
+            snprintf(msg, sizeof(msg), "COLLECTING: %.51s", namebuf);   // fits msg[64]
         }
         else
             snprintf(msg, sizeof(msg), "COLLECTING LOOT...");
@@ -1978,13 +1941,9 @@ static boolean T_ExecMove(angle_t moveangle)
 {
     player_t *player = &players[consoleplayer];
     mobj_t *mo = player->mo;
-    fixed_t dx, dy;
 
     if (mo == NULL)
         return false;
-
-    dx = FixedMul(STEP_LEN, finecosine[moveangle >> ANGLETOFINESHIFT]);
-    dy = FixedMul(STEP_LEN, finesine[moveangle >> ANGLETOFINESHIFT]);
 
     // Smooth movement: don't teleport. Destination is STEP_LEN in the move
     // direction from the current position — the same target T_PreviewMove
@@ -2116,8 +2075,6 @@ static boolean T_ExecUse(void)
 // begun (drain pauses until T_EndPulse), false on a graceful skip
 // (drain continues inline, TP refunded). T_ExecMove/T_ExecUse are
 // defined above.
-static boolean T_ExecAttack(mobj_t *target, int cost,
-                            boolean from_tick);
 
 // ------------------------------------------------------------------
 // END TURN: drain the queued actions FIFO — each entry executes through
@@ -3415,9 +3372,11 @@ void T_RunScript(const char *path)
         }
         else if (sscanf(line, "ASSERT_THP_LT %d %d", &n, &m) == 2)
         {
+            mobj_t *mo;
+            int hp;
             T_RefreshTargets();
-            mobj_t *mo = (n >= 1) ? T_TargetMobj(n - 1) : NULL;
-            int hp = mo ? mo->health : -999;
+            mo = (n >= 1) ? T_TargetMobj(n - 1) : NULL;
+            hp = mo ? mo->health : -999;
             if (mo && hp < m)
                 printf("[TURN] ASSERT_THP_LT %d %d: PASS (hp=%d)\n",
                        n, m, hp);
@@ -3494,9 +3453,11 @@ void T_RunScript(const char *path)
         }
         else if (sscanf(line, "ASSERT_THP_EQ %d %d", &n, &m) == 2)
         {
+            mobj_t *mo;
+            int hp;
             T_RefreshTargets();
-            mobj_t *mo = (n >= 1) ? T_TargetMobj(n - 1) : NULL;
-            int hp = mo ? mo->health : -999;
+            mo = (n >= 1) ? T_TargetMobj(n - 1) : NULL;
+            hp = mo ? mo->health : -999;
             if (mo && hp == m)
                 printf("[TURN] ASSERT_THP_EQ %d %d: PASS\n", n, m);
             else

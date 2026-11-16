@@ -25,6 +25,9 @@
 #include "r_main.h"
 #include "m_misc.h"
 
+// Declared here once (their definitions' headers aren't included).
+extern gameaction_t gameaction;   // g_game.c; no header declares it
+
 // Progress file location: repo root (persistent across VM recycles).
 // The path is relative to the current working directory; the game is
 // typically launched from the repo root or we resolve it below.
@@ -81,8 +84,6 @@ void D_AutosaveTeleportCheck(void)
         return;
     autosave_teleport_pending = false;
     {
-        extern player_t players[];
-        extern int consoleplayer;
         player_t *pl = &players[consoleplayer];
         if (pl->mo)
         {
@@ -156,7 +157,6 @@ static void ProgressGetAutoDir(char *buf, size_t buflen)
     // On Muse VMs: ~/workspace/chocolate-doom/savegames/doom.wad/
     // (persistent, survives recycles).
     // On local machines: ~/.local/share/chocolate-doom/savegames/[wad]/
-    extern boolean D_OnMuseVM(void);
     if (D_OnMuseVM())
     {
         const char *home = getenv("HOME");
@@ -183,10 +183,10 @@ static void ProgressGetAutoDir(char *buf, size_t buflen)
             // Use the standard savegames directory for the current IWAD.
             // P_SaveGameFile gives us the pattern; extract the dir.
             char save_path[512];
-            extern char *P_SaveGameFile(int slot);
+            char *last_slash;
             M_StringCopy(save_path, P_SaveGameFile(0), sizeof(save_path));
             // Strip the filename to get the directory.
-            char *last_slash = strrchr(save_path, '/');
+            last_slash = strrchr(save_path, '/');
             if (last_slash)
             {
                 *last_slash = '\0';
@@ -344,9 +344,6 @@ static boolean D_ProgressLoadFromSlot(int slot)
     // that G_DoLoadGame expects.
     {
         extern char savename[256];
-        extern int savegameslot;
-        extern gameaction_t gameaction;
-        extern boolean singledemo;
 
         M_StringCopy(savename, tmpname, sizeof(savename));
         // Trigger the load on the next game tic
@@ -379,7 +376,6 @@ void D_ProgressTick(void)
 // The Doom savegame slots 7-9 are not used; progress.dat is the save.
 void D_AutoSaveGame(void)
 {
-    extern gameaction_t gameaction;
     extern boolean g_loading_savegame;
 
     if (gamestate != GS_LEVEL)
@@ -418,7 +414,6 @@ void D_AutoSaveGame(void)
     // still caught by netgame/netdemo below. (2026-11-05)
     {
         extern boolean netdemo;
-        extern boolean precache;
         if (!precache || demoplayback || netdemo || netgame)
             return;
     }
@@ -431,11 +426,8 @@ void D_AutoSaveGame(void)
     // If a new-game warp is pending (gameaction == ga_newgame), use the
     // target map (d_map), not the stale gamemap.
     {
-        extern int gamemap;
-        extern int gameepisode;
         extern int d_map;
         extern int d_episode;
-        extern gameaction_t gameaction;
         int map_to_store = gamemap;
         int episode_to_store = gameepisode;
         if (gameaction == ga_newgame && d_map >= 1 && d_map <= 32)
@@ -447,8 +439,6 @@ void D_AutoSaveGame(void)
         progress_hdr->reserved[1] = (unsigned char)episode_to_store;
         // Store player position (x, y, angle as 32-bit ints).
         {
-            extern player_t players[];
-            extern int consoleplayer;
             player_t *pl = &players[consoleplayer];
             if (pl->mo)
             {
@@ -462,8 +452,6 @@ void D_AutoSaveGame(void)
         }
         {
             int stored_x, stored_y;
-            extern player_t players[];
-            extern int consoleplayer;
             player_t *pl = &players[consoleplayer];
             memcpy(&stored_x, &progress_hdr->reserved[2], 4);
             memcpy(&stored_y, &progress_hdr->reserved[6], 4);
@@ -489,7 +477,6 @@ void D_AutoSaveGame(void)
     // With SAVEGAMESIZE expanded to 4MB, Diablo data fits.
     // No rotation: auto-save always uses slot 1 (Doom slot 0).
     {
-        extern void G_DoSaveGameSlot(int slot, const char *desc);
         G_DoSaveGameSlot(0, "AUTO 1");
         printf("[AUTOSAVE] Doom savegame written to slot 0\n");
     }
@@ -515,14 +502,13 @@ void D_ProgressLoadAutoSlot(int auto_slot)
     // Auto slots are 0-2 (display 1-3). auto_slot is 1-based.
     // This restores everything: position, enemies, doors, items.
     {
-        extern char *P_SaveGameFile(int slot);
-        extern void G_LoadGame(char *name);
         char dsg_path[512];
         int doom_slot = auto_slot - 1; // 1-based to 0-based
+        FILE *dsg;
         // Copy to local buffer: P_SaveGameFile uses a static buffer
         // that ProgressGetAutoDir overwrites via P_SaveGameFile(0).
         M_StringCopy(dsg_path, P_SaveGameFile(doom_slot), sizeof(dsg_path));
-        FILE *dsg = fopen(dsg_path, "rb");
+        dsg = fopen(dsg_path, "rb");
         if (dsg)
         {
             fclose(dsg);
@@ -576,8 +562,6 @@ void D_ProgressLoadAutoSlot(int auto_slot)
                auto_slot);
         if (gamestate == GS_LEVEL)
         {
-            extern player_t players[];
-            extern int consoleplayer;
             players[consoleplayer].message =
                 "That auto slot has no saved game.";
         }

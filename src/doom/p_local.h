@@ -76,6 +76,7 @@ void P_RemoveThinker (thinker_t* thinker);
 // P_PSPR
 //
 void P_SetupPsprites (player_t* curplayer);
+void P_SetPsprite (player_t* player, int position, statenum_t stnum);
 void P_MovePsprites (player_t* curplayer);
 void P_CalcHeight (player_t* player);
 void P_DropWeapon (player_t* player);
@@ -116,6 +117,7 @@ void 	P_RemoveMobj (mobj_t* th);
 mobj_t* P_SubstNullMobj (mobj_t* th);
 boolean	P_SetMobjState (mobj_t* mobj, statenum_t state);
 void 	P_MobjThinker (mobj_t* mobj);
+void	P_ZMovement (mobj_t* mo);
 
 void	P_SpawnPuff (fixed_t x, fixed_t y, fixed_t z);
 void 	P_SpawnBlood (fixed_t x, fixed_t y, fixed_t z, int damage);

@@ -47,6 +47,9 @@
 #include "m_argv.h"
 #include "d_rlenv.h"
 
+// Declared here once (their definitions' headers aren't included).
+boolean D_OnMuseVM(void);   // d_progress.c
+
 // -capturedir <path>: where replay MP4s land, overriding the default
 // doomshots directory. RL training gives each captured instance its
 // own directory under the run dir (the instance's working directory
@@ -66,7 +69,6 @@ void D_EnsureDoomshotsDir(void)
     struct stat st;
     const char *dirs[2];
     int i;
-    extern boolean D_OnMuseVM(void);
     dirs[0] = D_OnMuseVM() ? "/tmp/doomshots" : "doomshots";
     dirs[1] = replay_capture_dir;
     for (i = 0; i < 2; i++)
@@ -82,7 +84,6 @@ void D_EnsureDoomshotsDir(void)
 // Returns the doomshots directory for this machine.
 static const char *D_DoomshotsDir(void)
 {
-    extern boolean D_OnMuseVM(void);
     if (replay_capture_dir)
         return replay_capture_dir;
     if (D_OnMuseVM())
@@ -113,7 +114,7 @@ void D_ReplayNextFilename(char *buf, size_t bufsz)
     struct timespec now_ts;
     time_t now;
     struct tm *tm;
-    char stamp[32];
+    char stamp[80];   // room for any int the compiler can't rule out
     int i;
     clock_gettime(CLOCK_REALTIME, &now_ts);
     now = now_ts.tv_sec;
@@ -201,7 +202,6 @@ void D_ReplayRestartCapture(void)
 #define REPLAY_AUDIO_BYTES (REPLAY_AUDIO_SAMPLES * REPLAY_AUDIO_CHANNELS * 2)
 static int16_t *replay_audio_buf = NULL;
 static volatile int replay_audio_write = 0; // write position (samples, mono count)
-static int replay_audio_init_done = 0;
 
 void D_ReplayInit(void)
 {
@@ -249,7 +249,6 @@ static int replay_wait_idle(int timeout_ms);
 
 void D_ReplayTick(void)
 {
-    extern pixel_t *I_VideoBuffer;
     if (!replay_buffer || !I_VideoBuffer) return;
     // Timestamp first, then copy: the timestamp and audio position
     // describe this frame, and the audio thread can advance the
@@ -321,6 +320,16 @@ static void mp4_w16(FILE *f, unsigned int v) {
 static void mp4_w64(FILE *f, unsigned long long v) {
     mp4_w32(f, (unsigned int)((v>>32)&0xffffffff));
     mp4_w32(f, (unsigned int)(v&0xffffffff));
+}
+
+// Close an MP4 box: write its size (from pos, where its size field is,
+// to the current position) at pos, then return to the end.
+static void mp4_end_box(FILE *f, long pos)
+{
+    long end = ftell(f);
+    fseek(f, pos, SEEK_SET);
+    mp4_w32(f, (unsigned int)(end - pos));
+    fseek(f, end, SEEK_SET);
 }
 
 #ifndef NO_X264
@@ -635,7 +644,7 @@ static void *replay_encode_worker(void *arg)
     x264_t *enc = NULL;
     x264_picture_t pic_in;
     int pic_allocated = 0;
-    int i, j, idx, n;
+    int i, j, n;
     int timescale = 90000;
     // Video track duration, in movie timescale units, is the sum of
     // the per-frame durations saved with the frames (variable frame
@@ -662,10 +671,10 @@ static void *replay_encode_worker(void *arg)
 
     // Apply the same gamma correction the game uses for display
     {
-        extern int usegamma;
         static byte gpal[256*3];
         int g = usegamma;
-        if (g < 0) g = 0; if (g > 4) g = 4;
+        if (g < 0) g = 0;
+        if (g > 4) g = 4;
         // Match I_SetPalette: gammatable + clear bottom 2 bits
         for (i = 0; i < 256; i++) {
             gpal[i*3+0] = gammatable[g][palette[i*3+0]] & ~3;
@@ -866,8 +875,7 @@ static void *replay_encode_worker(void *arg)
         fwrite("isom",1,4,f); mp4_w32(f,0);
         fwrite("isom",1,4,f); fwrite("iso2",1,4,f);
         fwrite("avc1",1,4,f); fwrite("mp41",1,4,f);
-        long end = ftell(f); fseek(f,pos,SEEK_SET);
-        mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+        mp4_end_box(f, pos);
     }
 
     // mdat (write first so we know chunk offsets)
@@ -928,8 +936,7 @@ static void *replay_encode_worker(void *arg)
             mp4_w32(f,0); mp4_w32(f,0); mp4_w32(f,0x40000000);
             for (i = 0; i < 6; i++) mp4_w32(f,0);
             mp4_w32(f, has_audio ? 3 : 2); // next_track_ID
-            long end = ftell(f); fseek(f,pos,SEEK_SET);
-            mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+            mp4_end_box(f, pos);
         }
 
         // trak
@@ -949,8 +956,7 @@ static void *replay_encode_worker(void *arg)
                 mp4_w32(f,0); mp4_w32(f,0); mp4_w32(f,0x40000000);
                 mp4_w32(f,(unsigned int)(REPLAY_OUT_WIDTH<<16));
                 mp4_w32(f,(unsigned int)(REPLAY_OUT_HEIGHT<<16));
-                long end = ftell(f); fseek(f,pos,SEEK_SET);
-                mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                mp4_end_box(f, pos);
             }
 
             // mdia
@@ -964,8 +970,7 @@ static void *replay_encode_worker(void *arg)
                     mp4_w32(f,(unsigned int)timescale);
                     mp4_w32(f,video_movie_dur);
                     mp4_w16(f,0x55c4); mp4_w16(f,0);
-                    long end = ftell(f); fseek(f,pos,SEEK_SET);
-                    mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                    mp4_end_box(f, pos);
                 }
 
                 // hdlr
@@ -975,8 +980,7 @@ static void *replay_encode_worker(void *arg)
                     fwrite("vide",1,4,f);
                     mp4_w32(f,0); mp4_w32(f,0); mp4_w32(f,0);
                     fwrite("VideoHandler",1,12,f); fputc(0,f);
-                    long end = ftell(f); fseek(f,pos,SEEK_SET);
-                    mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                    mp4_end_box(f, pos);
                 }
 
                 // minf
@@ -988,8 +992,7 @@ static void *replay_encode_worker(void *arg)
                         long pos = ftell(f); mp4_w32(f,0); fwrite("vmhd",1,4,f);
                         mp4_w32(f,1); mp4_w16(f,0);
                         mp4_w16(f,0); mp4_w16(f,0); mp4_w16(f,0);
-                        long end = ftell(f); fseek(f,pos,SEEK_SET);
-                        mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                        mp4_end_box(f, pos);
                     }
 
                     // dinf
@@ -1001,14 +1004,11 @@ static void *replay_encode_worker(void *arg)
                             {
                                 long p2 = ftell(f); mp4_w32(f,0); fwrite("url ",1,4,f);
                                 mp4_w32(f,1);
-                                long e2 = ftell(f); fseek(f,p2,SEEK_SET);
-                                mp4_w32(f,(unsigned int)(e2-p2)); fseek(f,e2,SEEK_SET);
+                                mp4_end_box(f, p2);
                             }
-                            long end = ftell(f); fseek(f,pos,SEEK_SET);
-                            mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                            mp4_end_box(f, pos);
                         }
-                        long end = ftell(f); fseek(f,dinf_pos,SEEK_SET);
-                        mp4_w32(f,(unsigned int)(end-dinf_pos)); fseek(f,end,SEEK_SET);
+                        mp4_end_box(f, dinf_pos);
                     }
 
                     // stbl
@@ -1045,14 +1045,11 @@ static void *replay_encode_worker(void *arg)
                                     fputc(1, f);            // numOfPictureParameterSets = 1
                                     mp4_w16(f, (unsigned int)pps_len);
                                     fwrite(pps, 1, pps_len, f);
-                                    long cend = ftell(f); fseek(f,cpos,SEEK_SET);
-                                    mp4_w32(f,(unsigned int)(cend-cpos)); fseek(f,cend,SEEK_SET);
+                                    mp4_end_box(f, cpos);
                                 }
-                                long eend = ftell(f); fseek(f,epos,SEEK_SET);
-                                mp4_w32(f,(unsigned int)(eend-epos)); fseek(f,eend,SEEK_SET);
+                                mp4_end_box(f, epos);
                             }
-                            long end = ftell(f); fseek(f,pos,SEEK_SET);
-                            mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                            mp4_end_box(f, pos);
                         }
 
                         // stts: variable frame rate. Consecutive
@@ -1090,8 +1087,7 @@ static void *replay_encode_worker(void *arg)
                                     }
                                 }
                             }
-                            long end = ftell(f); fseek(f,pos,SEEK_SET);
-                            mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                            mp4_end_box(f, pos);
                         }
 
                         // stsc
@@ -1102,8 +1098,7 @@ static void *replay_encode_worker(void *arg)
                                 mp4_w32(f,(unsigned int)(i+1));
                                 mp4_w32(f,1); mp4_w32(f,1);
                             }
-                            long end = ftell(f); fseek(f,pos,SEEK_SET);
-                            mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                            mp4_end_box(f, pos);
                         }
 
                         // stsz
@@ -1113,8 +1108,7 @@ static void *replay_encode_worker(void *arg)
                             mp4_w32(f,(unsigned int)n);
                             for (i = 0; i < n; i++)
                                 mp4_w32(f,(unsigned int)frame_sizes[i]);
-                            long end = ftell(f); fseek(f,pos,SEEK_SET);
-                            mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                            mp4_end_box(f, pos);
                         }
 
                         // co64
@@ -1123,24 +1117,19 @@ static void *replay_encode_worker(void *arg)
                             mp4_w32(f,0); mp4_w32(f,(unsigned int)n);
                             for (i = 0; i < n; i++)
                                 mp4_w64(f,chunk_offsets[i]);
-                            long end = ftell(f); fseek(f,pos,SEEK_SET);
-                            mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                            mp4_end_box(f, pos);
                         }
 
-                        long end = ftell(f); fseek(f,stbl_pos,SEEK_SET);
-                        mp4_w32(f,(unsigned int)(end-stbl_pos)); fseek(f,end,SEEK_SET);
+                        mp4_end_box(f, stbl_pos);
                     }
 
-                    long end = ftell(f); fseek(f,minf_pos,SEEK_SET);
-                    mp4_w32(f,(unsigned int)(end-minf_pos)); fseek(f,end,SEEK_SET);
+                    mp4_end_box(f, minf_pos);
                 }
 
-                long end = ftell(f); fseek(f,mdia_pos,SEEK_SET);
-                mp4_w32(f,(unsigned int)(end-mdia_pos)); fseek(f,end,SEEK_SET);
+                mp4_end_box(f, mdia_pos);
             }
 
-            long end = ftell(f); fseek(f,trak_pos,SEEK_SET);
-            mp4_w32(f,(unsigned int)(end-trak_pos)); fseek(f,end,SEEK_SET);
+            mp4_end_box(f, trak_pos);
         }
 
         // ---- audio trak (AAC) ----
@@ -1160,8 +1149,7 @@ static void *replay_encode_worker(void *arg)
                 mp4_w32(f,0); mp4_w32(f,0x00010000); mp4_w32(f,0);
                 mp4_w32(f,0); mp4_w32(f,0); mp4_w32(f,0x40000000);
                 mp4_w32(f,0); mp4_w32(f,0);
-                long end = ftell(f); fseek(f,pos,SEEK_SET);
-                mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                mp4_end_box(f, pos);
             }
 
             // edts: edit list delaying the audio track by the
@@ -1187,11 +1175,9 @@ static void *replay_encode_worker(void *arg)
                     mp4_w32(f, audio_movie_dur);
                     mp4_w32(f, 0); // media_time = 0
                     mp4_w16(f, 1); mp4_w16(f, 0);
-                    long end = ftell(f); fseek(f,pos,SEEK_SET);
-                    mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                    mp4_end_box(f, pos);
                 }
-                long end = ftell(f); fseek(f,edts_pos,SEEK_SET);
-                mp4_w32(f,(unsigned int)(end-edts_pos)); fseek(f,end,SEEK_SET);
+                mp4_end_box(f, edts_pos);
             }
 
             // mdia
@@ -1205,8 +1191,7 @@ static void *replay_encode_worker(void *arg)
                     mp4_w32(f,REPLAY_AUDIO_RATE);
                     mp4_w32(f,audio_samples);
                     mp4_w16(f,0x55c4); mp4_w16(f,0);
-                    long end = ftell(f); fseek(f,pos,SEEK_SET);
-                    mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                    mp4_end_box(f, pos);
                 }
 
                 // hdlr (soun)
@@ -1216,8 +1201,7 @@ static void *replay_encode_worker(void *arg)
                     fwrite("soun",1,4,f);
                     mp4_w32(f,0); mp4_w32(f,0); mp4_w32(f,0);
                     fwrite("SoundHandler",1,12,f); fputc(0,f);
-                    long end = ftell(f); fseek(f,pos,SEEK_SET);
-                    mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                    mp4_end_box(f, pos);
                 }
 
                 // minf
@@ -1228,8 +1212,7 @@ static void *replay_encode_worker(void *arg)
                     {
                         long pos = ftell(f); mp4_w32(f,0); fwrite("smhd",1,4,f);
                         mp4_w32(f,0); mp4_w16(f,0); mp4_w16(f,0);
-                        long end = ftell(f); fseek(f,pos,SEEK_SET);
-                        mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                        mp4_end_box(f, pos);
                     }
 
                     // dinf
@@ -1241,14 +1224,11 @@ static void *replay_encode_worker(void *arg)
                             {
                                 long p2 = ftell(f); mp4_w32(f,0); fwrite("url ",1,4,f);
                                 mp4_w32(f,1);
-                                long e2 = ftell(f); fseek(f,p2,SEEK_SET);
-                                mp4_w32(f,(unsigned int)(e2-p2)); fseek(f,e2,SEEK_SET);
+                                mp4_end_box(f, p2);
                             }
-                            long end = ftell(f); fseek(f,pos,SEEK_SET);
-                            mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                            mp4_end_box(f, pos);
                         }
-                        long end = ftell(f); fseek(f,dinf_pos,SEEK_SET);
-                        mp4_w32(f,(unsigned int)(end-dinf_pos)); fseek(f,end,SEEK_SET);
+                        mp4_end_box(f, dinf_pos);
                     }
 
                     // stbl
@@ -1288,14 +1268,11 @@ static void *replay_encode_worker(void *arg)
                                         fwrite(audio_asc, 1, audio_asc_len, f);
                                         fputc(0x06, f); fputc(0x01, f); fputc(0x02, f); // SL config
                                     }
-                                    long xend = ftell(f); fseek(f,xpos,SEEK_SET);
-                                    mp4_w32(f,(unsigned int)(xend-xpos)); fseek(f,xend,SEEK_SET);
+                                    mp4_end_box(f, xpos);
                                 }
-                                long eend = ftell(f); fseek(f,epos,SEEK_SET);
-                                mp4_w32(f,(unsigned int)(eend-epos)); fseek(f,eend,SEEK_SET);
+                                mp4_end_box(f, epos);
                             }
-                            long end = ftell(f); fseek(f,pos,SEEK_SET);
-                            mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                            mp4_end_box(f, pos);
                         }
 
                         // stts: every AAC frame decodes to 1024 samples
@@ -1304,8 +1281,7 @@ static void *replay_encode_worker(void *arg)
                             mp4_w32(f,0); mp4_w32(f,1);
                             mp4_w32(f,(unsigned int)naframes);
                             mp4_w32(f,1024);
-                            long end = ftell(f); fseek(f,pos,SEEK_SET);
-                            mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                            mp4_end_box(f, pos);
                         }
 
                         // stsc: one sample per chunk
@@ -1316,8 +1292,7 @@ static void *replay_encode_worker(void *arg)
                                 mp4_w32(f,(unsigned int)(i+1));
                                 mp4_w32(f,1); mp4_w32(f,1);
                             }
-                            long end = ftell(f); fseek(f,pos,SEEK_SET);
-                            mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                            mp4_end_box(f, pos);
                         }
 
                         // stsz
@@ -1327,8 +1302,7 @@ static void *replay_encode_worker(void *arg)
                             mp4_w32(f,(unsigned int)naframes);
                             for (i = 0; i < naframes; i++)
                                 mp4_w32(f,(unsigned int)audio_sizes[i]);
-                            long end = ftell(f); fseek(f,pos,SEEK_SET);
-                            mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                            mp4_end_box(f, pos);
                         }
 
                         // co64
@@ -1337,28 +1311,22 @@ static void *replay_encode_worker(void *arg)
                             mp4_w32(f,0); mp4_w32(f,(unsigned int)naframes);
                             for (i = 0; i < naframes; i++)
                                 mp4_w64(f,audio_offsets[i]);
-                            long end = ftell(f); fseek(f,pos,SEEK_SET);
-                            mp4_w32(f,(unsigned int)(end-pos)); fseek(f,end,SEEK_SET);
+                            mp4_end_box(f, pos);
                         }
 
-                        long end = ftell(f); fseek(f,stbl_pos,SEEK_SET);
-                        mp4_w32(f,(unsigned int)(end-stbl_pos)); fseek(f,end,SEEK_SET);
+                        mp4_end_box(f, stbl_pos);
                     }
 
-                    long end = ftell(f); fseek(f,minf_pos,SEEK_SET);
-                    mp4_w32(f,(unsigned int)(end-minf_pos)); fseek(f,end,SEEK_SET);
+                    mp4_end_box(f, minf_pos);
                 }
 
-                long end = ftell(f); fseek(f,mdia_pos,SEEK_SET);
-                mp4_w32(f,(unsigned int)(end-mdia_pos)); fseek(f,end,SEEK_SET);
+                mp4_end_box(f, mdia_pos);
             }
 
-            long end = ftell(f); fseek(f,trak_pos,SEEK_SET);
-            mp4_w32(f,(unsigned int)(end-trak_pos)); fseek(f,end,SEEK_SET);
+            mp4_end_box(f, trak_pos);
         }
 
-        long end = ftell(f); fseek(f,moov_pos,SEEK_SET);
-        mp4_w32(f,(unsigned int)(end-moov_pos)); fseek(f,end,SEEK_SET);
+        mp4_end_box(f, moov_pos);
     }
 
     free(frame_sizes);

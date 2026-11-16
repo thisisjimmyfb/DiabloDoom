@@ -42,13 +42,18 @@
 #include "w_wad.h"
 #include "z_zone.h"
 
+// Declared here once (their definitions' headers aren't included).
+void AM_Start(void);   // am_map.c
+boolean D_UIIsOpen(void);   // d_diablo_ui.c
+void D_AutoSaveGame(void);   // d_progress.c
+extern int t_last_miss_tics;   // t_action.c
+
 // Kill banner (defined near the kill counters below): forward declarations
 // so T_Ticker and T_DrawHUD can use them before the definitions.
 static void T_TickKillBanner(void);
 static void T_DrawKillBanner(void);
 // T_IsCombatant is defined with the target-list API below; the HUD marker
 // loop uses it earlier.
-boolean T_IsCombatant(mobj_t *mo);
 
 // ------------------------------------------------------------------
 // Explore-mode detection: combat triggers when an AI enemy acquires
@@ -194,7 +199,6 @@ static void T_ForceMapNoteCommand(const char *cmd)
 // return true (publish at the next tic, with the map rendered).
 static boolean T_ForceMapDue(void)
 {
-    extern void AM_Start(void);
     player_t *pl = &players[consoleplayer];
     T_ForceMapParse();
     if (rl_fmap_every <= 0 || rl_fmap_count < rl_fmap_every || gamestate != GS_LEVEL
@@ -548,7 +552,6 @@ void T_EnterExplore(void)
 
     // Health bars: combat just ended; bars stay visible for 10 s.
     {
-        extern int gametic;
         t_combat_end_tic = gametic;
     }
     turnctrl.state = TS_EXPLORE;
@@ -588,7 +591,6 @@ void T_EnterExplore(void)
     players[consoleplayer].message = "Explore: WASD to move.";
     // Clear stale movement keys so we don't drift on combat exit.
     {
-        extern void G_ClearMovementKeys(void);
         G_ClearMovementKeys();
     }
     T_DumpState("enter-explore");
@@ -597,6 +599,13 @@ void T_EnterExplore(void)
 void T_EnterCombat(mobj_t *spotter)
 {
     static char msg[96];
+    // Movement keys that might be held from explore mode. Their key
+    // repeats are stale -- the player must release and re-press to act.
+    static const int move_keys[] = {
+        'w', 'a', 's', 'd', 'W', 'A', 'S', 'D',
+        KEY_UPARROW, KEY_DOWNARROW, KEY_LEFTARROW, KEY_RIGHTARROW
+    };
+    unsigned int i;
     // A -rlspawn practice monster never starts combat (backstop: explore
     // detection already removes or skips it).
     if (spotter != NULL && (spotter->flags & MF_RLPRACTICE))
@@ -614,16 +623,8 @@ void T_EnterCombat(mobj_t *spotter)
     // Auto-save before combat: don't lose the pre-fight state.
     // Saves both the Doom savegame (slots 7-9) and progress.dat.
     {
-        extern void D_AutoSaveGame(void);
         D_AutoSaveGame();
     }
-    // Movement keys that might be held from explore mode. Their key
-    // repeats are stale -- the player must release and re-press to act.
-    static const int move_keys[] = {
-        'w', 'a', 's', 'd', 'W', 'A', 'S', 'D',
-        KEY_UPARROW, KEY_DOWNARROW, KEY_LEFTARROW, KEY_RIGHTARROW
-    };
-    unsigned int i;
 
     turnctrl.state = TS_PLANNING;
     turnctrl.tp = turnctrl.tp_max;
@@ -666,7 +667,6 @@ void T_EnterCombat(mobj_t *spotter)
         turnctrl.stale_keys[key_fire] = true;
     // Clear Doom-level key states to prevent stuck movement.
     {
-        extern void G_ClearMovementKeys(void);
         G_ClearMovementKeys();
     }
     // The surprise, named: whoever acquired the player gets the callout.
@@ -999,7 +999,6 @@ static void T_EndPulse(void)
     // is frozen, so they'd stick in a half-fallen pose. Advance any dying
     // monster to its final corpse state (tics == -1) now.
     {
-        extern thinker_t thinkercap;
         thinker_t *th;
         for (th = thinkercap.next; th != &thinkercap; th = th->next)
         {
@@ -1422,9 +1421,6 @@ static int rl_settle_tics = 0;
 static boolean rl_decision_due(void)
 {
     player_t *pl = &players[consoleplayer];
-    extern boolean T_WalkActive(void);
-    extern boolean T_GotoActive(void);
-    extern boolean T_CollectActive(void);
 
     if (gamestate != GS_LEVEL)
         return true;
@@ -1552,7 +1548,6 @@ static void cmd_drain(void (*dispatch)(const char *))
     // accumulating in cmd_queue until the drain finishes.
     if (cmd_survey_log_pending)
     {
-        extern int V_ScreenshotQueueEmpty(void);
         if (V_ScreenshotQueueEmpty())
         {
             if (cmd_survey_log_interrupted)
@@ -2085,20 +2080,17 @@ static void cmd_dispatch(const char *cmd)
     }
     else if (!strcmp(cmd, "COLLECT"))
     {
-        extern boolean T_DoCollect(void);
         T_DoCollect();
     }
     else if (!strcmp(cmd, "MOVE_FWD"))
     {
         // Combat movement: step forward (1 TP). Works in combat.
-        extern void T_DoMove(int dir);
         T_DoMove(0);
     }
     else if (!strcmp(cmd, "MOVE_BACK"))
     {
         // Combat movement: step back (1 TP). Works in combat.
         // Kiting: back away from melee attackers.
-        extern void T_DoMove(int dir);
         T_DoMove(2);
     }
     else if (!strcmp(cmd, "STRAFE_L") || !strcmp(cmd, "STRAFE_R"))
@@ -2107,7 +2099,6 @@ static void cmd_dispatch(const char *cmd)
         // -rlenv in explore (SPEC.md §4): a fixed sideways step
         // without turning, like WALK <angle>, instead of queueing a
         // TP-costing combat move that only previews until END TURN.
-        extern void T_DoMove(int dir);
         extern void T_WalkStartStrafe(int dir);
         boolean left = !strcmp(cmd, "STRAFE_L");
         if (rlenv && T_InExplore())
@@ -2129,7 +2120,6 @@ static void cmd_dispatch(const char *cmd)
     }
     else if (!strcmp(cmd, "SCREENSHOT"))
     {
-        extern void G_ScreenShot(boolean);
         G_ScreenShot(true);
     }
     else if (!strcmp(cmd, "CAPTURE"))
@@ -2137,9 +2127,6 @@ static void cmd_dispatch(const char *cmd)
         // Dedicated capture: 15s replay video + screenshot in one command.
         // Saves the replay FIRST, before the screenshot, so no screenshot
         // message text can land in the replay buffer and appear in the video.
-        extern void G_ScreenShot(boolean);
-        extern int D_ReplaySaveMP4(const char *filename);
-        extern void D_ReplayNextFilename(char *buf, size_t bufsz);
         {
             char filename[256];
             D_ReplayNextFilename(filename, sizeof(filename));
@@ -2155,7 +2142,6 @@ static void cmd_dispatch(const char *cmd)
     {
         extern void D_UIOpen(void);
         extern void D_UIClose(void);
-        extern boolean D_UIIsOpen(void);
         if (D_UIIsOpen())
             D_UIClose();
         else
@@ -2171,7 +2157,6 @@ static void cmd_dispatch(const char *cmd)
         // inventory is open.
         extern void D_UISelectSlot(int slot);
         extern void D_UISelectBackpack(int bpi);
-        extern boolean D_UIIsOpen(void);
         player_t *pl = &players[consoleplayer];
         const char *arg = cmd + 8;
         int bpi;
@@ -2257,7 +2242,6 @@ static void cmd_dispatch(const char *cmd)
         // without tics) while it is open closes it at once. Explore mode
         // only -- combat hides the map on entry (T_EnterCombat), so in
         // combat MAP does nothing.
-        extern void AM_Start(void);
         int show = T_MAP_SHOW_TICS;
         if (cmd[3] == ' ' && sscanf(cmd + 4, "%d", &show) == 1)
         {
@@ -2310,8 +2294,6 @@ static void cmd_dispatch(const char *cmd)
         if (sscanf(cmd + 6, "%d %d", &bpi, &slot) == 2
             && bpi >= 0 && bpi < D_BACKPACK_MAX && slot >= 0 && slot <= 10)
         {
-            extern boolean D_EquipBackpackItem(struct player_s *pl,
-                                               int bpi, int slot);
             if (D_EquipBackpackItem((struct player_s *)pl, bpi, slot))
                 printf("[AGENT] EQUIPPED backpack[%d] -> slot[%d]\n", bpi, slot);
             else
@@ -2338,7 +2320,6 @@ static void cmd_dispatch(const char *cmd)
         player_t *pl = &players[consoleplayer];
         if (sscanf(cmd + 8, "%d", &slot) == 1 && slot >= 0 && slot <= 10)
         {
-            extern boolean D_UnequipSlot(struct player_s *pl, int slot);
             if (D_UnequipSlot((struct player_s *)pl, slot))
                 printf("[AGENT] UNEQUIPPED slot[%d] -> backpack\n", slot);
         }
@@ -2353,7 +2334,6 @@ static void cmd_dispatch(const char *cmd)
             int id = pl->diablo_backpack[bpi];
             if (id != -1)
             {
-                extern void D_BackpackRemoveAt(struct player_s *pl, int bpi);
                 int tier = ((id >> 8) & 0xff); // D_ITEMTIER macro
                 int essence = 1;
                 switch (tier)
@@ -2478,7 +2458,6 @@ static void cmd_dispatch(const char *cmd)
         // it drives the status-bar face's idle glances, which are on
         // screen -- without it two identical runs differ in the face.
         extern int prndindex;
-        extern int rndindex;
         int n;
         if (sscanf(cmd + 5, "%d", &n) == 1 && n >= 0 && n <= 255)
         {
@@ -2498,9 +2477,6 @@ static void cmd_dispatch(const char *cmd)
     else if (!strcmp(cmd, "REPLAY"))
     {
         // Dump the last 15 seconds of gameplay to MP4 (MJPEG).
-        extern int D_ReplaySaveMP4(const char *filename);
-        extern int D_ReplayFrameCount(void);
-        extern void D_ReplayNextFilename(char *buf, size_t bufsz);
         char filename[256];
         // Save to the current working directory (doomshots/)
         D_ReplayNextFilename(filename, sizeof(filename));
@@ -2520,8 +2496,6 @@ static void cmd_dispatch(const char *cmd)
         // already trigger. Slots 3-5 are plain Doom savegames, like
         // the menu's manual slots. Slots 1-2 have no writer: the
         // autosave always uses slot 0 (no rotation, by design).
-        extern void D_AutoSaveGame(void);
-        extern void G_DoSaveGameSlot(int slot, const char *desc);
         int n = 0;
         if (sscanf(cmd + 4, "%d", &n) != 1)
             n = 0;
@@ -2555,8 +2529,6 @@ static void cmd_dispatch(const char *cmd)
         // shorter than a segment. RL segments run across resets.
         extern void D_ProgressLoadAutoSlot(int auto_slot);
         extern char *P_SaveGameFile(int slot);
-        extern void G_LoadGame(char *name);
-        extern void D_ReplayRequestRestartOnLoad(void);
         int n = 0;
         if (sscanf(cmd + 4, "%d", &n) != 1)
             n = 0;
@@ -2604,7 +2576,6 @@ static void cmd_dispatch(const char *cmd)
         {
             // A capturing instance flushes its partial segment and
             // waits for the encodes first.
-            extern void D_ReplayFlushCapture(void);
             D_ReplayFlushCapture();
         }
         printf("[QUIT] shutting down (no save)\n");
@@ -2613,7 +2584,6 @@ static void cmd_dispatch(const char *cmd)
         // so a final screenshot (or pending survey frames) queued
         // just before QUIT still lands on disk.
         {
-            extern void V_ScreenshotFlush(void);
             V_ScreenshotFlush();
         }
         show_endoom = 0;
@@ -2653,7 +2623,6 @@ void T_Ticker(void)
     // (The old single damage number is gone; hit damage uses the
     // floating combat text system, ticked above.)
     {
-        extern int t_last_miss_tics;
         if (t_last_miss_tics > 0)
             t_last_miss_tics--;
     }
@@ -2969,8 +2938,6 @@ typedef struct {
     int yoff;            // vertical stagger (0, -10, -20...) for same-monster stacks
 } t_floattext_t;
 static t_floattext_t t_floattexts[T_MAXFLOAT];
-void T_TickFloatText(void);
-void T_DrawFloatText(void);
 
 void T_SpawnFloatText(mobj_t *mo, const char *text)
 {
@@ -3180,7 +3147,6 @@ void T_DrawHealthBars(void)
     // Visible in combat, and for 10 s after combat ends.
     if (!T_InCombat())
     {
-        extern int gametic;
         if (!T_InExplore()
             || gametic - t_combat_end_tic >= T_HEALTHBAR_FADE_TICS)
             return;
@@ -3440,7 +3406,7 @@ static void T_DrawActionList(int start_y)
 static int T_DrawQueuePanelAt(int start_y)
 {
     char line[64], name[48];
-    int x = 8, y = start_y, i, shown;
+    int x = 8, y = start_y, i;
 
     if (turnctrl.queue_len == 0)
         return y;
@@ -3518,8 +3484,6 @@ void T_DrawHUD(void)
     // start of a level and fades out after 5 seconds.
     if (turnctrl.state == TS_EXPLORE)
     {
-        extern int gametic;
-        extern int levelstarttic;
         int elapsed = gametic - levelstarttic;
         if (elapsed < 175) // 5 seconds at 35 tics/sec
         {
@@ -3577,7 +3541,6 @@ void T_DrawHUD(void)
         // MISS text: same system.
         {
             extern mobj_t *t_last_miss_mobj;
-            extern int t_last_miss_tics;
             if (t_last_miss_mobj != NULL && t_last_miss_tics > 0)
             {
                 int sx, sy;
@@ -3889,7 +3852,6 @@ void T_KillBanner(const char *title, const char *sub)
     t_killbanner_tics = 90; // ~2.5s at 35 tics/sec
 }
 
-static void T_TickKillBanner(void);
 
 static void T_TickKillBanner(void)
 {
