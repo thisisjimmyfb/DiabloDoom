@@ -11,6 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
+import collections
+
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
@@ -30,10 +32,8 @@ ACTIONS = [("PRESS " + f + s + t).rstrip()
            for f in ("", "W", "S") for s in ("", "A", "D") for t in ("", "L", "R")] + ["USE", "CONSULT"]
 CONSULT = ACTIONS.index("CONSULT")
 USE = ACTIONS.index("USE")
-# Each action's turn key: +1 left (L), -1 right (R), 0 none; and its
-# forward/back key: +1 W, -1 S, 0 none (strafes, A/D, aren't tracked).
-TURN_DIR = [(1 if "L" in a[6:] else -1 if "R" in a[6:] else 0) if a.startswith("PRESS") else 0
-            for a in ACTIONS]
+# Each action's forward/back key: +1 W, -1 S, 0 none (strafes, A/D,
+# aren't tracked).
 MOVE_DIR = [(1 if "W" in a[6:] else -1 if "S" in a[6:] else 0) if a.startswith("PRESS") else 0
             for a in ACTIONS]
 
@@ -106,15 +106,18 @@ class RewardConfig:
     # the clock's base rate (model.make_env ties it to --time-penalty), so
     # it can't pay for standing still. 0 turns it off.
     look: float = 1 / 3 / 35 / 2
-    # Turn reversals (2026-11-16): a turn key pressed at most
-    # turn_flip_window tics after the last turn key the other way (L, then
-    # R up to 4 tics later) costs turn_flip -- the left-right wobble. Turning steadily one way, starting or stopping a turn, and
-    # running while turning cost nothing. -0.005 is about half a tic of the
-    # clock's base rate (lowered from -0.015 2026-11-16: at that size,
-    # always turning one way to avoid it became a habit -- the policy drifted
-    # to 81% right turns). 0 turns it off.
-    turn_flip: float = -0.005
-    turn_flip_window: int = 4
+    # Wasted rotation (2026-11-16): turning that gets undone. From the
+    # facing in the state line, over the last turn_waste_window tics:
+    # wasted = sum |dθ| - |sum dθ|, the turning that didn't change where
+    # the player faces. Each tic adds what it wastes -- a turn against the
+    # window's net turn S undoes min(|dθ|, |S|), wasting twice that -- and
+    # costs turn_waste per 45 degrees of it. A steady turn either way, and
+    # holding still, cost nothing; a wobble costs in proportion; a small
+    # correction after a long sweep costs little. It replaced a fixed
+    # charge per L/R reversal, which made always turning one way the free
+    # habit (the policy drifted to 81% right turns). 0 turns it off.
+    turn_waste: float = -0.005
+    turn_waste_window: int = 8
     # The same for forward and back: W at most move_flip_window tics after
     # S, or S after W, costs move_flip. Strafing back and forth (A/D) is
     # free.
@@ -257,7 +260,8 @@ class DiabloDoomEnv(gym.Env):
         self.next_reset: dict | None = None
         self._installed: dict[int, bytes | None] = {}   # install_state slots
         self._installed_visited: dict[int, str | None] = {}  # their visited lists (VISITED hex)
-        self._turn_dir, self._turn_tic = 0, -10 ** 9          # the last turn key and its rollout tic
+        # the last turn_waste_window turns (degrees), for RewardConfig.turn_waste
+        self._turn_hist = collections.deque(maxlen=self.cfg.rewards.turn_waste_window)
         self._move_dir, self._move_tic = 0, -10 ** 9          # the last W/S key and its rollout tic
         self._fall_top, self._fall_peak = None, 0.0           # a fall in progress: its start z, fastest tic
         self.state: dict = {}
@@ -400,7 +404,7 @@ class DiabloDoomEnv(gym.Env):
         self._keys = d.get("keys", 0)     # keys held at the start (or from the warm-up) never pay
         self._prev_hp = d.get("hp", 0)
         self._combat_steps = 0
-        self._turn_dir, self._turn_tic = 0, -10 ** 9
+        self._turn_hist = collections.deque(maxlen=self.cfg.rewards.turn_waste_window)
         self._move_dir, self._move_tic = 0, -10 ** 9
         self._fall_top, self._fall_peak = None, 0.0
         self._trig = {k: self._new_trigger() for k in ("monster", "backpack", "combat")}
@@ -486,15 +490,12 @@ class DiabloDoomEnv(gym.Env):
         if sent and rc.fall:
             add("fall", self._fall_step(prev, d, tics))
 
-        # Turn and forward/back reversals: this step's key against the last
-        # one on the same axis. The key acts on the tic this step played
-        # (self._tics is its end).
-        turn = TURN_DIR[a] if sent and a != CONSULT else 0
-        if turn:
-            if (rc.turn_flip and self._turn_dir == -turn
-                    and self._tics - self._turn_tic <= rc.turn_flip_window):
-                add("turn_flip", rc.turn_flip)
-            self._turn_dir, self._turn_tic = turn, self._tics
+        # Wasted rotation, from the facing (RewardConfig.turn_waste).
+        if sent and tics > 0 and rc.turn_waste:
+            add("turn_waste", self._turn_waste_step(prev, d))
+
+        # Forward/back reversals: this step's W/S key against the last one.
+        # The key acts on the tic this step played (self._tics is its end).
         move = MOVE_DIR[a] if sent and a != CONSULT else 0
         if move:
             if (rc.move_flip and self._move_dir == -move
@@ -607,6 +608,21 @@ class DiabloDoomEnv(gym.Env):
         new = held & ~self._keys
         self._keys |= held
         return bin(new).count("1")
+
+    def _turn_waste_step(self, prev: dict, d: dict) -> float:
+        """This step's wasted rotation (RewardConfig.turn_waste): its turn,
+        against the net turn of the window before it."""
+        rc = self.cfg.rewards
+        a0, a1 = prev.get("angle"), d.get("angle")
+        if a0 is None or a1 is None or None in (prev.get("x"), d.get("x")) \
+                or np.hypot(d["x"] - prev["x"], d["y"] - prev["y"]) > 64:
+            self._turn_hist.clear()                          # no level, or a teleport
+            return 0.0
+        turn = (a1 - a0 + 180) % 360 - 180                   # degrees, + left
+        net = sum(self._turn_hist)
+        wasted = 2 * min(abs(turn), abs(net)) if turn * net < 0 else 0
+        self._turn_hist.append(turn)
+        return rc.turn_waste * wasted / 45.0
 
     def _fall_step(self, prev: dict, d: dict, tics: int) -> float:
         """Track a fall across steps (RewardConfig.fall); the penalty on the

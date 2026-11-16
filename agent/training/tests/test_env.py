@@ -171,7 +171,7 @@ def test_hp_loss_and_death():
     top of the HP it lost. Engine faked: no game needed."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hp_loss=-0.2, death=-100.0,
-                        loot=0, health=0, fast=0, look=0, turn_flip=0, move_flip=0, use_miss=0, fall=0, wall_look=0)
+                        loot=0, health=0, fast=0, look=0, turn_waste=0, move_flip=0, use_miss=0, fall=0, wall_look=0)
     e = make_env(rewards=only, max_tics=100000)
     states = iter([{"mode": "EXPLORE", "hp": 90, "tics": 10},     # nukage: -10 hp
                    {"mode": "EXPLORE", "hp": 100, "tics": 10},    # healed: nothing
@@ -201,7 +201,7 @@ def test_fast_tics():
     paying `fast`; running into a wall has none."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hp_loss=0, death=0,
-                        loot=0, health=0, fast=0.005, fast_speed=4, look=0, turn_flip=0, move_flip=0, use_miss=0, fall=0, wall_look=0)
+                        loot=0, health=0, fast=0.005, fast_speed=4, look=0, turn_waste=0, move_flip=0, use_miss=0, fall=0, wall_look=0)
     e = make_env(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only, max_tics=100000)
     try:
         assert e.cfg.engine.extra_args[-2:] == ["-rlfast", "4"]
@@ -255,29 +255,34 @@ def test_press():
         e.close()
 
 
-def test_turn_flip():
-    """A turn key the other way at most turn_flip_window (4) tics after the
-    last turn key costs turn_flip; turning one way, a reversal after a
-    longer gap, and other keys in between (they don't reset it) don't
-    change that. Engine faked: one tic per step, no game needed."""
+def test_turn_waste():
+    """Wasted rotation, from the facing: a turn against the last 8 tics'
+    net turn costs turn_waste per 45 degrees of 2 x min(|turn|, |net|) --
+    a steady turn either way, holding still, a turn after the window has
+    passed and a teleport cost nothing. Engine faked: one tic per step."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
-                        consult_false=0, key=0, time=0, hp_loss=0, death=0,
-                        loot=0, health=0, fast=0, look=0, turn_flip=-1.0, turn_flip_window=4, move_flip=0, use_miss=0, fall=0, wall_look=0)
+                        consult_false=0, key=0, time=0, hp_loss=0, death=0, loot=0, health=0,
+                        fast=0, look=0, turn_waste=-45.0, turn_waste_window=8, move_flip=0,
+                        use_miss=0, fall=0, wall_look=0)     # -45 per 45 degrees: reward = -wasted degrees
     e = make_env(rewards=only, max_tics=100000)
-    e.engine.command = lambda line: ({"mode": "EXPLORE", "hp": 100, "tics": 1}, [])
+    angles = [10, 20, 13, 20, 350, 0, 350] + [350] * 8 + [0]
+    xs = [0, 0, 0, 0, 0, 500, 500] + [500] * 8 + [500]          # x jumps 500: a teleport
+    states = iter([{"mode": "EXPLORE", "hp": 100, "tics": 1, "x": x, "y": 0, "angle": a}
+                   for x, a in zip(xs, angles)])
+    e.engine.command = lambda line: (next(states), [])
     e._frame = lambda: np.zeros((200, 320), dtype=np.uint8)
-    e.state = {"mode": "EXPLORE", "hp": 100}
+    e.state = {"mode": "EXPLORE", "hp": 100, "x": 0, "y": 0, "angle": 0}
     e._prev_hp, e._tics, e._combat_steps = 100, 0, 0
     e._best_sectors = e._start_sectors = 0
     e._keys, e._goal, e._group, e._slot, e._seed = 0, None, 0, None, 0
     e._trig = {k: e._new_trigger() for k in ("monster", "backpack", "combat")}
     e._stack.reset(e._frame())
-    plan = ["PRESS L", "PRESS WL", "PRESS R",          # L, L, then R: a flip
-            "PRESS W", "PRESS W", "PRESS W", "PRESS L",  # R, 4 tics later L: a flip
-            "PRESS", "PRESS", "PRESS", "PRESS", "PRESS R",  # 5 tics later: none
-            "PRESS DR", "PRESS R"]                       # same way: none
-    got = [e.step(ACTIONS.index(a))[1] for a in plan]
-    assert got == [0, 0, -1.0, 0, 0, 0, -1.0, 0, 0, 0, 0, 0, 0, 0], got
+    got = [round(e.step(ACTIONS.index("PRESS"))[1], 6) for _ in angles]
+    want = [0, 0, -14, 0, -40, 0, 0] + [0] * 8 + [0]
+    #  +10 +10, then -7 against +20: 14 wasted; +7 with the net; -30 across
+    #  0/360 against +20: 40; teleport resets; -10, then 8 still tics push
+    #  it out of the window, so the +10 back costs nothing.
+    assert got == want, got
 
 
 def test_move_flip():
@@ -286,7 +291,7 @@ def test_move_flip():
     don't count. Engine faked: one tic per step, no game needed."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hp_loss=0, death=0, loot=0, health=0,
-                        fast=0, look=0, turn_flip=0, move_flip=-1.0, move_flip_window=4, use_miss=0, fall=0, wall_look=0)
+                        fast=0, look=0, turn_waste=0, move_flip=-1.0, move_flip_window=4, use_miss=0, fall=0, wall_look=0)
     e = make_env(rewards=only, max_tics=100000)
     e.engine.command = lambda line: ({"mode": "EXPLORE", "hp": 100, "tics": 1}, [])
     e._frame = lambda: np.zeros((200, 320), dtype=np.uint8)
@@ -311,7 +316,7 @@ def test_use_miss():
     Engine faked: no game needed."""
     only = RewardConfig(sector=0, exit=0, mechanism=10.0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hp_loss=0, death=0, loot=0, health=0,
-                        fast=0, look=0, turn_flip=0, move_flip=0, use_miss=-0.05, fall=0, wall_look=0)
+                        fast=0, look=0, turn_waste=0, move_flip=0, use_miss=-0.05, fall=0, wall_look=0)
     e = make_env(rewards=only, max_tics=100000)
     door = [{"event": "use", "sectors": [7], "lines": []}]
     steps = iter([[], door, door, [], []])
@@ -334,7 +339,7 @@ def test_fall():
     going up and a teleport never do. Engine faked: one tic per step."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hp_loss=0, death=0, loot=0, health=0,
-                        fast=0, look=0, turn_flip=0, move_flip=0, use_miss=0, fall=-1.0, wall_look=0)
+                        fast=0, look=0, turn_waste=0, move_flip=0, use_miss=0, fall=-1.0, wall_look=0)
 
     def run(zs, xs=None):
         e = make_env(rewards=only, max_tics=100000)
@@ -367,7 +372,7 @@ def test_wall_look_rule():
     no wall ahead. Engine faked: one tic per step, no game needed."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hp_loss=0, death=0, loot=0, health=0,
-                        fast=0, look=0, turn_flip=0, move_flip=0, use_miss=0, fall=0,
+                        fast=0, look=0, turn_waste=0, move_flip=0, use_miss=0, fall=0,
                         wall_look=-1.0, wall_look_dist=48.0)
     e = make_env(rewards=only, max_tics=100000)
     states = iter([{"wall_dist": 20, "wall_use": False}, {"wall_dist": 47, "wall_use": False},
@@ -392,7 +397,7 @@ def test_wall_dist():
     the room puts it beyond (or -1, nothing within 128)."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hp_loss=0, death=0, loot=0, health=0,
-                        fast=0, look=0, turn_flip=0, move_flip=0, use_miss=0, fall=0,
+                        fast=0, look=0, turn_waste=0, move_flip=0, use_miss=0, fall=0,
                         wall_look=-1.0, wall_look_dist=48.0)
     e = make_env(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only, max_tics=100000)
     try:
@@ -419,7 +424,7 @@ def test_look_reward():
     credit facing it and nothing facing away."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hp_loss=0, death=0,
-                        loot=0, health=0, fast=0, look=1.0, turn_flip=0, move_flip=0, use_miss=0, fall=0, wall_look=0)
+                        loot=0, health=0, fast=0, look=1.0, turn_waste=0, move_flip=0, use_miss=0, fall=0, wall_look=0)
     e = make_env(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only, max_tics=100000)
     try:
         e.reset(options={"seed": 1})
@@ -471,7 +476,7 @@ def test_key_goal():
     without key_goal a key only pays. Engine faked: no game needed."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=25.0, time=0, hp_loss=0, death=0,
-                        loot=0, health=0, fast=0, look=0, turn_flip=0, move_flip=0, use_miss=0, fall=0, wall_look=0)
+                        loot=0, health=0, fast=0, look=0, turn_waste=0, move_flip=0, use_miss=0, fall=0, wall_look=0)
     for goal in (True, False):
         e = make_env(rewards=only, max_tics=100000, key_goal=goal)
         states = iter([{"mode": "EXPLORE", "hp": 100, "tics": 5, "keys": 1},    # blue held from the start
@@ -698,7 +703,7 @@ def test_time_distance_penalty():
     its tics * (1 + d / far_scale), d the mean of its start and end
     distances to the nearest portal of the current sector."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0,
-                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, fast=0, look=0, turn_flip=0, move_flip=0, use_miss=0, fall=0, wall_look=0,
+                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, fast=0, look=0, turn_waste=0, move_flip=0, use_miss=0, fall=0, wall_look=0,
                         time=1.0, far_scale=256.0)
     e = make_env(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only,
                  max_tics=100000, consult_handler=standin_consult)
@@ -733,7 +738,7 @@ def test_portal_goal():
     list (VISITED) and reinstalled restores that visited count after the
     load (VISIT), so the next rollout's goal is a sector beyond it."""
     only = RewardConfig(sector=15.0, exit=0, mechanism=0, consult_hit=0,
-                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, fast=0, look=0, turn_flip=0, move_flip=0, use_miss=0, fall=0, wall_look=0,
+                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, fast=0, look=0, turn_waste=0, move_flip=0, use_miss=0, fall=0, wall_look=0,
                         time=0.01, far_scale=1e12)   # time and sector only
     e = DiabloDoomEnv(EnvConfig(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only,
                                 max_tics=100000, portal_goal=1, consult_handler=standin_consult))
