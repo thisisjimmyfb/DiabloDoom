@@ -84,7 +84,15 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   from the facing to the nearest portal of the current sector into an
   unvisited sector (`portal_rel`; none: nothing), at half the clock's
   base rate (`--time-penalty` / 70), so it softens the clock for facing
-  the right way but never pays for standing still. The held-out eval keeps
+  the right way but never pays for standing still.
+  Turning back and forth costs `turn_flip` (-0.015, 2026-11-16) for each
+  turn key pressed at most 4 tics after the last turn key the other way;
+  turning one way, or starting and stopping a turn, costs nothing.
+  Forward and back the same way: W within 4 tics of S, or S of W, costs
+  `move_flip` (-0.015); strafing back and forth is free.
+  A USE that sets nothing going (no engine `use` event: a plain wall,
+  empty space) costs `use_miss` (-0.05, 2026-11-16); opening a door,
+  even one used before, costs nothing. The held-out eval keeps
   `--eval-max-tics` (2100) with no goal and no penalty, so its numbers
   compare across versions. Stage 1 has no map monsters, but passive
   damage (nukage, slime, crushers, barrels) still hurts: every HP lost

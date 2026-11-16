@@ -29,6 +29,13 @@ from .obs import FrameStack, Preprocessor
 ACTIONS = [("PRESS " + f + s + t).rstrip()
            for f in ("", "W", "S") for s in ("", "A", "D") for t in ("", "L", "R")] + ["USE", "CONSULT"]
 CONSULT = ACTIONS.index("CONSULT")
+USE = ACTIONS.index("USE")
+# Each action's turn key: +1 left (L), -1 right (R), 0 none; and its
+# forward/back key: +1 W, -1 S, 0 none (strafes, A/D, aren't tracked).
+TURN_DIR = [(1 if "L" in a[6:] else -1 if "R" in a[6:] else 0) if a.startswith("PRESS") else 0
+            for a in ACTIONS]
+MOVE_DIR = [(1 if "W" in a[6:] else -1 if "S" in a[6:] else 0) if a.startswith("PRESS") else 0
+            for a in ACTIONS]
 
 EXPLORE = "EXPLORE"
 COMBAT_MODES = {"PLANNING", "TARGETING", "CONFIRM", "PULSE", "REACTION", "ROUND_END"}
@@ -44,6 +51,11 @@ class RewardConfig:
     exit: float = 100.0               # level complete triggered (ends the rollout): the top reward
     death: float = -100.0             # the player died (ends the rollout): as big as the exit
     mechanism: float = 10.0           # USE that sets a new mechanism going (once per mechanism)
+    # A USE that sets nothing going (no engine "use" event: a plain wall,
+    # empty space) costs use_miss (2026-11-16), so pressing it at random
+    # costs more than standing still. Opening a door, even one used
+    # before, costs nothing. -0.05 is about 5 tics of the clock's base.
+    use_miss: float = -0.05
     key: float = 25.0                 # per key colour newly held (blue, yellow, red; once each)
     # Pickups, from the engine's pickup events: each Diablo item picked
     # up (or armor, which also grants one) pays `loot`; a health pickup
@@ -94,6 +106,18 @@ class RewardConfig:
     # the clock's base rate (model.make_env ties it to --time-penalty), so
     # it can't pay for standing still. 0 turns it off.
     look: float = 1 / 3 / 35 / 2
+    # Turn reversals (2026-11-16): a turn key pressed at most
+    # turn_flip_window tics after the last turn key the other way (L, then
+    # R up to 4 tics later) costs turn_flip -- the left-right wobble. Turning steadily one way, starting or stopping a turn, and
+    # running while turning cost nothing. -0.015 is about 1.5 tics of the
+    # clock's base rate. 0 turns it off.
+    turn_flip: float = -0.015
+    turn_flip_window: int = 4
+    # The same for forward and back: W at most move_flip_window tics after
+    # S, or S after W, costs move_flip. Strafing back and forth (A/D) is
+    # free.
+    move_flip: float = -0.015
+    move_flip_window: int = 4
     # Per HP lost, whatever the cause: passive damage (nukage, slime,
     # crushers, barrels) in stage 1. Healing never pays; a death costs
     # the HP it lost on the way plus `death`.
@@ -209,6 +233,8 @@ class DiabloDoomEnv(gym.Env):
         self.next_reset: dict | None = None
         self._installed: dict[int, bytes | None] = {}   # install_state slots
         self._installed_visited: dict[int, str | None] = {}  # their visited lists (VISITED hex)
+        self._turn_dir, self._turn_tic = 0, -10 ** 9          # the last turn key and its rollout tic
+        self._move_dir, self._move_tic = 0, -10 ** 9          # the last W/S key and its rollout tic
         self.state: dict = {}
 
     # -- engine access for CONSULT handlers ------------------------
@@ -349,6 +375,8 @@ class DiabloDoomEnv(gym.Env):
         self._keys = d.get("keys", 0)     # keys held at the start (or from the warm-up) never pay
         self._prev_hp = d.get("hp", 0)
         self._combat_steps = 0
+        self._turn_dir, self._turn_tic = 0, -10 ** 9
+        self._move_dir, self._move_tic = 0, -10 ** 9
         self._trig = {k: self._new_trigger() for k in ("monster", "backpack", "combat")}
         self._update_triggers(d)
         obs = self._stack.reset(self._frame())
@@ -422,6 +450,21 @@ class DiabloDoomEnv(gym.Env):
         # by the facing at the step's end (one tic, under per-tic decisions).
         if sent and rc.look and d.get("portal_rel") is not None:
             add("look", rc.look * tics * max(0.0, float(np.cos(np.radians(d["portal_rel"])))))
+        # Turn and forward/back reversals: this step's key against the last
+        # one on the same axis. The key acts on the tic this step played
+        # (self._tics is its end).
+        turn = TURN_DIR[a] if sent and a != CONSULT else 0
+        if turn:
+            if (rc.turn_flip and self._turn_dir == -turn
+                    and self._tics - self._turn_tic <= rc.turn_flip_window):
+                add("turn_flip", rc.turn_flip)
+            self._turn_dir, self._turn_tic = turn, self._tics
+        move = MOVE_DIR[a] if sent and a != CONSULT else 0
+        if move:
+            if (rc.move_flip and self._move_dir == -move
+                    and self._tics - self._move_tic <= rc.move_flip_window):
+                add("move_flip", rc.move_flip)
+            self._move_dir, self._move_tic = move, self._tics
 
         # Exploration: newly visited sectors.
         if sec > self._best_sectors:
@@ -436,6 +479,9 @@ class DiabloDoomEnv(gym.Env):
         # reusing the same door or switch never pays again.
         if self._new_mechanisms(events):
             add("mechanism", rc.mechanism)
+        elif (a == USE and sent and rc.use_miss
+              and not any(e.get("event") == "use" for e in events)):
+            add("use_miss", rc.use_miss)
 
         # Keys: each colour pays once per rollout, when first held.
         new_keys = self._new_keys(d)
