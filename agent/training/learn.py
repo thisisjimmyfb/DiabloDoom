@@ -94,7 +94,39 @@ def update(policy: Policy, optimizer: torch.optim.Optimizer, ref: Policy | None,
     old_lp = torch.as_tensor(batch["logp"], device=device)
     adv = torch.as_tensor(batch["adv"], device=device)
     ret = torch.as_tensor(batch["ret"], device=device)
-    stats = {k: [] for k in ("pg_loss", "v_loss", "entropy", "approx_kl", "clipfrac", "ref_kl")}
+    stats = {k: [] for k in ("pg_loss", "v_loss", "entropy", "approx_kl", "clipfrac", "ref_kl",
+                             "grad_norm")}
+    # Health (training_health): which units of the trunk's last layer (the
+    # ReLU features both heads read) fire on any sample of the batch, and
+    # the optimizer steps skipped for a non-finite loss or gradient.
+    alive = None
+    nonfinite = 0
+
+    def watch(_module, _inp, out):
+        nonlocal alive
+        fired = (out.detach() > 0).any(0)
+        alive = fired if alive is None else alive | fired
+    hook = policy.trunk.register_forward_hook(watch)
+    try:
+        nonfinite = _update_epochs(policy, optimizer, ref, args, device, n, obs, priv, act,
+                                   old_lp, adv, ret, stats)
+    finally:
+        hook.remove()
+    out = {k: float(np.mean(v)) for k, v in stats.items() if v}
+    if stats["grad_norm"]:
+        out["grad_norm_max"] = float(np.max(stats["grad_norm"]))
+    if alive is not None:
+        out["dead_units"] = 1.0 - alive.float().mean().item()
+    out["nonfinite_steps"] = nonfinite
+    return out
+
+
+def _update_epochs(policy, optimizer, ref, args, device, n, obs, priv, act, old_lp, adv, ret,
+                   stats) -> int:
+    """The PPO epochs of update(); returns the optimizer steps skipped for
+    a non-finite loss or gradient norm (so a blow-up never reaches the
+    weights)."""
+    nonfinite = 0
     for _ in range(args.epochs):
         perm = torch.randperm(n)
         for start in range(0, n, args.minibatch):
@@ -121,8 +153,14 @@ def update(policy: Policy, optimizer: torch.optim.Optimizer, ref: Policy | None,
                 stats["ref_kl"].append(kl.item())
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
-            nn.utils.clip_grad_norm_(policy.parameters(), args.max_grad_norm)
+            # The norm before clipping: what the gradient would have been.
+            gn = nn.utils.clip_grad_norm_(policy.parameters(), args.max_grad_norm).item()
+            if not (np.isfinite(gn) and torch.isfinite(loss).item()):
+                nonfinite += 1
+                optimizer.zero_grad(set_to_none=True)
+                continue
             optimizer.step()
+            stats["grad_norm"].append(gn)
             with torch.no_grad():
                 log_ratio = lp - old_lp[idx]
                 stats["approx_kl"].append(((log_ratio.exp() - 1) - log_ratio).mean().item())
@@ -130,7 +168,31 @@ def update(policy: Policy, optimizer: torch.optim.Optimizer, ref: Policy | None,
             stats["pg_loss"].append(pg.item())
             stats["v_loss"].append(v_loss.item())
             stats["entropy"].append(ent.item())
-    return {k: float(np.mean(v)) for k, v in stats.items() if v}
+    return nonfinite
+
+
+def training_health(upd: dict, args) -> str | None:
+    """Why training must stop after this update, or None if it's healthy:
+    - exploding gradient: an optimizer step had a non-finite loss or
+      gradient (skipped), or the gradient norm before clipping went past
+      --stop-grad-norm;
+    - ReLU collapse: at least --stop-dead-units of the trunk's last-layer
+      units never fired on the whole batch (a dead unit gets no gradient
+      and never comes back; with all of them dead the policy ignores the
+      screen and only its biases still learn).
+    A threshold of 0 turns that check off."""
+    if upd.get("nonfinite_steps", 0):
+        return (f"exploding gradient: {upd['nonfinite_steps']} optimizer steps had a non-finite "
+                "loss or gradient (skipped)")
+    gmax = upd.get("grad_norm_max")
+    if args.stop_grad_norm > 0 and gmax is not None and gmax > args.stop_grad_norm:
+        return (f"exploding gradient: gradient norm {gmax:.3g} before clipping "
+                f"(--stop-grad-norm {args.stop_grad_norm:g})")
+    dead = upd.get("dead_units")
+    if args.stop_dead_units > 0 and dead is not None and dead >= args.stop_dead_units:
+        return (f"ReLU collapse: {dead:.0%} of the trunk's last-layer units never fired on this "
+                f"batch (--stop-dead-units {args.stop_dead_units:g})")
+    return None
 
 
 def train_metrics(recs: list[dict], n_groups: int, collapsed: int) -> dict:
@@ -167,7 +229,9 @@ def print_train(it: int, m: dict, upd: dict, extra: str = "") -> None:
     print(f"[it {it:5d}] ret {m['return']:7.2f} sectors {m['sectors']:5.2f} "
           f"exit {m['exit_rate']:.2f} portal {m.get('portal_rate', 0.0):.2f} collapsed {m['collapsed_share']:.2f} steps {m['steps']} "
           f"ent {upd.get('entropy', float('nan')):.3f} kl {upd.get('approx_kl', float('nan')):.4f}"
-          + (f" front {m['frontier_share']:.2f}" if "frontier_share" in m else "") + extra)
+          + (f" front {m['frontier_share']:.2f}" if "frontier_share" in m else "")
+          + (f" dead {upd['dead_units']:.2f} gnorm {upd['grad_norm_max']:.0f}"
+             if "dead_units" in upd and "grad_norm_max" in upd else "") + extra)
 
 
 def add_learn_args(p) -> None:
@@ -182,6 +246,12 @@ def add_learn_args(p) -> None:
     p.add_argument("--ent-coef", type=float, default=0.01)
     p.add_argument("--vf-coef", type=float, default=0.5)
     p.add_argument("--max-grad-norm", type=float, default=0.5)
+    p.add_argument("--stop-dead-units", type=float, default=0.5,
+                   help="stop training (no save, no upload) when this share of the trunk's last-layer "
+                        "units never fire on a batch: ReLU collapse (0: off)")
+    p.add_argument("--stop-grad-norm", type=float, default=1000.0,
+                   help="stop training (no save, no upload) when the gradient norm before clipping "
+                        "goes past this: an exploding gradient (0: off; a non-finite one always stops)")
     p.add_argument("--gamma-tic", type=float, default=0.999,
                    help="per-tic discount for value targets (0.999 ~ 30 s horizon)")
     p.add_argument("--beta", type=float, default=0.0, help="KL weight to --ref (0: no reference policy)")

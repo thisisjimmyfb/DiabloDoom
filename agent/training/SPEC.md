@@ -212,6 +212,7 @@ screen (scene, 84×84, 4 stacked)
 The execution environment can stop at any moment.
 - Save at every update boundary: policy and value weights, reference policy, optimizer state, schedule positions, save-slot and seed sampler state, all RNG states, logger run id.
 - Discard rollouts in progress on restart.
+- Health checks before each save (2026-11-16): the update reports the share of the trunk's last-layer units that never fire on the batch (`dead_units`), the gradient norm before clipping (`grad_norm`, `grad_norm_max`) and the optimizer steps skipped for a non-finite loss or gradient (`nonfinite_steps`). ReLU collapse (`dead_units` ≥ `--stop-dead-units`, 0.5) or an exploding gradient (`grad_norm_max` > `--stop-grad-norm`, 1000, or any non-finite step) stops training with exit code 1: that update is not saved, there is no end-of-run eval, and no further upload starts. The metrics row records the reason as `stopped`.
 - One checkpoint file, `doom-runner.pt`, replaced after every update by an atomic write (temp file, `fsync`, `os.replace`), so a crash mid-write leaves the previous one; a checkpoint that fails to load stops the run rather than starting it fresh (2026-11-15: replaces keeping the last 3 `ckpt_NNNNNN.pt`; older versions live in the Hugging Face repo's commits, `--hub-repo`).
 - On startup, delete stale FIFOs and `/dev/shm` segments and kill orphaned DiabloDoom processes. Only leftovers whose owner process is gone are touched, so several trainer processes can share one box.
 

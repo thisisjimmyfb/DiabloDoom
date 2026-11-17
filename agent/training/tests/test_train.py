@@ -207,3 +207,40 @@ def test_frontier_start():
             assert (info["state"]["x"], info["state"]["y"]) == start
     finally:
         vec.close()
+
+
+def test_health_stop(tmp_path):
+    """An unhealthy update (here: the gradient norm past --stop-grad-norm,
+    the exploding-gradient check; the ReLU collapse check takes the same
+    path, test_learn covers both detections) stops training with exit code
+    1: the update isn't saved, no end-of-run eval, nothing uploaded. A
+    healthy run with the same Hub settings does upload, so the fake `hf`
+    (on PATH, logging its calls) is really the one called."""
+    import os
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "hf.log"
+    (bin_dir / "hf").write_text(f"#!/bin/sh\necho \"$@\" >> {log}\nexit 0\n")
+    (bin_dir / "hf").chmod(0o755)
+    env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}
+    hub = ["--hub-repo", "someone/fake", "--no-hub-download", "--hub-every", "1",
+           "--capture-envs", "0", "--iterations", "1"]
+
+    def run(run_dir, *args):
+        return subprocess.run([PY, "train.py", "--run-dir", str(run_dir), *TINY, *hub, *args], cwd=HERE,
+                              capture_output=True, text=True, timeout=600, env=env)
+
+    ok = run(tmp_path / "ok")
+    assert ok.returncode == 0, ok.stdout[-3000:] + ok.stderr[-3000:]
+    assert "upload someone/fake" in log.read_text(), "a healthy run uploads"
+    log.unlink()
+
+    bad_dir = tmp_path / "bad"
+    bad = run(bad_dir, "--stop-grad-norm", "1e-9")
+    assert bad.returncode == 1, bad.stdout[-3000:] + bad.stderr[-3000:]
+    assert "[train] stopping: exploding gradient" in bad.stdout
+    assert not (bad_dir / "doom-runner.pt").exists(), "the unhealthy update isn't saved"
+    assert not log.exists() or "upload" not in log.read_text(), "nothing uploaded"
+    (row,) = metrics(bad_dir, "train")
+    assert "exploding gradient" in row["stopped"] and row["grad_norm_max"] > 1e-9
+    assert "[eval delta]" not in bad.stdout, "no end-of-run eval"

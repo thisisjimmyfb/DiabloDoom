@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 import torch
 
-from learn import build_batch, group_advantages, train_metrics, update, value_targets
+from learn import build_batch, group_advantages, train_metrics, training_health, update, value_targets
 from model import Policy
 
 @pytest.fixture
@@ -81,3 +81,56 @@ def test_update(rng, make_rollout):
     assert {"pg_loss", "v_loss", "entropy", "approx_kl", "clipfrac"} <= set(upd)
     m = train_metrics(back, len(gs), collapsed)
     assert m["steps"] == sum(r["len"] for r in back) and abs(m["collapsed_share"] - 1 / 3) < 1e-9
+
+
+def _health_batch(rng, make_rollout):
+    gs = [[make_rollout(int(n)) for n in rng.integers(20, 40, 4)]]
+    advs, _ = group_advantages(gs, "outcome")
+    return build_batch(gs[0], advs, 0.999)
+
+
+HEALTH_ARGS = dict(epochs=1, minibatch=64, clip=0.2, ent_coef=0.01, vf_coef=0.5, beta=0.0,
+                   max_grad_norm=0.5, stop_dead_units=0.5, stop_grad_norm=1000.0)
+
+
+def test_relu_collapse(rng, make_rollout):
+    """A policy whose trunk's last layer never fires (every unit dead, as
+    in the 2026-11-16 run: the policy ignored the screen) reports
+    dead_units 1.0 and training_health stops it; a fresh policy is
+    healthy. The share is of the batch's samples, over the whole update."""
+    batch = _health_batch(rng, make_rollout)
+    args = types.SimpleNamespace(**HEALTH_ARGS)
+    fresh = Policy()
+    upd = update(fresh, torch.optim.Adam(fresh.parameters(), lr=1e-4), None, batch, args, torch.device("cpu"))
+    assert upd["dead_units"] < 0.5 and training_health(upd, args) is None, upd["dead_units"]
+
+    dead = Policy()
+    with torch.no_grad():
+        dead.trunk[7].bias.fill_(-1e3)                 # every pre-activation negative
+    upd = update(dead, torch.optim.Adam(dead.parameters(), lr=1e-4), None, batch, args, torch.device("cpu"))
+    assert upd["dead_units"] == 1.0
+    assert "ReLU collapse" in training_health(upd, args)
+    assert training_health(upd, types.SimpleNamespace(**{**HEALTH_ARGS, "stop_dead_units": 0})) is None, \
+        "0 turns the check off"
+
+
+def test_exploding_gradient(rng, make_rollout):
+    """A non-finite gradient never reaches the weights (the step is
+    skipped and counted) and always stops training; a finite gradient norm
+    past --stop-grad-norm stops it too."""
+    batch = _health_batch(rng, make_rollout)
+    args = types.SimpleNamespace(**HEALTH_ARGS)
+    policy = Policy()
+    before = [p.detach().clone() for p in policy.parameters()]
+    bad = {**batch, "adv": np.full_like(batch["adv"], np.inf)}
+    upd = update(policy, torch.optim.Adam(policy.parameters(), lr=1e-3), None, bad, args, torch.device("cpu"))
+    assert upd["nonfinite_steps"] > 0
+    assert all(torch.equal(a, b) for a, b in zip(before, policy.parameters())), "weights untouched"
+    off = types.SimpleNamespace(**{**HEALTH_ARGS, "stop_grad_norm": 0, "stop_dead_units": 0})
+    assert "exploding gradient" in training_health(upd, off), "non-finite: even with the checks off"
+
+    upd = update(policy, torch.optim.Adam(policy.parameters(), lr=1e-4), None, batch, args, torch.device("cpu"))
+    assert upd["nonfinite_steps"] == 0 and upd["grad_norm_max"] >= upd["grad_norm"] > 0
+    assert training_health(upd, args) is None
+    tight = types.SimpleNamespace(**{**HEALTH_ARGS, "stop_grad_norm": upd["grad_norm_max"] / 2})
+    assert "exploding gradient" in training_health(upd, tight)

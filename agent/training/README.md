@@ -262,6 +262,22 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   ~28 s iteration). After a restart, the first batch is played with the
   resumed weights (`lag` 0), so an overlapped run that was interrupted is
   not bit-identical to one that wasn't; its start states still are.
+- **Health checks (2026-11-16):** every update is checked before it's
+  saved, and an unhealthy one stops training with exit code 1: that
+  update isn't saved, there's no end-of-run eval, and nothing more is
+  uploaded (an upload already running, of an earlier checkpoint that
+  passed, finishes). The metrics row says why (`stopped`). Two checks:
+  ReLU collapse, when at least `--stop-dead-units` (0.5) of the trunk's
+  last-layer units never fire on the whole batch (`dead_units`; a fresh
+  network is about 0.03). A dead unit gets no gradient and never comes
+  back; with all 512 dead the policy ignores the screen and only its
+  biases learn, which is what the 2026-11-16 run did (KL near 0, 92% right
+  turns). And an exploding gradient, when the gradient norm before
+  clipping passes `--stop-grad-norm` (1000; `grad_norm_max`, about 50-100
+  early in a run), or any optimizer step has a non-finite loss or gradient
+  (that step is skipped, so it never reaches the weights; this one always
+  stops). 0 turns a threshold off. The `[train]` line shows both:
+  `dead` and `gnorm`.
 - **Checkpoints:** one file, `runs/<name>/doom-runner.pt`, replaced
   after every update. It holds weights, optimizer, the iteration and
   other counters, and every RNG state, including the start-state sampler.

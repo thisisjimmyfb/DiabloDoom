@@ -36,6 +36,7 @@ import copy
 import json
 import secrets
 import signal
+import sys
 import threading
 import time
 from pathlib import Path
@@ -53,7 +54,7 @@ from env.vector import GroupVecEnv  # noqa: E402
 from rollout import (heldout_eval, make_heldout_vec, nvtx, print_eval, print_eval_delta, run_rollouts, sample_group_options,
                   write_rollout_log)
 from learn import (add_learn_args, build_batch, group_advantages, print_train, setup_learner,
-                   train_metrics, update)
+                   train_metrics, training_health, update)
 
 
 def parse_args():
@@ -232,6 +233,7 @@ def main():
     # difference is printed per IWAD and map; --eval-every N adds more.
     first_eval = last_eval = None
     upd_thread = None   # --overlap: the update running in the background
+    unhealthy = None    # why training stopped (learn.training_health): no save, no upload
 
     def end_of_run_eval(last: dict, done_it: int) -> dict:
         """The eval after done_it updates (unless one just ran) and the
@@ -303,11 +305,22 @@ def main():
                  "total_steps": total_steps, "total_tics": total_tics,
                  "sps": m["steps"] / t_roll, "rollout_s": t_roll, "iter_s": t_all, "lag": lag,
                  **timing, **upd}
+            unhealthy = training_health(upd, args)
+            if unhealthy:
+                m["stopped"] = unhealthy
             metrics_f.write(json.dumps(m) + "\n")
             metrics_f.flush()
             print_train(it, m, upd, f" ({m['sps']:.0f}/s) {t_all:.1f}s"
                         + (f" [env {timing['env_s']:.1f}s policy {timing['policy_s']:.1f}s "
                            f"update {upd.get('update_s', 0.0):.1f}s]" if timing else ""))
+            if unhealthy:
+                # This update's weights are never saved, and nothing more is
+                # uploaded (an upload already running, of an earlier
+                # checkpoint that passed this check, finishes).
+                print(f"[train] stopping: {unhealthy}. Iteration {it} is not saved and nothing is "
+                      f"uploaded; the last checkpoint is "
+                      + (f"iteration {saved_it}" if saved_it is not None else "from before this run"))
+                break
 
             ckpt_path = run_dir / CKPT_NAME
             save_checkpoint(ckpt_path, {
@@ -322,7 +335,7 @@ def main():
 
             if eval_vec is not None and args.eval_every > 0 and (it + 1) % args.eval_every == 0:
                 last_eval = evaluate(it + 1)
-        if eval_vec is not None and saved_it is not None:
+        if eval_vec is not None and saved_it is not None and not unhealthy:
             last_eval = end_of_run_eval(last_eval, saved_it + 1)
     except KeyboardInterrupt:
         # Ctrl-C (or SIGTERM): still the end-of-run eval, of the last saved
@@ -356,9 +369,14 @@ def main():
         if eval_vec is not None:
             eval_vec.close()
         if hub is not None:
-            hub.finish(run_dir / CKPT_NAME if saved_it is not None else None, saved_it)
+            if unhealthy:
+                hub.finish(None, None)      # wait for a running upload; start none
+            else:
+                hub.finish(run_dir / CKPT_NAME if saved_it is not None else None, saved_it)
         done = 0 if saved_it is None else saved_it + 1 - start_it
         print(f"[train] run took {format_duration(time.time() - t_start)} ({done} update{'' if done == 1 else 's'} this run)")
+    if unhealthy:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
