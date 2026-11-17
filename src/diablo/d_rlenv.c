@@ -456,6 +456,7 @@ static boolean RL_UsableLine(line_t *li)
 static mobj_t *rl_wall_mo;
 static int rl_wall_dist;
 static boolean rl_wall_special;    // the line the trace stopped at is usable
+static int rl_wall_line;           // the line the trace stopped at, -1 none
 
 static boolean RL_WallTraverse(intercept_t *in)
 {
@@ -470,6 +471,7 @@ static boolean RL_WallTraverse(intercept_t *in)
             return true;                    // passable: look on through it
     }
     rl_wall_dist = FixedMul(in->frac, RL_WALL_RANGE * FRACUNIT) >> FRACBITS;
+    rl_wall_line = (int) (li - lines);
     rl_wall_special = RL_UsableLine(li);
     return false;
 }
@@ -479,6 +481,7 @@ static int RL_WallDist(mobj_t *mo)
     int a = mo->angle >> ANGLETOFINESHIFT;
     rl_wall_mo = mo;
     rl_wall_dist = -1;
+    rl_wall_line = -1;
     rl_wall_special = false;
     P_PathTraverse(mo->x, mo->y,
                    mo->x + RL_WALL_RANGE * finecosine[a], mo->y + RL_WALL_RANGE * finesine[a],
@@ -1058,6 +1061,10 @@ void RL_EmitState(const char *why, int tics)
             int wd = RL_WallDist(mo);
             boolean use = (rl_wall_special && wd >= 0 && wd <= 64) || RL_WallUse(mo);
             RL_PUT(",\"wall_dist\":%d,\"wall_use\":%s", wd, use ? "true" : "false");
+            // wall_line (2026-11-17): that wall's line index, for the
+            // env's once-per-wall USE reward.
+            if (wd >= 0)
+                RL_PUT(",\"wall_line\":%d", rl_wall_line);
         }
         if (rlenv && T_InExplore())
         {
@@ -1180,10 +1187,14 @@ void RL_UseEnd(void)
 }
 
 
-void RL_NotePickup(const char *kind, int hp, boolean practice)
+void RL_NotePickup(const char *kind, int hp, boolean practice, int tier)
 {
-    RL_Emit("{\"event\":\"pickup\",\"kind\":\"%s\",\"hp\":%d,\"practice\":%s,\"gametic\":%d}",
-            kind, hp, practice ? "true" : "false", gametic);
+    if (tier >= 0)
+        RL_Emit("{\"event\":\"pickup\",\"kind\":\"%s\",\"hp\":%d,\"practice\":%s,\"tier\":%d,\"gametic\":%d}",
+                kind, hp, practice ? "true" : "false", tier, gametic);
+    else
+        RL_Emit("{\"event\":\"pickup\",\"kind\":\"%s\",\"hp\":%d,\"practice\":%s,\"gametic\":%d}",
+                kind, hp, practice ? "true" : "false", gametic);
 }
 
 
@@ -1300,10 +1311,12 @@ static boolean RL_TrySpawn(mobj_t *pmo)
 }
 
 // A practice item (see d_rlenv.h): a random Diablo item valid at this
-// difficulty, rarer tiers less often, from the private RNG.
+// difficulty, from the private RNG. Uniques a quarter of the time
+// (2026-11-17): a unique pickup is a CONSULT trigger, so it has to come
+// up often enough to learn from.
 static int RL_PracticeItemId(void)
 {
-    static const int weight[NUM_TIERS] = { 40, 30, 15, 10, 5 };
+    static const int weight[NUM_TIERS] = { 30, 25, 10, 10, 25 };
     int tier, i, n, pick, roll = (int) (RL_SpawnRand() % 100);
 
     for (tier = 0; tier < NUM_TIERS - 1 && roll >= weight[tier]; tier++)
@@ -1483,21 +1496,21 @@ void RL_SpawnTick(void)
     if (rl_spawn_period < 0)
     {
         int p = M_CheckParmWithArgs("-rlspawn", 1);
-        rl_spawn_period = (rlenv && p > 0) ? atoi(myargv[p + 1]) : 0;
+        rl_spawn_period = (rldrive && p > 0) ? atoi(myargv[p + 1]) : 0;
         if (rl_spawn_period < 0)
             rl_spawn_period = 0;
     }
     if (rl_item_period < 0)
     {
         int p = M_CheckParmWithArgs("-rlitems", 1);
-        rl_item_period = (rlenv && p > 0) ? atoi(myargv[p + 1]) : 0;
+        rl_item_period = (rldrive && p > 0) ? atoi(myargv[p + 1]) : 0;
         if (rl_item_period < 0)
             rl_item_period = 0;
     }
     // A level was just set up (a LOAD included): practice monsters and
     // items in the loaded save have lost their timers -- remove them, so
     // a start state never carries one.
-    if (rl_spawn_purge && rlenv && gamestate == GS_LEVEL)
+    if (rl_spawn_purge && rldrive && gamestate == GS_LEVEL)
     {
         thinker_t *th;
         int purged = 0;

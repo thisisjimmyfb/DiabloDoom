@@ -47,9 +47,16 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   `null_consult` does nothing; `standin_consult` (training stand-in)
   clears what was consulted about: the `CONSULT` driver command
   (`-rlenv` only) removes the monsters in sight, and in combat those
-  targeting the player, then `END` closes the round; a full backpack is
-  salvaged until it has room. The policy learns when to hand off, not how to
-  fight. A farm handler
+  targeting the player, then `END` closes the round; on a unique pickup
+  a full backpack is salvaged until it has room. The policy learns when
+  to hand off, not how to fight. The triggers (2026-11-17): a monster in
+  view, combat, and a unique picked up -- the engine holds a strong
+  pickup flash for 0.75 s on a unique (the frame's mean brightness roughly
+  doubles), and the trigger lasts as long (`unique_grace_tics`, 26):
+  CONSULT in that time pays `consult_hit`, letting it pass costs
+  `trigger_miss`. It replaced the full-backpack trigger, whose only cue
+  was a status message a few pixels tall in the policy's frame. Practice
+  items roll a unique a quarter of the time so it comes up. A farm handler
   would signal Muse VM instead. Handlers send driver commands through
   `game.consult_command(line)` (`game` being the `DiabloDoomEnv` instance).
 - **Rewards:** `RewardConfig` (SPEC.md §5.3). The values are placeholders.
@@ -116,6 +123,13 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   pressed one-shot switch, or the face of a remote door, one only a
   switch or trigger opens). A locked door counts as usable only with its
   key (2026-11-17): without it, USE on it costs `use_miss`.
+  Trying walls pays (`use_wall`, +0.25, 2026-11-17): a USE with a wall
+  straight ahead within USE range (64 units; the state line's
+  `wall_dist` and `wall_line`) pays once per wall line per rollout,
+  whatever the wall -- the frames can't tell a switch or door from a
+  plain wall, so the policy is paid for what it can see, trying a wall
+  in reach, and a mechanism still pays its +10 on top. Such a USE never
+  costs `use_miss`; only USE at nothing in reach does.
   Fast movement pays back the clock only going forward (`fast_forward`,
   2026-11-16): scaled by the cosine between the movement and the facing,
   so backing up or strafing pays the whole clock, like standing still.
@@ -457,7 +471,12 @@ with sound, with the policy driving it. The game runs with `-rldrive`
 (real time, normal play), and `eval.py` turns each decision's frame into
 the same 4-frame stack the policy trained on (its `--obs-size`, from the checkpoint). Both modes always run
 without map monsters or turn-based combat (2026-11-17: `--eval` here, stage 1 in the
-training-style eval, where `--stage 2` is ignored).
+training-style eval, where `--stage 2` is ignored). Both get training's
+practice monsters and items (`--spawn-tics`, `--item-tics`; 2026-11-17
+for watch mode, the engine's spawners now running under `-rldrive`
+too), and watch mode's summary adds a `practice:` line: monsters seen
+and how many got a CONSULT while in view, items picked up of those
+spawned, uniques, and how many got a CONSULT within the 0.75 s flash.
 
 ```sh
 ./eval.sh --iwad ../../wad/UltimateDoom/DOOM.WAD          # Ultimate Doom E1M1

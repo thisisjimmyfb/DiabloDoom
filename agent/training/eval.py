@@ -188,7 +188,7 @@ def rollouts(args, ckpt: Path, policy: Policy, device: torch.device) -> None:
 # ---------------------------------------------------------------------------
 
 def drive_summary(ckpt, level: str, why: str, n: int, counts: np.ndarray, tics: int,
-                  dist: float, first: dict, last: dict) -> list[str]:
+                  dist: float, first: dict, last: dict, practice: dict | None = None) -> list[str]:
     """The end-of-drive stats: what was reached, how long it took, how far
     the player got, and how the policy used its actions (shares of the
     decisions sent: a key held, e.g. W, counts for every action that holds
@@ -219,12 +219,19 @@ def drive_summary(ckpt, level: str, why: str, n: int, counts: np.ndarray, tics: 
         f"idle {share(lambda a: a == 'PRESS'):.0%}  USE {int(counts[ACTIONS.index('USE')])}  "
         f"CONSULT {int(counts[CONSULT])}",
         "[eval]   top actions: " + ", ".join(f"{a} {c / counts.sum():.0%}" for c, a in top),
-    ]
+    ] + ([f"[eval]   practice: monsters seen {practice['seen']}, consulted on {practice['seen_consulted']}; "
+          f"items picked {practice['picked']}/{practice['spawned']}, uniques {practice['uniques']}, "
+          f"consulted on {practice['unique_consulted']}"] if practice else [])
 
 
 def watch(args, ckpt: Path, policy: Policy, device: torch.device) -> None:
+    spawns = []      # the practice monsters and items, as in training (2026-11-17)
+    if args.spawn_tics > 0:
+        spawns += ["-rlspawn", str(args.spawn_tics)]
+    if args.item_tics > 0:
+        spawns += ["-rlitems", str(args.item_tics)]
     cfg = EngineConfig(warp=args.warp, skill=args.skill, drive=True, headless=args.headless,
-                       extra_args=["--eval"] + avatar_args(),     # never monsters, as in stage 1
+                       extra_args=["--eval"] + spawns + avatar_args(),     # never map monsters, as in stage 1
                        step_timeout=120.0)
     if not Path(args.iwad).is_file():
         raise SystemExit(f"--iwad {args.iwad}: no such file (it takes an IWAD path)")
@@ -245,6 +252,11 @@ def watch(args, ckpt: Path, policy: Policy, device: torch.device) -> None:
     n, dropped, why = 0, 0, "max decisions"
     start_sectors = d.get("sectors", 0)
     first, counts, tics, dist = d, np.zeros(len(ACTIONS), dtype=np.int64), 0, 0.0
+    # Practice spawns: sightings (monstervis coming on), items, uniques, and
+    # whether a CONSULT came while the sighting lasted or within the
+    # unique's flash (0.75 s), as the training triggers count them.
+    practice = dict(seen=0, seen_consulted=0, spawned=0, picked=0, uniques=0, unique_consulted=0)
+    seeing, seen_done, unique_tic, unique_done = False, False, None, False
     try:
         while not args.max_decisions or n < args.max_decisions:
             if d.get("dead"):
@@ -255,6 +267,13 @@ def watch(args, ckpt: Path, policy: Policy, device: torch.device) -> None:
                                    torch.as_tensor([privileged({"state": d})], device=device))
                 logits = logits[0]
                 a = int(logits.argmax()) if args.greedy else int(Categorical(logits=logits).sample())
+            if a == CONSULT:
+                if seeing and not seen_done:
+                    practice["seen_consulted"] += 1
+                    seen_done = True
+                if unique_tic is not None and tics - unique_tic <= 26 and not unique_done:
+                    practice["unique_consulted"] += 1
+                    unique_done = True
             if a == CONSULT and (args.on_consult == "stop" or d.get("mode") != EXPLORE):
                 engine.send(ACTIONS[a])            # shows "CONSULT" on screen
                 counts[a] += 1
@@ -284,6 +303,19 @@ def watch(args, ckpt: Path, policy: Policy, device: torch.device) -> None:
             n += 1
             step_tics = max(int(d.get("tics") or 0), 0)
             tics += step_tics
+            for ev in events:
+                if ev.get("event") == "item":
+                    practice["spawned"] += 1
+                elif ev.get("event") == "pickup" and ev.get("practice"):
+                    practice["picked"] += 1
+                if ev.get("event") == "pickup" and ev.get("tier") == 4:
+                    practice["uniques"] += 1
+                    unique_tic, unique_done = tics, False
+            vis = bool(d.get("monstervis"))
+            if vis and not seeing:
+                practice["seen"] += 1
+                seen_done = False
+            seeing = vis
             if None not in (prev.get("x"), prev.get("y"), d.get("x"), d.get("y")):
                 moved = float(np.hypot(d["x"] - prev["x"], d["y"] - prev["y"]))
                 if moved <= 64 * max(step_tics, 1):     # a jump is a teleport, not movement
@@ -300,7 +332,8 @@ def watch(args, ckpt: Path, policy: Policy, device: torch.device) -> None:
         why = "game error"
     print(f"[watch] stopped after {n} decisions: {why}")
     print("\n".join(drive_summary(ckpt, f"{Path(cfg.iwad).stem} {args.warp}", why, n, counts, tics,
-                                   dist, first, d)))
+                                   dist, first, d,
+                                   practice if args.spawn_tics > 0 or args.item_tics > 0 else None)))
     if args.quit_at_end or why == "game error":
         engine.close()
     else:

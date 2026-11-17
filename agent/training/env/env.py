@@ -60,7 +60,17 @@ class RewardConfig:
     # before, costs nothing; nor (2026-11-17) does a USE facing something
     # usable that didn't move (the engine's wall_use: a locked door, a
     # pressed one-shot switch). -0.1 is about 10 tics of the clock's base.
+    # Since 2026-11-17 a USE with a wall ahead in USE range never costs
+    # it (use_wall below): only USE at nothing does.
     use_miss: float = -0.1
+    # USE with a wall straight ahead within USE range (use_range: Doom's
+    # USERANGE, 64; the engine's wall_dist / wall_line, 2026-11-17) pays
+    # use_wall once per wall line per rollout, whether or not anything
+    # moves: the frames can't tell a switch or a door from a plain wall,
+    # so trying walls is what can be learned; a mechanism still pays
+    # `mechanism` on top. Again on the same line: nothing.
+    use_wall: float = 0.25
+    use_range: int = 64
     key: float = 25.0                 # per key colour newly held (blue, yellow, red; once each)
     # Pickups, from the engine's pickup events: each Diablo item picked
     # up (or armor, which also grants one) pays `loot`; a health pickup
@@ -70,7 +80,13 @@ class RewardConfig:
     health: float = 0.2
     consult_hit: float = 5.0          # first CONSULT on an explore trigger
     trigger_miss: float = -8.0        # trigger unanswered after the grace window
-    grace_tics: int = 150             # a monster / full backpack: game tics to CONSULT
+    grace_tics: int = 150             # a monster in view: game tics to CONSULT
+    # A unique picked up (2026-11-17; the engine's pickup event, tier 4)
+    # is a trigger for unique_grace_tics game tics: as long as the screen
+    # flashes for it (the engine holds the pickup flash 0.75 s), the cue
+    # the policy can see. It replaced the full-backpack trigger, whose
+    # only cue was a few pixels of message text.
+    unique_grace_tics: int = 26
     grace_decisions: int = 5          # combat (frozen, no tics pass): steps to CONSULT
     consult_false: float = -1.5       # CONSULT with no live, unanswered trigger
     # Time and distance, one penalty: every game tic costs
@@ -172,7 +188,7 @@ class RewardConfig:
 
 # A CONSULT handler answers a CONSULT: it may drive the engine with any
 # driver commands and returns the decision it ends on. `kinds` names the
-# live triggers ("monster", "backpack", "combat"; empty for a false
+# live triggers ("monster", "unique", "combat"; empty for a false
 # consult). On the farm this signals Muse VM; in training a stand-in.
 ConsultHandler = Callable[["DiabloDoomEnv", dict, list], dict]
 
@@ -230,11 +246,13 @@ def standin_consult(env: "DiabloDoomEnv", state: dict, kinds: list,
         only) removes the monsters in sight and, in combat, those
         targeting the player; in combat, END then closes the round (back
         to explore once no combatant is visible), up to max_rounds;
-      - a full backpack: salvage the oldest items until it has room, plus
-        salvage_extra more.
+      - a unique picked up (or, on the farm, a full backpack): when the
+        backpack is full, salvage the oldest items until it has room, plus
+        salvage_extra more; otherwise nothing (the VLM would look the
+        item over).
     A false consult (no live trigger) does nothing."""
     s = state
-    if "backpack" in kinds and s.get("mode") == EXPLORE:
+    if ("backpack" in kinds or ("unique" in kinds and s.get("backpack_full"))) and s.get("mode") == EXPLORE:
         extra = salvage_extra
         while s.get("bp_count", 0) > 0 and (s.get("backpack_full") or extra > 0):
             if not s.get("backpack_full"):
@@ -437,6 +455,7 @@ class DiabloDoomEnv(gym.Env):
         # Mechanisms used during the warm-up count as already used: the
         # reward is for setting something going within the rollout.
         self._used: set = set()
+        self._walls_used: set = set()    # wall lines USE has tried this rollout (use_wall)
         warm_item = 0      # a practice item the warm-up spawned and left lying (it lives 10 s)
         for wa in opts.get("warmup") or []:
             if d.get("mode") != EXPLORE or d.get("dead") or int(wa) == CONSULT:
@@ -463,7 +482,7 @@ class DiabloDoomEnv(gym.Env):
         self._turn_hist = collections.deque(maxlen=self.cfg.rewards.turn_waste_window)
         self._move_dir, self._move_tic = 0, -10 ** 9
         self._fall_top, self._fall_peak = None, 0.0
-        self._trig = {k: self._new_trigger() for k in ("monster", "backpack", "combat")}
+        self._trig = {k: self._new_trigger() for k in ("monster", "unique", "combat")}
         self._update_triggers(d)
         obs = self._stack.reset(self._frame())
         return obs, self._info(0, d)
@@ -489,7 +508,7 @@ class DiabloDoomEnv(gym.Env):
             if not kinds:
                 add("consult", rc.consult_false)
             for k in kinds:
-                if k in ("monster", "backpack"):
+                if k in ("monster", "unique"):
                     add("consult", rc.consult_hit)
                 self._trig[k]["consulted"] = True
             d = self.consult_handler(self, prev, kinds)
@@ -567,16 +586,23 @@ class DiabloDoomEnv(gym.Env):
             self._best_sectors = sec
 
         # Triggers: start/age/end, and the grace-window miss penalty.
-        add("consult", self._update_triggers(d, tics))
+        add("consult", self._update_triggers(d, tics, events))
 
         # Mechanisms: a USE that sets a door, lift, floor, switch...
         # going pays once per mechanism per rollout (SPEC.md §5.3), so
         # reusing the same door or switch never pays again.
         if self._new_mechanisms(events):
             add("mechanism", rc.mechanism)
-        elif (a == USE and sent and rc.use_miss and not prev.get("wall_use")
-              and not any(e.get("event") == "use" for e in events)):
-            add("use_miss", rc.use_miss)
+        if a == USE and sent:
+            line, wd = prev.get("wall_line"), prev.get("wall_dist")
+            if line is not None and wd is not None and 0 <= wd <= rc.use_range:
+                # A wall in reach: tried once per line, mechanism or not.
+                if rc.use_wall and line not in self._walls_used:
+                    add("use_wall", rc.use_wall)
+                self._walls_used.add(line)
+            elif (rc.use_miss and not prev.get("wall_use")
+                  and not any(e.get("event") == "use" for e in events)):
+                add("use_miss", rc.use_miss)
 
         # Keys: each colour pays once per rollout, when first held.
         new_keys = self._new_keys(d)
@@ -772,15 +798,19 @@ class DiabloDoomEnv(gym.Env):
             return bool(d["monstervis"])
         return len(d.get("targets", [])) > 0
 
-    def _update_triggers(self, d: dict, tics: int = 0) -> float:
+    def _update_triggers(self, d: dict, tics: int = 0, events: list | None = None) -> float:
         """Start, age and end the CONSULT triggers; the miss penalty once
         one goes unanswered past its grace: grace_tics game tics for a
-        monster or a full backpack, grace_decisions steps in combat
-        (frozen: no tics pass there)."""
+        monster, unique_grace_tics for a unique picked up, grace_decisions
+        steps in combat (frozen: no tics pass there). A monster or combat
+        is live while it lasts; a unique from its pickup event until it
+        is consulted or its grace runs out."""
         rc = self.cfg.rewards
+        u = self._trig["unique"]
         live = {
             "monster": self._monster_visible(d),
-            "backpack": bool(d.get("backpack_full", False)),
+            "unique": (any(e.get("event") == "pickup" and e.get("tier") == 4 for e in events or [])
+                       or (u["active"] and not u["consulted"] and not u["penalized"])),
             "combat": d.get("mode") in COMBAT_MODES,
         }
         penalty = 0.0
@@ -792,7 +822,8 @@ class DiabloDoomEnv(gym.Env):
                 t["age"] += 1 if k == "combat" else tics
             else:
                 t["active"] = False
-            grace = rc.grace_decisions if k == "combat" else rc.grace_tics
+            grace = (rc.grace_decisions if k == "combat" else
+                     rc.unique_grace_tics if k == "unique" else rc.grace_tics)
             if (t["active"] and not t["consulted"] and not t["penalized"]
                     and t["age"] >= grace):
                 penalty += rc.trigger_miss

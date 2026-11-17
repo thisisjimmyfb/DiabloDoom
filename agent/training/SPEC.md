@@ -67,9 +67,9 @@ The replay system (`d_replay.c`) records 15-second MP4 video, not inputs, and `T
 | `MAP [tics]` command (new) | Opens the automap via `AM_Start`, as Tab does, for <tics> game tics (default 18, 0.5 s; clamped to 1–350), then closes it (`AM_Stop`); `MAP` while it is open closes it at once. Training never sends it (no `MAP` action, no forced glances). Follow mode, fixed zoom. Explore only (combat hides the map on entry; `MAP` in combat does nothing). Movement keeps working with the map open. |
 | Automap rotation | Rotate the automap to the player's heading (vanilla points north). |
 | Explore-mode strafes | Today `STRAFE_L/R` queue a TP-costing turn move that only previews until END TURN. Under `-rlenv` in EXPLORE they take a fixed sideways step without turning, like `WALK <angle>`. |
-| `-rlnocombat` | Removes every monster at level load. Reuse the existing `nomonsters` flag (`d_main.c`) rather than new removal code: launched as `--eval` (vanilla's `-nomonsters`, renamed 2026-11-17). It also turns turn-based combat off entirely: no passive-damage planning, no explore mini-combat (Ctrl / `ATTACK` do nothing in explore), and no monster-sighting entry. |
+| `-rlnocombat` | Removes every monster at level load. Reuse vanilla's monster-removal flag (`d_main.c`; the variable renamed `eval_mode` 2026-11-17) rather than new removal code: launched as `--eval` (vanilla's `-nomonsters`, renamed 2026-11-17). It also turns turn-based combat off entirely: no passive-damage planning, no explore mini-combat (Ctrl / `ATTACK` do nothing in explore), and no monster-sighting entry. |
 | Mechanism use events | Under `-rlenv`, every player USE that sets something going sends `{"event":"use","sectors":[...],"lines":[...]}`: the sectors that gained an active special (doors, lifts, floors, ceilings, stairs) and the switch lines flipped. A use that does nothing (a wall, a locked door without its key, a door already moving) sends nothing. Feeds the mechanism reward (§5.3). |
-| Pickup events | Each thing the player picks up sends `{"event":"pickup","kind":K,"hp":N,"gametic":N}` from `P_TouchSpecialThing` (`RL_NotePickup`), K one of loot, armor, health, key, other: loot is a Diablo item into the backpack, `hp` the health the pickup gave. A thing left on the ground (full backpack, full health) sends nothing. |
+| Pickup events | Each thing the player picks up sends `{"event":"pickup","kind":K,"hp":N,"practice":B,"gametic":N}` (a Diablo item also `"tier":T`, 0 normal .. 4 unique, 2026-11-17) from `P_TouchSpecialThing` (`RL_NotePickup`), K one of loot, armor, health, key, other: loot is a Diablo item into the backpack, `hp` the health the pickup gave. A thing left on the ground (full backpack, full health) sends nothing. |
 | `-rldrive` | Control and output only, for driving a normal, real-time game with the policy (farm play, §7.3): the driver on `-cmdpipe`, the JSON lines on `-statepipe`, the frame in `-shm`, and decision points published without blocking (one per idle period, plus one when combat starts, the player dies or the level ends while idle). No uncapped tics and none of the `-rlenv` suppressions. `-rlenv` implies it. |
 | `MONSTERVIS` (state field) | Whether the player can see a monster that has **not** acquired the player, while in EXPLORE. Precise test: `P_CheckSight` to the monster, inside the player's horizontal FOV, and the sprite at least K pixels tall on the 320×200 screen (so a speck on the horizon doesn't count). Rewards only (§5.3); never in the observation. Implemented as `monstervis`: a living monster among the visible targets within the 90° view (no sprite-size test yet). Next to it, `backpack_full` (a pickup failed on a full backpack in the last 4 s, and it is still full) and `bp_count`. |
 | `-rlspawn <tics>` | CONSULT practice. Detection has no range limit, so on the map a monster almost always acquires the player the moment the player sees it, and a sighting before combat almost never happens. With `-rlspawn`, explore spawns one monster at a time on screen: in line of sight, 128–640 units ahead, within 30° of the view (no room there, no spawn that time). It faces away and deaf, so it stays frozen: a sighting to CONSULT about. It never triggers combat: if it would acquire the player (the player walks into its front arc), it is removed instead, and it never counts as a combatant. Mean `<tics>` game tics between spawns; each is removed 5 s after spawning, and one in a loaded save is removed at once (practice monsters carry a flag the savegame keeps). Rolls use a private RNG seeded by `SEED`, so episodes stay deterministic. Works with `--eval`. |
@@ -103,32 +103,82 @@ No per-state action masks (they would leak engine state). No mode mask either: t
 
 ### 5.3 Rewards
 
-| Term | Sign | Notes |
+The reward is computed by the env (`env/env.py`, `DiabloDoomEnv.step`) from the engine's state line and events (§4); none of those fields is a policy input -- the policy acts from the frames alone. Every step returns the sum of the terms below and, in `info["terms"]`, each term's share (logged per rollout in `rollouts.jsonl`). The magnitudes live in `RewardConfig`; the clock-tied ones are set by `model.make_env` from `--time-penalty`. A step is one decision, one game tic under per-tic decisions (more for a CONSULT the stand-in plays out).
+
+Notation: `T` is the time penalty's base rate per tic, `--time-penalty` / 35 (default 1/3 point per game second, so `T` = 1/105). "Rollout" means from the reset (after any warm-up) to the end; once-per-rollout memory is cleared at each reset.
+
+#### Progress
+
+| Term | Value | Rule |
 |---|---|---|
-| New sector discovered | +15 | Per sector not yet visited: the exploration signal, worth more than a mechanism (getting somewhere new is the goal, a door only the way there). With the portal goal (training) the first one also ends the rollout. A door's own sector never counts (2026-11-17; the state line's `door_sectors`), so a door crossing pays once, for the room behind it. |
-| Exit reached | +100 | Level complete triggered (exit switch or line): the top reward. Ends the rollout. |
-| Time and distance | − | One penalty, every game tic until the rollout ends: `time` × (1 + d / `far_scale`), d the walking distance to the nearest unvisited room (2026-11-17: the state line's `path_dist`, a grid path round walls and through doors the player can open; README "Walking paths"), or without a path the distance (map units, the mean of the step's start and end) to the nearest portal of the player's current sector (2026-11-16): a passable two-sided line into any other sector, visited or not (a step up of at most 24 and room to stand; a line with a special, a door or lift, always counts). A sector with no portal costs the base rate. Before, it was the nearer of the exit line and the nearest frontier portal. `time` is `--time-penalty` (1/3 per second), `far_scale` 256: the clock runs twice as fast 256 units from a way out of the room, so being far costs more the longer it lasts and the faster portal crossing wins its group. Needs the portal goal (rollouts that all run to the limit pay alike, which the group-relative advantage cancels). From the state line's `portal_dist` (§4), reward only: the policy never sees it. |
-| Portal goal | 0 | With `--portal-goal n` (default 1): the rollout ends once it has entered n sectors not yet visited (a start from a progress save counts that save's visited sectors as visited). No bonus of its own (the sector pays; merged 2026-11-15). Lets the time penalty work, and with frontier starts the agent advances portal by portal. |
-| Key picked up | +25 | Each key colour (blue, yellow, red; a keycard and a skull key of one colour are the same colour) the first time it is held in a rollout; keys held at the start or picked up in the warm-up never pay. From the state line's `keys` mask (1 blue, 2 yellow, 4 red; §4). In training a new key also ends the rollout (the key goal, `EnvConfig.key_goal`; end "key"), and that end state is progress for the frontier; the held-out eval doesn't stop at keys. |
-| Mechanism used | +10 | A USE that sets a mechanism going: a sector starts moving (door, lift, floor, ceiling, stairs) or a switch flips (including lights and the exit switch). Once per mechanism per rollout, so reusing a door or switch, or using a door from its other side, pays nothing; mechanisms used during the warm-up count as used. From the engine's `use` event (§4). |
-| Wasted USE | −0.05 | A USE that sets nothing going: no engine `use` event (a plain wall, empty space). Opening a door or flipping a switch, even one used before, costs nothing. About 5 tics of the clock's base rate, so spamming USE costs more than standing still (2026-11-16). |
-| CONSULT on trigger | + large | Paid only while exploring (EXPLORE). Trigger = a monster seen before it acquires the player (`MONSTERVIS`, §4), or the backpack-full message up. First consult per trigger only. |
-| Trigger unanswered | −8 | Applied after a grace window: 150 game tics for a monster in view or a full backpack, 5 steps in combat (frozen: no tics pass) |
-| CONSULT with no trigger | −1.5 | Discourages random consults |
-| High velocity | +1/105 per tic | Every game tic on which the player actually moved at least `fast_speed` (4) map units: position, not momentum, so pushing into a wall or a barrel never counts. The engine counts the tics (`-rlfast <units>`, which the env adds; the state line's `fast_tics` since the last decision). It pays back the time penalty's base rate (`--time-penalty` / 35, tied to it), so during a fast tic only the distance part of the clock is charged: moving fast is nearly free, while standing still or pushing into a wall pays the full clock. Running (`PRESS W`) passes 4 units/tic on its third tic from rest. Forward only (`fast_forward`, 2026-11-16): the pay is scaled by max(0, cos b), b the angle between the step's movement and the facing -- full running forward, about 70% on a forward diagonal, nothing strafing or backing up, which then pays the whole clock like standing still (no penalty of its own, so a short back-off stays cheaper than turning round). It replaced the per-step straight-movement reward (2026-11-15): a step is one tic now, and this pays unimpeded movement tic by tic. No separate wall penalty (removed 2026-11-15): a blocked move earns no fast tics, so it pays the whole clock. |
-| Looking toward a way on | up to +1/210 per tic | Every tic pays `look` × max(0, cos a), a the angle along the walking path (2026-11-17: `path_rel`, toward the farthest of the next 4 path cells the player can walk to straight, so it turns with a corridor), or without a path the angle between the player's facing and the closest point of the nearest portal of the current sector into an unvisited sector (the state line's `portal_rel`, §4): full credit facing it, nothing 90° or more away, nothing when the sector has none. Only unvisited ones, because right after a crossing the nearest portal is usually the one just used, behind the player. `look` is half the clock's base rate (`--time-penalty` / 70), so facing the right way never pays for standing still (2026-11-16). |
-| Wasted rotation | −0.005 per 45° | Turning that gets undone, from the state line's facing: over the last `turn_waste_window` (8) tics, wasted = Σ\|Δθ\| − \|ΣΔθ\|. Each tic adds what it wastes: a turn against the window's net turn S undoes min(\|Δθ\|, \|S\|) and wastes twice that. A steady turn either way and holding still cost nothing, a wobble costs in proportion, a small correction after a long sweep costs little; a teleport resets the window (2026-11-16). It replaced a fixed −0.015, then −0.005, per L/R key reversal within 4 tics, under which always turning one way became the free habit (81% right turns). |
-| Forward/back reversal | −0.015 | The same for W and S: W pressed at most `move_flip_window` (4) tics after S, or S after W. Strafing back and forth (A/D) is free (2026-11-16). |
-| Fall | −3 per fall | A quick large drop usually means the player left the path the map intends. A fall is an unbroken run of tics going down that at some point drops faster than `fall_speed` (10) units a tic -- only freefall does: the fastest lift (blazing) lowers 8 a tic and carries the player exactly with it, while freefall passes 10 a tic after about 65 units; stairs drop 8-24 per step with flat treads between -- and totals at least `fall_min` (64) units; on landing it costs `fall` once, whatever the height (Doom has little verticality). Going up never costs; a teleport is no fall. From the state line's `z`, no engine change (2026-11-16). |
-| Staring at a wall | −1/105 per tic | Each tic the first line the player can't pass straight ahead is nearer than `wall_look_dist` (48) units: a view of bare wall tells the policy nothing. From the state line's `wall_dist` (§4: a trace along the facing, up to 128). Never while a usable wall is in reach (`wall_use`: a switch or closed or half-open door within USE range, either within 45° of the facing or the wall straight ahead itself), so lining up on a switch or waiting at a door is free. Equals the clock's base rate (`--time-penalty` / 35), so staring at a wall costs the clock twice (2026-11-16). |
-| Loot picked up | +5 per item | A Diablo item into the backpack, or armor (green armor also grants an item). From the engine's `pickup` event (§4); a thing left on the ground (full backpack) pays nothing. |
-| Health picked up | +0.2 per HP healed | Stimpack, medikit, health bonus, soulsphere, megasphere: the HP it actually gave (the `pickup` event's `hp`), so a medikit pays 5 and a +1 bonus 0.2; the mirror of HP lost. |
-| HP lost | −0.2 per HP | Any cause: stage 1 has no map monsters, but passive damage (nukage, slime, crushers, barrels) still hurts. Healing pays nothing (it only moves the mark up). |
-| Death | −100 | Ends the rollout; as big as the exit reward, on top of the HP lost on the way. |
+| `sector` | +15 per room | Each sector visited for the first time this rollout, by the engine's visited-sector count -- except door sectors (2026-11-17): the env counts `sectors − door_sectors` (`rooms()`), so walking through a door pays once, for the room behind it. Sectors visited at the start (a progress save's visited list, the warm-up) never pay. A sector is any area with its own floor, ceiling or light, so a stair step or a lit patch counts too; each pays once. |
+| `exit` | +100 | Level completion triggered (exit switch or line). Ends the rollout. |
+| `key` | +25 per colour | A key colour (blue, yellow, red; card and skull alike) first held this rollout, from the state line's `keys` mask. Keys held at the start never pay. In training a new key also ends the rollout (the key goal); the held-out eval doesn't stop for it. |
+| `mechanism` | +10 | A USE that sets a mechanism going -- a sector starts moving (door, lift, floor, stairs) or a switch flips -- from the engine's `use` event. Once per mechanism per rollout; ones used in the warm-up count as used. |
+| `loot` | +5 per item | A Diablo item into the backpack, or armor (which grants one), from the `pickup` event. Practice items (`-rlitems`) pay the same. Something left on the ground (full backpack) pays nothing. |
+| `health` | +0.2 per HP | The HP a health pickup actually gave (the `pickup` event's `hp`): a medikit at 75 HP pays 5. The mirror of `hp_loss`. |
 
-No combat-before-CONSULT or stuck term: stage 1 has no map monsters (a long combat still ends the rollout), and the time penalty already covers standing still (the velocity term rewards the opposite: unimpeded movement).
+#### Time, distance and direction
 
-Magnitudes are tuned from training curves. Start with the consult reward near a few sectors' worth, the miss penalty somewhat larger.
+| Term | Value | Rule |
+|---|---|---|
+| `time` | −`T` × (1 + d / 256) per tic | The clock: every game tic of the rollout. d is the distance to the way on (`goal_dist()`), the mean of the step's start and end: the walking distance to the nearest unvisited room, the state line's `path_dist` (2026-11-17: Dijkstra on a 32-unit grid of where the player can stand and step, built per level load by the `GOTO` pathfinder's rules, through doors the player can open -- manual ones, locked ones with the key); with no path, the straight distance to the nearest portal of the current sector, `portal_dist` (doors and lifts first, 2026-11-17); with neither, 0. So the clock runs at `T` beside the way on and twice that 256 units off: being far costs more the longer it lasts. It only bites with a rollout-ending goal (the portal goal, below): rollouts that all run to the limit pay alike, and the group-relative advantage cancels that. |
+| `fast` | +`T` × forward share per fast tic | Each game tic on which the player moved at least `fast_speed` (4) units (position, not momentum: pushing into a wall never counts; the engine's `fast_tics`, `-rlfast`), scaled by max(0, cos b), b the angle between the movement and the facing (`fast_forward`): running forward pays back the clock's base, strafing or backing up pays nothing. Moving well is nearly free; standing still, bumping into walls or backing up pays the whole clock. |
+| `look` | +`T`/2 × max(0, cos a) per tic | Facing the way on. a is `way_rel()`: the state line's `path_rel` (2026-11-17), the angle to the farthest of the next 4 path cells the player can walk to in a straight line, so it turns with a corridor and never points into a wall; with no path, `portal_rel`, the angle to the nearest portal of the current sector into an unvisited sector (doors and lifts first); with neither, nothing. Half the clock, so it never pays for standing still. |
+
+#### Movement habits
+
+| Term | Value | Rule |
+|---|---|---|
+| `wall_look` | −`T` per tic | Each tic the first line ahead the player can't pass is nearer than 48 units (`wall_dist`): a view of bare wall shows nothing. Not while a usable wall is in reach (`wall_use`: a switch, a pressed one-shot switch, a closed door -- a locked one only with its key -- or a remote door's face, within USE range ahead or 45° off it). |
+| `turn_waste` | −0.005 per 45° | Turning that gets undone: over the last 8 tics, Σ\|Δθ\| − \|ΣΔθ\|, charged as it accrues. A steady turn either way, and holding still, cost nothing; a teleport resets the window. |
+| `move_flip` | −0.015 | W within 4 tics of S, or S within 4 of W. Strafing back and forth is free. |
+| `fall` | −3 per fall | An unbroken descent that at some point drops faster than 10 units a tic (freefall; the fastest lift lowers 8) and totals at least 64 units, charged once on landing whatever the height. Going up, stairs and lifts never cost; a teleport is no fall. From the state line's `z`. |
+
+#### USE
+
+| Term | Value | Rule |
+|---|---|---|
+| `use_wall` | +0.25 | A USE with a wall straight ahead within 64 units (Doom's USE reach; the state line's `wall_dist` and `wall_line` before the USE), once per wall line per rollout, whether or not anything moves (2026-11-17): the frames can't tell a switch or door from a plain wall, so trying walls is what the policy can learn. A mechanism pays `mechanism` on top; the same line again pays nothing. |
+| `use_miss` | −0.1 | A USE with no wall in reach ahead, no usable wall in reach off the facing (`wall_use`), and nothing set going. |
+
+#### CONSULT
+
+Triggers, while exploring: a **monster in view** that hasn't acquired the player (the state line's `monstervis`; practice monsters from `-rlspawn` make these common), a **unique item picked up** (2026-11-17: the `pickup` event's `tier` 4; the engine holds a strong screen flash for 0.75 s, the cue the policy can see -- it replaced the full-backpack trigger, whose only cue was a few pixels of text), and **combat** (the world is frozen until CONSULT).
+
+| Term | Value | Rule |
+|---|---|---|
+| `consult` (hit) | +5 | The first CONSULT on a live monster or unique trigger. A CONSULT in combat pays nothing itself but avoids the miss. |
+| `consult` (miss) | −8 | A trigger left unanswered past its grace: 150 game tics for a monster in view, 26 (the flash) for a unique, 5 steps in combat. Once per trigger. |
+| `consult` (false) | −1.5 | A CONSULT with no live, unanswered trigger. |
+
+#### Damage and death
+
+| Term | Value | Rule |
+|---|---|---|
+| `hp_loss` | −0.2 per HP | Any HP lost (stage 1 has no map monsters, but nukage, slime, crushers and barrels still hurt). Healing only moves the mark up. |
+| `death` | −100 | Ends the rollout; as big as the exit, on top of the HP lost on the way. |
+
+#### How a rollout ends
+
+| End | Kind | When |
+|---|---|---|
+| `exit` | terminated | The level is completed (+100). |
+| `death` | terminated | The player dies (−100). |
+| `key` | terminated | Training only: a new key colour (+25). |
+| `portal` | terminated | Training only, `--portal-goal n` (default 1): n new rooms entered (each +15). No bonus of its own; it is what makes the clock matter, and with frontier starts the agent advances room by room. |
+| `time` | truncated | `--max-tics` game tics (default 525, 15 s); the held-out eval runs `--eval-max-tics` (2100, 60 s) with no portal or key goal, so its sectors compare across versions. |
+| `combat` | truncated | 20 steps in combat. |
+
+The return is the plain sum over the rollout. GRPO compares rollouts within a group that started from the same state (§7.1, `learn.group_advantages`): with `--advantage outcome` (the default) every step of a rollout gets its return's z-score within the group; with `--advantage process` each step's reward is z-scored against all the group's step rewards and summed from that step to the end (reward-to-go). A group whose rollouts all score alike carries no signal and is dropped ("collapsed"). `--norm-adv` (default on) then divides the batch's advantages by their standard deviation, so batches of different lengths update alike.
+
+#### Design notes
+
+- **Only what the policy can perceive is rewarded as a behaviour.** It sees 4 stacked grayscale frames (default 128×80), so a cue must survive that: hence USE paid for trying a wall rather than for its being a switch, and the unique flash rather than a status message.
+- **The clock is the backbone.** `fast`, `look` and `wall_look` are tied to `T`, so the shaping terms only ever trade against time: none of them can pay for standing still.
+- **Shaping state is reward-only.** `path_dist`, `path_rel`, `portal_dist`, `portal_rel`, `wall_dist`, `wall_use`, `door_sectors`, `monstervis` and the events are never in the observation.
+- **No combat or stuck term:** stage 1 has no map monsters (a long combat ends the rollout instead), and the clock already charges standing still.
+- Magnitudes are tuned from training curves; watch for a term growing in `rollouts.jsonl` without progress following (e.g. `use_wall` or `loot` farming against `sector`).
 
 ### 5.4 Episodes, rollouts and resets
 
@@ -276,7 +326,7 @@ Decided:
 - G = 8, 2,100 tics per rollout.
 - Training uses every IWAD under `wad/` (Freedoom Phase 1 and The Ultimate Doom), groups split evenly between them (§7.1).
 - Training runs as one process on one box (`train.py`); the split worker/learner trainer was removed 2026-11-14 (§7.5).
-- CONSULT rewards and penalties as in §5.3; the backpack trigger is a dedicated backpack-full message on a failed pickup.
+- CONSULT rewards and penalties as in §5.3; the item trigger is a unique picked up, cued by a 0.75 s screen flash (2026-11-17; before, a backpack-full message on a failed pickup).
 - CONSULT is an environment signal that drives Muse VM; the game cannot hand off by itself. The policy is taught to switch to combat or inventory mode with it, and the monster reward is paid only for sightings while exploring. The policy must choose CONSULT itself in every case — including after combat has started, where it earns no reward but each step without it is penalized. No automatic consult, no mode mask.
 - The status bar stays in the policy's view.
 - Phase 6 uses PPO on logged sessions, no live search. The critic gets HP and exit path distance.

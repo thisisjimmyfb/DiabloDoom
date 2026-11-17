@@ -71,7 +71,8 @@ void RL_PublishFrame(void);
 // exploring) and "bp_count" (items in the backpack).
 void RL_NoteBackpackFull(void);
 
-// CONSULT practice (-rlenv). On the map a monster almost always sees
+// CONSULT practice (-rlenv, and since 2026-11-17 -rldrive too, so
+// eval.py's watch mode shows them). On the map a monster almost always sees
 // the player the moment the player sees it (detection has no range
 // limit), so a sighting would never come before combat. With
 //   -rlspawn <tics>      mean game tics between spawns while exploring
@@ -151,7 +152,9 @@ void RL_UseEnd(void);
 // megasphere), "key", or "other"; hp is the health it gave. A thing
 // left on the ground (full backpack, full health) sends nothing.
 // practice: an -rlitems practice item (the event's "practice" field).
+// tier: a Diablo item's rarity (0 normal .. 4 unique; the event's "tier"
+// field, 2026-11-17), -1 for anything else (left out).
 // No-ops without -rldrive.
-void RL_NotePickup(const char *kind, int hp, boolean practice);
+void RL_NotePickup(const char *kind, int hp, boolean practice, int tier);
 
 #endif

@@ -183,7 +183,7 @@ def test_hp_loss_and_death():
     e._prev_hp, e._tics, e._combat_steps = 100, 0, 0
     e._best_sectors = e._start_sectors = 0
     e._keys, e._goal, e._group, e._slot, e._seed = 0, None, 0, None, 0
-    e._trig = {k: e._new_trigger() for k in ("monster", "backpack", "combat")}
+    e._trig = {k: e._new_trigger() for k in ("monster", "unique", "combat")}
     e._stack.reset(e._frame())
     rewards, ends = [], []
     for _ in range(4):
@@ -275,7 +275,7 @@ def test_turn_waste():
     e._prev_hp, e._tics, e._combat_steps = 100, 0, 0
     e._best_sectors = e._start_sectors = 0
     e._keys, e._goal, e._group, e._slot, e._seed = 0, None, 0, None, 0
-    e._trig = {k: e._new_trigger() for k in ("monster", "backpack", "combat")}
+    e._trig = {k: e._new_trigger() for k in ("monster", "unique", "combat")}
     e._stack.reset(e._frame())
     got = [round(e.step(ACTIONS.index("PRESS"))[1], 6) for _ in angles]
     want = [0, 0, -14, 0, -40, 0, 0] + [0] * 8 + [0]
@@ -299,7 +299,7 @@ def test_move_flip():
     e._prev_hp, e._tics, e._combat_steps = 100, 0, 0
     e._best_sectors = e._start_sectors = 0
     e._keys, e._goal, e._group, e._slot, e._seed = 0, None, 0, None, 0
-    e._trig = {k: e._new_trigger() for k in ("monster", "backpack", "combat")}
+    e._trig = {k: e._new_trigger() for k in ("monster", "unique", "combat")}
     e._stack.reset(e._frame())
     plan = ["PRESS W", "PRESS WA", "PRESS S",             # W, W, then S: a flip
             "PRESS A", "PRESS D", "PRESS A", "PRESS WL",  # strafes free; W 4 tics after S: a flip
@@ -310,32 +310,78 @@ def test_move_flip():
 
 
 def test_use_miss():
-    """A USE that sets nothing going (no "use" event) costs use_miss; one
-    that opens a new mechanism pays mechanism instead, one that reopens a
-    mechanism already used costs nothing, a USE facing something usable
-    that didn't move (wall_use: a locked door, a pressed switch) costs
-    nothing, and other actions never cost it. Engine faked: no game needed."""
+    """USE with a wall ahead in USE range pays use_wall once per wall line,
+    whatever the wall (a new mechanism pays mechanism on top; the same
+    line again pays nothing); USE at nothing costs use_miss, unless a
+    usable wall is in reach off the facing (wall_use); other actions never
+    cost it. Engine faked: no game needed."""
     only = RewardConfig(sector=0, exit=0, mechanism=10.0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hp_loss=0, death=0, loot=0, health=0,
-                        fast=0, look=0, turn_waste=0, move_flip=0, use_miss=-0.1, fall=0, wall_look=0)
+                        fast=0, look=0, turn_waste=0, move_flip=0, use_miss=-0.1, use_wall=0.25,
+                        fall=0, wall_look=0)
     e = make_env(rewards=only, max_tics=100000)
     door = [{"event": "use", "sectors": [7], "lines": []}]
-    steps = iter([([], False), (door, False), (door, False), ([], True), ([], False), ([], False), ([], False)])
+    near5 = {"wall_line": 5, "wall_dist": 30}
+    near6 = {"wall_line": 6, "wall_dist": 30}
+    far7 = {"wall_line": 7, "wall_dist": 100}
+    off_axis = {"wall_line": 8, "wall_dist": 100, "wall_use": True}
+    # (events of this step, state after it: the next step's facing)
+    steps = iter([([], near5), (door, near5), (door, near6), ([], far7), ([], off_axis), ([], {}), ([], {})])
 
     def command(line):
         events, facing = next(steps)
-        return {"mode": "EXPLORE", "hp": 100, "tics": 1, "wall_use": facing}, events
+        return {"mode": "EXPLORE", "hp": 100, "tics": 1, **facing}, events
     e.engine.command = command
     e._frame = lambda: np.zeros((200, 320), dtype=np.uint8)
     e.state = {"mode": "EXPLORE", "hp": 100}
     e._prev_hp, e._tics, e._combat_steps = 100, 0, 0
     e._best_sectors = e._start_sectors = 0
     e._keys, e._goal, e._group, e._slot, e._seed, e._used = 0, None, 0, None, 0, set()
-    e._trig = {k: e._new_trigger() for k in ("monster", "backpack", "combat")}
+    e._walls_used = set()
+    e._trig = {k: e._new_trigger() for k in ("monster", "unique", "combat")}
     e._stack.reset(e._frame())
     use, walk = ACTIONS.index("USE"), ACTIONS.index("PRESS W")
-    got = [round(e.step(a)[1], 6) for a in (use, use, use, walk, use, walk, use)]
-    assert got == [-0.1, 10.0, 0.0, 0.0, 0.0, 0.0, -0.1], got
+    got = [round(e.step(a)[1], 6) for a in (use, use, use, use, use, use, walk)]
+    # nothing ahead; wall 5 opens a door; wall 5 again (door reopens);
+    # wall 6, plain; wall 7 out of reach; a usable wall off the facing;
+    # walking
+    assert got == [-0.1, 10.25, 0.0, 0.25, -0.1, 0.0, 0.0], got
+
+
+def test_unique_trigger():
+    """Picking up a unique (pickup event, tier 4) is a CONSULT trigger for
+    unique_grace_tics: CONSULT within it pays consult_hit; left alone it
+    costs trigger_miss once; any other tier is no trigger (CONSULT then
+    is a false consult). Engine faked, one tic per step."""
+    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=5.0, trigger_miss=-8.0,
+                        consult_false=-1.5, unique_grace_tics=3, key=0, time=0, hp_loss=0, death=0,
+                        loot=0, health=0, fast=0, look=0, turn_waste=0, move_flip=0, use_miss=0,
+                        use_wall=0, fall=0, wall_look=0)
+
+    def run(events_per_step, actions):
+        e = make_env(rewards=only, max_tics=100000)
+        steps = iter(events_per_step)
+        e.engine.command = lambda line: ({"mode": "EXPLORE", "hp": 100, "tics": 1}, next(steps))
+        e.consult_handler = lambda env, state, kinds: state
+        e._frame = lambda: np.zeros((200, 320), dtype=np.uint8)
+        e.state = {"mode": "EXPLORE", "hp": 100}
+        e._prev_hp, e._tics, e._combat_steps = 100, 0, 0
+        e._best_sectors = e._start_sectors = 0
+        e._keys, e._goal, e._group, e._slot, e._seed, e._used = 0, None, 0, None, 0, set()
+        e._walls_used = set()
+        e._trig = {k: e._new_trigger() for k in ("monster", "unique", "combat")}
+        e._stack.reset(e._frame())
+        return [round(e.step(a)[1], 6) for a in actions]
+
+    unique = [{"event": "pickup", "kind": "loot", "tier": 4}]
+    magic = [{"event": "pickup", "kind": "loot", "tier": 1}]
+    walk, consult = ACTIONS.index("PRESS W"), ACTIONS.index("CONSULT")
+    # Consulted in time: +5, and nothing afterwards.
+    assert run([unique, [], []], [walk, consult, walk]) == [0.0, 5.0, 0.0]
+    # Left alone: -8 once the grace (3 tics) runs out, then nothing more.
+    assert run([unique, [], [], [], [], []], [walk] * 6) == [0.0, 0.0, 0.0, -8.0, 0.0, 0.0]
+    # A magic item is no trigger: CONSULT is a false consult.
+    assert run([magic, []], [walk, consult]) == [0.0, -1.5]
 
 
 def test_door_pays_once():
@@ -358,7 +404,7 @@ def test_door_pays_once():
     e._prev_hp, e._tics, e._combat_steps = 100, 0, 0
     e._best_sectors = e._start_sectors = 5
     e._keys, e._goal, e._group, e._slot, e._seed, e._used = 0, None, 0, None, 0, set()
-    e._trig = {k: e._new_trigger() for k in ("monster", "backpack", "combat")}
+    e._trig = {k: e._new_trigger() for k in ("monster", "unique", "combat")}
     e._stack.reset(e._frame())
     w = ACTIONS.index("PRESS W")
     got = [(round(r, 6), term) for _, r, term, _, _ in (e.step(w) for _ in range(3))]
@@ -383,7 +429,7 @@ def test_fast_forward():
         e._prev_hp, e._tics, e._combat_steps = 100, 0, 0
         e._best_sectors = e._start_sectors = 0
         e._keys, e._goal, e._group, e._slot, e._seed = 0, None, 0, None, 0
-        e._trig = {k: e._new_trigger() for k in ("monster", "backpack", "combat")}
+        e._trig = {k: e._new_trigger() for k in ("monster", "unique", "combat")}
         e._stack.reset(e._frame())
         return e.step(ACTIONS.index("PRESS W"))[1]
 
@@ -415,7 +461,7 @@ def test_fall():
         e._prev_hp, e._tics, e._combat_steps = 100, 0, 0
         e._best_sectors = e._start_sectors = 0
         e._keys, e._goal, e._group, e._slot, e._seed = 0, None, 0, None, 0
-        e._trig = {k: e._new_trigger() for k in ("monster", "backpack", "combat")}
+        e._trig = {k: e._new_trigger() for k in ("monster", "unique", "combat")}
         e._stack.reset(e._frame())
         return [round(e.step(ACTIONS.index("PRESS W"))[1], 6) for _ in zs[1:]]
 
@@ -453,7 +499,7 @@ def test_wall_look_rule():
     e._prev_hp, e._tics, e._combat_steps = 100, 0, 0
     e._best_sectors = e._start_sectors = 0
     e._keys, e._goal, e._group, e._slot, e._seed = 0, None, 0, None, 0
-    e._trig = {k: e._new_trigger() for k in ("monster", "backpack", "combat")}
+    e._trig = {k: e._new_trigger() for k in ("monster", "unique", "combat")}
     e._stack.reset(e._frame())
     got = [e.step(ACTIONS.index("PRESS"))[1] for _ in range(6)]
     assert got == [-1.0, -1.0, 0.0, 0.0, 0.0, -1.0], got
@@ -556,7 +602,7 @@ def test_key_goal():
         e._prev_hp, e._tics, e._combat_steps = 100, 0, 0
         e._best_sectors = e._start_sectors = 0
         e._keys, e._goal, e._group, e._slot, e._seed = 1, None, 0, None, 0
-        e._trig = {k: e._new_trigger() for k in ("monster", "backpack", "combat")}
+        e._trig = {k: e._new_trigger() for k in ("monster", "unique", "combat")}
         e._stack.reset(e._frame())
         _, r, term, _, info = e.step(0)
         assert (r, term, info["end"], info["key"]) == (0.0, False, None, False)
@@ -586,7 +632,7 @@ def test_pickup_rewards():
     e._prev_hp, e._tics, e._combat_steps = 50, 0, 0
     e._best_sectors = e._start_sectors = 0
     e._keys, e._goal, e._group, e._slot, e._seed = 0, None, 0, None, 0
-    e._trig = {k: e._new_trigger() for k in ("monster", "backpack", "combat")}
+    e._trig = {k: e._new_trigger() for k in ("monster", "unique", "combat")}
     e._stack.reset(e._frame())
     rewards = [round(e.step(0)[1], 6) for _ in range(5)]
     assert rewards == [5.0, 5.0, 10.0, 0.0, 0.2], rewards

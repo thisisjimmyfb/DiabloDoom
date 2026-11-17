@@ -14,8 +14,11 @@
 # that IWAD file, in a window with sound, with the policy driving it
 # (eval.py --iwad; the game runs with -rldrive, in real time), and print the
 # drive's stats at the end (sectors gained, exit, death, health, keys,
-# distance, game time, action use). No monsters, ever (--eval, as in
-# stage-1 training). The drive stops at the exit, on death, after
+# distance, game time, action use). No map monsters, ever (--eval, as in
+# stage-1 training), but training's practice monsters and items
+# (--spawn-tics, --item-tics; 0 turns them off), with a line counting
+# sightings, items and uniques, and the CONSULTs on them. The drive
+# stops at the exit, on death, after
 # --max-decisions, or on Ctrl-C (a CONSULT only shows "CONSULT" on screen:
 # CONSULT's VLM isn't attached here); the game window then stays open for
 # you (--quit-at-end closes it). Other arguments pass through to eval.py.

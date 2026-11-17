@@ -105,7 +105,7 @@ char *          iwadfile;
 
 
 boolean		devparm;	// started game with -devparm
-boolean         nomonsters;	// checkparm of --eval (vanilla's -nomonsters)
+boolean         eval_mode;	// checkparm of --eval (vanilla's -nomonsters)
 boolean         respawnparm;	// checkparm of -respawn
 boolean         fastparm;	// checkparm of -fast
 
@@ -1559,7 +1559,7 @@ void D_DoomMain (void)
     // stage 1 and eval.py run with it.
     //
 
-    nomonsters = M_CheckParm ("--eval");
+    eval_mode = M_CheckParm ("--eval");
 
     //!
     // @category game

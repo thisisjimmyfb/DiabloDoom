@@ -175,7 +175,8 @@ facing to the first line the player can't pass (-1 beyond 128) and
 whether a switch (pressed one-shots too, 2026-11-17) or closed door (a
 locked one only with its key, a remote door's face too; 2026-11-17) is
 within USE range ahead (the env's wall_look penalty, and its use_miss
-exemption) -- reward shaping only, never
+exemption), and (2026-11-17) `wall_line`, the index of the line
+`wall_dist` measures (the env's once-per-wall `use_wall` reward) -- reward shaping only, never
 a policy input, so the 2026-10-21 no-oracle ruling for the farm agent
 stands.
 Automap (2026-11-14): it also carries `automap` (the map is on screen).
@@ -207,7 +208,8 @@ a `USE` / `WAIT` / `GOTO` batch keeps its spacing. A line counts once
 toward FORCEMAP's command count (by its first command).
 CONSULT (2026-11-13): the state line carries `monstervis` (a living
 monster on screen while exploring), `backpack_full` and `bp_count`, the
-CONSULT triggers; `-rlspawn <tics>`
+CONSULT triggers; `-rlspawn <tics>` (`-rlenv`, and `-rldrive` since
+2026-11-17 so eval.py --iwad shows them)
 spawns practice monsters on screen while exploring (in sight, within 30
 degrees of the view; one at a time, facing away and deaf, flagged
 `MF_RLPRACTICE`; a private RNG seeded by `SEED`). They never trigger
@@ -221,14 +223,18 @@ targeting the player (a practice monster disappears, a map monster is
 killed); anywhere else (`-rldrive`, eval.py --iwad; 2026-11-16) CONSULT does
 nothing but show `CONSULT` as the status message, so a watcher sees the
 policy asked for the hand-off. Practice items (`-rlitems <tics>`,
-`-rlenv` only, 2026-11-17): the same way, one random Diablo loot item at
+`-rlenv` or `-rldrive`, 2026-11-17): the same way, one random Diablo loot item at
 a time on the line to an on-screen portal of the current sector
 (unvisited portals first, then visited ones; within 40 degrees of the facing, 64-256 units, in
 sight, a floor within 24 units of the player's; never with a full
 backpack), flagged `MF_RLPRACTICE`, sent as
 an `item` event with its position, removed 10 s after spawning or when a
 save holding one is loaded; its `pickup` event carries `"practice":true`
-(every pickup event carries the field). Give each instance
+(every pickup event carries the field; a Diablo item's also `"tier"`, 0
+normal .. 4 unique). A unique pickup holds a strong pickup flash
+(`bonuscount`) for 0.75 s, in normal play too (2026-11-17): the env's
+CONSULT trigger in place of the full backpack, since a flash survives
+the policy's small grayscale frame and a status message doesn't. Give each instance
 its own working directory and `-savedir` (the turn profile and
 autosaves are written there).
 
@@ -294,10 +300,12 @@ save. `-rlenv` implies it (`rldrive` is true under both).
    `P_Ticker()`; it pauses (does not cancel) a running GOTO/WALK,
    and cannot fire during planning or the progress phase.
    `--eval` (vanilla's `-nomonsters`, renamed 2026-11-17: no map
-   monsters) turns turn-based combat off entirely (2026-11-17):
+   monsters; the `eval_mode` variable, vanilla's `nomonsters`) turns turn-based combat off entirely (2026-11-17):
    no passive-damage planning (damage is just damage), no explore
    mini-combat (Ctrl / the driver's `ATTACK` do nothing in explore),
-   and `T_EnterCombat` returns at once. Training's stage 1 and
+   and `T_EnterCombat` returns at once. It also never autosaves
+   (2026-11-17, `D_AutoSaveGame`): no loot-pickup or level autosave;
+   explicit driver `SAVE`s still work. Training's stage 1 and
    `eval.py` run this way.
    Enemy health bars (2026-11-11): attacking a monster records it in a
    32-entry most-recently-attacked window — including a monster shot

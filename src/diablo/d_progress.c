@@ -384,6 +384,12 @@ void D_AutoSaveGame(void)
     if (!progress_initialized || progress_map == NULL)
         return;
 
+    // Never under --eval (2026-11-17; the `eval_mode` flag): eval and
+    // stage-1 training runs aren't the player's game to save. Explicit
+    // SAVE commands (training's start slots) are unaffected.
+    if (eval_mode)
+        return;
+
     // Don't autosave while a savegame load is pending (ga_loadgame).
     // The load reads the autosave slot; writing to it first would corrupt
     // the pending load with a half-new/half-old state.

@@ -875,7 +875,7 @@ void P_SpawnMapThing (mapthing_t* mthing)
 	return;
 		
     // don't spawn any monsters if --eval (vanilla's -nomonsters)
-    if (nomonsters
+    if (eval_mode
 	&& ( i == MT_SKULL
 	     || (mobjinfo[i].flags & MF_COUNTKILL)) )
     {

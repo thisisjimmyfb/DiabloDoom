@@ -347,7 +347,7 @@ void T_ExploreTick(void)
     {
         passive_last_hp = hp;
     }
-    else if (hp < passive_last_hp && hp > 0 && !nomonsters)
+    else if (hp < passive_last_hp && hp > 0 && !eval_mode)
     {
         // --eval: no turn-based combat at all (2026-11-17), so
         // damage is just damage (the else branch re-baselines).
@@ -610,7 +610,7 @@ void T_EnterCombat(mobj_t *spotter)
     };
     unsigned int i;
     // --eval turns turn-based combat off entirely (2026-11-17).
-    if (nomonsters)
+    if (eval_mode)
         return;
     // A -rlspawn practice monster never starts combat (backstop: explore
     // detection already removes or skips it).

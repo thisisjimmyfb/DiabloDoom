@@ -828,14 +828,13 @@ P_SetupLevel
     // when the zone hands back the same sectors address, which would
     // carry sector rewards over between episodes.
     {
-        extern boolean rlenv;
+        extern boolean rlenv, rldrive;
         extern void T_TrackReset(void);
         extern void RL_LevelSetup(void);
         if (rlenv)
-        {
             T_TrackReset();
+        if (rldrive)             // -rlenv implies it
             RL_LevelSetup();     // forget spawned CONSULT monsters
-        }
     }
 }
 

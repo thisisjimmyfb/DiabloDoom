@@ -822,6 +822,7 @@ P_TouchSpecialThing
         int loot_type = special->type; // save before P_RemoveMobj
         int item_id = special->diablo_loot_id;
         int tier, idx;
+        boolean taken = false;
         // If for some reason there's no stored item, fall back to a
         // random item of the drop's tier.
         if (item_id == D_NOITEM)
@@ -833,10 +834,11 @@ P_TouchSpecialThing
         if (D_BackpackAdd(player, tier, idx))
         {
             boolean practice = (special->flags & MF_RLPRACTICE) != 0;
+            taken = true;
             P_RemoveMobj(special);
             printf("[LOOT] picked up tier=%d idx=%d\n", tier, idx);
             if (player == &players[consoleplayer])
-                RL_NotePickup("loot", 0, practice);
+                RL_NotePickup("loot", 0, practice, tier);
             // Auto-save after loot pickup: don't lose the new item.
             // Saves both Doom savegame (slots 7-9) and progress.dat.
             {
@@ -846,6 +848,11 @@ P_TouchSpecialThing
         else
             D_BackpackFullMsg(player);
         player->bonuscount += BONUSADD;
+        // A unique (2026-11-17): a strong pickup flash for 0.75 s, a
+        // cue that survives a small grayscale frame (the policy's CONSULT
+        // trigger; the message alone is a few pixels of text there).
+        if (taken && tier == TIER_UNIQUE && player->bonuscount < 3 * TICRATE / 4)
+            player->bonuscount = 3 * TICRATE / 4;
         if (player == &players[consoleplayer])
             S_StartSound(NULL,
                          loot_type >= MT_LOOT_SET ? sfx_getpow
@@ -1228,7 +1235,7 @@ P_TouchSpecialThing
 	    break;
 	}
 	RL_NotePickup(kind, player->health - hp_before,
-		      (special->flags & MF_RLPRACTICE) != 0);
+		      (special->flags & MF_RLPRACTICE) != 0, -1);
     }
     if (special->flags & MF_COUNTITEM)
 	player->itemcount++;

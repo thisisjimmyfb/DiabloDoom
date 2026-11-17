@@ -112,7 +112,7 @@ static void LoadGameSettings(net_gamesettings_t *settings)
     startskill = settings->skill;
     startloadgame = settings->loadgame;
     lowres_turn = settings->lowres_turn;
-    nomonsters = settings->nomonsters;
+    eval_mode = settings->nomonsters;
     fastparm = settings->fast_monsters;
     respawnparm = settings->respawn_monsters;
     timelimit = settings->timelimit;
@@ -144,7 +144,7 @@ static void SaveGameSettings(net_gamesettings_t *settings)
     settings->skill = startskill;
     settings->loadgame = startloadgame;
     settings->gameversion = gameversion;
-    settings->nomonsters = nomonsters;
+    settings->nomonsters = eval_mode;
     settings->fast_monsters = fastparm;
     settings->respawn_monsters = respawnparm;
     settings->timelimit = timelimit;

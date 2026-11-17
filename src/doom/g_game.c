@@ -2075,7 +2075,7 @@ void G_DoNewGame (void)
     playeringame[1] = playeringame[2] = playeringame[3] = 0;
     respawnparm = false;
     fastparm = false;
-    nomonsters = false;
+    eval_mode = false;
     consoleplayer = 0;
     G_InitNew (d_skill, d_episode, d_map); 
     gameaction = ga_nothing; 
@@ -2447,7 +2447,7 @@ void G_BeginRecording (void)
         *demo_p++ = deathmatch; 
         *demo_p++ = respawnparm;
         *demo_p++ = fastparm;
-        *demo_p++ = nomonsters;
+        *demo_p++ = eval_mode;
         *demo_p++ = consoleplayer;
     }
 	 
@@ -2562,7 +2562,7 @@ void G_DoPlayDemo (void)
         deathmatch = *demo_p++;
         respawnparm = *demo_p++;
         fastparm = *demo_p++;
-        nomonsters = *demo_p++;
+        eval_mode = *demo_p++;
         consoleplayer = *demo_p++;
     }
     else
@@ -2570,7 +2570,7 @@ void G_DoPlayDemo (void)
         deathmatch = 0;
         respawnparm = 0;
         fastparm = 0;
-        nomonsters = 0;
+        eval_mode = 0;
         consoleplayer = 0;
     }
     
@@ -2658,7 +2658,7 @@ boolean G_CheckDemoStatus (void)
 	playeringame[1] = playeringame[2] = playeringame[3] = 0;
 	respawnparm = false;
 	fastparm = false;
-	nomonsters = false;
+	eval_mode = false;
 	consoleplayer = 0;
         
         if (singledemo) 
