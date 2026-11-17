@@ -58,6 +58,7 @@ static const char *P_AmmoName(mobjtype_t type)
 }
 
 void P_SpawnMapThing (mapthing_t*	mthing);
+extern boolean g_loading_savegame;     // a savegame load is in progress (g_game.c)
 
 
 //
@@ -620,7 +621,6 @@ void P_RemoveMobj (mobj_t* mobj)
     // Invalidate any queued turn-based attack targets pointing to this mobj
     // to prevent dangling-pointer SIGSEGV.
     {
-        extern void T_InvalidateTarget(mobj_t *mo);
         T_InvalidateTarget(mobj);
     }
     if ((mobj->flags & MF_SPECIAL)
@@ -874,7 +874,7 @@ void P_SpawnMapThing (mapthing_t* mthing)
     if (deathmatch && mobjinfo[i].flags & MF_NOTDMATCH)
 	return;
 		
-    // don't spawn any monsters if -nomonsters
+    // don't spawn any monsters if --eval (vanilla's -nomonsters)
     if (nomonsters
 	&& ( i == MT_SKULL
 	     || (mobjinfo[i].flags & MF_COUNTKILL)) )
@@ -886,7 +886,6 @@ void P_SpawnMapThing (mapthing_t* mthing)
     // Magazines replenish on their own, so ammo pickups are redundant.
     // Skip during savegame load: the unarchive restores the saved loot;
     // spawning new loot here would duplicate it every load/save cycle.
-    extern boolean g_loading_savegame;
     if (!g_loading_savegame &&
         (i == MT_CLIP || i == MT_MISC17 || i == MT_MISC18 ||
         i == MT_MISC19 || i == MT_MISC20 || i == MT_MISC21 ||
@@ -1151,7 +1150,6 @@ P_SpawnPlayerMissile
     // (d_diablo_damage_cb is set by T_ExecAttack before P_FireDiabloWeapon.)
     if (source && source->player && d_diablo_damage_cb)
     {
-        extern int d_diablo_hitscan_weapon;
         // For projectiles, use the player's current weapon.
         // (d_diablo_hitscan_weapon is for hitscan only.)
         th->diablo_weapon = source->player->readyweapon;

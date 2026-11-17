@@ -276,12 +276,9 @@ static st_number_t	w_frags;
 // health widget
 static st_number_t	w_health;
 
-// arms background
-static st_binicon_t	w_armsbg; 
-
-
-// weapon ownership widgets
-static st_multicon_t	w_arms[6];
+// (The arms background and weapon ownership widgets, w_armsbg and
+// w_arms, are gone: the Diablo weapon panel replaced them, see
+// ST_drawDiabloWeapon.)
 
 // face status widget
 static st_multicon_t	w_faces; 
@@ -1293,6 +1290,7 @@ static void ST_drawTurnKits(void)
 static void ST_updateLootAlert(void)
 {
     static int last_prompt_tic = -1000;
+    boolean avail;
     // Dead player (2026-10-23): the system message is
     // the respawn prompt. The corpse under the camera holds
     // the player's gear and counts as loot, so without this
@@ -1308,7 +1306,7 @@ static void ST_updateLootAlert(void)
         }
         return;
     }
-    boolean avail = T_LootAvailable();
+    avail = T_LootAvailable();
     if (avail)
     {
         mobj_t *loot_list[LOOT_LOG_CACHE];

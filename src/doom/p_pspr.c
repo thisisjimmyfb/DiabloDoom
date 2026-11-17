@@ -291,7 +291,9 @@ static statenum_t T_DiabloFireState(weapontype_t w)
         case wp_bfg:          return S_BFG3;     // A_FireBFG
         case wp_chainsaw:     return S_SAW2;     // last A_Saw
         case wp_supershotgun: return S_DSGUN2;   // A_FireShotgun2
-        default:              return weaponinfo[w].atkstate;
+        // Not a real weapon (wp_nochange): weaponinfo has no entry for
+        // it, so pivot on the pistol's, as P_FireDiabloWeapon fires it.
+        default:              return S_PISTOL2;
     }
 }
 
@@ -359,6 +361,18 @@ static int T_DiabloReloadChainRawTics(weapontype_t w, statenum_t fire)
 // true if the shot fired, false if the weapon could not fire (gate).
 // (2026-11-06; single fire path 2026-11-07)
 //
+
+// The weapon actions P_FireDiabloWeapon calls; defined further down.
+void A_Punch(player_t *player, pspdef_t *psp);
+void A_Saw(player_t *player, pspdef_t *psp);
+void A_FirePistol(player_t *player, pspdef_t *psp);
+void A_FireShotgun(player_t *player, pspdef_t *psp);
+void A_FireShotgun2(player_t *player, pspdef_t *psp);
+void A_FireCGun(player_t *player, pspdef_t *psp);
+void A_FireMissile(player_t *player, pspdef_t *psp);
+void A_FirePlasma(player_t *player, pspdef_t *psp);
+void A_FireBFG(player_t *player, pspdef_t *psp);
+
 boolean
 P_FireDiabloWeapon
 ( player_t* player )

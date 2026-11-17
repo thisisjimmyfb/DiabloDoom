@@ -90,7 +90,8 @@ void RL_NoteBackpackFull(void);
 // forgets them (every level setup, including a LOAD), and the next
 // explore tic removes any practice monster a loaded save carried.
 //
-// RL_Consult is the CONSULT driver command (-rlenv only): the training
+// RL_Consult is the CONSULT driver command under -rlenv (anywhere else
+// CONSULT only shows "CONSULT" as the status message): the training
 // stand-in for the hand-off to Muse's VLM. It removes every monster in
 // the player's sight and, in combat, every monster targeting the
 // player: a spawned one disappears (no kill, no loot); a map monster is

@@ -61,9 +61,10 @@ class EngineConfig:
     capture_dir: str | None = None
     close_timeout: float = 60.0     # QUIT waits for capture encodes
     # drive: launch with -rldrive instead of -rlenv -- a normal, real-time
-    # game that publishes decisions without blocking (play.py). headless:
+    # game that publishes decisions without blocking (eval.py --iwad). headless:
     # no window and no sound (SDL dummy drivers, -nosound); training
-    # instances always are, a played game usually isn't.
+    # instances always are, a played game and eval.py's games usually
+    # aren't. An -rlenv game in a window still has no sound.
     drive: bool = False
     headless: bool = True
 
@@ -104,7 +105,8 @@ class Engine:
                 "-rldrive" if self.cfg.drive else "-rlenv",
                 "-cmdpipe", str(cmd_path), "-statepipe", str(state_path),
                 "-shm", self.shm_name, *self.cfg.extra_args]
-        if self.cfg.headless:
+        if self.cfg.headless or not self.cfg.drive:
+            # -rlenv runs as fast as it can: no sound even in a window.
             args.append("-nosound")
         if self.cfg.capture_dir:
             cap = Path(self.cfg.capture_dir).resolve()
@@ -113,6 +115,8 @@ class Engine:
         env = dict(os.environ)
         if self.cfg.headless:
             env.update(SDL_VIDEODRIVER="dummy", SDL_AUDIODRIVER="dummy")
+        elif not self.cfg.drive:
+            env.update(SDL_AUDIODRIVER="dummy")
         self._log = open(self.workdir / "log.txt", "wb")
         self.proc = subprocess.Popen(args, cwd=self.workdir, env=env, stdout=self._log,
                                      stderr=subprocess.STDOUT, start_new_session=True)
@@ -160,7 +164,7 @@ class Engine:
             self.workdir = None
 
     def detach(self) -> None:
-        """Let go of the game but leave it running (play.py at the end of a
+        """Let go of the game but leave it running (eval.py --iwad at the end of a
         drive: the window stays open for a human). Closes this side's pipes
         and shared memory and removes the working directory -- so
         cleanup_stale never mistakes it for a crashed run's game."""

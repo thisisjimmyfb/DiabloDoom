@@ -186,7 +186,7 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   (the maps played) while rotating. `--maps all` trains every map the
   IWADs share, minus `--eval-maps` and, in stage 1, the boss-exit maps
   (E1M8, E2M8, E3M8, E4M6, E4M8, Doom II's MAP07 and MAP30: their exits
-  need a boss death, impossible with `-nomonsters`): 29 maps per IWAD for
+  need a boss death, impossible with `--eval`): 29 maps per IWAD for
   Freedoom and The Ultimate Doom, 58 pairs, a full cycle in 5 rotations
   (50 batches) with 14 groups (16 logical cores). Eval runs every eval map on
   every IWAD, and metrics add `sectors_<iwad>`/`exit_rate_<iwad>`. Save
@@ -228,8 +228,10 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   starts over. `front` in the training line is the share of rollouts that
   started from a frontier. `--no-frontier` turns it off (every start is
   the map start, still from slot 4). `--slots` can't include 4 or 5.
-- **Stages:** `--stage 1` runs with `-nomonsters` (vanilla's flag, which is
-  the spec's `-rlnocombat`); `--stage 2` has the map's monsters. Both
+- **Stages:** `--stage 1` runs with `--eval` (vanilla's `-nomonsters`,
+  renamed 2026-11-17; the spec's `-rlnocombat`), which also turns
+  turn-based combat off entirely, passive damage included; `--stage 2`
+  has the map's monsters. Both
   spawn practice monsters on screen while exploring (`--spawn-tics`,
   default 700 tics on average; 0 turns them off). Map monsters almost
   always see the player the moment the player sees them, so without the
@@ -358,32 +360,81 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   but then the frame is never drawn, so the policy is blind, and replay
   capture is off.
 
-## Playing (`play.sh`)
+## Evaluating (`eval.sh`)
 
-Launches the game locally, in a window with sound, with a trained policy
-driving it. The game runs with `-rldrive` (real time, normal play), and
-`play.py` turns each decision's frame into the same 84x84 4-frame stack
-the policy trained on. The policy is `--checkpoint` if given, else the
-Hugging Face repo's `doom-runner.pt` (`--hub-repo`, play.sh's default
-`thisisjimmy/DoomRunner`, downloaded into `runs/hub-play/` with the `hf`
-CLI on PATH; a public repo needs no login), else, when that can't be
-downloaded, the newest local `runs/*/doom-runner.pt`. `--no-hub` skips
-the repo.
+Renamed from `play.sh` 2026-11-16 (and `play.py` folded into `eval.py`,
+2026-11-17). Both modes take the policy from the
+same places: `--checkpoint` if given, else the Hugging Face repo's
+`doom-runner.pt` (`--hub-repo`, default `thisisjimmy/DoomRunner`,
+downloaded into `runs/hub-play/` with the `hf` CLI on PATH; a public repo
+needs no login), else, when that can't be downloaded, the newest local
+`runs/*/doom-runner.pt`. `--no-hub` skips the repo.
+
+### Training-style eval (the default)
+
+`eval.py` plays every training IWAD/map pair (every IWAD under `wad/`
+unless `--iwads`; `--maps`, default `1 1`..`1 4`) `--group-size` times
+(8), each game in its own window (2026-11-17: no sound, `-window` so a
+fullscreen config can't take over, running as fast as it can; `--headless`
+turns the windows off, and `--noblit` / `--nodraw` are ignored with
+windows, which they would leave black), with training's env, rewards and
+rollout rules: the `--max-tics` limit (525), ended early by the portal
+and key goals, from training's random group starts (`--seed`, 0). With
+more pairs than `--groups` (the cores minus 2) they take turns, like
+training's map rotation. Nothing is trained, saved or uploaded.
 
 ```sh
-./play.sh                                    # thisisjimmy/DoomRunner's doom-runner.pt, Freedoom E1M1, monsters on
-./play.sh --no-hub                           # the newest local runs/*/doom-runner.pt
-./play.sh --checkpoint runs/stage1/doom-runner.pt --warp "1 2"
-./play.sh --greedy --delay 0.3               # most likely actions, slowed down for watching
-./play.sh --no-monster                       # monsters off, as in stage-1 training (--no-monsters works too)
+./eval.sh                                     # the Hub checkpoint, every IWAD, maps 1 1..1 4, 525 tics
+./eval.sh --no-hub --max-tics 2100 --maps all
+./eval.sh --headless                          # no game windows
+./eval.sh --group-size 2 --groups 2           # 4 windows at a time instead of 64
 ```
 
-The drive stops at the exit, on death, when combat starts (CONSULT is the
-hand-off to Muse's VLM, which isn't attached here; a CONSULT while
-exploring is skipped unless `--on-consult stop`), after
-`--max-decisions`, or on Ctrl-C. The game window then stays open for you;
-`--quit-at-end` closes it. Each decision prints the action, the mode, the
-position and the sectors gained.
+It prints one line per pair and an overall one, in the `[it]` line's
+terms, then the most used actions (the Hub checkpoint, 2026-11-16):
+
+```
+  FREEDOOM1:1 1  ret   -8.79 ± 7.17  sectors  0.12  exit 0.00  portal 0.12  death 0.00  steps    497  tics   497  (8 rollouts)
+  DOOM:1 1       ret   14.73 ± 0.18  sectors  1.00  exit 0.00  portal 1.00  death 0.00  steps     36  tics    36  (8 rollouts)
+  ...
+  all            ret    1.29 ±10.23  sectors  0.31  exit 0.00  portal 0.31  death 0.00  steps    417  tics   417  (64 rollouts)
+[eval] top actions: PRESS AR 7%, PRESS DR 7%, PRESS R 6%, PRESS WR 6%, PRESS WA 5%, PRESS WAL 5%
+```
+
+### Watching it play (`--iwad`)
+
+`--iwad <path>` launches the game locally on that IWAD file, in a window
+with sound, with the policy driving it. The game runs with `-rldrive`
+(real time, normal play), and `eval.py` turns each decision's frame into
+the same 84x84 4-frame stack the policy trained on. Both modes always run
+without map monsters or turn-based combat (2026-11-17: `--eval` here, stage 1 in the
+training-style eval, where `--stage 2` is ignored).
+
+```sh
+./eval.sh --iwad ../../wad/UltimateDoom/DOOM.WAD          # Ultimate Doom E1M1
+./eval.sh --iwad ../../wad/FreedoomPhase1/FREEDOOM1.WAD --checkpoint runs/stage1/doom-runner.pt --warp "1 2"
+./eval.sh --iwad ../../wad/UltimateDoom/DOOM.WAD --greedy --delay 0.3   # most likely actions, slowed down
+```
+
+The drive stops at the exit, on death, after `--max-decisions`, or on
+Ctrl-C. The game window then stays open for you;
+`--quit-at-end` closes it. A CONSULT while exploring is sent and the game
+only shows `CONSULT` as the status message, so you see the policy asked
+for the hand-off; the drive goes on (`--on-consult stop` stops it there).
+That needs a game built after 2026-11-16; an older one logs `CONSULT
+needs -rlenv` and shows `CMD CONSULT` instead. Each decision prints the
+action, the mode, the position and the sectors gained, and the end of the
+drive prints its stats:
+
+```
+[eval] runs/stage1/doom-runner.pt
+[eval] level FREEDOOM1 1 1: max decisions
+[eval]   decisions 400, game time 23.3 s (815 tics)
+[eval]   sectors gained +5 (12.9 a minute), exit no, died no
+[eval]   health 100 -> 100, keys none, distance 3054 units (131 a second)
+[eval]   forward 36%  back 26%  strafe 72%  turn L 31%  turn R 39%  idle 2%  USE 0  CONSULT 1
+[eval]   top actions: PRESS DR 8%, PRESS WA 7%, PRESS AR 6%, PRESS WAR 5%, PRESS WAL 5%
+```
 
 Differences from training: `-rldrive` keeps normal play's on-screen
 `CMD` echo, and explore strafes do what they do in a normal game (queue a
@@ -421,9 +472,12 @@ fixtures (fake rollouts) in `tests/conftest.py`:
   Hub pull and push (with a fake `hf`).
 - `test_rollout.py`: group starts and warm-up actions.
 - `test_learn.py`: advantages, value targets and the update.
-- `test_play.py`: a checkpoint from another action set is refused; game:
-  `play.py` drives a headless game and quits, or leaves it running
-  detached (no work directory or shared memory left for `cleanup_stale`).
+- `test_eval.py`: `eval.py` refuses a checkpoint from another action set;
+  game: `--iwad` drives a headless game and quits, or leaves it running
+  detached (no work directory or shared memory left for `cleanup_stale`),
+  prints the drive's stats, and sends CONSULT (shown, the drive goes on;
+  `--on-consult stop` stops); the training-style eval prints a line per
+  map and an overall one within the tic limit.
 - `test_train.py` (game): `test_resume` runs `train.py` for 2 iterations
   with evals (checking `rollouts.jsonl`), then resumes it
   to 3; `test_rotation` alternates two maps with `--rotate-every 1`; `test_iwads` splits

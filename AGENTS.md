@@ -208,7 +208,9 @@ because map monsters almost always acquire the player the moment they are
 seen; and the `CONSULT` driver command (`-rlenv` only, the training
 stand-in's hand-off) removes the monsters in sight and, in combat, those
 targeting the player (a practice monster disappears, a map monster is
-killed). Give each instance
+killed); anywhere else (`-rldrive`, eval.py --iwad; 2026-11-16) CONSULT does
+nothing but show `CONSULT` as the status message, so a watcher sees the
+policy asked for the hand-off. Give each instance
 its own working directory and `-savedir` (the turn profile and
 autosaves are written there).
 
@@ -273,6 +275,12 @@ save. `-rlenv` implies it (`rldrive` is true under both).
    queued, no autosave, and no spotter message, damage-first after
    `P_Ticker()`; it pauses (does not cancel) a running GOTO/WALK,
    and cannot fire during planning or the progress phase.
+   `--eval` (vanilla's `-nomonsters`, renamed 2026-11-17: no map
+   monsters) turns turn-based combat off entirely (2026-11-17):
+   no passive-damage planning (damage is just damage), no explore
+   mini-combat (Ctrl / the driver's `ATTACK` do nothing in explore),
+   and `T_EnterCombat` returns at once. Training's stage 1 and
+   `eval.py` run this way.
    Enemy health bars (2026-11-11): attacking a monster records it in a
    32-entry most-recently-attacked window — including a monster shot
    at but missed (its bar shows at full HP); barrels are never

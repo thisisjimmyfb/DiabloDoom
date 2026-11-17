@@ -514,7 +514,6 @@ void M_ReadSaveStrings(void)
             {
                 // Auto-saves: ~/workspace/chocolate-doom/savegames/doom.wad/
                 // on VM, savegames dir on local.
-                extern boolean D_OnMuseVM(void);
                 if (D_OnMuseVM())
                 {
                     const char *home = getenv("HOME");
@@ -529,10 +528,10 @@ void M_ReadSaveStrings(void)
                 else
                 {
                     char save_path[512];
-                    extern char *P_SaveGameFile(int slot);
+                    char *last_slash;
                     M_StringCopy(save_path, P_SaveGameFile(0),
                                  sizeof(save_path));
-                    char *last_slash = strrchr(save_path, '/');
+                    last_slash = strrchr(save_path, '/');
                     if (last_slash)
                     {
                         *last_slash = '\0';
@@ -646,7 +645,6 @@ void M_LoadSelect(int choice)
     // Auto-save slots (1-3): load Diablo progress + Doom savegame.
     if (slot >= 0 && slot <= 2)
     {
-        extern void D_ProgressLoadAutoSlot(int auto_slot);
         D_ProgressLoadAutoSlot(slot + 1);
         M_ClearMenus ();
         return;
@@ -1565,7 +1563,6 @@ boolean M_Responder (event_t* ev)
                     printf("[REPLAY] hold capture: %d frames (%d tics held)...\n",
                            D_ReplayFrameCount(), held_tics);
                     {
-                        extern int D_ReplaySaveMP4(const char *filename);
                         extern void D_ReplayNextFilename(char *buf, size_t bufsz);
                         D_ReplayNextFilename(filename, sizeof(filename));
                         if (D_ReplaySaveMP4(filename) == 0)

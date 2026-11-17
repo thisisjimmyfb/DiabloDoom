@@ -31,6 +31,8 @@
 
 #include "m_random.h"
 #include "i_system.h"
+#include "m_misc.h"
+#include "d_progress.h"
 #include "d_replay.h"
 
 // Manual respawn: corpse waiting for RESPAWN command confirmation.
@@ -787,7 +789,6 @@ P_TouchSpecialThing
 	    D_RecalcStats(player);
 	if (moved > 0)
 	{
-	    extern void D_AutoSaveGame(void);
 	    D_AutoSaveGame();
 	}
 
@@ -837,7 +838,6 @@ P_TouchSpecialThing
             // Auto-save after loot pickup: don't lose the new item.
             // Saves both Doom savegame (slots 7-9) and progress.dat.
             {
-                extern void D_AutoSaveGame(void);
                 D_AutoSaveGame();
             }
         }
@@ -1280,8 +1280,6 @@ P_KillMobj
 	// Diablo-style death: drop inventory on corpse, respawn at level start.
 	// Player must run back to corpse to recover gear.
 	{
-	    extern void G_PlayerReborn(int player);
-	    extern void P_SpawnPlayer(mapthing_t *mthing);
 	    int pnum = target->player - players;
 	    player_t *p = &players[pnum];
 	    int i;
@@ -1313,8 +1311,6 @@ P_KillMobj
 	    // Manual respawn: player stays dead at 0% until RESPAWN command.
 	    // Store corpse for later respawn (driver command will complete it).
 	    {
-		extern mobj_t *pending_corpse;
-		extern int pending_corpse_player;
 		pending_corpse = target;
 		pending_corpse_player = pnum;
 	    }

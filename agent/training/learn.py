@@ -35,8 +35,8 @@ def group_advantages(groups: list[list[dict]], mode: str,
     groups. Groups may differ in size. Returns (advs, collapsed)."""
     advs: list[np.ndarray | None] = []
     collapsed = 0
-    for members in groups:
-        if mode == "outcome":
+    if mode == "outcome":
+        for members in groups:
             rets = np.array([m["ret"] for m in members], dtype=np.float64)
             std = rets.std()
             if std < 1e-6:
@@ -45,7 +45,8 @@ def group_advantages(groups: list[list[dict]], mode: str,
                 continue
             advs += [np.full(m["len"], (rets[j] - rets.mean()) / (std + eps), dtype=np.float32)
                      for j, m in enumerate(members)]
-        else:  # process: normalize per-step rewards across the group
+    else:  # process: normalize per-step rewards across the group
+        for members in groups:
             allr = np.concatenate([np.array(m["rew"], dtype=np.float64) for m in members])
             std = allr.std()
             if std < 1e-6:

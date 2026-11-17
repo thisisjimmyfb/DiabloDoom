@@ -202,7 +202,7 @@ def test_fast_tics():
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hp_loss=0, death=0,
                         loot=0, health=0, fast=0.005, fast_speed=4, look=0, turn_waste=0, move_flip=0, use_miss=0, fall=0, wall_look=0)
-    e = make_env(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only, max_tics=100000)
+    e = make_env(engine=EngineConfig(warp="1 1", extra_args=["--eval"]), rewards=only, max_tics=100000)
     try:
         assert e.cfg.engine.extra_args[-2:] == ["-rlfast", "4"]
         e.reset(options={"seed": 1})
@@ -227,7 +227,7 @@ def test_press():
     does both at once, PRESS alone lets the player coast to a stop. The
     engine's multi-tic commands still run to their end (WALK 0, TURNL),
     and the next decision is one tic later again."""
-    e = make_env(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), max_tics=100000)
+    e = make_env(engine=EngineConfig(warp="1 1", extra_args=["--eval"]), max_tics=100000)
     try:
         def hold(name, n):
             x, y, a = e.state["x"], e.state["y"], e.state["angle"]
@@ -436,7 +436,7 @@ def test_wall_dist():
                         consult_false=0, key=0, time=0, hp_loss=0, death=0, loot=0, health=0,
                         fast=0, look=0, turn_waste=0, move_flip=0, use_miss=0, fall=0,
                         wall_look=-1.0, wall_look_dist=48.0)
-    e = make_env(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only, max_tics=100000)
+    e = make_env(engine=EngineConfig(warp="1 1", extra_args=["--eval"]), rewards=only, max_tics=100000)
     try:
         e.reset(options={"seed": 1})
         for _ in range(26):                 # turn round to face the start room's back wall
@@ -462,7 +462,7 @@ def test_look_reward():
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hp_loss=0, death=0,
                         loot=0, health=0, fast=0, look=1.0, turn_waste=0, move_flip=0, use_miss=0, fall=0, wall_look=0)
-    e = make_env(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only, max_tics=100000)
+    e = make_env(engine=EngineConfig(warp="1 1", extra_args=["--eval"]), rewards=only, max_tics=100000)
     try:
         e.reset(options={"seed": 1})
         got = []
@@ -483,7 +483,7 @@ def test_command_batch():
     keys (the same run as PRESS WA), PRESS W; USE runs and uses in one
     1-tic decision, and a line without PRESS releases the keys. Separate
     lines still run one per tic."""
-    e = make_env(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), max_tics=100000)
+    e = make_env(engine=EngineConfig(warp="1 1", extra_args=["--eval"]), max_tics=100000)
     try:
         def run(lines):
             e.reset(options={"seed": 1})
@@ -565,7 +565,7 @@ def test_mechanism_reward_once():
     """In E1M1: the first USE that opens a door pays the mechanism reward;
     reopening the same door once it has closed again pays nothing."""
     rc = RewardConfig(mechanism=100.0)    # large, so it stands out from the other terms
-    e = DiabloDoomEnv(EnvConfig(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]),
+    e = DiabloDoomEnv(EnvConfig(engine=EngineConfig(warp="1 1", extra_args=["--eval"]),
                                 max_tics=100000, rewards=rc))
     use, noop = ACTIONS.index("USE"), ACTIONS.index("PRESS")
     moves = [ACTIONS.index(a) for a in ("PRESS W", "PRESS L", "PRESS R", "PRESS A", "PRESS D", "PRESS WL", "PRESS WR")]
@@ -698,7 +698,7 @@ def test_spawn_consult():
     without starting combat; CONSULT on it pays consult_hit and removes
     it. Spawns follow SEED: the same seed and actions give the same run."""
     def run():
-        e = make_env(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters", "-rlspawn", "60"]),
+        e = make_env(engine=EngineConfig(warp="1 1", extra_args=["--eval", "-rlspawn", "60"]),
                      consult_handler=standin_consult, max_tics=100000)
         try:
             rng = np.random.default_rng(7)
@@ -742,7 +742,7 @@ def test_time_distance_penalty():
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0,
                         trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, fast=0, look=0, turn_waste=0, move_flip=0, use_miss=0, fall=0, wall_look=0,
                         time=1.0, far_scale=256.0)
-    e = make_env(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only,
+    e = make_env(engine=EngineConfig(warp="1 1", extra_args=["--eval"]), rewards=only,
                  max_tics=100000, consult_handler=standin_consult)
     try:
         from env.env import goal_dist
@@ -777,7 +777,7 @@ def test_portal_goal():
     only = RewardConfig(sector=15.0, exit=0, mechanism=0, consult_hit=0,
                         trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, fast=0, look=0, turn_waste=0, move_flip=0, use_miss=0, fall=0, wall_look=0,
                         time=0.01, far_scale=1e12)   # time and sector only
-    e = DiabloDoomEnv(EnvConfig(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]), rewards=only,
+    e = DiabloDoomEnv(EnvConfig(engine=EngineConfig(warp="1 1", extra_args=["--eval"]), rewards=only,
                                 max_tics=100000, portal_goal=1, consult_handler=standin_consult))
     try:
         _, info = e.reset(options={"seed": 0})
@@ -807,7 +807,7 @@ def test_portal_goal():
 @pytest.mark.game
 def test_map_tics():
     """MAP <tics> keeps the automap up that many game tics (plain MAP: 18)."""
-    e = DiabloDoomEnv(EnvConfig(engine=EngineConfig(warp="1 1", extra_args=["-nomonsters"]),
+    e = DiabloDoomEnv(EnvConfig(engine=EngineConfig(warp="1 1", extra_args=["--eval"]),
                                 max_tics=100000, consult_handler=standin_consult))
     try:
         e.reset(options={"seed": 0})

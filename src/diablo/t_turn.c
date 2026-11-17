@@ -347,8 +347,10 @@ void T_ExploreTick(void)
     {
         passive_last_hp = hp;
     }
-    else if (hp < passive_last_hp && hp > 0)
+    else if (hp < passive_last_hp && hp > 0 && !nomonsters)
     {
+        // --eval: no turn-based combat at all (2026-11-17), so
+        // damage is just damage (the else branch re-baselines).
         printf("[PASSIVE] damage: HP %d -> %d, entering planning\n",
                passive_last_hp, hp);
         passive_last_hp = hp;
@@ -607,6 +609,9 @@ void T_EnterCombat(mobj_t *spotter)
         KEY_UPARROW, KEY_DOWNARROW, KEY_LEFTARROW, KEY_RIGHTARROW
     };
     unsigned int i;
+    // --eval turns turn-based combat off entirely (2026-11-17).
+    if (nomonsters)
+        return;
     // A -rlspawn practice monster never starts combat (backstop: explore
     // detection already removes or skips it).
     if (spotter != NULL && (spotter->flags & MF_RLPRACTICE))
@@ -2464,10 +2469,13 @@ static void cmd_dispatch_one(const char *cmd)
         // to Muse's VLM (agent/training/SPEC.md §5.4) -- removes what
         // the policy consulted about. See RL_Consult. On the farm
         // CONSULT never reaches the game: doom_loop.sh hands off instead.
-        if (!rlenv)
-            printf("[RL] CONSULT needs -rlenv\n");
-        else
+        // Anywhere else (-rldrive: play.py, 2026-11-16) it does nothing
+        // but show "CONSULT" as the status message, so a watcher sees
+        // the policy asked for the hand-off (no VLM is attached there).
+        if (rlenv)
             RL_Consult();
+        else
+            players[consoleplayer].message = "CONSULT";
     }
     else if (!strcmp(cmd, "VERSION"))
     {

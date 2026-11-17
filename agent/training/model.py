@@ -46,16 +46,19 @@ N_PRIV = 2  # privileged critic inputs: HP/100, exit path distance (SPEC.md §6)
 def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
              slots_dir: str | None, slots: list[int], capture_dir: str | None = None,
              spawn_tics: int = 0, nodraw: bool = False, noblit: bool = False,
-             portal_goal: int = 0, time_penalty: float = 0.0, key_goal: bool = False):
+             portal_goal: int = 0, time_penalty: float = 0.0, key_goal: bool = False,
+             headless: bool = True):
     """time_penalty: reward per game second (negative pays, e.g. 1/3
     costs a point every 3 s), with portal_goal n > 0 ending a rollout
     once it reaches n new sectors, and key_goal ending it on a new key."""
     from env import DiabloDoomEnv, EngineConfig, EnvConfig, RewardConfig, standin_consult
-    # Stage 1 (SPEC.md §7.2): no map monsters. Vanilla -nomonsters is the
+    # Stage 1 (SPEC.md §7.2): no map monsters and (2026-11-17) no turn-based
+    # combat at all, not even from passive damage: --eval (vanilla's -nomonsters,
+    # renamed 2026-11-17), the
     # -rlnocombat of the spec. Stage 2: map monsters on. In both,
     # -rlspawn puts practice monsters on screen (a sighting to CONSULT
     # about), and the stand-in answers CONSULT.
-    extra = ["-nomonsters"] if stage == 1 else []
+    extra = ["--eval"] if stage == 1 else []
     if spawn_tics > 0:
         extra += ["-rlspawn", str(spawn_tics)]
     if noblit:
@@ -68,8 +71,10 @@ def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
         # still, but the frame is never drawn and replays are off.
         extra.append("-nodraw")
     extra += avatar_args()
+    if not headless:
+        extra.append("-window")      # a window each, never the user config's fullscreen
     engine = EngineConfig(warp=warp, skill=skill, extra_args=extra,
-                          savedir_template=slots_dir, capture_dir=capture_dir)
+                          savedir_template=slots_dir, capture_dir=capture_dir, headless=headless)
     if iwad:
         engine.iwad = iwad
     return DiabloDoomEnv(EnvConfig(
@@ -86,7 +91,7 @@ def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
     ))
 
 
-# The status-bar avatar (AGENTS.md): every game training or play.py
+# The status-bar avatar (AGENTS.md): every game training or eval.py
 # launches loads it with -file when it exists (2026-11-16).
 AVATAR_PWAD = Path(__file__).resolve().parents[1] / "jolly.wad"
 
@@ -110,7 +115,7 @@ def run_env(args, slots: list[int], iwad: str | None, warp: str, capture_dir: st
     return functools.partial(make_env, iwad, warp, args.stage, args.skill, slots_dir=args.slots_dir,
                              slots=slots, capture_dir=capture_dir, spawn_tics=args.spawn_tics,
                              nodraw=args.nodraw, noblit=args.noblit, time_penalty=args.time_penalty,
-                             **rules)
+                             headless=getattr(args, "headless", True), **rules)
 
 
 def privileged(info: dict) -> list[float]:
@@ -274,7 +279,7 @@ def allocate_groups(iwads: list[str | None], maps: list[str], groups: int,
 
 # Maps whose exit needs a boss death (E1M8's walls, E2M8/E3M8/E4M6/E4M8
 # end the level when the boss dies; Doom II's MAP07 and MAP30): with
-# stage 1's -nomonsters they can't be finished, so --maps all skips them.
+# stage 1's --eval (no monsters) they can't be finished, so --maps all skips them.
 BOSS_MAPS = {"1 8", "2 8", "3 8", "4 6", "4 8", "7", "30"}
 # --groups default: one group per IWAD/map pair, at most this many (the
 # rest take turns, --rotate-every).
@@ -759,7 +764,7 @@ def hub_files(repo: str) -> list[str]:
 
 
 def hub_fetch_checkpoint(repo: str, dest: Path) -> Path | None:
-    """Download just the repo's checkpoint into dest (for play.py).
+    """Download just the repo's checkpoint into dest (for eval.py).
     Returns its path, or None (with the reason printed) when the repo has
     none or can't be reached (or the hf CLI isn't on PATH)."""
     if shutil.which("hf") is None:

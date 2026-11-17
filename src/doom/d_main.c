@@ -105,7 +105,7 @@ char *          iwadfile;
 
 
 boolean		devparm;	// started game with -devparm
-boolean         nomonsters;	// checkparm of -nomonsters
+boolean         nomonsters;	// checkparm of --eval (vanilla's -nomonsters)
 boolean         respawnparm;	// checkparm of -respawn
 boolean         fastparm;	// checkparm of -fast
 
@@ -1442,8 +1442,9 @@ static void D_CrashHandler(int sig)
                 p = popen(cmd, "r");
                 if (p)
                 {
-                    char func[128] = "??";
-                    char srcloc[128] = "??:?";
+                    // As big as line: addr2line's output fits whole.
+                    char func[256] = "??";
+                    char srcloc[256] = "??:?";
                     if (fgets(line, sizeof(line), p))
                     {
                         line[strcspn(line, "\n")] = '\0';
@@ -1551,12 +1552,14 @@ void D_DoomMain (void)
 
     //!
     // @category game
-    // @vanilla
     //
-    // Disable monsters.
+    // Disable monsters, and with them turn-based combat entirely (no
+    // passive-damage planning, no explore mini-combat). DiabloDoom's
+    // name for vanilla's -nomonsters (renamed 2026-11-17); training's
+    // stage 1 and eval.py run with it.
     //
-	
-    nomonsters = M_CheckParm ("-nomonsters");
+
+    nomonsters = M_CheckParm ("--eval");
 
     //!
     // @category game

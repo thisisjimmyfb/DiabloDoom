@@ -102,7 +102,6 @@ void	G_DoPlayDemo (void);
 void	G_DoCompleted (void); 
 void	G_DoVictory (void); 
 void	G_DoWorldDone (void); 
-void	G_DoSaveGame (void); 
  
 // Gamestate the last time G_Ticker was called.
 
@@ -1059,9 +1058,7 @@ void G_Ticker (void)
 	    break; 
 	  case ga_screenshot: 
 	    {
-	        extern void D_EnsureDoomshotsDir(void);
 	        extern char last_screenshot_name[128];
-	        extern void V_ScreenShotFile(const char *filename);
 	        char fmt[64];
 	        time_t now = time(NULL);
 	        struct tm *tm = localtime(&now);

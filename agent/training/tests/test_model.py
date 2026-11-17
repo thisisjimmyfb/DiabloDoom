@@ -483,8 +483,8 @@ def test_default_groups_leave_two_cores():
 
 
 def test_hub_fetch_checkpoint(tmp_path, monkeypatch):
-    """play.py's download: the repo's checkpoint lands in dest; a repo
-    without one, an unreadable repo or no hf CLI give None (play.py then
+    """eval.py's download: the repo's checkpoint lands in dest; a repo
+    without one, an unreadable repo or no hf CLI give None (eval.py then
     uses a local checkpoint) instead of exiting."""
     from model import hub_fetch_checkpoint
     bin_dir, hub = tmp_path / "bin", tmp_path / "hub"
