@@ -333,6 +333,36 @@ def test_use_miss():
     assert got == [-0.05, 10.0, 0.0, 0.0, -0.05], got
 
 
+def test_fast_forward():
+    """The fast pay goes by the movement's direction against the facing
+    (RewardConfig.fast_forward): full forward, about 70% on a forward
+    diagonal, nothing strafing or backing up; off, every fast tic pays.
+    Engine faked: one tic per step, one fast tic each."""
+    def run(dx, dy, angle, forward=True):
+        only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
+                            consult_false=0, key=0, time=0, hp_loss=0, death=0, loot=0, health=0,
+                            fast=1.0, fast_forward=forward, look=0, turn_waste=0, move_flip=0,
+                            use_miss=0, fall=0, wall_look=0)
+        e = make_env(rewards=only, max_tics=100000)
+        e.engine.command = lambda line: ({"mode": "EXPLORE", "hp": 100, "tics": 1, "fast_tics": 1,
+                                          "x": 100 + dx, "y": 100 + dy, "z": 0, "angle": angle}, [])
+        e._frame = lambda: np.zeros((200, 320), dtype=np.uint8)
+        e.state = {"mode": "EXPLORE", "hp": 100, "x": 100, "y": 100, "z": 0, "angle": angle}
+        e._prev_hp, e._tics, e._combat_steps = 100, 0, 0
+        e._best_sectors = e._start_sectors = 0
+        e._keys, e._goal, e._group, e._slot, e._seed = 0, None, 0, None, 0
+        e._trig = {k: e._new_trigger() for k in ("monster", "backpack", "combat")}
+        e._stack.reset(e._frame())
+        return e.step(ACTIONS.index("PRESS W"))[1]
+
+    assert run(10, 0, 0) == pytest.approx(1.0), "forward (facing east)"
+    assert run(0, 10, 90) == pytest.approx(1.0), "forward (facing north)"
+    assert run(7, 7, 0) == pytest.approx(np.cos(np.radians(45))), "forward diagonal"
+    assert run(0, 10, 0) == pytest.approx(0.0, abs=1e-9), "strafing"
+    assert run(-10, 0, 0) == 0.0, "backing up"
+    assert run(-10, 0, 0, forward=False) == pytest.approx(1.0), "off: every fast tic pays"
+
+
 def test_fall():
     """A freefall of 64+ units (accelerating past 10 units a tic) costs fall,
     once, on landing, whatever its height; a lift lowering 4 or 8 a tic

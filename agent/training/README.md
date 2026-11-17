@@ -93,6 +93,9 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   A USE that sets nothing going (no engine `use` event: a plain wall,
   empty space) costs `use_miss` (-0.05, 2026-11-16); opening a door,
   even one used before, costs nothing.
+  Fast movement pays back the clock only going forward (`fast_forward`,
+  2026-11-16): scaled by the cosine between the movement and the facing,
+  so backing up or strafing pays the whole clock, like standing still.
   A quick large drop -- freefall past 10 units a tic, 64 units or more in
   all -- costs `fall` (-3 on landing, whatever the height, 2026-11-16): it
   usually means the player left the intended path. Lifts (even the

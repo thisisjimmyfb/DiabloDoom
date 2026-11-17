@@ -95,6 +95,14 @@ class RewardConfig:
     # tic now, and this pays the unimpeded movement tic by tic.)
     fast: float = 1 / 3 / 35
     fast_speed: int = 4
+    # Forward only (2026-11-16): the fast pay is scaled by max(0, cos b),
+    # b the angle between the step's movement (its x/y change) and the
+    # facing (the mean of the step's start and end): full running forward,
+    # about 70% on a forward diagonal, nothing strafing or backing up --
+    # which then pays the whole clock, like standing still. No penalty of
+    # its own, so a short back-off out of a dead end stays cheaper than
+    # turning round. False pays every fast tic alike.
+    fast_forward: bool = True
     # Looking toward a way on (2026-11-16): every tic pays
     #   look * max(0, cos(a))
     # a the angle between the player's facing and the closest point of
@@ -479,7 +487,7 @@ class DiabloDoomEnv(gym.Env):
         # High velocity: the tics the engine counted at fast_speed or more
         # (a dropped action re-reads the last state line: nothing new).
         if sent:
-            add("fast", rc.fast * max(int(d.get("fast_tics", 0)), 0))
+            add("fast", rc.fast * max(int(d.get("fast_tics", 0)), 0) * self._forward_share(prev, d))
         # Looking toward the nearest unvisited portal of the current sector,
         # by the facing at the step's end (one tic, under per-tic decisions).
         if sent and rc.look and d.get("portal_rel") is not None:
@@ -627,6 +635,24 @@ class DiabloDoomEnv(gym.Env):
         wasted = 2 * min(abs(turn), abs(net)) if turn * net < 0 else 0
         self._turn_hist.append(turn)
         return rc.turn_waste * wasted / 45.0
+
+    def _forward_share(self, prev: dict, d: dict) -> float:
+        """max(0, cos) of the angle between the step's movement and the
+        facing (RewardConfig.fast_forward); 1 when it's off or unknown."""
+        if not self.cfg.rewards.fast_forward:
+            return 1.0
+        if None in (prev.get("x"), prev.get("y"), d.get("x"), d.get("y"), prev.get("angle"), d.get("angle")):
+            return 1.0
+        dx, dy = d["x"] - prev["x"], d["y"] - prev["y"]
+        n = np.hypot(dx, dy)
+        if n == 0:
+            return 1.0                    # no displacement: fast_tics is 0 anyway
+        a0, a1 = np.radians(prev["angle"]), np.radians(d["angle"])
+        fx, fy = np.cos(a0) + np.cos(a1), np.sin(a0) + np.sin(a1)   # mean facing
+        f = np.hypot(fx, fy)
+        if f == 0:
+            return 1.0
+        return max(0.0, float((dx * fx + dy * fy) / (n * f)))
 
     def _fall_step(self, prev: dict, d: dict, tics: int) -> float:
         """Track a fall across steps (RewardConfig.fall); the penalty on the
