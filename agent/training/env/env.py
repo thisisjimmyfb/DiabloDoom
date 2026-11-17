@@ -88,7 +88,7 @@ class RewardConfig:
     # only cue was a few pixels of message text.
     unique_grace_tics: int = 26
     grace_decisions: int = 5          # combat (frozen, no tics pass): steps to CONSULT
-    consult_false: float = -1.5       # CONSULT with no live, unanswered trigger
+    consult_false: float = -0.3       # CONSULT with no live, unanswered trigger (-1.5 before 2026-11-17)
     # Time and distance, one penalty: every game tic costs
     #   time * (1 + d / far_scale)
     # where d is the distance (map units) to the nearest portal of the
@@ -241,10 +241,10 @@ def standin_consult(env: "DiabloDoomEnv", state: dict, kinds: list,
                     max_rounds: int = 10, salvage_extra: int = 10) -> dict:
     """Training stand-in for Muse's VLM (SPEC.md §5.4): it clears what the
     policy consulted about, cheaply, so the policy learns *when* to hand
-    off, not how to fight.
-      - a monster sighting or combat: the CONSULT driver command (-rlenv
-        only) removes the monsters in sight and, in combat, those
-        targeting the player; in combat, END then closes the round (back
+    off, not how to fight. env.step has already sent the CONSULT driver
+    command (every CONSULT; -rlenv: it removes the monsters in sight
+    and, in combat, those targeting the player).
+      - a monster sighting or combat: in combat, END then closes the round (back
         to explore once no combatant is visible), up to max_rounds;
       - a unique picked up (or, on the farm, a full backpack): when the
         backpack is full, salvage the oldest items until it has room, plus
@@ -259,7 +259,7 @@ def standin_consult(env: "DiabloDoomEnv", state: dict, kinds: list,
                 extra -= 1
             s, _ = env.consult_command("SALVAGE 0")
     if "monster" in kinds or "combat" in kinds:
-        s, _ = env.consult_command("CONSULT")
+        # env.step already sent the policy's CONSULT.
         rounds = 0
         while s["mode"] in COMBAT_MODES and not s.get("dead") and rounds < max_rounds:
             s, _ = env.consult_command("END")
@@ -511,7 +511,11 @@ class DiabloDoomEnv(gym.Env):
                 if k in ("monster", "unique"):
                     add("consult", rc.consult_hit)
                 self._trig[k]["consulted"] = True
-            d = self.consult_handler(self, prev, kinds)
+            # Every CONSULT reaches the game (status message; under
+            # -rlenv it also removes the monsters in sight), then the
+            # handler does the rest.
+            d, _ = self.consult_command("CONSULT")
+            d = self.consult_handler(self, d, kinds)
             if d.get("mode") in COMBAT_MODES and not self._trig["combat"]["consulted"]:
                 # The handler took the fight on (or left it unfinished):
                 # this combat is consulted, no per-step penalty for it.

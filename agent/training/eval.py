@@ -11,7 +11,7 @@ warm-up, from --seed). When there are more pairs than --groups (default:
 the logical cores minus 2), they take turns, --groups pairs at a time, like
 training's map rotation. Each game gets a window (no sound; it runs as fast
 as it can) unless --headless. Prints one line per pair and an overall line
-in the [it] line's terms (return, sectors, exit, portal, death, steps).
+in the [it] line's terms (return, sectors, exit, death, steps).
 
 Watching it play (--iwad PATH). Launches a normal game on that IWAD file,
 with no monsters (--eval, as in stage-1 training), with
@@ -135,7 +135,7 @@ def pair_line(label: str, recs: list[dict], width: int) -> str:
     spawned = sum(r.get("items", [0, 0])[0] for r in recs)
     picked = sum(r.get("items", [0, 0])[1] for r in recs)
     return (f"  {label:<{width}}  ret {np.mean(rets):7.2f} ±{np.std(rets):5.2f}  "
-            f"sectors {mean('sectors_gained'):5.2f}  exit {mean('exit'):.2f}  portal {mean('portal'):.2f}  "
+            f"sectors {mean('sectors_gained'):5.2f}  exit {mean('exit'):.2f}  "
             f"death {mean('death'):.2f}  steps {mean('len'):6.0f}  tics {mean('rollout_tics'):5.0f}  "
             + (f"items {picked}/{spawned}  " if spawned else "") + f"({len(recs)} rollouts)")
 

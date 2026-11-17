@@ -267,7 +267,6 @@ def train_metrics(recs: list[dict], n_groups: int, collapsed: int) -> dict:
          "sectors": float(np.mean([r["sectors_gained"] for r in recs])),
          "exit_rate": float(np.mean([r["exit"] for r in recs])),
          "death_rate": float(np.mean([r["death"] for r in recs])),
-         "portal_rate": float(np.mean([r.get("portal", False) for r in recs])),
          "key_rate": float(np.mean([r.get("key", False) for r in recs])),
          "items_spawned": int(sum(r.get("items", [0, 0])[0] for r in recs)),
          "items_picked": int(sum(r.get("items", [0, 0])[1] for r in recs)),
@@ -290,7 +289,7 @@ def train_metrics(recs: list[dict], n_groups: int, collapsed: int) -> dict:
 
 def print_train(it: int, m: dict, upd: dict, extra: str = "") -> None:
     print(f"[it {it:5d}] ret {m['return']:7.2f} sectors {m['sectors']:5.2f} "
-          f"exit {m['exit_rate']:.2f} portal {m.get('portal_rate', 0.0):.2f} collapsed {m['collapsed_share']:.2f} steps {m['steps']} "
+          f"exit {m['exit_rate']:.2f} collapsed {m['collapsed_share']:.2f} steps {m['steps']} "
           f"ent {upd.get('entropy', float('nan')):.3f} kl {upd.get('approx_kl', float('nan')):.4f}"
           + (f" front {m['frontier_share']:.2f}" if "frontier_share" in m else "")
           + (f" dead {upd['dead_units']:.2f} gnorm {upd['grad_norm_max']:.0f}"

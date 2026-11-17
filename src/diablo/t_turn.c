@@ -2472,10 +2472,10 @@ static void cmd_dispatch_one(const char *cmd)
         // Anywhere else (-rldrive: play.py, 2026-11-16) it does nothing
         // but show "CONSULT" as the status message, so a watcher sees
         // the policy asked for the hand-off (no VLM is attached there).
+        // The message shows under -rlenv too (2026-11-17).
+        players[consoleplayer].message = "CONSULT";
         if (rlenv)
             RL_Consult();
-        else
-            players[consoleplayer].message = "CONSULT";
     }
     else if (!strcmp(cmd, "VERSION"))
     {

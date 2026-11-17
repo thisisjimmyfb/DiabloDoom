@@ -154,7 +154,7 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   level complete (ends the rollout), `key` (25) per key colour, `sector`
   (15) per new sector (more than a mechanism: getting somewhere new is
   the goal, a door only the way there), `mechanism` (10) for each new
-  mechanism set going. `consult_false` (-1.5) per CONSULT with nothing to
+  mechanism set going. `consult_false` (-0.3) per CONSULT with nothing to
   consult about.
   `key` (25) pays each key colour (blue, yellow, red) the first time it is
   held in a rollout, from the state line's `keys` mask; keys held at the
@@ -457,10 +457,10 @@ It prints one line per pair and an overall one, in the `[it]` line's
 terms, then the most used actions (the Hub checkpoint, 2026-11-16):
 
 ```
-  FREEDOOM1:1 1  ret   -8.79 ± 7.17  sectors  0.12  exit 0.00  portal 0.12  death 0.00  steps    497  tics   497  (8 rollouts)
-  DOOM:1 1       ret   14.73 ± 0.18  sectors  1.00  exit 0.00  portal 1.00  death 0.00  steps     36  tics    36  (8 rollouts)
+  FREEDOOM1:1 1  ret   -8.79 ± 7.17  sectors  0.12  exit 0.00  death 0.00  steps    497  tics   497  (8 rollouts)
+  DOOM:1 1       ret   14.73 ± 0.18  sectors  1.00  exit 0.00  death 0.00  steps     36  tics    36  (8 rollouts)
   ...
-  all            ret    1.29 ±10.23  sectors  0.31  exit 0.00  portal 0.31  death 0.00  steps    417  tics   417  (64 rollouts)
+  all            ret    1.29 ±10.23  sectors  0.31  exit 0.00  death 0.00  steps    417  tics   417  (64 rollouts)
 [eval] top actions: PRESS AR 7%, PRESS DR 7%, PRESS R 6%, PRESS WR 6%, PRESS WA 5%, PRESS WAL 5%
 ```
 

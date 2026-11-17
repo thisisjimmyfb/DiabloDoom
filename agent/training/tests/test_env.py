@@ -705,19 +705,22 @@ class _FakeGame:
 
 
 def test_standin_consult():
-    """The training stand-in clears what was consulted about: CONSULT
-    then END for combat (and a sighting), salvage for a full backpack,
-    nothing for a false consult."""
+    """The training stand-in clears what was consulted about (env.step
+    has sent the CONSULT): END then CONSULT for combat, nothing more for
+    a sighting, salvage for a full backpack, nothing for a false consult."""
     explore = {"mode": "EXPLORE", "bp_count": 0}
     plan = {"mode": "PLANNING"}
 
+    g = _FakeGame([explore])
+    assert standin_consult(g, plan, ["combat"])["mode"] == "EXPLORE"
+    assert g.sent == ["END"]
     g = _FakeGame([plan, explore])
     assert standin_consult(g, plan, ["combat"])["mode"] == "EXPLORE"
-    assert g.sent == ["CONSULT", "END"]
+    assert g.sent == ["END", "CONSULT"]
 
-    g = _FakeGame([explore])
+    g = _FakeGame([])
     standin_consult(g, dict(explore, monstervis=True), ["monster"])
-    assert g.sent == ["CONSULT"]
+    assert g.sent == []
 
     # Still full after the first salvage, room after the second: then
     # salvage_extra more...

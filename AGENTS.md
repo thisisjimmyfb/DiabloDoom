@@ -221,8 +221,9 @@ seen; and the `CONSULT` driver command (`-rlenv` only, the training
 stand-in's hand-off) removes the monsters in sight and, in combat, those
 targeting the player (a practice monster disappears, a map monster is
 killed); anywhere else (`-rldrive`, eval.py --iwad; 2026-11-16) CONSULT does
-nothing but show `CONSULT` as the status message, so a watcher sees the
-policy asked for the hand-off. Practice items (`-rlitems <tics>`,
+nothing else. Every CONSULT shows `CONSULT` as the status message
+(under `-rlenv` too since 2026-11-17, when the env forwards every policy
+CONSULT), so a watcher sees the policy asked for the hand-off. Practice items (`-rlitems <tics>`,
 `-rlenv` or `-rldrive`, 2026-11-17): the same way, one random Diablo loot item at
 a time on the line to an on-screen portal of the current sector
 (unvisited portals first, then visited ones; within 40 degrees of the facing, 64-256 units, in

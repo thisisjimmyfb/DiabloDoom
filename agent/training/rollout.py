@@ -95,7 +95,6 @@ def run_rollouts(vec: GroupVecEnv, policy: Policy, device: torch.device,
         r["sectors_gained"] = int(s.get("sectors", 0)) - int(r["start_sectors"])
         r["exit"] = bool(r["end_info"].get("exit"))
         r["death"] = bool(s.get("dead"))
-        r["portal"] = bool(r["end_info"].get("portal"))
         r["key"] = bool(r["end_info"].get("key"))
         r["items"] = list(r["end_info"].get("items", [0, 0]))   # practice items [spawned, picked up]
     return recs
