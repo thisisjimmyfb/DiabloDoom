@@ -264,6 +264,46 @@ def test_map_rotation():
     assert off.at(0) == pairs[:4] and off.at(10) is None, "every 0: the first pairs, for good"
 
 
+def test_map_rotation_shuffled():
+    """A seeded rotation deals the pairs in a shuffled order: every pair
+    still gets its turn in a cycle, the same seed gives the same order,
+    and another seed (another session) a different one."""
+    from model import MapRotation
+    pairs = [(w, m) for m in MAPS for w in TWO_IWADS]
+
+    def cycle(seed):
+        r = MapRotation(TWO_IWADS, MAPS, 4, every=1, rng=np.random.default_rng(seed))
+        return r.at(0) + r.at(1)
+
+    assert sorted(cycle(1)) == sorted(pairs), "a cycle covers every pair once"
+    assert cycle(1) == cycle(1)
+    assert len({tuple(cycle(s)) for s in range(5)}) > 1, "sessions get different orders"
+
+
+def test_pick_eval_maps(monkeypatch):
+    """--eval-maps random: --eval-count maps the training maps and (stage
+    1) the boss exits leave over, in map order, seeded; a list passes
+    through; '' and an empty pool turn evals off."""
+    import model
+    monkeypatch.setattr(model, "wad_maps", lambda w: [f"1 {i}" for i in range(1, 10)])
+    rng = lambda s=0: np.random.default_rng(s)
+    picks = [model.pick_eval_maps("random", 2, "1 1,1 2,1 3,1 4", TWO_IWADS, 1, rng(s)) for s in range(20)]
+    for p in picks:
+        assert len(p) == 2 and set(p) <= {"1 5", "1 6", "1 7", "1 9"}, p
+        assert p == sorted(p)
+    assert len({tuple(p) for p in picks}) > 1, "different seeds, different maps"
+    assert model.pick_eval_maps("random", 2, "1 1", TWO_IWADS, 1, rng(3)) == \
+        model.pick_eval_maps("random", 2, "1 1", TWO_IWADS, 1, rng(3))
+    assert "1 8" in {m for s in range(30)
+                     for m in model.pick_eval_maps("random", 3, "1 1", TWO_IWADS, 2, rng(s))}, "stage 2: bosses"
+    all_eval = model.pick_eval_maps("random", 2, "all", TWO_IWADS, 1, rng())
+    assert len(all_eval) == 2 and "1 1" not in model.resolve_maps("all", TWO_IWADS, 1, all_eval[:1] + ["1 1"])
+    assert model.pick_eval_maps("1 5, 1 6", 2, "all", TWO_IWADS, 1, rng()) == ["1 5", "1 6"]
+    assert model.pick_eval_maps("", 2, "all", TWO_IWADS, 1, rng()) == []
+    assert model.pick_eval_maps("random", 2, ",".join(f"1 {i}" for i in range(1, 10)),
+                                TWO_IWADS, 1, rng()) == [], "nothing left to hold out"
+
+
 def test_move_groups():
     """Moved envs restart on their new map (set_map), get that map's
     frontier (kept in memory while it waited for its turn), and the tic

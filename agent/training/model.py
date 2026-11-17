@@ -253,14 +253,16 @@ def all_pairs(iwads: list[str | None], maps: list[str]) -> list[tuple[str | None
 
 
 def allocate_groups(iwads: list[str | None], maps: list[str], groups: int,
-                    tag: str = "train", rotation: int | None = None) -> list[tuple[str | None, str]]:
+                    tag: str = "train", rotation: int | None = None,
+                    pairs: list | None = None) -> list[tuple[str | None, str]]:
     """Group g -> (iwad, map): pair (rotation * groups + g) of all_pairs,
     wrapping around. Rotation 0 gives group g maps[(g // I) % M] on
     iwads[g % I]; I*M groups cover every pair at once. With fewer groups
     each rotation (MapRotation) moves them on to the next pairs, so every
     pair gets its turn; rotation None (no rotation) warns about the pairs
-    no group plays."""
-    pairs = all_pairs(iwads, maps)
+    no group plays. `pairs`: the pair order to deal from (MapRotation's
+    shuffled one), all_pairs' by default."""
+    pairs = pairs or all_pairs(iwads, maps)
     r = rotation or 0
     out = [pairs[(r * groups + g) % len(pairs)] for g in range(groups)]
     missing = [env_label(w, m, iwads) for w, m in pairs if (w, m) not in out]
@@ -311,19 +313,47 @@ def wad_maps(path: str) -> list[str]:
     return out
 
 
+def shared_maps(iwads: list[str | None]) -> tuple[list[str], list[str]]:
+    """The maps every IWAD has, in the first IWAD's order, and that IWAD's
+    whole map list."""
+    from env.engine import DEFAULT_IWAD
+    lists = [wad_maps(w or str(DEFAULT_IWAD)) for w in iwads]
+    return [m for m in lists[0] if all(m in l for l in lists[1:])], lists[0]
+
+
+def pick_eval_maps(spec: str, count: int, maps_spec: str, iwads: list[str | None], stage: int,
+                   rng: np.random.Generator, tag: str = "train") -> list[str]:
+    """--eval-maps: a comma-separated -warp list, '' (no evals), or
+    "random": `count` maps drawn with `rng` (a fresh seed each session)
+    from the maps every IWAD has, minus the training maps (unless --maps
+    is "all", which is chosen after the eval maps and leaves them out)
+    and, in stage 1, BOSS_MAPS. Listed in map order."""
+    if spec.strip().lower() != "random":
+        return parse_list(spec)
+    pool, _ = shared_maps(iwads)
+    skip = set(BOSS_MAPS) if stage == 1 else set()
+    if maps_spec.strip().lower() != "all":
+        skip |= set(parse_list(maps_spec))
+    pool = [m for m in pool if m not in skip]
+    if count <= 0 or not pool:
+        print(f"[{tag}] --eval-maps random: no maps to hold out" + ("" if pool else " (none left)")
+              + "; evals off")
+        return []
+    picked = set(rng.choice(len(pool), size=min(count, len(pool)), replace=False).tolist())
+    return [m for i, m in enumerate(pool) if i in picked]
+
+
 def resolve_maps(spec: str, iwads: list[str | None], stage: int, eval_maps: list[str],
                  tag: str = "train") -> list[str]:
     """--maps: a comma-separated -warp list, or "all": every map all the
     IWADs have, minus the held-out eval maps and, in stage 1, BOSS_MAPS."""
     if spec.strip().lower() != "all":
         return parse_list(spec)
-    from env.engine import DEFAULT_IWAD
-    lists = [wad_maps(w or str(DEFAULT_IWAD)) for w in iwads]
-    maps = [m for m in lists[0] if all(m in l for l in lists[1:])]
+    maps, first = shared_maps(iwads)
     skip = set(eval_maps) | (BOSS_MAPS if stage == 1 else set())
     maps = [m for m in maps if m not in skip]
     print(f"[{tag}] --maps all: {len(maps)} maps ({', '.join(maps)}); skipped "
-          f"{sorted(skip & set(lists[0]))} (held out" + (", boss exits" if stage == 1 else "") + ")")
+          f"{sorted(skip & set(first))} (held out" + (", boss exits" if stage == 1 else "") + ")")
     return maps
 
 
@@ -337,11 +367,18 @@ class MapRotation:
     """Groups take turns on the IWAD/map pairs when there are more pairs
     than groups: every `every` batches they move on to the next block of
     pairs (allocate_groups' rotation), so all of them get trained. Off
-    (one fixed allocation) when the groups cover every pair or every is 0."""
+    (one fixed allocation) when the groups cover every pair or every is 0.
+    `rng`: shuffle the pair order once (train.py: a fresh seed each
+    session), so each session rotates through the pairs in its own order
+    and groups get different pairs; None keeps all_pairs' order."""
 
-    def __init__(self, iwads: list, maps: list, groups: int, every: int, tag: str = "train"):
+    def __init__(self, iwads: list, maps: list, groups: int, every: int, tag: str = "train",
+                 rng: np.random.Generator | None = None):
         self.iwads, self.maps, self.groups, self.tag = iwads, maps, groups, tag
-        self.n_pairs = len(iwads) * len(maps)
+        self.pairs = all_pairs(iwads, maps)
+        if rng is not None:
+            self.pairs = [self.pairs[i] for i in rng.permutation(len(self.pairs))]
+        self.n_pairs = len(self.pairs)
         self.every = every if every > 0 and groups < self.n_pairs else 0
         self.rotation: int | None = None
 
@@ -353,7 +390,7 @@ class MapRotation:
             return None
         self.rotation = r
         return allocate_groups(self.iwads, self.maps, self.groups, self.tag,
-                               rotation=r if self.every else None)
+                               rotation=r if self.every else None, pairs=self.pairs)
 
 
 def move_groups(vec, frontier, budget, old_pairs: list, new_pairs: list) -> list[int]:
@@ -396,7 +433,14 @@ def add_env_args(p) -> None:
     p.add_argument("--rotate-every", type=int, default=10,
                    help="with more IWAD/map pairs than groups: batches a group plays its map before "
                         "the groups move on to the next pairs (0: no rotation, the extra pairs never play)")
-    p.add_argument("--eval-maps", default="1 5,1 6", help="held-out maps for evaluation ('' to skip)")
+    p.add_argument("--eval-maps", default="random",
+                   help="held-out maps for evaluation, comma-separated ('' to skip); 'random' (default): "
+                        "--eval-count maps drawn fresh each session from the maps every IWAD has, minus "
+                        "the training maps and (stage 1) the boss-exit maps")
+    p.add_argument("--eval-count", type=int, default=2, help="--eval-maps random: how many maps")
+    p.add_argument("--map-seed", type=int, default=None,
+                   help="seed for the session's map choices (the --rotate-every order and --eval-maps "
+                        "random); default: a fresh one each session, printed and saved in config.json")
     p.add_argument("--eval-episodes", type=int, default=2, help="rollouts per eval map")
     p.add_argument("--skill", type=int, default=3)
     p.add_argument("--slots-dir", default=None, help="prepared save slots copied into each instance")

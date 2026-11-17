@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import secrets
 import signal
 import threading
 import time
@@ -44,8 +45,8 @@ import torch
 
 from model import (Frontier, HubUploader, MapRotation, TicBudget, add_env_args, capture_dirs, check_slots,
                    FREE_CORES, available_cores, default_groups, env_label, hub_pull, move_groups,
-                   resolve_maps,
-                   iwad_label, run_env, parse_list, resolve_iwads, rng_state,
+                   pick_eval_maps, resolve_maps,
+                   iwad_label, run_env, resolve_iwads, rng_state,
                    save_checkpoint, CKPT_NAME)
 from env import cleanup_stale  # noqa: E402  (model.py put env on sys.path)
 from env.vector import GroupVecEnv  # noqa: E402
@@ -96,7 +97,12 @@ def main():
     device = torch.device(args.device)
     slots = [int(s) for s in args.slots.split(",") if s.strip()]
     iwads = resolve_iwads(args.iwads)
-    eval_maps = parse_list(args.eval_maps)
+    # The session's map choices: a fresh seed each session unless
+    # --map-seed fixes it (saved in config.json below, so it can be rerun).
+    if args.map_seed is None:
+        args.map_seed = secrets.randbelow(2 ** 31)
+    map_rng = np.random.default_rng(args.map_seed)
+    eval_maps = pick_eval_maps(args.eval_maps, args.eval_count, args.maps, iwads, args.stage, map_rng)
     maps = resolve_maps(args.maps, iwads, args.stage, eval_maps)
     if args.groups is None:                 # one group per IWAD/map pair, at most cores - 2
         args.groups = default_groups(iwads, maps)
@@ -105,11 +111,14 @@ def main():
     G, groups = args.group_size, args.groups
     n_envs = G * groups
     check_slots(iwads, slots)
-    rotation = MapRotation(iwads, maps, groups, args.rotate_every)
+    rotation = MapRotation(iwads, maps, groups, args.rotate_every, rng=map_rng)
 
     # SIGTERM (the execution environment stopping) -> clean shutdown;
     # the last checkpoint is at the previous update boundary.
+    # Only the first one: a second (nsys and supervisors resend it) would
+    # interrupt the shutdown itself and leave the games running.
     def on_sigterm(signum, frame):
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
         raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, on_sigterm)
     cleanup_stale()
@@ -140,7 +149,8 @@ def main():
     (run_dir / "config.json").write_text(json.dumps({**vars(args), "run_id": run_id}, indent=2))
     n_params = sum(p.numel() for p in policy.parameters())
     print(f"[train] run {run_id}: {n_envs} envs ({groups} groups x {G}), stage {args.stage}, "
-          f"maps {maps}, eval {eval_maps}, {n_params / 1e6:.2f}M params, device {device}")
+          f"maps {maps}, eval {eval_maps}, {n_params / 1e6:.2f}M params, device {device}, "
+          f"map seed {args.map_seed}")
     print(f"[train] iwads {[iwad_label(w) for w in iwads]}; groups: "
           f"{[env_label(w, m, iwads) for w, m in group_pairs]}")
     if rotation.every:

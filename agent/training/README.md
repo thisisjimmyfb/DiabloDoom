@@ -175,7 +175,11 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   instances (`--rotate-every 0`: no rotation, the extra pairs never play).
   A moved instance's game restarts on its new map (a few seconds); each
   map keeps its progress save and tic budget while it waits for its turn.
-  A resume picks up its rotation from the iteration. The training line's metrics carry `groups`
+  A resume picks up its rotation from the iteration. Each session
+  shuffles the pair order (and with it which group plays which pair) from
+  a fresh map seed, printed on the `[train] run` line and saved in
+  `config.json` as `map_seed`; `--map-seed N` repeats a session's choices.
+  The training line's metrics carry `groups`
   (the maps played) while rotating. `--maps all` trains every map the
   IWADs share, minus `--eval-maps` and, in stage 1, the boss-exit maps
   (E1M8, E2M8, E3M8, E4M6, E4M8, Doom II's MAP07 and MAP30: their exits
@@ -238,9 +242,15 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   checkpoint's weights (reloaded, since the update in progress is
   dropped); a second Ctrl-C skips it, and an interrupt during an eval
   or before the first update finished has none. `--eval-maps ''`
-  turns evals off; nothing in training reads them. Each eval plays
-  `--eval-episodes` rollouts on each `--eval-maps` map (held out:
-  E1M5, E1M6) from a fixed start (no progress saves), scored with the
+  turns evals off; nothing in training reads them. The default
+  `--eval-maps random` draws `--eval-count` (2) held-out maps fresh each
+  session (from the map seed): maps every IWAD has, minus the training
+  maps and, in stage 1, the boss-exit maps. A comma-separated list fixes
+  them instead. So the start and end evals of one session compare, but
+  two sessions usually eval different maps. With `--maps all` the eval
+  maps are drawn first and left out of training for that session only,
+  so a later session may eval maps an earlier one trained on. Each eval plays
+  `--eval-episodes` rollouts on each `--eval-maps` map from a fixed start (no progress saves), scored with the
   training rewards, time penalty included, but with no portal or key goal
   ending a rollout early, so sectors compare across versions. Reports
   sectors gained, exit rate and return.

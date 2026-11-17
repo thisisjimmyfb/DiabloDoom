@@ -303,5 +303,6 @@ def cleanup_stale() -> None:
         pid = int(d.name[len(WORKDIR_PREFIX):].split("_")[0])
         if not alive(pid):
             # Kill any game still running in it, then remove it.
-            subprocess.run(["pkill", "-9", "-f", f"-cmdpipe {d}/cmd"], check=False)
+            # "--": the pattern starts with "-", which pkill would read as options.
+            subprocess.run(["pkill", "-9", "-f", "--", f"-cmdpipe {d}/cmd"], check=False)
             shutil.rmtree(d, ignore_errors=True)

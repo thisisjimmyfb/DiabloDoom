@@ -102,10 +102,13 @@ def test_rotation(tmp_path):
     run_dir = tmp_path / "run"
     o = train(run_dir, "--maps", "1 1,1 2", "--rotate-every", "1", "--iterations", "3",
               "--eval-every", "0", "--capture-envs", "0")
-    assert "rotation 1: groups now play ['1 2']" in o and "rotation 2: groups now play ['1 1']" in o
+    # Which map comes first is the session's shuffle (--map-seed).
+    groups = [m["groups"] for m in metrics(run_dir, "train")]
+    a, b = groups[0][0], groups[1][0]
+    assert {a, b} == {"1 1", "1 2"} and groups == [[a], [b], [a]]
+    assert f"rotation 1: groups now play ['{b}']" in o and f"rotation 2: groups now play ['{a}']" in o
     rows = [json.loads(l) for l in (run_dir / "rollouts.jsonl").read_text().splitlines()]
-    assert [r["map"] for r in rows if r["env"] == 0] == ["1 1", "1 2", "1 1"]
-    assert [m["groups"] for m in metrics(run_dir, "train")] == [["1 1"], ["1 2"], ["1 1"]]
+    assert [r["map"] for r in rows if r["env"] == 0] == [a, b, a]
     back = [r for r in rows if r["iteration"] == 2]
     first = [r for r in rows if r["iteration"] == 0]
     if any(r.get("picked") and r["frontier"] == "saved" for r in first):

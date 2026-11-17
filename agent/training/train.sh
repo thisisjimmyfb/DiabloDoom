@@ -139,7 +139,7 @@ arg_value() {
 # found under wad/ (groups split evenly; --groups 8 trains all 4 maps on
 # both Freedoom and Ultimate Doom). The rest are the scripts' own
 # defaults (stage 1, one group of 8 per IWAD/map pair up to the logical
-# cores minus 2, E1M1-E1M4, eval on E1M5/E1M6; --maps all
+# cores minus 2, E1M1-E1M4, eval on 2 random held-out maps each session; --maps all
 # trains every map, the groups taking turns every --rotate-every batches).
 RUN_DIR="$(arg_value run-dir)"
 RUN_DIR="${RUN_DIR:-runs/stage1}"
