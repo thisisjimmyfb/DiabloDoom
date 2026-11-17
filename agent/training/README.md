@@ -40,11 +40,7 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   There is no `MAP` action (removed 2026-11-14), and no forced map
   glances either (removed 2026-11-16: with 4 frames of memory the policy
   can't use a map it saw a moment ago), so training never shows the
-  automap. Older checkpoints are upgraded on load: each
-  old output keeps its weights in the place of the action it carries over
-  to (`WALK 0` -> `PRESS W`, the turns -> `PRESS L`/`R`, the strafes ->
-  `PRESS A`/`D`, `USE`, `CONSULT`; `MAP` dropped), the new outputs start
-  fresh, and the optimizer state follows. In combat,
+  automap. In combat,
   every action except `CONSULT` is dropped: no command is sent, no game
   time passes, and the step is penalized until the policy consults.
 - **CONSULT** calls `EnvConfig.consult_handler(game, state, kinds)`.
@@ -151,7 +147,7 @@ GRPO pretraining of the level runner (SPEC.md §6, §7.1, §7.4).
 uv pip install --python .venv/bin/python torch --index-url https://download.pytorch.org/whl/cu128
 .venv/bin/python train.py --run-dir runs/stage1          # stage 1: no monsters
 .venv/bin/python train.py --run-dir runs/stage1          # same command resumes
-.venv/bin/python train.py --stage 2 --run-dir runs/stage2 --init runs/stage1/ckpt_000500.pt
+.venv/bin/python train.py --stage 2 --run-dir runs/stage2 --init runs/stage1/doom-runner.pt
 ```
 
 - **Length:** each run of `train.py` (and `./train.sh`) trains `--more`
@@ -159,11 +155,28 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   keeps going 100 at a time. `--iterations N` instead sets the run's
   total: it stops at update N, and does nothing if the run already has N.
 
-- **Policy:** the step-1 feedforward network: Nature CNN on the 4x84x84
-  stack, 8 action logits (sampled), and a value head on detached
+- **Policy:** the step-1 feedforward network: Nature CNN on the
+  4 x H x W stack (4 x 80 x 128), A action logits (A = 29, sampled), and a value head on detached
   features plus HP and exit distance (straight-line distance to the exit
-  line; 0 on a level without one). 1.69M parameters. The value head trains from the start
+  line; 0 on a level without one). Parameters:
+  79,011 + 513 * A + 32,768 * conv_out(W) * conv_out(H) (2,453,184), where
+  conv_out(n) = ((n - 8) // 4 + 1 - 4) // 2 + 1 - 2 (`model.conv_out`;
+  conv_out(128) = 12, conv_out(80) = 6). The value head trains from the start
   but never shapes the policy during GRPO.
+- **Observation size:** `--obs-size WxH` (2026-11-17; default 128x80) sets
+  the frame the policy sees, e.g. `160x100` (half the screen, its aspect
+  kept: 4.8M parameters) or `320x200` (full size: 24.9M). One number is
+  the width W, with the height that keeps the screen's 320x200 aspect,
+  H = round(W * 200 / 320) (`--obs-size 128` is 128x80). It applies to a
+  new run and is saved in the checkpoint: a resumed run keeps its own
+  size (asking for another stops), and `eval.py` reads it from the
+  checkpoint. A batch's frames take steps * 4 * W * H bytes (at 70,000
+  steps: 2.9 GB at 128x80, 4.5 GB at 160x100, 18 GB at 320x200). On the GPU each `--minibatch`
+  (8192) runs in `--micro-batch` pieces (2048) whose gradients add up to
+  the minibatch's before its one optimizer step: the same update, less
+  memory (a whole 8192 minibatch at 160x100 peaks at 10.2 GB and ran out
+  of the RTX 5080's 16 GB in training; 4096 peaks at 5.2 GB, 2048 at
+  2.6 GB).
 - **Batch:** `--groups` x `--group-size` (8) instances; `--groups`
   defaults to one group per IWAD/map pair, at most the logical cores
   minus 2 (14 on a 16-thread CPU; the 2 stay free; `train.sh` passes
@@ -299,8 +312,7 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   other counters, and every RNG state, including the start-state sampler.
   Writes are atomic (a crash mid-write leaves the previous one); a
   checkpoint that can't be loaded stops the run rather than starting it
-  fresh. A run directory from before 2026-11-15 resumes from its newest
-  `ckpt_NNNNNN.pt`. Older versions live in the Hub repo's commits.
+  fresh. Older versions live in the Hub repo's commits.
   SIGTERM exits cleanly; rollouts in progress are discarded.
 - **Logs:** `runs/<name>/metrics.jsonl` (train and eval lines) and
   `config.json`, plus `runs/<name>/rollouts.jsonl` for debugging: one line
@@ -406,7 +418,7 @@ terms, then the most used actions (the Hub checkpoint, 2026-11-16):
 `--iwad <path>` launches the game locally on that IWAD file, in a window
 with sound, with the policy driving it. The game runs with `-rldrive`
 (real time, normal play), and `eval.py` turns each decision's frame into
-the same 84x84 4-frame stack the policy trained on. Both modes always run
+the same 4-frame stack the policy trained on (its `--obs-size`, from the checkpoint). Both modes always run
 without map monsters or turn-based combat (2026-11-17: `--eval` here, stage 1 in the
 training-style eval, where `--stage 2` is ignored).
 
@@ -468,7 +480,7 @@ fixtures (fake rollouts) in `tests/conftest.py`:
   and explore strafes.
 - `test_model.py`: IWAD/group allocation, map rotation and moving groups,
   `--maps all`, progress saves (frontier), tic budgets, checkpoints (one
-  file, old-name resume, corrupt stops), RNG restore, checkpoint upgrades and the
+  file, corrupt stops), RNG restore, `--obs-size` and the
   Hub pull and push (with a fake `hf`).
 - `test_rollout.py`: group starts and warm-up actions.
 - `test_learn.py`: advantages, value targets and the update.

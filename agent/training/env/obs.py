@@ -1,5 +1,6 @@
-"""Observation preprocessing: 320x200 palette frame -> 84x84 grayscale,
-area-averaged, stacked over the last N decisions (SPEC.md §5.1)."""
+"""Observation preprocessing: 320x200 palette frame -> W x H grayscale
+(EnvConfig.width x EnvConfig.height, 128x80), area-averaged, stacked over
+the last N decisions (SPEC.md §5.1): an N x H x W stack (4 x 80 x 128)."""
 
 from __future__ import annotations
 
@@ -44,24 +45,24 @@ class Preprocessor:
     oversubscribe the CPU (measured: 8 workers fell from 391 to 54
     steps/s). The gather is exact and single-threaded."""
 
-    def __init__(self, src_w: int = 320, src_h: int = 200, size: int = 84):
-        self.size = size
-        self._iy, self._wy = _sparse(_area_matrix(src_h, size))   # size x ky
-        self._ix, self._wx = _sparse(_area_matrix(src_w, size))   # size x kx
+    def __init__(self, src_w: int = 320, src_h: int = 200, width: int = 84, height: int | None = None):
+        self.width, self.height = width, height or width
+        self._iy, self._wy = _sparse(_area_matrix(src_h, self.height))   # height x ky
+        self._ix, self._wx = _sparse(_area_matrix(src_w, self.width))    # width x kx
 
     def __call__(self, pix: np.ndarray, pal: np.ndarray) -> np.ndarray:
         # Palette -> luma per index (256 entries), then look up per pixel.
         luma_pal = (pal.astype(np.float32) * _LUMA).sum(axis=1)
         gray = luma_pal[pix]                                          # H x W
-        rows = (gray[self._iy] * self._wy[:, :, None]).sum(axis=1)   # size x W
-        small = (rows[:, self._ix] * self._wx[None]).sum(axis=2)     # size x size
+        rows = (gray[self._iy] * self._wy[:, :, None]).sum(axis=1)   # height x W
+        small = (rows[:, self._ix] * self._wx[None]).sum(axis=2)     # height x width
         return np.clip(small + 0.5, 0, 255).astype(np.uint8)
 
 
 class FrameStack:
-    def __init__(self, n: int, size: int):
+    def __init__(self, n: int, height: int = 84, width: int | None = None):
         self.n = n
-        self.size = size
+        self.height, self.width = height, width or height
         self._frames: deque[np.ndarray] = deque(maxlen=n)
 
     def reset(self, frame: np.ndarray) -> np.ndarray:

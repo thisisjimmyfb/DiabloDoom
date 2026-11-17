@@ -27,15 +27,6 @@ from env import ACTIONS, CONSULT  # noqa: E402
 # barely move the player).
 WARMUP_ACTIONS = [i for i in range(len(ACTIONS)) if i != CONSULT]
 WARMUP_HOLD = 15
-# Older action sets, by output count, and the current action each old
-# output carries over to (2026-11-15: per-tic PRESS keys replaced the
-# multi-tic WALK 0 / TURNL / TURNR / STRAFE_L / STRAFE_R).
-OLD_ACTION_SETS = {
-    8: ["WALK 0", "TURNL", "TURNR", "STRAFE_L", "STRAFE_R", "USE", "MAP", "CONSULT"],
-    7: ["WALK 0", "TURNL", "TURNR", "STRAFE_L", "STRAFE_R", "USE", "CONSULT"],
-}
-OLD_TO_NEW = {"WALK 0": "PRESS W", "TURNL": "PRESS L", "TURNR": "PRESS R",
-              "STRAFE_L": "PRESS A", "STRAFE_R": "PRESS D", "USE": "USE", "CONSULT": "CONSULT"}
 N_PRIV = 2  # privileged critic inputs: HP/100, exit path distance (SPEC.md §6)
 
 
@@ -43,11 +34,13 @@ N_PRIV = 2  # privileged critic inputs: HP/100, exit path distance (SPEC.md §6)
 # Environment factory (top-level so worker processes can unpickle it)
 # ---------------------------------------------------------------------------
 
+DEFAULT_OBS_SIZE = (128, 80)     # (W, H): width, height of each observation frame (--obs-size)
+
 def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
              slots_dir: str | None, slots: list[int], capture_dir: str | None = None,
              spawn_tics: int = 0, nodraw: bool = False, noblit: bool = False,
              portal_goal: int = 0, time_penalty: float = 0.0, key_goal: bool = False,
-             headless: bool = True):
+             headless: bool = True, obs_size: tuple[int, int] = DEFAULT_OBS_SIZE):
     """time_penalty: reward per game second (negative pays, e.g. 1/3
     costs a point every 3 s), with portal_goal n > 0 ending a rollout
     once it reaches n new sectors, and key_goal ending it on a new key."""
@@ -79,6 +72,7 @@ def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
         engine.iwad = iwad
     return DiabloDoomEnv(EnvConfig(
         engine=engine,
+        width=obs_size[0], height=obs_size[1],
         max_tics=max_tics,
         start_slots=list(slots),
         consult_handler=standin_consult,
@@ -115,7 +109,8 @@ def run_env(args, slots: list[int], iwad: str | None, warp: str, capture_dir: st
     return functools.partial(make_env, iwad, warp, args.stage, args.skill, slots_dir=args.slots_dir,
                              slots=slots, capture_dir=capture_dir, spawn_tics=args.spawn_tics,
                              nodraw=args.nodraw, noblit=args.noblit, time_penalty=args.time_penalty,
-                             headless=getattr(args, "headless", True), **rules)
+                             headless=getattr(args, "headless", True),
+                             obs_size=getattr(args, "obs_size", None) or DEFAULT_OBS_SIZE, **rules)
 
 
 def privileged(info: dict) -> list[float]:
@@ -134,18 +129,51 @@ def layer_init(layer: nn.Module, std: float = np.sqrt(2), bias: float = 0.0) -> 
     return layer
 
 
+def conv_out(n: int) -> int:
+    """A frame side n after the trunk's three convs (kernel/stride 8/4, 4/2,
+    3/1): conv_out(n) = ((n - 8) // 4 + 1 - 4) // 2 + 1 - 2
+    (conv_out(W) = 12 at W = 128, conv_out(H) = 6 at H = 80)."""
+    return ((n - 8) // 4 + 1 - 4) // 2 + 1 - 2
+
+
+def parse_obs_size(s: str) -> tuple[int, int]:
+    """--obs-size: "WxH" (e.g. 160x100), or one number, the width W, with
+    the height that keeps the screen's 320x200 aspect:
+    H = round(W * 200 / 320) (H = 80 at W = 128)."""
+    try:
+        parts = [int(p) for p in s.lower().split("x")]
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"--obs-size {s!r}: expected WxH, e.g. 84x84 or 160x100")
+    if len(parts) == 1:
+        parts.append(round(parts[0] * 200 / 320))
+    if len(parts) != 2 or min(parts) < 36 or max(parts) > 320:
+        raise argparse.ArgumentTypeError(f"--obs-size {s!r}: expected WxH, each 36..320")
+    return parts[0], parts[1]
+
+
+def checkpoint_obs_size(ckpt: dict) -> tuple[int, int]:
+    """The (width, height) a checkpoint's policy was trained on."""
+    return tuple(ckpt["obs_size"])
+
+
 class Policy(nn.Module):
     """Nature CNN -> 512 features -> action logits; value head on
     detached features plus privileged inputs (critic, training only)."""
 
-    def __init__(self, n_actions: int = len(ACTIONS), frames: int = 4):
+    def __init__(self, n_actions: int = len(ACTIONS), frames: int = 4,
+                 obs_size: tuple[int, int] = DEFAULT_OBS_SIZE):
         super().__init__()
+        self.obs_size = tuple(obs_size)          # (W, H) of each frame
+        w, h = self.obs_size
+        conv_w, conv_h = conv_out(w), conv_out(h)
+        if conv_w < 1 or conv_h < 1:
+            raise ValueError(f"observation size {w}x{h} is too small for the CNN (at least 36x36)")
         self.trunk = nn.Sequential(
             layer_init(nn.Conv2d(frames, 32, 8, stride=4)), nn.ReLU(),
             layer_init(nn.Conv2d(32, 64, 4, stride=2)), nn.ReLU(),
             layer_init(nn.Conv2d(64, 64, 3, stride=1)), nn.ReLU(),
             nn.Flatten(),
-            layer_init(nn.Linear(64 * 7 * 7, 512)), nn.ReLU(),
+            layer_init(nn.Linear(64 * conv_w * conv_h, 512)), nn.ReLU(),   # in = 64 * conv_out(W) * conv_out(H) (64 * 12 * 6 = 4608)
         )
         self.policy_head = layer_init(nn.Linear(512, n_actions), std=0.01)
         self.value_head = layer_init(nn.Linear(512 + N_PRIV, 1), std=1.0)
@@ -157,64 +185,8 @@ class Policy(nn.Module):
         return logits, value
 
 
-def _old_rows(n_old: int) -> dict[int, int]:
-    """{current output: older output} for an older action set's head."""
-    old = OLD_ACTION_SETS[n_old]
-    return {ACTIONS.index(OLD_TO_NEW[name]): i for i, name in enumerate(old) if name in OLD_TO_NEW}
-
-
-def _upgrade_rows(t: torch.Tensor, fresh: torch.Tensor) -> torch.Tensor:
-    """Policy-head rows (or their Adam moments) of an older action set ->
-    the current one: each old output that carries over keeps its row,
-    every other current output takes the fresh row."""
-    out = fresh.to(t).clone()
-    for new, old in _old_rows(t.shape[0]).items():
-        out[new] = t[old]
-    return out
-
-
-def upgrade_policy_state(state: dict) -> dict:
-    """A policy state dict from an older action set (OLD_ACTION_SETS) ->
-    the current one. Each old output keeps its weights in the place of
-    the action it carries over to (OLD_TO_NEW: WALK 0 -> PRESS W, the
-    45-degree turns -> PRESS L/R, the strafes -> PRESS A/D; MAP is
-    dropped); the other outputs are initialised like a new head (a fixed
-    seed, so every load gives the same policy) with the old outputs'
-    mean bias, so each starts near an average action's probability.
-    A current-size state, or one of an action set this version doesn't
-    know (the caller reports the mismatch), is returned unchanged."""
-    w = state.get("policy_head.weight")
-    if w is None or w.shape[0] not in OLD_ACTION_SETS:
-        return state
-    state = dict(state)
-    gen = torch.Generator().manual_seed(0)
-    fresh_w = torch.empty(len(ACTIONS), w.shape[1])
-    nn.init.orthogonal_(fresh_w, 0.01, generator=gen)
-    b = state["policy_head.bias"]
-    state["policy_head.weight"] = _upgrade_rows(w, fresh_w)
-    state["policy_head.bias"] = _upgrade_rows(b, torch.full((len(ACTIONS),), float(b.mean())))
-    print(f"[ckpt] upgraded a {w.shape[0]}-action policy to {len(ACTIONS)} actions")
-    return state
-
-
-def upgrade_optimizer_state(opt_state: dict, policy) -> dict:
-    """The Adam state of an older action set's checkpoint -> the current
-    policy: the policy head's moment estimates follow its rows (zeros
-    for the outputs that are new)."""
-    names = [n for n, _ in policy.named_parameters()]
-    for idx in (names.index("policy_head.weight"), names.index("policy_head.bias")):
-        st = opt_state["state"].get(idx)
-        if not st:
-            continue
-        for k in ("exp_avg", "exp_avg_sq"):
-            if k in st and st[k].shape[0] != len(ACTIONS):
-                st[k] = _upgrade_rows(st[k], torch.zeros((len(ACTIONS), *st[k].shape[1:])))
-    return opt_state
-
-
 def load_weights(path: str) -> dict:
-    ckpt = torch.load(path, map_location="cpu", weights_only=False)
-    return upgrade_policy_state(ckpt["policy"] if "policy" in ckpt else ckpt)
+    return torch.load(path, map_location="cpu", weights_only=False)["policy"]
 
 
 # ---------------------------------------------------------------------------
@@ -416,6 +388,11 @@ def move_groups(vec, frontier, budget, old_pairs: list, new_pairs: list) -> list
 
 def add_env_args(p) -> None:
     """Arguments shared by everything that spawns training envs."""
+    p.add_argument("--obs-size", type=parse_obs_size, default=None, metavar="WxH",
+                   help="observation frame size, width x height, or just the width, the height then "
+                        "keeping the screen's 320x200 aspect (default: a resumed run's own, else "
+                        f"{DEFAULT_OBS_SIZE[0]}x{DEFAULT_OBS_SIZE[1]}). A run keeps the size it started "
+                        "with: resuming with another size stops. eval.py takes it from the checkpoint")
     p.add_argument("--stage", type=int, choices=[1, 2], default=1,
                    help="1: no map monsters (exploration); 2: map monsters on")
     p.add_argument("--spawn-tics", type=int, default=700,
@@ -886,18 +863,14 @@ class HubUploader:
 
 
 def load_latest_checkpoint(run_dir: Path, quiet: bool = False) -> dict | None:
-    """run_dir's checkpoint (CKPT_NAME), or for a run directory from before
-    2026-11-15 its newest ckpt_<iteration>.pt; None when there is none.
+    """run_dir's checkpoint (CKPT_NAME); None when there is none.
     Exits if the checkpoint can't be loaded: a silent fresh start would
     replace it (and the Hub's copy) at the next save."""
     for tmp in run_dir.glob("*.pt.tmp"):
         tmp.unlink(missing_ok=True)       # interrupted write
     path = run_dir / CKPT_NAME
     if not path.exists():
-        old = sorted(run_dir.glob("ckpt_*.pt"))
-        if not old:
-            return None
-        path = old[-1]
+        return None
     try:
         ckpt = torch.load(path, map_location="cpu", weights_only=False)
     except Exception as e:

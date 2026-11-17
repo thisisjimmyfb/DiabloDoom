@@ -1,6 +1,7 @@
 """DiabloDoomEnv: the Gymnasium environment (SPEC.md §5).
 
-The policy sees pixels only (84x84 grayscale, last 4 decisions). Engine
+The policy sees pixels only: frame_stack x height x width grayscale
+(4 x 80 x 128), the last frame_stack decisions' frames. Engine
 state from the STATE line drives rewards, episode ends and CONSULT
 routing, and is exposed in `info["state"]` for logging and the critic,
 never in the observation.
@@ -221,7 +222,8 @@ class EnvConfig:
     rewards: RewardConfig = field(default_factory=RewardConfig)
     max_tics: int = 2100              # rollout length in game tics (60 s)
     frame_stack: int = 4
-    size: int = 84
+    width: int = 128                   # observation size (--obs-size WxH)
+    height: int = 80
     # Reset start states: save slots (3-5 manual, 0-2 auto) in the
     # instance savedir (EngineConfig.savedir_template). Empty: the
     # bootstrap slot. The warp start is saved to bootstrap_slot when the
@@ -262,10 +264,10 @@ class DiabloDoomEnv(gym.Env):
             cfg.engine.extra_args = [*cfg.engine.extra_args, "-rlfast", str(cfg.rewards.fast_speed)]
         DiabloDoomEnv._instances += 1
         self.engine = Engine(cfg.engine, tag=str(DiabloDoomEnv._instances))
-        self.observation_space = spaces.Box(0, 255, (cfg.frame_stack, cfg.size, cfg.size), np.uint8)
+        self.observation_space = spaces.Box(0, 255, (cfg.frame_stack, cfg.height, cfg.width), np.uint8)
         self.action_space = spaces.Discrete(len(ACTIONS))
         self._pre: Preprocessor | None = None
-        self._stack = FrameStack(cfg.frame_stack, cfg.size)
+        self._stack = FrameStack(cfg.frame_stack, cfg.height, cfg.width)
         self._map_start: bytes | None = None    # the warp start, saved in bootstrap_slot
         # Per-env reset request for vector envs:
         #   envs.set_attr("next_reset", [{"slot": 3, "seed": 17, "group": 0}, ...])
@@ -370,7 +372,7 @@ class DiabloDoomEnv(gym.Env):
             self._map_start = boot.read_bytes() if boot.exists() else None
             for slot in self._installed:
                 self._write_installed(slot)
-            self._pre = Preprocessor(self.engine.width, self.engine.height, self.cfg.size)
+            self._pre = Preprocessor(self.engine.width, self.engine.height, self.cfg.width, self.cfg.height)
 
         slot = opts.get("slot")
         if slot is None and self.cfg.start_slots:

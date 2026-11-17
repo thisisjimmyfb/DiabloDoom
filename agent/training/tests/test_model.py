@@ -53,9 +53,8 @@ def test_allocate_groups_multiples_and_default():
 
 def test_checkpoints(tmp_path):
     """SPEC.md §7.4: one checkpoint file, replaced at every save;
-    interrupted writes cleared; an older run directory's newest
-    ckpt_<iteration>.pt still resumes; an unreadable checkpoint stops the
-    run instead of starting it fresh."""
+    interrupted writes cleared; an unreadable checkpoint stops the run
+    instead of starting it fresh."""
     run = tmp_path / "run"
     run.mkdir()
     for it in range(5):
@@ -67,14 +66,6 @@ def test_checkpoints(tmp_path):
     empty = tmp_path / "empty"
     empty.mkdir()
     assert load_latest_checkpoint(empty) is None
-
-    old = tmp_path / "old"
-    old.mkdir()
-    for it in (7, 12):
-        torch.save({"iteration": it}, old / f"ckpt_{it:06d}.pt")
-    assert load_latest_checkpoint(old)["iteration"] == 12, "the newest old-style checkpoint"
-    save_checkpoint(old / CKPT_NAME, {"iteration": 13})
-    assert load_latest_checkpoint(old)["iteration"] == 13, "doom-runner.pt wins once saved"
 
     (run / CKPT_NAME).write_bytes(b"truncated")
     with pytest.raises(SystemExit):
@@ -359,37 +350,6 @@ def test_capture_dirs():
     assert capture_dirs([(None, "1 1")] * 2, 1, Path("/r")) == ["/r/env00_default", None]
 
 
-def test_upgrade_old_action_sets():
-    """Older checkpoints load into the current policy: each old output
-    keeps its weights in the place of the action it carries over to
-    (WALK 0 -> PRESS W, the turns -> PRESS L/R, the strafes -> PRESS A/D,
-    USE, CONSULT; MAP dropped), the other outputs start the same on every
-    load, and the optimizer state follows."""
-    import torch
-    from model import ACTIONS, OLD_ACTION_SETS, OLD_TO_NEW, upgrade_optimizer_state, upgrade_policy_state
-    assert len(ACTIONS) == 29 and ACTIONS[0] == "PRESS" and ACTIONS[-2:] == ["USE", "CONSULT"]
-    for n_old, names in OLD_ACTION_SETS.items():
-        old = Policy(n_actions=n_old)
-        state = upgrade_policy_state(old.state_dict())
-        new = Policy()
-        new.load_state_dict(state)
-        for i, name in enumerate(names):
-            if name == "MAP":
-                continue
-            j = ACTIONS.index(OLD_TO_NEW[name])
-            assert torch.equal(new.policy_head.weight[j], old.policy_head.weight[i]), name
-            assert torch.equal(new.policy_head.bias[j], old.policy_head.bias[i]), name
-        assert torch.equal(state["policy_head.weight"], upgrade_policy_state(old.state_dict())["policy_head.weight"])
-        opt = torch.optim.Adam(old.parameters())
-        old(torch.zeros(1, 4, 84, 84), torch.zeros(1, 2))[0].sum().backward()
-        opt.step()
-        new_opt = torch.optim.Adam(new.parameters())
-        new_opt.load_state_dict(upgrade_optimizer_state(opt.state_dict(), new))
-        new(torch.zeros(1, 4, 84, 84), torch.zeros(1, 2))[0].sum().backward()
-        new_opt.step()
-    assert upgrade_policy_state(new.state_dict())["policy_head.weight"].shape[0] == 29, "a current policy is unchanged"
-
-
 _FAKE_HF = r'''#!/usr/bin/env python3
 """A stand-in for the hf CLI: the repo is the directory $FAKE_HUB."""
 import fnmatch, json, os, shutil, sys
@@ -502,3 +462,46 @@ def test_hub_fetch_checkpoint(tmp_path, monkeypatch):
     assert hub_fetch_checkpoint("u/m", dest) is None
     monkeypatch.setenv("PATH", "/nonexistent")
     assert hub_fetch_checkpoint("u/m", dest) is None
+
+
+def test_obs_size(tmp_path):
+    """--obs-size: the policy is built for any WxH frame (DEFAULT_OBS_SIZE
+    when none is given); a fresh run takes the size asked for (else
+    DEFAULT_OBS_SIZE), and a resumed run keeps its own (asking for another
+    stops)."""
+    import argparse
+    import types
+    from learn import setup_learner
+    from env import ACTIONS
+    from model import DEFAULT_OBS_SIZE, parse_obs_size
+
+    assert parse_obs_size("160x100") == (160, 100) and parse_obs_size("96") == (96, 60) and parse_obs_size("320") == (320, 200)
+    for bad in ("x", "20x20", "400x200", "1x2x3", "50"):
+        with pytest.raises(argparse.ArgumentTypeError):
+            parse_obs_size(bad)
+    for size in ((84, 84), (160, 100), (320, 200)):
+        p = Policy(obs_size=size)
+        logits, value = p(torch.zeros(2, 4, size[1], size[0], dtype=torch.uint8), torch.zeros(2, 2))
+        assert logits.shape == (2, len(ACTIONS)) and value.shape == (2,)
+    assert Policy().obs_size == DEFAULT_OBS_SIZE
+
+    def args(size=None):
+        return types.SimpleNamespace(lr=1e-4, seed=1, ref=None, init=None, obs_size=size)
+    run = tmp_path / "run"
+    run.mkdir()
+    a = args((160, 100))
+    policy, opt, *_ = setup_learner(a, run, torch.device("cpu"))
+    assert a.obs_size == (160, 100) and policy.obs_size == (160, 100)
+    save_checkpoint(run / CKPT_NAME, {"policy": policy.state_dict(), "optimizer": opt.state_dict(),
+                                      "iteration": 0, "total_steps": 0, "total_tics": 0,
+                                      "rng": rng_state(), "run_id": "x", "ref": None,
+                                      "obs_size": [160, 100]})
+    a = args()
+    policy, *_ = setup_learner(a, run, torch.device("cpu"))
+    assert a.obs_size == (160, 100) and policy.obs_size == (160, 100), "a resumed run keeps its size"
+    with pytest.raises(SystemExit, match="trained at 160x100"):
+        setup_learner(args((84, 84)), run, torch.device("cpu"))
+    a = args()
+    (tmp_path / "fresh").mkdir()
+    setup_learner(a, tmp_path / "fresh", torch.device("cpu"))
+    assert a.obs_size == DEFAULT_OBS_SIZE

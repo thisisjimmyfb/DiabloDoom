@@ -11,7 +11,7 @@ import pytest
 import torch
 
 from learn import GRAD_WARMUP, build_batch, group_advantages, train_metrics, training_health, update, value_targets
-from model import Policy
+from model import DEFAULT_OBS_SIZE, Policy
 
 @pytest.fixture
 def groups(rng, make_rollout):
@@ -70,7 +70,8 @@ def test_update(rng, make_rollout):
     gs = [back[:G], back[G:2 * G], back[2 * G:]]
     advs, collapsed = group_advantages(gs, "outcome")
     batch = build_batch(back, advs, 0.999)
-    assert collapsed == 1 and batch["obs"].shape == (sum(r["len"] for r in back[:2 * G]), 4, 84, 84)
+    w, h = DEFAULT_OBS_SIZE
+    assert collapsed == 1 and batch["obs"].shape == (sum(r["len"] for r in back[:2 * G]), 4, h, w)
     assert build_batch(back[2 * G:], advs[2 * G:], 0.999) is None, "nothing to train on"
     args = types.SimpleNamespace(epochs=1, minibatch=64, clip=0.2, ent_coef=0.01, vf_coef=0.5,
                                  beta=0.0, max_grad_norm=0.5)
@@ -176,3 +177,24 @@ def test_norm_adv(rng, make_rollout):
     small_w, _ = after(batch, False)
     big_w, _ = after(big, False)
     assert any(not torch.allclose(a, b, atol=1e-6) for a, b in zip(small_w, big_w)), "unscaled: size matters"
+
+
+def test_micro_batch(rng, make_rollout):
+    """--micro-batch only changes the GPU memory: a minibatch's gradient
+    accumulated over pieces gives the same update (weights and stats) as
+    the whole minibatch at once."""
+    batch = _health_batch(rng, make_rollout)
+
+    def after(micro):
+        torch.manual_seed(0)
+        policy = Policy()
+        torch.manual_seed(1)
+        args = types.SimpleNamespace(**{**HEALTH_ARGS, "micro_batch": micro})
+        upd = update(policy, torch.optim.Adam(policy.parameters(), lr=1e-3), None, batch, args, torch.device("cpu"))
+        return [p.detach() for p in policy.parameters()], upd
+
+    whole_w, whole = after(0)
+    split_w, split = after(16)               # minibatch 64: four pieces
+    assert all(torch.allclose(a, b, atol=1e-5) for a, b in zip(whole_w, split_w))
+    for k in ("pg_loss", "v_loss", "entropy", "approx_kl", "grad_norm"):
+        assert split[k] == pytest.approx(whole[k], rel=1e-4, abs=1e-6), k

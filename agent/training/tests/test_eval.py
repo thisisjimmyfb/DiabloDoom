@@ -16,7 +16,7 @@ import torch
 import torch.nn as nn
 
 from env.engine import DEFAULT_IWAD
-from model import Policy
+from model import DEFAULT_OBS_SIZE, Policy
 
 HERE = Path(__file__).resolve().parents[1]
 PY = sys.executable
@@ -26,7 +26,7 @@ PY = sys.executable
 def checkpoint(tmp_path) -> Path:
     """A random-weights checkpoint in train.py's format."""
     path = tmp_path / "doom-runner.pt"
-    torch.save({"policy": Policy().state_dict(), "iteration": 0}, path)
+    torch.save({"policy": Policy().state_dict(), "iteration": 0, "obs_size": list(DEFAULT_OBS_SIZE)}, path)
     return path
 
 
@@ -41,7 +41,7 @@ def test_wrong_action_count(tmp_path):
     policy = Policy()
     policy.policy_head = nn.Linear(512, 12)
     path = tmp_path / "old.pt"
-    torch.save({"policy": policy.state_dict()}, path)
+    torch.save({"policy": policy.state_dict(), "obs_size": list(DEFAULT_OBS_SIZE)}, path)
     p = play("--checkpoint", str(path), "--headless", timeout=120)
     assert p.returncode != 0 and "12 actions" in p.stderr and "different action set" in p.stderr
 
@@ -91,7 +91,7 @@ def test_consult(tmp_path):
         policy.policy_head.bias.fill_(-50.0)
         policy.policy_head.bias[CONSULT] = 50.0
     path = tmp_path / "consult.pt"
-    torch.save({"policy": policy.state_dict(), "iteration": 0}, path)
+    torch.save({"policy": policy.state_dict(), "iteration": 0, "obs_size": list(DEFAULT_OBS_SIZE)}, path)
 
     p = play("--checkpoint", str(path), "--headless", "--max-decisions", "3", "--quit-at-end")
     assert p.returncode == 0, p.stdout[-2000:] + p.stderr[-2000:]

@@ -17,8 +17,8 @@ Watching it play (--iwad PATH). Launches a normal game on that IWAD file,
 with no monsters (--eval, as in stage-1 training), with
 -rldrive (control and output only: the game runs in real time with its
 window and sound, and publishes a decision whenever it is ready for input,
-without waiting). At each decision the frame is turned into the same 84x84
-4-frame stack the policy was trained on, the policy picks an action, and
+without waiting). At each decision the frame is turned into the same 4-frame
+stack the policy was trained on (its --obs-size, from the checkpoint), the policy picks an action, and
 the matching driver command is sent. The drive stops when the level's exit
 is reached, the player dies, combat starts (CONSULT is the hand-off to
 Muse's VLM, which isn't attached here), or after --max-decisions; Ctrl-C
@@ -49,7 +49,7 @@ import numpy as np
 import torch
 from torch.distributions import Categorical
 
-from model import (Policy, add_env_args, avatar_args, check_slots, default_groups, env_label,
+from model import (Policy, add_env_args, avatar_args, check_slots, checkpoint_obs_size, default_groups, env_label,
                    hub_fetch_checkpoint, load_weights, privileged, resolve_iwads, resolve_maps, run_env)
 from env import ACTIONS, CONSULT, Engine, EngineConfig, EngineError, cleanup_stale  # noqa: E402
 from env.env import EXPLORE  # noqa: E402
@@ -91,22 +91,21 @@ def parse_args():
 # ---------------------------------------------------------------------------
 
 def default_checkpoint() -> Path | None:
-    """The newest run checkpoint (runs/*/doom-runner.pt), else the newest
-    older-style ckpt_*.pt in agent/ or runs/."""
-    for patterns in (["runs/*/doom-runner.pt"], ["../ckpt_*.pt", "runs/*/ckpt_*.pt"]):
-        found = sorted((p for pat in patterns for p in HERE.glob(pat)), key=lambda p: p.stat().st_mtime)
-        if found:
-            return found[-1]
-    return None
+    """The newest run checkpoint (runs/*/doom-runner.pt)."""
+    found = sorted(HERE.glob("runs/*/doom-runner.pt"), key=lambda p: p.stat().st_mtime)
+    return found[-1] if found else None
 
 
 def load_policy(path: Path, device: torch.device) -> Policy:
+    """The checkpoint's policy, at the observation size it was trained on
+    (policy.obs_size)."""
     weights = load_weights(str(path))
     n = weights["policy_head.weight"].shape[0]
     if n != len(ACTIONS):
         raise SystemExit(f"{path}: the policy has {n} actions, this game has {len(ACTIONS)} "
                          f"({', '.join(ACTIONS)}); it was trained on a different action set")
-    policy = Policy().to(device)
+    size = checkpoint_obs_size(torch.load(str(path), map_location="cpu", weights_only=False))
+    policy = Policy(obs_size=size).to(device)
     policy.load_state_dict(weights)
     policy.eval()
     return policy
@@ -232,8 +231,9 @@ def watch(args, ckpt: Path, policy: Policy, device: torch.device) -> None:
     print(f"[watch] {ckpt} driving {Path(cfg.iwad).stem} {args.warp} (no monsters), "
           f"{'greedy' if args.greedy else 'sampled'} actions")
     d = engine.start()
-    pre = Preprocessor(engine.width, engine.height, 84)
-    stack = FrameStack(4, 84)
+    w, h = policy.obs_size
+    pre = Preprocessor(engine.width, engine.height, w, h)
+    stack = FrameStack(4, h, w)
 
     def screen() -> np.ndarray:
         pix, pal, _ = engine.frame()
@@ -313,6 +313,9 @@ def main():
     device = torch.device(args.device)
     torch.manual_seed(args.seed)
     policy = load_policy(ckpt, device)
+    if args.obs_size is not None and tuple(args.obs_size) != policy.obs_size:
+        print(f"[eval] --obs-size ignored: {ckpt} was trained at {policy.obs_size[0]}x{policy.obs_size[1]}")
+    args.obs_size = policy.obs_size          # the env frames match the checkpoint
     if args.iwad:
         watch(args, ckpt, policy, device)
     else:

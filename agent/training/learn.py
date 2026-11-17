@@ -20,8 +20,8 @@ import torch
 import torch.nn as nn
 from torch.distributions import Categorical
 
-from model import (ACTIONS, Policy, load_latest_checkpoint, load_weights, restore_rng,
-                   upgrade_optimizer_state, upgrade_policy_state)
+from model import (ACTIONS, DEFAULT_OBS_SIZE, Policy, checkpoint_obs_size, load_latest_checkpoint,
+                   load_weights, restore_rng)
 
 
 # ---------------------------------------------------------------------------
@@ -74,11 +74,28 @@ def value_targets(rew: list[float], tics: list[int], gamma_tic: float) -> np.nda
 
 def build_batch(recs: list[dict], advs: list[np.ndarray | None], gamma_tic: float) -> dict | None:
     """Training arrays from every rollout that has an advantage (collapsed
-    groups contribute nothing). None if nothing is left."""
+    groups contribute nothing). None if nothing is left. The frames are
+    the batch's bulk (frame_stack * W * H bytes a step, 4 * 128 * 80 =
+    40 KB), so they are copied into
+    one preallocated array and each rollout's own frames are released as
+    they go (r["obs"] is None afterwards, collapsed rollouts' too): one
+    copy of the batch's frames at a time instead of three."""
     keep = [(r, a) for r, a in zip(recs, advs) if a is not None]
+    obs = None
+    if keep:
+        n = sum(len(r["obs"]) for r, _ in keep)
+        obs = np.empty((n, *np.shape(keep[0][0]["obs"][0])), dtype=np.uint8)
+        at = 0
+        for r, _ in keep:
+            for frame in r["obs"]:
+                obs[at] = frame
+                at += 1
+            r["obs"] = None
+    for r in recs:
+        r["obs"] = None
     if not keep:
         return None
-    return {"obs": np.concatenate([np.asarray(r["obs"], dtype=np.uint8) for r, _ in keep]),
+    return {"obs": obs,
             "priv": np.concatenate([np.asarray(r["priv"], dtype=np.float32) for r, _ in keep]),
             "act": np.concatenate([np.asarray(r["act"], dtype=np.int64) for r, _ in keep]),
             "logp": np.concatenate([np.asarray(r["logp"], dtype=np.float32) for r, _ in keep]),
@@ -142,43 +159,59 @@ def _update_epochs(policy, optimizer, ref, args, device, n, obs, priv, act, old_
         perm = torch.randperm(n)
         for start in range(0, n, args.minibatch):
             idx = perm[start:start + args.minibatch]
-            mb_obs = obs[idx].to(device, non_blocking=True)
-            mb_priv = priv[idx].to(device, non_blocking=True)
-            logits, value = policy(mb_obs, mb_priv)
-            dist = Categorical(logits=logits)
-            lp = dist.log_prob(act[idx])
-            ratio = (lp - old_lp[idx]).exp()
-            a = adv[idx]
-            # Token-level mean over the minibatch: the 1/sum|o_i| of
-            # SPEC.md §7.1, estimated per minibatch.
-            pg = -torch.min(ratio * a, ratio.clamp(1 - args.clip, 1 + args.clip) * a).mean()
-            ent = dist.entropy().mean()
-            v_loss = 0.5 * (value - ret[idx]).pow(2).mean()
-            loss = pg - args.ent_coef * ent + args.vf_coef * v_loss
-            if ref is not None and args.beta > 0:
-                with torch.no_grad():
-                    ref_logits, _ = ref(mb_obs, mb_priv)
-                logp = torch.log_softmax(logits, dim=1)
-                kl = (logp.exp() * (logp - torch.log_softmax(ref_logits, dim=1))).sum(1).mean()
-                loss = loss + args.beta * kl
-                stats["ref_kl"].append(kl.item())
+            # One optimizer step per minibatch, its gradient accumulated
+            # over --micro-batch pieces (GPU memory): each piece's means
+            # are weighted by its share, so the sum is the minibatch's.
             optimizer.zero_grad(set_to_none=True)
-            loss.backward()
+            micro = getattr(args, "micro_batch", 0) or len(idx)
+            sums = dict.fromkeys(("pg", "v", "ent", "kl", "clip", "ref_kl", "loss"), 0.0)
+            for m0 in range(0, len(idx), micro):
+                sub_idx = idx[m0:m0 + micro]
+                w = len(sub_idx) / len(idx)
+                mb_obs = obs[sub_idx].to(device, non_blocking=True)
+                mb_priv = priv[sub_idx].to(device, non_blocking=True)
+                logits, value = policy(mb_obs, mb_priv)
+                dist = Categorical(logits=logits)
+                lp = dist.log_prob(act[sub_idx])
+                ratio = (lp - old_lp[sub_idx]).exp()
+                a = adv[sub_idx]
+                # Token-level mean over the minibatch: the 1/sum|o_i| of
+                # SPEC.md §7.1, estimated per minibatch.
+                pg = -torch.min(ratio * a, ratio.clamp(1 - args.clip, 1 + args.clip) * a).mean()
+                ent = dist.entropy().mean()
+                v_loss = 0.5 * (value - ret[sub_idx]).pow(2).mean()
+                loss = pg - args.ent_coef * ent + args.vf_coef * v_loss
+                if ref is not None and args.beta > 0:
+                    with torch.no_grad():
+                        ref_logits, _ = ref(mb_obs, mb_priv)
+                    logp = torch.log_softmax(logits, dim=1)
+                    kl = (logp.exp() * (logp - torch.log_softmax(ref_logits, dim=1))).sum(1).mean()
+                    loss = loss + args.beta * kl
+                    sums["ref_kl"] += w * kl.item()
+                (w * loss).backward()
+                with torch.no_grad():
+                    log_ratio = lp - old_lp[sub_idx]
+                    sums["kl"] += w * ((log_ratio.exp() - 1) - log_ratio).mean().item()
+                    sums["clip"] += w * ((ratio - 1).abs() > args.clip).float().mean().item()
+                sums["pg"] += w * pg.item()
+                sums["v"] += w * v_loss.item()
+                sums["ent"] += w * ent.item()
+                sums["loss"] += w * loss.item()
             # The norm before clipping: what the gradient would have been.
             gn = nn.utils.clip_grad_norm_(policy.parameters(), args.max_grad_norm).item()
-            if not (np.isfinite(gn) and torch.isfinite(loss).item()):
+            if not (np.isfinite(gn) and np.isfinite(sums["loss"])):
                 nonfinite += 1
                 optimizer.zero_grad(set_to_none=True)
                 continue
             optimizer.step()
             stats["grad_norm"].append(gn)
-            with torch.no_grad():
-                log_ratio = lp - old_lp[idx]
-                stats["approx_kl"].append(((log_ratio.exp() - 1) - log_ratio).mean().item())
-                stats["clipfrac"].append(((ratio - 1).abs() > args.clip).float().mean().item())
-            stats["pg_loss"].append(pg.item())
-            stats["v_loss"].append(v_loss.item())
-            stats["entropy"].append(ent.item())
+            stats["approx_kl"].append(sums["kl"])
+            stats["clipfrac"].append(sums["clip"])
+            stats["pg_loss"].append(sums["pg"])
+            stats["v_loss"].append(sums["v"])
+            stats["entropy"].append(sums["ent"])
+            if ref is not None and args.beta > 0:
+                stats["ref_kl"].append(sums["ref_kl"])
     return nonfinite
 
 
@@ -271,6 +304,11 @@ def add_learn_args(p) -> None:
     p.add_argument("--epochs", type=int, default=4)
     p.add_argument("--minibatch", type=int, default=8192,
                    help="samples per optimizer step (default 8192: with a decision every tic a batch is 20,000-70,000 samples, and every step is clipped to the same size by --max-grad-norm, so the policy moves by about the number of steps per update; 2048 made about 100 steps and a KL of about 0.1)")
+    p.add_argument("--micro-batch", type=int, default=2048,
+                   help="samples per forward/backward pass on the GPU; a --minibatch's gradient is "
+                        "accumulated over pieces this size before its one optimizer step, so the "
+                        "update is the same, only the memory changes (0: the whole minibatch at once; "
+                        "8192 at 160x100 ran out of 16 GB)")
     p.add_argument("--clip", type=float, default=0.2)
     p.add_argument("--ent-coef", type=float, default=0.01)
     p.add_argument("--vf-coef", type=float, default=0.5)
@@ -297,21 +335,39 @@ def add_learn_args(p) -> None:
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
 
 
+def require_obs_size(path: str, size: tuple[int, int], what: str) -> None:
+    """Stop unless the checkpoint at path was trained at this --obs-size."""
+    own = checkpoint_obs_size(torch.load(path, map_location="cpu", weights_only=False))
+    if own != tuple(size):
+        raise SystemExit(f"{what} {path} was trained at {own[0]}x{own[1]}, this run is {size[0]}x{size[1]}")
+
+
 def setup_learner(args, run_dir: Path, device: torch.device, sampler: np.random.Generator | None = None):
     """Policy, optimizer and reference policy, resumed from the newest
     checkpoint in run_dir or initialized from --init. Returns (policy,
     optimizer, ref, start_it, total_steps, total_tics, run_id)."""
-    policy = Policy().to(device)
+    ckpt = load_latest_checkpoint(run_dir)
+    # The observation size (--obs-size): a resumed run keeps its own;
+    # another size can't load its weights, so asking for one stops.
+    asked = getattr(args, "obs_size", None)
+    if ckpt is not None:
+        own = checkpoint_obs_size(ckpt)
+        if asked is not None and tuple(asked) != own:
+            raise SystemExit(f"--obs-size {asked[0]}x{asked[1]}: {run_dir} was trained at {own[0]}x{own[1]}; "
+                             f"start a new --run-dir for another size")
+        args.obs_size = own
+    else:
+        args.obs_size = tuple(asked) if asked is not None else DEFAULT_OBS_SIZE
+    policy = Policy(obs_size=args.obs_size).to(device)
     optimizer = torch.optim.Adam(policy.parameters(), lr=args.lr, eps=1e-5)
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     start_it, total_steps, total_tics = 0, 0, 0
     run_id = uuid.uuid4().hex[:8]
-    ckpt = load_latest_checkpoint(run_dir)
     if ckpt is not None:
-        policy.load_state_dict(upgrade_policy_state(ckpt["policy"]))
-        optimizer.load_state_dict(upgrade_optimizer_state(ckpt["optimizer"], policy))
+        policy.load_state_dict(ckpt["policy"])
+        optimizer.load_state_dict(ckpt["optimizer"])
         restore_rng(ckpt["rng"], sampler)
         start_it = ckpt["iteration"] + 1
         total_steps, total_tics = ckpt["total_steps"], ckpt["total_tics"]
@@ -319,11 +375,13 @@ def setup_learner(args, run_dir: Path, device: torch.device, sampler: np.random.
         if ckpt.get("ref") != args.ref:
             print(f"[ckpt] warning: reference policy changed ({ckpt.get('ref')} -> {args.ref})")
     elif args.init:
+        require_obs_size(args.init, args.obs_size, "--init")
         policy.load_state_dict(load_weights(args.init))
         print(f"[init] weights from {args.init}")
     ref = None
     if args.ref:
-        ref = Policy().to(device)
+        require_obs_size(args.ref, args.obs_size, "--ref")
+        ref = Policy(obs_size=args.obs_size).to(device)
         ref.load_state_dict(load_weights(args.ref))
         ref.eval()
         for prm in ref.parameters():

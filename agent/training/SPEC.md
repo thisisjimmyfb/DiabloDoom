@@ -95,9 +95,6 @@ Discrete, 29 outputs, one decision every game tic (2026-11-15): each action is t
 | 0–26 | `PRESS <keys>` | Every combination of one key or none from each pair: W/S run forward/back, A/D strafe left/right, L/R turn left/right (`PRESS`, `PRESS L`, ..., `PRESS WAL`, ..., `PRESS SDR`; 0 is `PRESS` alone, nothing held). `G_BuildTiccmd` adds the keys to the ticcmd, so the player moves exactly as with those keys held: run speed, strafe-running, the run turn rate (about 7° a tic). Explore only |
 | 27 | `USE` | Doors and switches, including exits |
 | 28 | `CONSULT` | Environment signal, not a driver command: it drives Muse VM to make a decision — switching to combat or inventory mode. The handler is swappable: on the farm it signals Muse VM (e.g. `doom_loop.sh` exits so Muse's VLM takes over); in training a stand-in answers (§5.4) with the `-rlenv` `CONSULT` driver command (§4). |
-
-Older checkpoints are upgraded on load: each old output keeps its weights in the place of the action it carries over to (`WALK 0` → `PRESS W`, `TURNL`/`TURNR` → `PRESS L`/`R`, `STRAFE_L`/`STRAFE_R` → `PRESS A`/`D`, `USE`, `CONSULT`; `MAP` dropped), the new outputs start fresh.
-
 Everything else stays with the LLM/VLM or the harness: the engine's multi-tic movement (`WALK` in every form, the 45° `TURNL`/`TURNR`, `STRAFE_L`/`STRAFE_R`), `WAIT`, `COLLECT`, `SNAP_WALL` (aims from engine geometry), bare `WALK` (stops on engine detection), `SURVEY`, `GOTO`, the combat commands (`MOVE_FWD`, `MOVE_BACK`, `ATTACK`, `UNDO`, `END`), gear (`EQUIP`, `UNEQUIP`, `SALVAGE`), read-outs (`INSPECT`, `INVENTORY`, `KEYS`, `SECTORS`, `SCREENSHOT`, `CAPTURE`, `REPLAY`, `VERSION`) and session control (`SAVE`, `LOAD`, `RESPAWN`, `QUIT`).
 
 The policy plays per tic (2026-11-15): no multi-tic commands, and no angled walks (`WALK <angle>` snaps the facing in a single tic).
