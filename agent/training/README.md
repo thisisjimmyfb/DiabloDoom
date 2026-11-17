@@ -93,10 +93,10 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   A USE that sets nothing going (no engine `use` event: a plain wall,
   empty space) costs `use_miss` (-0.05, 2026-11-16); opening a door,
   even one used before, costs nothing.
-  A quick large drop -- freefall past 8 units a tic, 64 units or more in
-  all -- costs `fall` (-1 per 64 units, on landing, 2026-11-16): it
-  usually means the player left the intended path. Lifts, stairs, going
-  up and teleports never cost.
+  A quick large drop -- freefall past 10 units a tic, 64 units or more in
+  all -- costs `fall` (-3 on landing, whatever the height, 2026-11-16): it
+  usually means the player left the intended path. Lifts (even the
+  blazing one, 8 units a tic), stairs, going up and teleports never cost.
   Staring at a wall up close costs `wall_look` (the clock's base rate, per
   tic, 2026-11-16): the wall straight ahead nearer than 48 units, from the
   engine's `wall_dist`. Not while a switch or door is in reach

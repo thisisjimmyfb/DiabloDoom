@@ -240,8 +240,8 @@ def add_learn_args(p) -> None:
     p.add_argument("--advantage", choices=["outcome", "process"], default="outcome")
     p.add_argument("--lr", type=float, default=2.5e-4)
     p.add_argument("--epochs", type=int, default=4)
-    p.add_argument("--minibatch", type=int, default=2048,
-                   help="samples per optimizer step (default 2048: with a decision every tic a batch is 20,000-70,000 samples, so 256 made hundreds of steps per update and a KL of about 0.1)")
+    p.add_argument("--minibatch", type=int, default=8192,
+                   help="samples per optimizer step (default 8192: with a decision every tic a batch is 20,000-70,000 samples, and every step is clipped to the same size by --max-grad-norm, so the policy moves by about the number of steps per update; 2048 made about 100 steps and a KL of about 0.1)")
     p.add_argument("--clip", type=float, default=0.2)
     p.add_argument("--ent-coef", type=float, default=0.01)
     p.add_argument("--vf-coef", type=float, default=0.5)

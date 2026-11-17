@@ -334,8 +334,9 @@ def test_use_miss():
 
 
 def test_fall():
-    """A freefall of 64+ units (accelerating past 8 units a tic) costs fall
-    per 64 units, once, on landing; a lift lowering 4 a tic, stairs down,
+    """A freefall of 64+ units (accelerating past 10 units a tic) costs fall,
+    once, on landing, whatever its height; a lift lowering 4 or 8 a tic
+    (the blazing one), stairs down,
     going up and a teleport never do. Engine faked: one tic per step."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hp_loss=0, death=0, loot=0, health=0,
@@ -358,8 +359,14 @@ def test_fall():
 
     freefall = [128, 127, 125, 122, 118, 113, 107, 100, 92, 83, 73, 62, 50, 37, 23, 8, 0, 0, 0]
     got = run(freefall)
-    assert got[:-2] == [0.0] * (len(got) - 2) and got[-2] == -2.0 and got[-1] == 0.0, got
+    assert got[:-2] == [0.0] * (len(got) - 2) and got[-2] == -1.0 and got[-1] == 0.0, got
+    deep = [256 - sum(range(i + 1)) for i in range(23)] + [0, 0, 0]
+    deep = [max(z, 0) for z in deep]
+    got = run(deep)
+    assert sorted(got) == [-1.0] + [0.0] * (len(got) - 1), f"a 256-unit fall costs the same: {got}"
     assert run([128 - 4 * i for i in range(33)] + [0, 0]) == [0.0] * 34, "a lift: 4 units a tic"
+    assert run([256 - 8 * i for i in range(33)] + [0, 0]) == [0.0] * 34, "a blazing lift: 8 units a tic"
+    assert run([256 - 9 * i for i in range(29)] + [4, 4]) == [0.0] * 30, "a lift with truncation noise"
     stairs = [64, 64, 56, 48, 48, 48, 40, 32, 32, 32, 24, 16, 16, 16, 8, 0, 0, 0]
     assert run(stairs) == [0.0] * (len(stairs) - 1), "stairs: short drops with treads between"
     assert run(list(reversed(freefall))) == [0.0] * (len(freefall) - 1), "going up never costs"

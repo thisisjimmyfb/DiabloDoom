@@ -126,14 +126,18 @@ class RewardConfig:
     # Falls (2026-11-16): a quick large drop usually means the player left
     # the path the map intends. A fall is an unbroken run of tics going
     # down that at some point drops faster than fall_speed units a tic
-    # (only freefall does: lifts lower at most 8 a tic, a stair step is
-    # 8-24 units with flat treads between) and totals at least fall_min
-    # units; on landing it costs fall per fall_min units dropped (-1 for
-    # 64, -2 for 128). Going up never costs; a teleport (a jump of more
-    # than 64 units sideways) is no fall. 0 turns it off.
-    fall: float = -1.0
+    # (only freefall does: the fastest lift, the blazing one, lowers 8 a
+    # tic and carries the player down exactly with it, so 10 leaves it a
+    # margin; freefall starts at 2 a tic and gains 1 a tic, so it passes
+    # 10 after about 65 units, right at fall_min; a stair step is 8-24
+    # units with flat treads between) and totals at least fall_min
+    # units; on landing it costs fall, the same whatever the height (Doom
+    # has little verticality: a fall is the event, not its size). Going up
+    # never costs; a teleport (a jump of more than 64 units sideways) is
+    # no fall. 0 turns it off.
+    fall: float = -3.0
     fall_min: float = 64.0
-    fall_speed: float = 8.0
+    fall_speed: float = 10.0
     # Staring at a wall up close (2026-11-16): every tic the first line the
     # player can't pass straight ahead (the engine's wall_dist) is nearer
     # than wall_look_dist units costs wall_look -- a view of bare wall
@@ -643,7 +647,7 @@ class DiabloDoomEnv(gym.Env):
         if self._fall_top is not None:                     # landed (or started going up)
             total = self._fall_top - z0
             if self._fall_peak > rc.fall_speed and total >= rc.fall_min:
-                out = rc.fall * total / rc.fall_min
+                out = rc.fall
         self._fall_top, self._fall_peak = None, 0.0
         return out
 
