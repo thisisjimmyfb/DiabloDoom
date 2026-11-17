@@ -339,6 +339,23 @@ static boolean RL_IsPortalOf(const line_t *ld, const sector_t *s)
         && top - bottom >= 56 * FRACUNIT;
 }
 
+// A line the player could USE: one with a special, or a switch already
+// pressed (a one-shot switch loses its special but keeps a switch texture).
+extern int switchlist[];
+extern int numswitches;
+static boolean RL_UsableLine(line_t *li)
+{
+    side_t *sd = &sides[li->sidenum[0]];
+    int i;
+    if (li->special != 0)
+        return true;
+    for (i = 0; i < numswitches * 2; i++)
+        if (switchlist[i] == sd->toptexture || switchlist[i] == sd->midtexture
+            || switchlist[i] == sd->bottomtexture)
+            return true;
+    return false;
+}
+
 // wall_dist (2026-11-16): the distance along the facing to the first line
 // the player can't pass -- one-sided, blocking, or an opening too low or
 // a step too high -- within RL_WALL_RANGE; -1 when none. The env's
@@ -346,7 +363,7 @@ static boolean RL_IsPortalOf(const line_t *ld, const sector_t *s)
 #define RL_WALL_RANGE 128
 static mobj_t *rl_wall_mo;
 static int rl_wall_dist;
-static boolean rl_wall_special;    // the line the trace stopped at has a special
+static boolean rl_wall_special;    // the line the trace stopped at is usable
 
 static boolean RL_WallTraverse(intercept_t *in)
 {
@@ -361,7 +378,7 @@ static boolean RL_WallTraverse(intercept_t *in)
             return true;                    // passable: look on through it
     }
     rl_wall_dist = FixedMul(in->frac, RL_WALL_RANGE * FRACUNIT) >> FRACBITS;
-    rl_wall_special = li->special != 0;
+    rl_wall_special = RL_UsableLine(li);
     return false;
 }
 
@@ -379,7 +396,8 @@ static int RL_WallDist(mobj_t *mo)
 
 // wall_use: a usable wall in reach -- a line with a special that the
 // player can't walk through by the wall trace's own rule (a switch, a
-// closed or still half-open door; walk-over triggers are passable and
+// closed or still half-open door, a pressed one-shot switch (2026-11-17);
+// walk-over triggers are passable and
 // don't count) within USE range (64) of the player and within 45 degrees
 // of the facing. The env never charges wall_look then, so lining up on a
 // switch or waiting at a door as it opens costs nothing.
@@ -391,7 +409,7 @@ static boolean RL_WallUse(mobj_t *mo)
     {
         line_t *li = &lines[i];
         double cx, cy, rel;
-        if (li->special == 0)
+        if (!RL_UsableLine(li))
             continue;
         if (li->backsector != NULL && !(li->flags & ML_BLOCKING))
         {

@@ -164,8 +164,9 @@ passable opening of the player's current sector into any other sector
 current sector into an unvisited sector, left out when it has none (the
 env's look reward), and `wall_dist` / `wall_use`, the distance along the
 facing to the first line the player can't pass (-1 beyond 128) and
-whether a switch or closed door is within USE range ahead (the env's
-wall_look penalty) -- reward shaping only, never
+whether a switch (pressed one-shots too, 2026-11-17) or closed door is
+within USE range ahead (the env's wall_look penalty, and its use_miss
+exemption) -- reward shaping only, never
 a policy input, so the 2026-10-21 no-oracle ruling for the farm agent
 stands.
 Automap (2026-11-14): it also carries `automap` (the map is on screen).

@@ -55,8 +55,10 @@ class RewardConfig:
     # A USE that sets nothing going (no engine "use" event: a plain wall,
     # empty space) costs use_miss (2026-11-16), so pressing it at random
     # costs more than standing still. Opening a door, even one used
-    # before, costs nothing. -0.05 is about 5 tics of the clock's base.
-    use_miss: float = -0.05
+    # before, costs nothing; nor (2026-11-17) does a USE facing something
+    # usable that didn't move (the engine's wall_use: a locked door, a
+    # pressed one-shot switch). -0.1 is about 10 tics of the clock's base.
+    use_miss: float = -0.1
     key: float = 25.0                 # per key colour newly held (blue, yellow, red; once each)
     # Pickups, from the engine's pickup events: each Diablo item picked
     # up (or armor, which also grants one) pays `loot`; a health pickup
@@ -530,7 +532,7 @@ class DiabloDoomEnv(gym.Env):
         # reusing the same door or switch never pays again.
         if self._new_mechanisms(events):
             add("mechanism", rc.mechanism)
-        elif (a == USE and sent and rc.use_miss
+        elif (a == USE and sent and rc.use_miss and not prev.get("wall_use")
               and not any(e.get("event") == "use" for e in events)):
             add("use_miss", rc.use_miss)
 

@@ -312,15 +312,20 @@ def test_move_flip():
 def test_use_miss():
     """A USE that sets nothing going (no "use" event) costs use_miss; one
     that opens a new mechanism pays mechanism instead, one that reopens a
-    mechanism already used costs nothing, and other actions never cost it.
-    Engine faked: no game needed."""
+    mechanism already used costs nothing, a USE facing something usable
+    that didn't move (wall_use: a locked door, a pressed switch) costs
+    nothing, and other actions never cost it. Engine faked: no game needed."""
     only = RewardConfig(sector=0, exit=0, mechanism=10.0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hp_loss=0, death=0, loot=0, health=0,
-                        fast=0, look=0, turn_waste=0, move_flip=0, use_miss=-0.05, fall=0, wall_look=0)
+                        fast=0, look=0, turn_waste=0, move_flip=0, use_miss=-0.1, fall=0, wall_look=0)
     e = make_env(rewards=only, max_tics=100000)
     door = [{"event": "use", "sectors": [7], "lines": []}]
-    steps = iter([[], door, door, [], []])
-    e.engine.command = lambda line: ({"mode": "EXPLORE", "hp": 100, "tics": 1}, next(steps))
+    steps = iter([([], False), (door, False), (door, False), ([], True), ([], False), ([], False), ([], False)])
+
+    def command(line):
+        events, facing = next(steps)
+        return {"mode": "EXPLORE", "hp": 100, "tics": 1, "wall_use": facing}, events
+    e.engine.command = command
     e._frame = lambda: np.zeros((200, 320), dtype=np.uint8)
     e.state = {"mode": "EXPLORE", "hp": 100}
     e._prev_hp, e._tics, e._combat_steps = 100, 0, 0
@@ -329,8 +334,8 @@ def test_use_miss():
     e._trig = {k: e._new_trigger() for k in ("monster", "backpack", "combat")}
     e._stack.reset(e._frame())
     use, walk = ACTIONS.index("USE"), ACTIONS.index("PRESS W")
-    got = [round(e.step(a)[1], 6) for a in (use, use, use, walk, use)]
-    assert got == [-0.05, 10.0, 0.0, 0.0, -0.05], got
+    got = [round(e.step(a)[1], 6) for a in (use, use, use, walk, use, walk, use)]
+    assert got == [-0.1, 10.0, 0.0, 0.0, 0.0, 0.0, -0.1], got
 
 
 def test_fast_forward():

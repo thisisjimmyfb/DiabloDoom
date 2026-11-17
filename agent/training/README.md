@@ -87,8 +87,10 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   Reversing forward and back costs `move_flip` (-0.015): W within 4 tics
   of S, or S of W; strafing back and forth is free.
   A USE that sets nothing going (no engine `use` event: a plain wall,
-  empty space) costs `use_miss` (-0.05, 2026-11-16); opening a door,
-  even one used before, costs nothing.
+  empty space) costs `use_miss` (-0.1; 2026-11-16, raised 2026-11-17);
+  opening a door, even one used before, costs nothing, and so does a USE
+  facing something usable that didn't move (the engine's `wall_use`: a
+  locked door, a pressed one-shot switch).
   Fast movement pays back the clock only going forward (`fast_forward`,
   2026-11-16): scaled by the cosine between the movement and the facing,
   so backing up or strafing pays the whole clock, like standing still.
