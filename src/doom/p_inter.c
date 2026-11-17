@@ -445,7 +445,7 @@ P_GivePower
 
 // Spawn a loot pickup for a specific item id at (x, y). Shared by
 // kill drops and player-initiated drops from the inventory.
-void P_SpawnDiabloLootAt(fixed_t x, fixed_t y, int item_id)
+mobj_t *P_SpawnDiabloLootAt(fixed_t x, fixed_t y, int item_id)
 {
     int tier = D_ITEMTIER(item_id);
     int index = D_ITEMIDX(item_id);
@@ -518,6 +518,7 @@ void P_SpawnDiabloLootAt(fixed_t x, fixed_t y, int item_id)
     // Full-bright: loot pops in dark sectors instead of sinking
     // into the floor lighting.
     mo->frame |= FF_FULLBRIGHT;
+    return mo;
 }
 
 // Readable monster name for loot-drop logging.
@@ -831,10 +832,11 @@ P_TouchSpecialThing
         // Stash it in the backpack; a full backpack leaves it on the ground.
         if (D_BackpackAdd(player, tier, idx))
         {
+            boolean practice = (special->flags & MF_RLPRACTICE) != 0;
             P_RemoveMobj(special);
             printf("[LOOT] picked up tier=%d idx=%d\n", tier, idx);
             if (player == &players[consoleplayer])
-                RL_NotePickup("loot", 0);
+                RL_NotePickup("loot", 0, practice);
             // Auto-save after loot pickup: don't lose the new item.
             // Saves both Doom savegame (slots 7-9) and progress.dat.
             {
@@ -1225,7 +1227,8 @@ P_TouchSpecialThing
 	  default:
 	    break;
 	}
-	RL_NotePickup(kind, player->health - hp_before);
+	RL_NotePickup(kind, player->health - hp_before,
+		      (special->flags & MF_RLPRACTICE) != 0);
     }
     if (special->flags & MF_COUNTITEM)
 	player->itemcount++;

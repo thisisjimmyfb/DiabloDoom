@@ -38,7 +38,7 @@ DEFAULT_OBS_SIZE = (128, 80)     # (W, H): width, height of each observation fra
 
 def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
              slots_dir: str | None, slots: list[int], capture_dir: str | None = None,
-             spawn_tics: int = 0, nodraw: bool = False, noblit: bool = False,
+             spawn_tics: int = 0, item_tics: int = 0, nodraw: bool = False, noblit: bool = False,
              portal_goal: int = 0, time_penalty: float = 0.0, key_goal: bool = False,
              headless: bool = True, obs_size: tuple[int, int] = DEFAULT_OBS_SIZE):
     """time_penalty: reward per game second (negative pays, e.g. 1/3
@@ -54,6 +54,8 @@ def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
     extra = ["--eval"] if stage == 1 else []
     if spawn_tics > 0:
         extra += ["-rlspawn", str(spawn_tics)]
+    if item_tics > 0:
+        extra += ["-rlitems", str(item_tics)]    # practice loot to walk to and pick up
     if noblit:
         # Skip the SDL blit (I_FinishUpdate), which headless nobody sees:
         # most of the game's CPU time. The frame the policy gets and the
@@ -108,6 +110,7 @@ def run_env(args, slots: list[int], iwad: str | None, warp: str, capture_dir: st
              dict(max_tics=args.max_tics, portal_goal=args.portal_goal, key_goal=True))
     return functools.partial(make_env, iwad, warp, args.stage, args.skill, slots_dir=args.slots_dir,
                              slots=slots, capture_dir=capture_dir, spawn_tics=args.spawn_tics,
+                             item_tics=getattr(args, "item_tics", 0),
                              nodraw=args.nodraw, noblit=args.noblit, time_penalty=args.time_penalty,
                              headless=getattr(args, "headless", True),
                              obs_size=getattr(args, "obs_size", None) or DEFAULT_OBS_SIZE, **rules)
@@ -395,9 +398,12 @@ def add_env_args(p) -> None:
                         "with: resuming with another size stops. eval.py takes it from the checkpoint")
     p.add_argument("--stage", type=int, choices=[1, 2], default=1,
                    help="1: no map monsters (exploration); 2: map monsters on")
-    p.add_argument("--spawn-tics", type=int, default=700,
+    p.add_argument("--spawn-tics", type=int, default=250,
                    help="mean game tics between practice monsters spawned on screen while exploring "
                         "(-rlspawn: a sighting the policy should CONSULT about; 0: none)")
+    p.add_argument("--item-tics", type=int, default=300,
+                   help="mean game tics between practice items (random Diablo loot: weapons, armor...) "
+                        "spawned on screen on the way to a portal, to walk to and pick up (-rlitems; 0: none)")
     p.add_argument("--noblit", action=argparse.BooleanOptionalAction, default=False,
                    help="launch the games with -noblit: skip the SDL blit nobody sees headless "
                         "(~4x more decisions/s; frames and replays unchanged; train.sh's default)")

@@ -269,6 +269,8 @@ def train_metrics(recs: list[dict], n_groups: int, collapsed: int) -> dict:
          "death_rate": float(np.mean([r["death"] for r in recs])),
          "portal_rate": float(np.mean([r.get("portal", False) for r in recs])),
          "key_rate": float(np.mean([r.get("key", False) for r in recs])),
+         "items_spawned": int(sum(r.get("items", [0, 0])[0] for r in recs)),
+         "items_picked": int(sum(r.get("items", [0, 0])[1] for r in recs)),
          "collapsed_share": collapsed / max(n_groups, 1),
          "action_share": (acts / max(acts.sum(), 1)).round(3).tolist()}
     if any("frontier" in r for r in recs):
@@ -293,7 +295,8 @@ def print_train(it: int, m: dict, upd: dict, extra: str = "") -> None:
           + (f" front {m['frontier_share']:.2f}" if "frontier_share" in m else "")
           + (f" dead {upd['dead_units']:.2f} gnorm {upd['grad_norm_max']:.0f}"
              if "dead_units" in upd and "grad_norm_max" in upd else "")
-          + (f" adv {upd['adv_std']:.0f}" if "adv_std" in upd else "") + extra)
+          + (f" adv {upd['adv_std']:.0f}" if "adv_std" in upd else "")
+          + (f" items {m['items_picked'] / m['items_spawned']:.2f}" if m.get("items_spawned") else "") + extra)
 
 
 def add_learn_args(p) -> None:

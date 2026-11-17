@@ -338,6 +338,33 @@ def test_use_miss():
     assert got == [-0.1, 10.0, 0.0, 0.0, 0.0, 0.0, -0.1], got
 
 
+def test_door_pays_once():
+    """A door's own sector never pays (the engine's door_sectors): walking
+    through a door pays the sector reward once, for the room behind it,
+    and stepping into the door doesn't reach the portal goal. Engine
+    faked: no game needed."""
+    only = RewardConfig(sector=15.0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
+                        consult_false=0, key=0, time=0, hp_loss=0, death=0, loot=0, health=0,
+                        fast=0, look=0, turn_waste=0, move_flip=0, use_miss=0, fall=0, wall_look=0)
+    e = make_env(rewards=only, max_tics=100000, portal_goal=1)
+    states = iter([(5, 0), (6, 1), (7, 1)])      # (sectors, door_sectors): room, door, next room
+
+    def command(line):
+        sectors, doors = next(states)
+        return {"mode": "EXPLORE", "hp": 100, "tics": 1, "sectors": sectors, "door_sectors": doors}, []
+    e.engine.command = command
+    e._frame = lambda: np.zeros((200, 320), dtype=np.uint8)
+    e.state = {"mode": "EXPLORE", "hp": 100, "sectors": 5, "door_sectors": 0}
+    e._prev_hp, e._tics, e._combat_steps = 100, 0, 0
+    e._best_sectors = e._start_sectors = 5
+    e._keys, e._goal, e._group, e._slot, e._seed, e._used = 0, None, 0, None, 0, set()
+    e._trig = {k: e._new_trigger() for k in ("monster", "backpack", "combat")}
+    e._stack.reset(e._frame())
+    w = ACTIONS.index("PRESS W")
+    got = [(round(r, 6), term) for _, r, term, _, _ in (e.step(w) for _ in range(3))]
+    assert got == [(0.0, False), (0.0, False), (15.0, True)], got
+
+
 def test_fast_forward():
     """The fast pay goes by the movement's direction against the facing
     (RewardConfig.fast_forward): full forward, about 70% on a forward
@@ -726,6 +753,47 @@ def test_spawn_consult():
     assert run()[0] == trace, "spawns are deterministic under SEED"
 
 
+@pytest.mark.game
+def test_practice_items():
+    """-rlitems: practice loot appears ahead (an "item" event with its
+    position); walking onto it picks it up, pays the loot reward and
+    counts in info["items"] as [spawned, picked up]."""
+    import math
+    e = make_env(engine=EngineConfig(warp="1 1", extra_args=["--eval", "-rlitems", "30"]),
+                 consult_handler=standin_consult, max_tics=100000)
+    target = None
+    command = e.engine.command
+
+    def spy(line):
+        nonlocal target
+        d, events = command(line)
+        for ev in events:
+            if ev.get("event") == "item":
+                target = (ev["x"], ev["y"])
+            elif ev.get("event") == "pickup" and ev.get("practice"):
+                target = None
+        return d, events
+    e.engine.command = spy
+    try:
+        e.reset(options={"seed": 0})
+        idle, w, left, right = (ACTIONS.index(a) for a in ("PRESS", "PRESS W", "PRESS L", "PRESS R"))
+        loot = 0.0
+        for _ in range(2000):
+            s, a = e.state, idle
+            if target is not None:     # turn to the item, then walk onto it
+                rel = (math.degrees(math.atan2(target[1] - s["y"], target[0] - s["x"]))
+                       - s["angle"] + 180) % 360 - 180
+                a = left if rel > 4 else right if rel < -4 else w
+            _, _, _, _, info = e.step(a)
+            loot += info["terms"].get("loot", 0.0)
+            if info["items"][1] >= 2:
+                break
+        assert info["items"][1] >= 2, f"two practice items picked up (items {info['items']})"
+        assert loot == pytest.approx(RewardConfig().loot * info["items"][1]), "each pays the loot reward"
+    finally:
+        e.close()
+
+
 def test_goal_dist():
     """The distance penalty's goal: the nearest portal of the current
     sector (portal_dist); the exit and frontier distances don't count, and
@@ -736,6 +804,49 @@ def test_goal_dist():
     assert goal_dist({"portal_dist": -1, "exit_dist": 900}) is None
     assert goal_dist({"exit_dist": 30, "frontier_dist": 40}) is None
     assert goal_dist({"mode": "INTERMISSION"}) is None
+    # The walking distance first (path_dist), the straight one without a path.
+    assert goal_dist({"path_dist": 300, "portal_dist": 40}) == 300
+    assert goal_dist({"path_dist": -1, "portal_dist": 40}) == 40
+
+
+def test_way_rel():
+    """The look reward's angle: along the path (path_rel) when the engine
+    has one, else toward the nearest unvisited portal (portal_rel)."""
+    from env.env import way_rel
+    assert way_rel({"path_rel": -30, "portal_rel": 90}) == -30
+    assert way_rel({"path_dist": 50, "portal_rel": 90}) == 90
+    assert way_rel({"path_dist": -1}) is None
+
+
+@pytest.mark.game
+def test_path_guidance():
+    """E1M1: the state line carries path_dist and path_rel; walking the
+    way path_rel points (opening doors on the way) reaches new rooms.
+    Engine-side: the grid, the doors, the straight-walkable aim."""
+    e = make_env(engine=EngineConfig(warp="1 1", extra_args=["--eval"]),
+                 consult_handler=standin_consult, max_tics=100000)
+    try:
+        e.reset(options={"seed": 0})
+        s = e.state
+        assert s["path_dist"] >= 0 and "path_rel" in s, s
+        w, wl, wr, left, right, use = (ACTIONS.index(a) for a in
+                                       ("PRESS W", "PRESS WL", "PRESS WR", "PRESS L", "PRESS R", "USE"))
+        last_use = -1000
+        for i in range(600):
+            s = e.state
+            rel = s.get("path_rel")
+            if s.get("wall_use") and 0 <= s.get("wall_dist", -1) <= 40 and i - last_use > 70:
+                a, last_use = use, i        # once: a second USE would close the door again
+            elif rel is None or abs(rel) < 10:
+                a = w
+            elif abs(rel) < 45:
+                a = wl if rel > 0 else wr
+            else:
+                a = left if rel > 0 else right
+            _, _, _, _, info = e.step(a)
+        assert info["state"]["sectors"] >= 5, f"following path_rel explores (sectors {info['state']['sectors']})"
+    finally:
+        e.close()
 
 
 @pytest.mark.game

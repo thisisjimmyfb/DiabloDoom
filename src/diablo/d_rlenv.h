@@ -96,6 +96,18 @@ void RL_NoteBackpackFull(void);
 // the player's sight and, in combat, every monster targeting the
 // player: a spawned one disappears (no kill, no loot); a map monster is
 // killed (kill count and Diablo drops, as if the VLM had fought it).
+//
+// -rlitems <tics> (2026-11-17): mean game tics between practice items,
+// the same way: one Diablo loot item (a weapon, armor, jewelry or a
+// potion; tier and item from the private RNG) at a time, on the
+// straight line to a portal of the current sector that is on screen
+// (within 40 degrees of the facing), 64-256 units away, in sight and on
+// a floor within 24 units of the player's: the unvisited portals tried
+// first, then the visited ones, nearest first; none fits, or a full
+// backpack: no spawn. It is marked MF_RLPRACTICE, sends an "item" event (x, y),
+// and is removed 10 s after spawning; its pickup event says
+// "practice":true. A loaded save's practice items are removed like its
+// monsters.
 void RL_SpawnTick(void);
 void RL_SpawnSeed(int n);
 
@@ -138,7 +150,8 @@ void RL_UseEnd(void);
 // item), "health" (stimpack, medikit, health bonus, soulsphere,
 // megasphere), "key", or "other"; hp is the health it gave. A thing
 // left on the ground (full backpack, full health) sends nothing.
+// practice: an -rlitems practice item (the event's "practice" field).
 // No-ops without -rldrive.
-void RL_NotePickup(const char *kind, int hp);
+void RL_NotePickup(const char *kind, int hp, boolean practice);
 
 #endif

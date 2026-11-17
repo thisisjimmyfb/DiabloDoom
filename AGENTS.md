@@ -162,9 +162,18 @@ passable opening of the player's current sector into any other sector
 (the env's distance penalty uses this one), and `portal_rel`, the angle
 (degrees, positive left) from the facing to the nearest portal of the
 current sector into an unvisited sector, left out when it has none (the
-env's look reward), and `wall_dist` / `wall_use`, the distance along the
+env's look reward; since 2026-11-17 both prefer the portals through a
+door or onto a lift -- door and lift sectors found from the line
+specials that move them -- falling back to all portals, and the line
+carries `door_sectors`, the visited sectors that are doors, so the
+env pays a door crossing once; and, `-rlenv` in explore, `path_dist` /
+`path_rel`, the walking distance and direction to the nearest unvisited
+room on a 32-unit grid built per level load by the GOTO pathfinder's
+rules, doors passable when the player can open them -- the env's time
+penalty and look reward use them first), and `wall_dist` / `wall_use`, the distance along the
 facing to the first line the player can't pass (-1 beyond 128) and
-whether a switch (pressed one-shots too, 2026-11-17) or closed door is
+whether a switch (pressed one-shots too, 2026-11-17) or closed door (a
+locked one only with its key, a remote door's face too; 2026-11-17) is
 within USE range ahead (the env's wall_look penalty, and its use_miss
 exemption) -- reward shaping only, never
 a policy input, so the 2026-10-21 no-oracle ruling for the farm agent
@@ -211,7 +220,15 @@ stand-in's hand-off) removes the monsters in sight and, in combat, those
 targeting the player (a practice monster disappears, a map monster is
 killed); anywhere else (`-rldrive`, eval.py --iwad; 2026-11-16) CONSULT does
 nothing but show `CONSULT` as the status message, so a watcher sees the
-policy asked for the hand-off. Give each instance
+policy asked for the hand-off. Practice items (`-rlitems <tics>`,
+`-rlenv` only, 2026-11-17): the same way, one random Diablo loot item at
+a time on the line to an on-screen portal of the current sector
+(unvisited portals first, then visited ones; within 40 degrees of the facing, 64-256 units, in
+sight, a floor within 24 units of the player's; never with a full
+backpack), flagged `MF_RLPRACTICE`, sent as
+an `item` event with its position, removed 10 s after spawning or when a
+save holding one is loaded; its `pickup` event carries `"practice":true`
+(every pickup event carries the field). Give each instance
 its own working directory and `-savedir` (the turn profile and
 autosaves are written there).
 

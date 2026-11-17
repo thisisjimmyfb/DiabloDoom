@@ -81,6 +81,29 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   unvisited sector (`portal_rel`; none: nothing), at half the clock's
   base rate (`--time-penalty` / 70), so it softens the clock for facing
   the right way but never pays for standing still.
+  Walking paths (2026-11-17): both now go by the walking path to the
+  nearest unvisited room when there is one -- `path_dist`, the distance
+  along it, and `path_rel`, the angle to the farthest of its next 4
+  cells the player can walk to in a straight line, so the reward follows
+  a corridor round a bend instead of pointing through the wall. The
+  engine builds a 32-unit grid of where the player can stand and step
+  (the `GOTO` pathfinder's rules) once per level load, with doors taken
+  as open, and runs Dijkstra from every unvisited non-door sector when
+  the visited set, the keys or a door changes: a closed door is on the
+  path only if the player can open it (a manual door; a locked one with
+  its key). About 30-80 ms per reset, nothing measurable per step.
+  Lifts and raised floors are taken as they were at the load, and steps
+  finer than the grid (a spiral stair of 16-unit steps) are a blur. No
+  path (nothing reachable): the straight portal distances below.
+  Doors first (2026-11-17): the engine finds the door and lift sectors
+  from the line specials that move them (a manual door line's back
+  sector, a remote door or lift trigger's tagged sectors), and both
+  distances go by the current sector's portals through a door or onto a
+  lift when it has one, by all its portals otherwise; a sector boundary
+  is often just a step or a light change in mid-room. A door's own small
+  sector never pays the sector reward (`door_sectors` on the state
+  line), so a door crossing pays once, for the room behind it, and
+  stepping into a doorway doesn't reach the portal goal.
   Turning that gets undone costs `turn_waste` (-0.005 per 45 degrees,
   2026-11-16): over the last 8 tics, the facing's total turning minus its
   net turning; a steady turn either way, or holding still, costs nothing.
@@ -90,7 +113,9 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   empty space) costs `use_miss` (-0.1; 2026-11-16, raised 2026-11-17);
   opening a door, even one used before, costs nothing, and so does a USE
   facing something usable that didn't move (the engine's `wall_use`: a
-  locked door, a pressed one-shot switch).
+  pressed one-shot switch, or the face of a remote door, one only a
+  switch or trigger opens). A locked door counts as usable only with its
+  key (2026-11-17): without it, USE on it costs `use_miss`.
   Fast movement pays back the clock only going forward (`fast_forward`,
   2026-11-16): scaled by the cosine between the movement and the facing,
   so backing up or strafing pays the whole clock, like standing still.
@@ -248,13 +273,23 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   turn-based combat off entirely, passive damage included; `--stage 2`
   has the map's monsters. Both
   spawn practice monsters on screen while exploring (`--spawn-tics`,
-  default 700 tics on average; 0 turns them off). Map monsters almost
+  default 250 tics on average, 700 before 2026-11-17; 0 turns them off). Map monsters almost
   always see the player the moment the player sees them, so without the
   practice monsters a sighting would never come before combat. They face
   away and never start a fight: one that would acquire the player is
   removed instead. Each is removed 5 s after spawning (or when a save
   holding one is loaded), and CONSULT on one pays `consult_hit` and
-  removes it.
+  removes it. Practice items (2026-11-17; `--item-tics`, default 300; 0
+  turns them off): one random Diablo loot item at a time (a weapon,
+  armor, jewelry, a potion) appears on the straight line to a portal of
+  the current sector that is on screen (within 40 degrees of the
+  facing), 64-256 units away, in sight, on a floor within a step of the
+  player's: tried in the order unvisited doors and lifts, other
+  unvisited portals, visited doors and lifts, other visited portals,
+  nearest first in each. None fits, or a full backpack: no item that time. It is removed after 10 s. Picking one up pays the usual `loot` reward;
+  the train line's `items` is the share of spawned practice items
+  picked up (`items_spawned` / `items_picked` in metrics.jsonl, and
+  `items` [spawned, picked] per rollout in rollouts.jsonl).
 - **Eval:** at the start and at the end of each run, and every
   `--eval-every N` iterations as well when N > 0 (default 0); the end
   prints the change per IWAD and map (`[eval delta]`). A run stopped

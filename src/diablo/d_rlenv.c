@@ -28,6 +28,8 @@
 #include "t_turn.h"
 #include "t_combat.h"
 #include "d_diablo.h"
+#include "p_inter.h"
+#include "i_timer.h"
 
 #include "d_rlenv.h"
 
@@ -288,6 +290,90 @@ static boolean RL_IsExitLine(const line_t *ld)
 // A frontier portal: a two-sided line from a visited sector into an
 // unvisited one that the player could pass -- a step up of at most 24
 // units and room to stand (56) -- or that has a special of its own (a
+// Door and lift sectors (2026-11-17): a Doom door is a small sector whose
+// ceiling moves, a lift one whose floor moves. Found from the line
+// specials that move them: a manual door's line moves its back sector,
+// a remote door or lift trigger moves the sectors with its tag. Built
+// once per level, on first use.
+#define RL_DOOR 1
+#define RL_LIFT 2
+static byte *rl_passage;
+static sector_t *rl_passage_for;
+static int rl_passage_n;
+static boolean rl_passage_dirty = true;
+
+// 1 manual door (moves the line's back sector), 2 remote door, 3 lift
+// (both move the tagged sectors), 0 neither.
+static int RL_PassageSpecial(int special)
+{
+    switch (special)
+    {
+      case 1: case 26: case 27: case 28: case 31: case 32: case 33: case 34:
+      case 117: case 118:
+        return 1;
+      case 2: case 3: case 4: case 16: case 29: case 42: case 46: case 50:
+      case 61: case 63: case 75: case 76: case 86: case 90: case 99: case 103:
+      case 105: case 106: case 107: case 108: case 109: case 110: case 111:
+      case 112: case 113: case 114: case 115: case 116:
+      case 133: case 134: case 135: case 136: case 137:
+        return 2;
+      case 10: case 21: case 62: case 88: case 120: case 121: case 122: case 123:
+        return 3;
+      default:
+        return 0;
+    }
+}
+
+// RL_DOOR, RL_LIFT or 0 for a sector.
+static int RL_Passage(const sector_t *sec)
+{
+    int i, t;
+    if (rl_passage_dirty || rl_passage_for != sectors || rl_passage_n != numsectors)
+    {
+        free(rl_passage);
+        rl_passage = calloc(numsectors > 0 ? numsectors : 1, 1);
+        rl_passage_for = sectors;
+        rl_passage_n = numsectors;
+        rl_passage_dirty = false;
+        for (i = 0; i < numlines; i++)
+        {
+            line_t *li = &lines[i];
+            int k = RL_PassageSpecial(li->special);
+            if (k == 1 && li->backsector != NULL)
+                rl_passage[li->backsector - sectors] = RL_DOOR;
+            else if (k > 1 && li->tag != 0)     // tag 0 would match every untagged sector
+                for (t = -1; (t = P_FindSectorFromLineTag(li, t)) >= 0;)
+                    if (rl_passage[t] != RL_DOOR)
+                        rl_passage[t] = k == 2 ? RL_DOOR : RL_LIFT;
+        }
+    }
+    return sec != NULL && rl_passage != NULL ? rl_passage[sec - sectors] : 0;
+}
+
+// Whether the player holds the key a locked door special needs (true for
+// any other special).
+static boolean RL_HasKeyFor(int special)
+{
+    player_t *p = &players[consoleplayer];
+    switch (special)
+    {
+      case 26: case 32: case 99: case 133:
+        return p->cards[it_bluecard] || p->cards[it_blueskull];
+      case 27: case 34: case 136: case 137:
+        return p->cards[it_yellowcard] || p->cards[it_yellowskull];
+      case 28: case 33: case 134: case 135:
+        return p->cards[it_redcard] || p->cards[it_redskull];
+      default:
+        return true;
+    }
+}
+
+// A portal through a door or onto a lift: either side is one.
+static boolean RL_PassagePortal(const line_t *ld)
+{
+    return RL_Passage(ld->frontsector) != 0 || RL_Passage(ld->backsector) != 0;
+}
+
 // door or lift opened from it). Blocking lines never count.
 static boolean RL_IsFrontier(const line_t *ld)
 {
@@ -339,8 +425,11 @@ static boolean RL_IsPortalOf(const line_t *ld, const sector_t *s)
         && top - bottom >= 56 * FRACUNIT;
 }
 
-// A line the player could USE: one with a special, or a switch already
-// pressed (a one-shot switch loses its special but keeps a switch texture).
+// A line the player could USE: one with a special (a locked door only
+// with its key, 2026-11-17), a switch already pressed (a one-shot switch
+// loses its special but keeps a switch texture), or (2026-11-17) the
+// face of a door sector (a remote door: USE doesn't open it, but it is
+// no random press).
 extern int switchlist[];
 extern int numswitches;
 static boolean RL_UsableLine(line_t *li)
@@ -348,6 +437,9 @@ static boolean RL_UsableLine(line_t *li)
     side_t *sd = &sides[li->sidenum[0]];
     int i;
     if (li->special != 0)
+        return RL_HasKeyFor(li->special);
+    if (li->frontsector != NULL && li->backsector != NULL
+        && (RL_Passage(li->frontsector) == RL_DOOR || RL_Passage(li->backsector) == RL_DOOR))
         return true;
     for (i = 0; i < numswitches * 2; i++)
         if (switchlist[i] == sd->toptexture || switchlist[i] == sd->midtexture
@@ -431,6 +523,372 @@ static boolean RL_WallUse(mobj_t *mo)
     return false;
 }
 
+// ---------------------------------------------------------------------
+// Path guidance (2026-11-17): path_dist / path_rel on the state line,
+// the walking distance and direction to the nearest unvisited room, so
+// the env's time penalty and look reward follow corridors around bends
+// instead of pointing through walls. Reward shaping only.
+//
+// The graph: 32-unit cells over the map's bounding box, 8 directions,
+// by the GOTO pathfinder's rules (t_action.c): the player fits at a
+// cell's centre (P_CheckPosition, and the full height between floor and
+// ceiling), never climbs more than 24 units from one cell to the next,
+// and the segment between the centres is clear at its quarter points.
+// It is built once per level (RL_LevelSetup, so after each LOAD), with
+// every door sector's ceiling raised to its open height for the build,
+// and each edge remembers the door sector it crosses, if any.
+//
+// The field: Dijkstra from every cell in an unvisited sector that is
+// not a door (a door's own sector never pays, rooms()), over edges whose
+// door is open now or one the player can open (a manual door, a locked
+// one only with its key). Recomputed only when the visited set, the
+// keys or a door's open state changes. Movers other than doors (lifts,
+// floors) are taken as they were at the build.
+// ---------------------------------------------------------------------
+
+#define RL_CELL      32
+#define RL_PATH_AIM  4              // cells ahead along the path: path_rel's aim
+static const int rl_dx[8] = { 1, 1, 0, -1, -1, -1, 0, 1 };
+static const int rl_dy[8] = { 0, 1, 1, 1, 0, -1, -1, -1 };
+static const int rl_cost[8] = { 32, 45, 32, 45, 32, 45, 32, 45 };
+
+static int rl_gw, rl_gh, rl_gx0, rl_gy0;   // grid size; origin, map units
+static byte *rl_gedge;          // bit d: the player can step from the cell to neighbour d
+static short *rl_gsec;          // the sector at the cell's centre, -1 not standable
+static short *rl_gdoor;         // [cell * 8 + d]: the door sector edge d crosses, -1 none
+static int *rl_gdist;           // distance to the nearest target, -1 none reachable
+static byte *rl_doorok;         // per sector, for the current field: a door the player can pass
+static boolean rl_graph_dirty = true;
+static sector_t *rl_graph_for;
+static unsigned rl_path_sig;
+static boolean rl_path_have;
+
+// The player could stand at (x, y): fits, by the pathfinder's rule.
+static boolean RL_Stand(mobj_t *mo, fixed_t x, fixed_t y, fixed_t *floor_out)
+{
+    if (!P_CheckPosition(mo, x, y) || tmceilingz - tmfloorz < mo->height)
+        return false;
+    *floor_out = tmfloorz;
+    return true;
+}
+
+static fixed_t RL_CellX(int c) { return (fixed_t) (rl_gx0 + (c % rl_gw) * RL_CELL + RL_CELL / 2) << FRACBITS; }
+static fixed_t RL_CellY(int c) { return (fixed_t) (rl_gy0 + (c / rl_gw) * RL_CELL + RL_CELL / 2) << FRACBITS; }
+
+static void RL_BuildGraph(mobj_t *pmo)
+{
+    int i, c, d, n, minx = 0, miny = 0, maxx = 0, maxy = 0;
+    fixed_t *floors, *ceil_saved;
+    int t0 = I_GetTimeMS();
+
+    free(rl_gedge); free(rl_gsec); free(rl_gdoor); free(rl_gdist); free(rl_doorok);
+    rl_gedge = NULL; rl_gsec = NULL; rl_gdoor = NULL; rl_gdist = NULL; rl_doorok = NULL;
+    rl_graph_dirty = false;
+    rl_graph_for = sectors;
+    rl_path_have = false;
+    if (numvertexes <= 0)
+        return;
+    for (i = 0; i < numvertexes; i++)
+    {
+        int vx = vertexes[i].x >> FRACBITS, vy = vertexes[i].y >> FRACBITS;
+        if (i == 0 || vx < minx) minx = vx;
+        if (i == 0 || vx > maxx) maxx = vx;
+        if (i == 0 || vy < miny) miny = vy;
+        if (i == 0 || vy > maxy) maxy = vy;
+    }
+    rl_gx0 = minx;
+    rl_gy0 = miny;
+    rl_gw = (maxx - minx) / RL_CELL + 1;
+    rl_gh = (maxy - miny) / RL_CELL + 1;
+    n = rl_gw * rl_gh;
+    rl_gedge = calloc(n, 1);
+    rl_gsec = malloc(n * sizeof(short));
+    rl_gdoor = malloc((size_t) n * 8 * sizeof(short));
+    rl_gdist = malloc(n * sizeof(int));
+    rl_doorok = calloc(numsectors > 0 ? numsectors : 1, 1);
+    floors = malloc(n * sizeof(fixed_t));
+    ceil_saved = malloc((numsectors > 0 ? numsectors : 1) * sizeof(fixed_t));
+
+    // Every door open for the build: its ceiling at the height it opens to.
+    for (i = 0; i < numsectors; i++)
+    {
+        ceil_saved[i] = sectors[i].ceilingheight;
+        if (RL_Passage(&sectors[i]) == RL_DOOR)
+        {
+            fixed_t open = P_FindLowestCeilingSurrounding(&sectors[i]) - 4 * FRACUNIT;
+            if (open > sectors[i].ceilingheight)
+                sectors[i].ceilingheight = open;
+        }
+    }
+    for (c = 0; c < n; c++)
+    {
+        fixed_t x = RL_CellX(c), y = RL_CellY(c);
+        rl_gsec[c] = RL_Stand(pmo, x, y, &floors[c])
+            ? (short) (R_PointInSubsector(x, y)->sector - sectors) : -1;
+    }
+    for (c = 0; c < n; c++)
+    {
+        int cx = c % rl_gw, cy = c / rl_gw;
+        for (d = 0; d < 8; d++)
+            rl_gdoor[c * 8 + d] = -1;
+        if (rl_gsec[c] < 0)
+            continue;
+        for (d = 0; d < 8; d++)
+        {
+            int nx = cx + rl_dx[d], ny = cy + rl_dy[d], nc = ny * rl_gw + nx, s;
+            fixed_t ax = RL_CellX(c), ay = RL_CellY(c), bx, by, prev = floors[c], f;
+            boolean ok = true;
+            if (nx < 0 || ny < 0 || nx >= rl_gw || ny >= rl_gh || rl_gsec[nc] < 0)
+                continue;
+            bx = RL_CellX(nc);
+            by = RL_CellY(nc);
+            for (s = 1; s <= 4 && ok; s++)
+            {
+                fixed_t sx = (fixed_t) (((int64_t) ax * (4 - s) + (int64_t) bx * s) / 4);
+                fixed_t sy = (fixed_t) (((int64_t) ay * (4 - s) + (int64_t) by * s) / 4);
+                sector_t *sec = R_PointInSubsector(sx, sy)->sector;
+                if (s < 4 && !RL_Stand(pmo, sx, sy, &f))
+                    ok = false;
+                else
+                {
+                    if (s == 4)
+                        f = floors[nc];
+                    if (f - prev > 24 * FRACUNIT)
+                        ok = false;
+                    prev = f;
+                }
+                if (RL_Passage(sec) == RL_DOOR)
+                    rl_gdoor[c * 8 + d] = (short) (sec - sectors);
+            }
+            if (ok)
+                rl_gedge[c] |= 1 << d;
+        }
+    }
+    for (i = 0; i < numsectors; i++)
+        sectors[i].ceilingheight = ceil_saved[i];
+    free(floors);
+    free(ceil_saved);
+    printf("[RL] path graph: %dx%d cells, %d ms\n", rl_gw, rl_gh, I_GetTimeMS() - t0);
+}
+
+// What the field depends on: visited sectors, keys, and which doors are
+// open now.
+static unsigned RL_PathSignature(void)
+{
+    player_t *p = &players[consoleplayer];
+    unsigned sig = (unsigned) T_VisitedCount() * 2654435761u;
+    int i;
+    for (i = 0; i < NUMCARDS; i++)
+        sig = sig * 31 + (p->cards[i] ? 1 : 0);
+    for (i = 0; i < numsectors; i++)
+        if (RL_Passage(&sectors[i]) == RL_DOOR
+            && sectors[i].ceilingheight - sectors[i].floorheight >= 56 * FRACUNIT)
+            sig = sig * 31 + (unsigned) i + 1;
+    return sig;
+}
+
+// The field: Dijkstra from the targets, over the edges into each cell
+// (a binary heap of cells keyed by distance).
+static void RL_PathField(void)
+{
+    int n = rl_gw * rl_gh, i, c, d, hn = 0;
+    int *heap = malloc((size_t) n * 8 * sizeof(int) + sizeof(int));
+    int *hkey = malloc((size_t) n * 8 * sizeof(int) + sizeof(int));
+
+    // Doors the player can pass: open now, or a manual door it can open.
+    for (i = 0; i < numsectors; i++)
+        rl_doorok[i] = sectors[i].ceilingheight - sectors[i].floorheight >= 56 * FRACUNIT;
+    for (i = 0; i < numlines; i++)
+        if (RL_PassageSpecial(lines[i].special) == 1 && lines[i].backsector != NULL
+            && RL_HasKeyFor(lines[i].special))
+            rl_doorok[lines[i].backsector - sectors] = 1;
+
+#define RL_HPUSH(cell, key) do { \
+        int at_ = hn++; \
+        while (at_ > 0 && hkey[(at_ - 1) / 2] > (key)) { \
+            heap[at_] = heap[(at_ - 1) / 2]; hkey[at_] = hkey[(at_ - 1) / 2]; at_ = (at_ - 1) / 2; } \
+        heap[at_] = (cell); hkey[at_] = (key); } while (0)
+
+    for (c = 0; c < n; c++)
+    {
+        int sec = rl_gsec[c];
+        rl_gdist[c] = -1;
+        if (sec >= 0 && !T_SectorVisited(sec) && RL_Passage(&sectors[sec]) != RL_DOOR)
+        {
+            rl_gdist[c] = 0;
+            RL_HPUSH(c, 0);
+        }
+    }
+    while (hn > 0)
+    {
+        int cur = heap[0], key = hkey[0], lastc, lastk, at = 0;
+        // Pop.
+        hn--;
+        lastc = heap[hn];
+        lastk = hkey[hn];
+        while (2 * at + 1 < hn)
+        {
+            int ch = 2 * at + 1;
+            if (ch + 1 < hn && hkey[ch + 1] < hkey[ch])
+                ch++;
+            if (hkey[ch] >= lastk)
+                break;
+            heap[at] = heap[ch];
+            hkey[at] = hkey[ch];
+            at = ch;
+        }
+        heap[at] = lastc;
+        hkey[at] = lastk;
+        if (key > rl_gdist[cur])
+            continue;                       // a stale entry
+        // Cells with an edge into cur: neighbour p = cur + off[d], edge (d+4)&7.
+        for (d = 0; d < 8; d++)
+        {
+            int px = cur % rl_gw + rl_dx[d], py = cur / rl_gw + rl_dy[d], pc, e, door, nd;
+            if (px < 0 || py < 0 || px >= rl_gw || py >= rl_gh)
+                continue;
+            pc = py * rl_gw + px;
+            e = (d + 4) & 7;
+            if (!(rl_gedge[pc] & (1 << e)))
+                continue;
+            door = rl_gdoor[pc * 8 + e];
+            if (door >= 0 && !rl_doorok[door])
+                continue;
+            nd = key + rl_cost[e];
+            if (rl_gdist[pc] < 0 || nd < rl_gdist[pc])
+            {
+                rl_gdist[pc] = nd;
+                if (hn < n * 8)
+                    RL_HPUSH(pc, nd);
+            }
+        }
+    }
+#undef RL_HPUSH
+    free(heap);
+    free(hkey);
+}
+
+// The player can walk straight from where it stands to (x, y): standable
+// at the quarter points and the end, never climbing more than 24 units
+// between them (the graph's edge rule, from the real position).
+static boolean RL_Reach(mobj_t *mo, fixed_t x, fixed_t y)
+{
+    fixed_t prev = mo->floorz, f;
+    int s;
+    for (s = 1; s <= 4; s++)
+    {
+        fixed_t sx = (fixed_t) (((int64_t) mo->x * (4 - s) + (int64_t) x * s) / 4);
+        fixed_t sy = (fixed_t) (((int64_t) mo->y * (4 - s) + (int64_t) y * s) / 4);
+        if (!RL_Stand(mo, sx, sy, &f) || f - prev > 24 * FRACUNIT)
+            return false;
+        prev = f;
+    }
+    return true;
+}
+
+// path_dist (map units; -1 when no unvisited room is reachable) and
+// path_rel (degrees off the facing, positive left, to the point
+// RL_PATH_AIM cells ahead along the path; *rel_ok false when the player
+// is already in a target cell or there is no path).
+static int RL_PathQuery(mobj_t *mo, int *rel, boolean *rel_ok)
+{
+    int px = (mo->x >> FRACBITS) - rl_gx0, py = (mo->y >> FRACBITS) - rl_gy0;
+    int gx = px >= 0 ? px / RL_CELL : -1, gy = py >= 0 ? py / RL_CELL : -1;
+    int start = -1, k, d, cur;
+    double best = -1;
+
+    *rel_ok = false;
+    if (rl_graph_dirty || rl_graph_for != sectors)
+        RL_BuildGraph(mo);
+    if (rl_gdist == NULL)
+        return -1;
+    if (!rl_path_have || RL_PathSignature() != rl_path_sig)
+    {
+        rl_path_sig = RL_PathSignature();
+        rl_path_have = true;
+        RL_PathField();
+    }
+    // Start: of the cells around the player with a path, the one with
+    // the least distance plus the way to its centre -- a way the player
+    // can walk straight (RL_Reach): a cell across a wall is near but no
+    // start.
+    for (k = 0; k < 9; k++)
+    {
+        int cx = gx + k % 3 - 1, cy = gy + k / 3 - 1, c;
+        double ex, ey, v;
+        if (cx < 0 || cy < 0 || cx >= rl_gw || cy >= rl_gh)
+            continue;
+        c = cy * rl_gw + cx;
+        if (rl_gdist[c] < 0)
+            continue;
+        ex = (RL_CellX(c) - mo->x) / (double) FRACUNIT;
+        ey = (RL_CellY(c) - mo->y) / (double) FRACUNIT;
+        v = rl_gdist[c] + sqrt(ex * ex + ey * ey);
+        if (best >= 0 && v >= best)
+            continue;
+        if (!RL_Reach(mo, RL_CellX(c), RL_CellY(c)))
+            continue;
+        if (best < 0 || v < best)
+        {
+            best = v;
+            start = c;
+        }
+    }
+    if (start < 0)
+        return -1;
+    // Aim: the farthest of the next RL_PATH_AIM cells down the field the
+    // player can walk to in a straight line (RL_Reach), so the aim never
+    // cuts a corner into a wall; the next cell when none is.
+    {
+        int chain[RL_PATH_AIM + 1], len = 1;
+        chain[0] = start;
+        cur = start;
+        for (k = 0; k < RL_PATH_AIM && rl_gdist[cur] > 0; k++)
+        {
+            int next = -1, nv = rl_gdist[cur];
+            for (d = 0; d < 8; d++)
+            {
+                int nx = cur % rl_gw + rl_dx[d], ny = cur / rl_gw + rl_dy[d], nc, door;
+                if (!(rl_gedge[cur] & (1 << d)))
+                    continue;
+                nc = ny * rl_gw + nx;
+                door = rl_gdoor[cur * 8 + d];
+                if (rl_gdist[nc] < 0 || (door >= 0 && !rl_doorok[door]))
+                    continue;
+                if (rl_gdist[nc] + rl_cost[d] <= nv && (next < 0 || rl_gdist[nc] < rl_gdist[next]))
+                    next = nc;
+            }
+            if (next < 0)
+                break;
+            cur = next;
+            chain[len++] = cur;
+        }
+        cur = len > 1 ? chain[1] : start;
+        for (k = len - 1; k > 1; k--)
+            if (RL_Reach(mo, RL_CellX(chain[k]), RL_CellY(chain[k])))
+            {
+                cur = chain[k];
+                break;
+            }
+    }
+    // Aim at the start cell itself when it is the target (an unvisited
+    // room right beside the player), unless the player is on its centre.
+    if (cur != start || fabs((RL_CellX(cur) - mo->x) / (double) FRACUNIT)
+                        + fabs((RL_CellY(cur) - mo->y) / (double) FRACUNIT) > 8)
+    {
+        double r = atan2(RL_CellY(cur) / (double) FRACUNIT - mo->y / (double) FRACUNIT,
+                         RL_CellX(cur) / (double) FRACUNIT - mo->x / (double) FRACUNIT) * 180.0 / M_PI
+                   - RL_AngleDeg(mo->angle);
+        while (r > 180.0)
+            r -= 360.0;
+        while (r <= -180.0)
+            r += 360.0;
+        *rel = (int) (r < 0 ? r - 0.5 : r + 0.5);
+        *rel_ok = true;
+    }
+    return (int) (best + 0.5);
+}
+
 void RL_EmitState(const char *why, int tics)
 {
     char buf[3600];
@@ -471,6 +929,17 @@ void RL_EmitState(const char *why, int tics)
 
         if (rl_fast_speed > 0)
             RL_PUT(",\"fast_tics\":%d", rl_fast_tics);
+
+        // door_sectors (2026-11-17): how many of the visited sectors are
+        // doors (RL_Passage), so the env pays a door crossing once: for
+        // the room behind it, not for the door's own sector too.
+        {
+            int doors = 0;
+            for (i = 0; i < numsectors; i++)
+                if (RL_Passage(&sectors[i]) == RL_DOOR && T_SectorVisited(i))
+                    doors++;
+            RL_PUT(",\"door_sectors\":%d", doors);
+        }
 
         // Key colours held, as a mask (1 blue, 2 yellow, 4 red): a
         // keycard and a skull key of one colour open the same doors.
@@ -535,10 +1004,14 @@ void RL_EmitState(const char *why, int tics)
         // the nearest portal of the current sector into an unvisited
         // sector; left out when the sector has none. The env's look
         // reward. Reward shaping only.
+        // Doors first (2026-11-17): both go by the portals through a door
+        // or onto a lift (RL_PassagePortal) when the sector has one of the
+        // kind asked for, by all its portals otherwise.
         {
             double px = mo->x / (double) FRACUNIT, py = mo->y / (double) FRACUNIT;
-            double pd = -1, ud = -1;
-            const line_t *uline = NULL;
+            double pd[2] = { -1, -1 }, ud[2] = { -1, -1 };   // [0] all, [1] doors
+            const line_t *uline[2] = { NULL, NULL };
+            int k;
             sector_t *s = mo->subsector ? mo->subsector->sector : NULL;
             if (s != NULL)
                 for (i = 0; i < s->linecount; i++)
@@ -549,20 +1022,27 @@ void RL_EmitState(const char *why, int tics)
                     if (!RL_IsPortalOf(ld, s))
                         continue;
                     d = RL_SegDist(px, py, ld);
-                    if (pd < 0 || d < pd)
-                        pd = d;
                     other = ld->frontsector == s ? ld->backsector : ld->frontsector;
-                    if (!T_SectorVisited(other - sectors) && (ud < 0 || d < ud))
+                    for (k = 0; k < 2; k++)
                     {
-                        ud = d;
-                        uline = ld;
+                        if (k == 1 && !RL_PassagePortal(ld))
+                            continue;
+                        if (pd[k] < 0 || d < pd[k])
+                            pd[k] = d;
+                        if (!T_SectorVisited(other - sectors) && (ud[k] < 0 || d < ud[k]))
+                        {
+                            ud[k] = d;
+                            uline[k] = ld;
+                        }
                     }
                 }
-            RL_PUT(",\"portal_dist\":%d", pd < 0 ? -1 : (int) (pd + 0.5));
-            if (uline != NULL)
+            k = pd[1] >= 0 ? 1 : 0;
+            RL_PUT(",\"portal_dist\":%d", pd[k] < 0 ? -1 : (int) (pd[k] + 0.5));
+            uline[0] = uline[1] != NULL ? uline[1] : uline[0];
+            if (uline[0] != NULL)
             {
                 double cx, cy, rel;
-                RL_SegClosest(px, py, uline, &cx, &cy);
+                RL_SegClosest(px, py, uline[0], &cx, &cy);
                 rel = atan2(cy - py, cx - px) * 180.0 / M_PI - RL_AngleDeg(mo->angle);
                 while (rel > 180.0)
                     rel -= 360.0;
@@ -578,6 +1058,16 @@ void RL_EmitState(const char *why, int tics)
             int wd = RL_WallDist(mo);
             boolean use = (rl_wall_special && wd >= 0 && wd <= 64) || RL_WallUse(mo);
             RL_PUT(",\"wall_dist\":%d,\"wall_use\":%s", wd, use ? "true" : "false");
+        }
+        if (rlenv && T_InExplore())
+        {
+            // path_dist / path_rel (2026-11-17): see RL_PathQuery.
+            int rel = 0;
+            boolean rel_ok;
+            int pdist = RL_PathQuery(mo, &rel, &rel_ok);
+            RL_PUT(",\"path_dist\":%d", pdist);
+            if (rel_ok)
+                RL_PUT(",\"path_rel\":%d", rel);
         }
 
         // CONSULT triggers (SPEC.md §5.3). monstervis: a living monster
@@ -690,10 +1180,10 @@ void RL_UseEnd(void)
 }
 
 
-void RL_NotePickup(const char *kind, int hp)
+void RL_NotePickup(const char *kind, int hp, boolean practice)
 {
-    RL_Emit("{\"event\":\"pickup\",\"kind\":\"%s\",\"hp\":%d,\"gametic\":%d}",
-            kind, hp, gametic);
+    RL_Emit("{\"event\":\"pickup\",\"kind\":\"%s\",\"hp\":%d,\"practice\":%s,\"gametic\":%d}",
+            kind, hp, practice ? "true" : "false", gametic);
 }
 
 
@@ -707,7 +1197,15 @@ void RL_NotePickup(const char *kind, int hp)
 #define RL_SPAWN_NEAR    128            // spawn distance range, map units
 #define RL_SPAWN_FAR     640
 
+#define RL_ITEM_LIFE     (10 * TICRATE)
+#define RL_ITEM_NEAR     64
+#define RL_ITEM_FAR      256            // farther, an item is a speck at 128x80
+#define RL_ITEM_VIEW     40             // degrees off the facing: on screen (90-degree view)
+
 static int rl_spawn_period = -1;        // -rlspawn; -1 unparsed, 0 off
+static int rl_item_period = -1;         // -rlitems; -1 unparsed, 0 off
+static mobj_t *rl_item;                 // the live practice item
+static int rl_item_age;
 static uint32_t rl_spawn_rng = 1;
 static mobj_t *rl_spawned[RL_SPAWN_MAX];
 static int rl_spawned_age[RL_SPAWN_MAX];
@@ -728,6 +1226,9 @@ void RL_SpawnSeed(int n)
 void RL_LevelSetup(void)
 {
     memset(rl_spawned, 0, sizeof(rl_spawned));
+    rl_item = NULL;
+    rl_passage_dirty = true;
+    rl_graph_dirty = true;
     rl_spawn_purge = true;   // a LOAD unarchives the save's mobjs after this
 }
 
@@ -798,6 +1299,145 @@ static boolean RL_TrySpawn(mobj_t *pmo)
     return false;
 }
 
+// A practice item (see d_rlenv.h): a random Diablo item valid at this
+// difficulty, rarer tiers less often, from the private RNG.
+static int RL_PracticeItemId(void)
+{
+    static const int weight[NUM_TIERS] = { 40, 30, 15, 10, 5 };
+    int tier, i, n, pick, roll = (int) (RL_SpawnRand() % 100);
+
+    for (tier = 0; tier < NUM_TIERS - 1 && roll >= weight[tier]; tier++)
+        roll -= weight[tier];
+    for (; tier >= 0; tier--)
+    {
+        for (i = n = 0; i < D_TierCount(tier); i++)
+            if (D_GetItemDef(tier, i) && D_GetItemDef(tier, i)->diff_tier <= D_DifficultyTier())
+                n++;
+        if (n == 0)
+            continue;
+        pick = (int) (RL_SpawnRand() % (uint32_t) n);
+        for (i = 0; i < D_TierCount(tier); i++)
+            if (D_GetItemDef(tier, i) && D_GetItemDef(tier, i)->diff_tier <= D_DifficultyTier()
+                && pick-- == 0)
+                return D_MAKEITEM(tier, i);
+    }
+    return -1;
+}
+
+// The point of a portal the item path aims at: the closest point of the
+// line, kept 24 units off its ends (not into a door jamb).
+static void RL_PortalPoint(double px, double py, const line_t *ld, double *cx, double *cy)
+{
+    double ax = ld->v1->x / (double) FRACUNIT, ay = ld->v1->y / (double) FRACUNIT;
+    double bx = ld->v2->x / (double) FRACUNIT, by = ld->v2->y / (double) FRACUNIT;
+    double dx = bx - ax, dy = by - ay, len = sqrt(dx * dx + dy * dy), t = 0.5, m;
+    if (len > 0)
+    {
+        m = len > 48 ? 24 / len : 0.5;
+        t = ((px - ax) * dx + (py - ay) * dy) / (len * len);
+        t = t < m ? m : t > 1 - m ? 1 - m : t;
+    }
+    *cx = ax + t * dx;
+    *cy = ay + t * dy;
+}
+
+// On the way to a portal and in view (2026-11-17): the item goes on the
+// straight line from the player to a portal of the current sector, when
+// that portal point is within RL_ITEM_VIEW degrees of the facing (so the
+// item is on screen), 64..RL_ITEM_FAR units away, in line of sight and
+// on a floor within a step of the player's. The portals are tried in
+// order -- unvisited doors and lifts, other unvisited portals, visited
+// doors and lifts, other visited portals; nearest first in each -- until
+// the item fits. None fits: no spawn this time.
+#define RL_ITEM_PORTALS 64
+typedef struct
+{
+    double x, y, d;
+    int rank;               // 0 unvisited door, 1 unvisited, 2 visited door, 3 visited
+} rl_portal_t;
+
+static boolean RL_PlaceItem(mobj_t *pmo, const rl_portal_t *pt, int id)
+{
+    int far = (int) pt->d - 16, dist;       // short of the portal line
+    if (far > RL_ITEM_FAR)
+        far = RL_ITEM_FAR;
+    dist = RL_ITEM_NEAR + (int) (RL_SpawnRand() % (uint32_t) (far - RL_ITEM_NEAR + 1));
+    for (; dist >= RL_ITEM_NEAR; dist = dist * 3 / 4)
+    {
+        double px = pmo->x / (double) FRACUNIT, py = pmo->y / (double) FRACUNIT;
+        fixed_t x = pmo->x + (fixed_t) ((pt->x - px) / pt->d * dist * FRACUNIT);
+        fixed_t y = pmo->y + (fixed_t) ((pt->y - py) / pt->d * dist * FRACUNIT);
+        mobj_t *mo = P_SpawnDiabloLootAt(x, y, id);
+
+        if (!P_CheckPosition(mo, x, y) || !P_CheckSight(pmo, mo)
+            || abs(mo->floorz - pmo->floorz) > 24 * FRACUNIT)
+        {
+            P_RemoveMobj(mo);
+            continue;
+        }
+        mo->flags |= MF_RLPRACTICE;
+        rl_item = mo;
+        rl_item_age = 0;
+        printf("[RL] practice item %d at (%d,%d), %d units toward a%s portal %d units off\n",
+               id, x >> FRACBITS, y >> FRACBITS, dist, pt->rank < 2 ? "n unvisited" : " visited",
+               (int) pt->d);
+        RL_Emit("{\"event\":\"item\",\"x\":%d,\"y\":%d,\"gametic\":%d}",
+                x >> FRACBITS, y >> FRACBITS, gametic);
+        return true;
+    }
+    return false;
+}
+
+static void RL_TrySpawnItem(mobj_t *pmo)
+{
+    sector_t *sec = pmo->subsector ? pmo->subsector->sector : NULL;
+    double px = pmo->x / (double) FRACUNIT, py = pmo->y / (double) FRACUNIT;
+    rl_portal_t pts[RL_ITEM_PORTALS], tmp;
+    int i, j, n = 0, id;
+
+    if (sec == NULL)
+        return;
+    for (i = 0; i < sec->linecount && n < RL_ITEM_PORTALS; i++)
+    {
+        const line_t *ld = sec->lines[i];
+        const sector_t *other;
+        double cx, cy, d, rel;
+        if (!RL_IsPortalOf(ld, sec))
+            continue;
+        RL_PortalPoint(px, py, ld, &cx, &cy);
+        d = sqrt((cx - px) * (cx - px) + (cy - py) * (cy - py));
+        if (d < RL_ITEM_NEAR + 16)
+            continue;                       // at the portal already
+        rel = atan2(cy - py, cx - px) * 180.0 / M_PI - RL_AngleDeg(pmo->angle);
+        while (rel > 180.0)
+            rel -= 360.0;
+        while (rel <= -180.0)
+            rel += 360.0;
+        if (rel < -RL_ITEM_VIEW || rel > RL_ITEM_VIEW)
+            continue;                       // off screen
+        other = ld->frontsector == sec ? ld->backsector : ld->frontsector;
+        pts[n].x = cx;
+        pts[n].y = cy;
+        pts[n].d = d;
+        pts[n].rank = (T_SectorVisited(other - sectors) ? 2 : 0) + (RL_PassagePortal(ld) ? 0 : 1);
+        n++;
+    }
+    // By rank, then nearest (insertion sort: a sector has few portals).
+    for (i = 1; i < n; i++)
+        for (j = i; j > 0 && (pts[j].rank < pts[j - 1].rank
+                              || (pts[j].rank == pts[j - 1].rank && pts[j].d < pts[j - 1].d)); j--)
+        {
+            tmp = pts[j];
+            pts[j] = pts[j - 1];
+            pts[j - 1] = tmp;
+        }
+    if (n == 0 || (id = RL_PracticeItemId()) < 0)
+        return;
+    for (i = 0; i < n; i++)
+        if (RL_PlaceItem(pmo, &pts[i], id))
+            return;
+}
+
 void RL_MoveTick(void)
 {
     mobj_t *mo = players[consoleplayer].mo;
@@ -847,9 +1487,16 @@ void RL_SpawnTick(void)
         if (rl_spawn_period < 0)
             rl_spawn_period = 0;
     }
-    // A level was just set up (a LOAD included): practice monsters in
-    // the loaded save have lost their timers -- remove them, so a start
-    // state never carries one.
+    if (rl_item_period < 0)
+    {
+        int p = M_CheckParmWithArgs("-rlitems", 1);
+        rl_item_period = (rlenv && p > 0) ? atoi(myargv[p + 1]) : 0;
+        if (rl_item_period < 0)
+            rl_item_period = 0;
+    }
+    // A level was just set up (a LOAD included): practice monsters and
+    // items in the loaded save have lost their timers -- remove them, so
+    // a start state never carries one.
     if (rl_spawn_purge && rlenv && gamestate == GS_LEVEL)
     {
         thinker_t *th;
@@ -867,13 +1514,27 @@ void RL_SpawnTick(void)
         }
         if (purged > 0)
         {
-            printf("[RL] removed %d practice monster(s) from the loaded save\n", purged);
+            printf("[RL] removed %d practice monster(s)/item(s) from the loaded save\n", purged);
             T_RefreshTargets();
         }
     }
 
-    if (rl_spawn_period == 0 || gamestate != GS_LEVEL || pl->mo == NULL
-        || pl->health <= 0 || !T_InExplore())
+    if (gamestate != GS_LEVEL || pl->mo == NULL || pl->health <= 0 || !T_InExplore())
+        return;
+
+    if (rl_item != NULL && !RL_IsLive(rl_item))
+        rl_item = NULL;                     // picked up
+    if (rl_item != NULL && ++rl_item_age >= RL_ITEM_LIFE)
+    {
+        printf("[RL] practice item removed (lifetime)\n");
+        P_RemoveMobj(rl_item);
+        rl_item = NULL;
+    }
+    if (rl_item_period > 0 && rl_item == NULL && !D_BackpackFull(pl)
+        && RL_SpawnRand() % (uint32_t) rl_item_period == 0)
+        RL_TrySpawnItem(pl->mo);
+
+    if (rl_spawn_period == 0)
         return;
 
     // Forget dead or vanished ones; remove those past their lifetime.

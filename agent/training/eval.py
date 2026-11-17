@@ -132,10 +132,12 @@ def pair_line(label: str, recs: list[dict], width: int) -> str:
     def mean(k):
         return float(np.mean([r[k] for r in recs]))
     rets = [r["ret"] for r in recs]
+    spawned = sum(r.get("items", [0, 0])[0] for r in recs)
+    picked = sum(r.get("items", [0, 0])[1] for r in recs)
     return (f"  {label:<{width}}  ret {np.mean(rets):7.2f} ±{np.std(rets):5.2f}  "
             f"sectors {mean('sectors_gained'):5.2f}  exit {mean('exit'):.2f}  portal {mean('portal'):.2f}  "
             f"death {mean('death'):.2f}  steps {mean('len'):6.0f}  tics {mean('rollout_tics'):5.0f}  "
-            f"({len(recs)} rollouts)")
+            + (f"items {picked}/{spawned}  " if spawned else "") + f"({len(recs)} rollouts)")
 
 
 def rollouts(args, ckpt: Path, policy: Policy, device: torch.device) -> None:

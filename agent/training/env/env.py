@@ -48,6 +48,8 @@ class RewardConfig:
     # Per newly visited sector: more than a mechanism, since getting
     # somewhere new is the goal and a door only the way there. With the
     # portal goal (training) the first new sector also ends the rollout.
+    # A door's own sector never counts (2026-11-17; rooms()): a door
+    # crossing pays once, for the room behind it.
     sector: float = 15.0
     exit: float = 100.0               # level complete triggered (ends the rollout): the top reward
     death: float = -100.0             # the player died (ends the rollout): as big as the exit
@@ -115,7 +117,9 @@ class RewardConfig:
     # Only unvisited ones: right after a crossing the nearest portal is
     # usually the one just used, behind the player. The default is half
     # the clock's base rate (model.make_env ties it to --time-penalty), so
-    # it can't pay for standing still. 0 turns it off.
+    # it can't pay for standing still. 0 turns it off. Since 2026-11-17
+    # a is the way along the walking path instead when the engine has one
+    # (way_rel(): path_rel), so the reward follows a corridor round a bend.
     look: float = 1 / 3 / 35 / 2
     # Wasted rotation (2026-11-16): turning that gets undone. From the
     # facing in the state line, over the last turn_waste_window tics:
@@ -173,14 +177,43 @@ class RewardConfig:
 ConsultHandler = Callable[["DiabloDoomEnv", dict, list], dict]
 
 
+def rooms(state: dict, default: int = 0) -> int:
+    """The visited sectors the sector reward and the portal goal count:
+    all of them but doors (the engine's door_sectors, 2026-11-17), so
+    walking through a door pays for the room behind it only, not for the
+    door's own small sector too."""
+    if "sectors" not in state:
+        return default
+    return int(state["sectors"]) - int(state.get("door_sectors", 0))
+
+
 def goal_dist(state: dict) -> float | None:
-    """The time penalty's distance (map units, 2026-11-16): to the nearest
-    portal of the player's current sector -- a passable two-sided line
-    into any other sector, visited or not (the engine's portal_dist) --
-    or None when the sector has none (or there is no level). It used to
-    be the nearer of the exit line and the nearest frontier portal."""
+    """The time penalty's distance (map units). Since 2026-11-17 the
+    walking distance to the nearest unvisited room (the engine's
+    path_dist: a path on its 32-unit grid, round walls and through doors
+    the player can open), so being far round a bend costs what it should.
+    No path (none reachable, or an engine without it): the straight
+    distance to the nearest portal of the current sector (portal_dist,
+    2026-11-16), else None (the base rate)."""
+    d = state.get("path_dist")
+    if d is not None and d >= 0:
+        return float(d)
     d = state.get("portal_dist")
     return float(d) if d is not None and d >= 0 else None
+
+
+def way_rel(state: dict) -> float | None:
+    """The look reward's angle (degrees off the facing, positive left):
+    along the walking path to the nearest unvisited room (the engine's
+    path_rel, 2026-11-17: to the farthest of the next 4 path cells the
+    player can walk to straight, so it turns with a corridor and never
+    points into a wall), else to the nearest unvisited portal of the
+    current sector (portal_rel), else None."""
+    if state.get("path_rel") is not None:
+        return float(state["path_rel"])
+    if state.get("portal_rel") is not None:
+        return float(state["portal_rel"])
+    return None
 
 
 def null_consult(env: "DiabloDoomEnv", state: dict, kinds: list) -> dict:
@@ -404,20 +437,27 @@ class DiabloDoomEnv(gym.Env):
         # Mechanisms used during the warm-up count as already used: the
         # reward is for setting something going within the rollout.
         self._used: set = set()
+        warm_item = 0      # a practice item the warm-up spawned and left lying (it lives 10 s)
         for wa in opts.get("warmup") or []:
             if d.get("mode") != EXPLORE or d.get("dead") or int(wa) == CONSULT:
                 break
             d, wevents = self.engine.command(ACTIONS[int(wa)])
             self._new_mechanisms(wevents)
+            for e in wevents:
+                if e.get("event") == "item":
+                    warm_item = 1
+                elif e.get("event") == "pickup" and e.get("practice"):
+                    warm_item = 0
 
         self.state = d
         self._group = opts.get("group")
         self._slot, self._seed = slot, int(rng_seed) % 256
         self._tics = 0
-        self._best_sectors = d.get("sectors", 0)
+        self._best_sectors = rooms(d)
         self._start_sectors = self._best_sectors
         self._goal = goal_dist(d)
         self._keys = d.get("keys", 0)     # keys held at the start (or from the warm-up) never pay
+        self._items_spawned, self._items_picked = warm_item, 0   # -rlitems practice items this rollout
         self._prev_hp = d.get("hp", 0)
         self._combat_steps = 0
         self._turn_hist = collections.deque(maxlen=self.cfg.rewards.turn_waste_window)
@@ -479,7 +519,7 @@ class DiabloDoomEnv(gym.Env):
 
         # Time and distance: every tic costs time * (1 + d / far_scale),
         # d the distance to the nearest exit line or frontier portal.
-        sec = d.get("sectors", self._best_sectors)
+        sec = rooms(d, self._best_sectors)
         goal = goal_dist(d)
         if tics > 0 and rc.time:
             known = [g for g in (self._goal, goal) if g is not None]
@@ -492,10 +532,12 @@ class DiabloDoomEnv(gym.Env):
         # (a dropped action re-reads the last state line: nothing new).
         if sent:
             add("fast", rc.fast * max(int(d.get("fast_tics", 0)), 0) * self._forward_share(prev, d))
-        # Looking toward the nearest unvisited portal of the current sector,
-        # by the facing at the step's end (one tic, under per-tic decisions).
-        if sent and rc.look and d.get("portal_rel") is not None:
-            add("look", rc.look * tics * max(0.0, float(np.cos(np.radians(d["portal_rel"])))))
+        # Looking the way on (way_rel: along the path, else toward the
+        # nearest unvisited portal), by the facing at the step's end (one
+        # tic, under per-tic decisions).
+        rel = way_rel(d)
+        if sent and rc.look and rel is not None:
+            add("look", rc.look * tics * max(0.0, float(np.cos(np.radians(rel)))))
         # Staring at a wall up close (RewardConfig.wall_look).
         wd = d.get("wall_dist")
         if (sent and rc.wall_look and wd is not None and 0 <= wd < rc.wall_look_dist
@@ -542,6 +584,10 @@ class DiabloDoomEnv(gym.Env):
 
         # Pickups: loot and armor per item, health per HP healed.
         for e in events:
+            if e.get("event") == "item":
+                self._items_spawned += 1
+            if e.get("event") == "pickup" and e.get("practice"):
+                self._items_picked += 1
             if e.get("event") == "pickup":
                 if e.get("kind") in ("loot", "armor"):
                     add("loot", rc.loot)
@@ -582,6 +628,7 @@ class DiabloDoomEnv(gym.Env):
         info["exit"] = exited
         info["portal"] = portal
         info["key"] = got_key             # the key goal reached (EnvConfig.key_goal)
+        info["items"] = [getattr(self, "_items_spawned", 0), getattr(self, "_items_picked", 0)]
         info["terms"] = terms             # the reward by term
         info["end"] = end                 # why the rollout ended: exit, death, key, portal, time, combat
         info["max_tics"] = self.cfg.max_tics

@@ -97,6 +97,7 @@ def run_rollouts(vec: GroupVecEnv, policy: Policy, device: torch.device,
         r["death"] = bool(s.get("dead"))
         r["portal"] = bool(r["end_info"].get("portal"))
         r["key"] = bool(r["end_info"].get("key"))
+        r["items"] = list(r["end_info"].get("items", [0, 0]))   # practice items [spawned, picked up]
     return recs
 
 
@@ -127,7 +128,7 @@ def rollout_log_rows(recs: list[dict], options: list[dict], labels: list[str], *
             "hp": [s0.get("hp"), s1.get("hp")],
             "pos": [[s0.get("x"), s0.get("y"), s0.get("sector")], [s1.get("x"), s1.get("y"), s1.get("sector")]],
             "goal_dist": [goal_dist(s0), goal_dist(s1)],
-            "mode": s1.get("mode"), "keys": s1.get("keys"),
+            "mode": s1.get("mode"), "keys": s1.get("keys"), "items": r.get("items"),
             "actions": dict(zip(ACTIONS, acts.tolist())),
             "wall_start": _clock(r["wall_start"]) if "wall_start" in r else None,
             "wall_end": _clock(r["wall_end"]) if "wall_end" in r else None,
