@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 import torch
 
-from learn import build_batch, group_advantages, train_metrics, training_health, update, value_targets
+from learn import GRAD_WARMUP, build_batch, group_advantages, train_metrics, training_health, update, value_targets
 from model import Policy
 
 @pytest.fixture
@@ -90,7 +90,8 @@ def _health_batch(rng, make_rollout):
 
 
 HEALTH_ARGS = dict(epochs=1, minibatch=64, clip=0.2, ent_coef=0.01, vf_coef=0.5, beta=0.0,
-                   max_grad_norm=0.5, stop_dead_units=0.5, stop_grad_norm=1000.0)
+                   max_grad_norm=0.5, stop_dead_units=0.5, stop_grad_norm=1000.0,
+                   stop_grad_ratio=100.0, norm_adv=True)
 
 
 def test_relu_collapse(rng, make_rollout):
@@ -134,3 +135,44 @@ def test_exploding_gradient(rng, make_rollout):
     assert training_health(upd, args) is None
     tight = types.SimpleNamespace(**{**HEALTH_ARGS, "stop_grad_norm": upd["grad_norm_max"] / 2})
     assert "exploding gradient" in training_health(upd, tight)
+
+
+def test_grad_ratio():
+    """The relative gradient check: a gradient norm past --stop-grad-ratio
+    times the median of the recent healthy updates stops training, once
+    GRAD_WARMUP of them exist; a spike under the ratio, a short history,
+    and ratio 0 don't."""
+    args = types.SimpleNamespace(**{**HEALTH_ARGS, "stop_grad_norm": 0})
+    recent = [10.0] * GRAD_WARMUP
+    why = training_health({"grad_norm_max": 1001.0}, args, recent)
+    assert why and "exploding gradient" in why and "median" in why, why
+    assert training_health({"grad_norm_max": 500.0}, args, recent) is None, "a 50x spike is no explosion"
+    assert training_health({"grad_norm_max": 1e6}, args, recent[:-1]) is None, "warm-up: too little history"
+    assert training_health({"grad_norm_max": 1e6}, types.SimpleNamespace(**{**vars(args), "stop_grad_ratio": 0}),
+                           recent) is None, "0 turns it off"
+
+
+def test_norm_adv(rng, make_rollout):
+    """--norm-adv: the update doesn't depend on the advantages' overall
+    size (a batch of long rollouts, with advantages 1000x larger, moves the
+    policy exactly as far); without it, it does. adv_std reports the
+    spread before scaling."""
+    import copy
+    batch = _health_batch(rng, make_rollout)
+    big = {**batch, "adv": batch["adv"] * 1000}
+
+    def after(b, norm):
+        torch.manual_seed(0)
+        policy = Policy()
+        torch.manual_seed(1)
+        args = types.SimpleNamespace(**{**HEALTH_ARGS, "norm_adv": norm})
+        upd = update(policy, torch.optim.Adam(policy.parameters(), lr=1e-3), None, b, args, torch.device("cpu"))
+        return [p.detach() for p in policy.parameters()], upd
+
+    small_w, small_u = after(batch, True)
+    big_w, big_u = after(big, True)
+    assert big_u["adv_std"] == pytest.approx(1000 * small_u["adv_std"], rel=1e-4)
+    assert all(torch.allclose(a, b, atol=1e-6) for a, b in zip(small_w, big_w)), "scaled: same update"
+    small_w, _ = after(batch, False)
+    big_w, _ = after(big, False)
+    assert any(not torch.allclose(a, b, atol=1e-6) for a, b in zip(small_w, big_w)), "unscaled: size matters"

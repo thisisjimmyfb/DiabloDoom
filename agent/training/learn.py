@@ -10,6 +10,7 @@ and reference policy, resumed from the newest checkpoint)."""
 
 from __future__ import annotations
 
+import argparse
 import random
 import uuid
 from pathlib import Path
@@ -94,6 +95,14 @@ def update(policy: Policy, optimizer: torch.optim.Optimizer, ref: Policy | None,
     old_lp = torch.as_tensor(batch["logp"], device=device)
     adv = torch.as_tensor(batch["adv"], device=device)
     ret = torch.as_tensor(batch["ret"], device=device)
+    # --norm-adv: scale the batch's advantages to a standard deviation of 1
+    # (no mean shift, so no sign changes and the proportions stay). Process
+    # advantages sum every later step's score, so their size follows the
+    # rollout length (525-2100 tics); unscaled, long batches swamp the
+    # entropy bonus and swing the gradient norm.
+    adv_std = adv.std().item() if n > 1 else 0.0
+    if getattr(args, "norm_adv", False) and adv_std > 1e-8:
+        adv = adv / adv_std
     stats = {k: [] for k in ("pg_loss", "v_loss", "entropy", "approx_kl", "clipfrac", "ref_kl",
                              "grad_norm")}
     # Health (training_health): which units of the trunk's last layer (the
@@ -118,6 +127,7 @@ def update(policy: Policy, optimizer: torch.optim.Optimizer, ref: Policy | None,
     if alive is not None:
         out["dead_units"] = 1.0 - alive.float().mean().item()
     out["nonfinite_steps"] = nonfinite
+    out["adv_std"] = adv_std
     return out
 
 
@@ -171,11 +181,21 @@ def _update_epochs(policy, optimizer, ref, args, device, n, obs, priv, act, old_
     return nonfinite
 
 
-def training_health(upd: dict, args) -> str | None:
+# The relative gradient check (training_health): the median of the last
+# GRAD_WINDOW healthy updates' gradient_norm_max, used once GRAD_WARMUP of
+# them exist. Over 1,169 updates of one run (unscaled advantages) the
+# largest spike was 25x that median, and clipping made it harmless.
+GRAD_WINDOW = 50
+GRAD_WARMUP = 20
+
+
+def training_health(upd: dict, args, recent: list[float] | None = None) -> str | None:
     """Why training must stop after this update, or None if it's healthy:
     - exploding gradient: an optimizer step had a non-finite loss or
-      gradient (skipped), or the gradient norm before clipping went past
-      --stop-grad-norm;
+      gradient (skipped); the gradient norm before clipping went past
+      --stop-grad-ratio times the median of the last GRAD_WINDOW healthy
+      updates (`recent`, once it holds GRAD_WARMUP of them: a resumed run
+      starts the history again); or past --stop-grad-norm;
     - ReLU collapse: at least --stop-dead-units of the trunk's last-layer
       units never fired on the whole batch (a dead unit gets no gradient
       and never comes back; with all of them dead the policy ignores the
@@ -185,6 +205,13 @@ def training_health(upd: dict, args) -> str | None:
         return (f"exploding gradient: {upd['nonfinite_steps']} optimizer steps had a non-finite "
                 "loss or gradient (skipped)")
     gmax = upd.get("grad_norm_max")
+    ratio = getattr(args, "stop_grad_ratio", 0)
+    if ratio > 0 and gmax is not None and recent is not None and len(recent) >= GRAD_WARMUP:
+        med = float(np.median(recent[-GRAD_WINDOW:]))
+        if gmax > ratio * med:
+            return (f"exploding gradient: gradient norm {gmax:.3g} before clipping, "
+                    f"{gmax / med:.0f}x the median of the last {min(len(recent), GRAD_WINDOW)} "
+                    f"updates ({med:.3g}; --stop-grad-ratio {ratio:g})")
     if args.stop_grad_norm > 0 and gmax is not None and gmax > args.stop_grad_norm:
         return (f"exploding gradient: gradient norm {gmax:.3g} before clipping "
                 f"(--stop-grad-norm {args.stop_grad_norm:g})")
@@ -231,7 +258,8 @@ def print_train(it: int, m: dict, upd: dict, extra: str = "") -> None:
           f"ent {upd.get('entropy', float('nan')):.3f} kl {upd.get('approx_kl', float('nan')):.4f}"
           + (f" front {m['frontier_share']:.2f}" if "frontier_share" in m else "")
           + (f" dead {upd['dead_units']:.2f} gnorm {upd['grad_norm_max']:.0f}"
-             if "dead_units" in upd and "grad_norm_max" in upd else "") + extra)
+             if "dead_units" in upd and "grad_norm_max" in upd else "")
+          + (f" adv {upd['adv_std']:.0f}" if "adv_std" in upd else "") + extra)
 
 
 def add_learn_args(p) -> None:
@@ -249,9 +277,16 @@ def add_learn_args(p) -> None:
     p.add_argument("--stop-dead-units", type=float, default=0.5,
                    help="stop training (no save, no upload) when this share of the trunk's last-layer "
                         "units never fire on a batch: ReLU collapse (0: off)")
-    p.add_argument("--stop-grad-norm", type=float, default=1000.0,
+    p.add_argument("--stop-grad-ratio", type=float, default=100.0,
                    help="stop training (no save, no upload) when the gradient norm before clipping "
-                        "goes past this: an exploding gradient (0: off; a non-finite one always stops)")
+                        "goes past this many times the median of the last 50 updates: an exploding "
+                        "gradient (0: off; a non-finite one always stops)")
+    p.add_argument("--stop-grad-norm", type=float, default=0.0,
+                   help="also stop when the gradient norm before clipping goes past this absolute "
+                        "value (0: off, the default)")
+    p.add_argument("--norm-adv", action=argparse.BooleanOptionalAction, default=True,
+                   help="scale each batch's advantages to a standard deviation of 1 (no mean shift), "
+                        "so their size doesn't follow the rollout length")
     p.add_argument("--gamma-tic", type=float, default=0.999,
                    help="per-tic discount for value targets (0.999 ~ 30 s horizon)")
     p.add_argument("--beta", type=float, default=0.0, help="KL weight to --ref (0: no reference policy)")

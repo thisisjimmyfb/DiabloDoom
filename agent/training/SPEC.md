@@ -172,7 +172,7 @@ screen (scene, 84×84, 4 stacked)
   A_i = (R_i − mean(R_1..R_G)) / (std(R_1..R_G) + ε)        ε ≈ 1e-8
   ```
 
-  Every decision in rollout i gets A_i. Fallback if learning is slow: the process variant (normalize per-step rewards across the group, sum from each step onward).
+  Every decision in rollout i gets A_i. Fallback if learning is slow: the process variant (normalize per-step rewards across the group, sum from each step onward; the sums grow with the steps left, so `--norm-adv`, on by default since 2026-11-16, divides each batch's advantages by their standard deviation -- no mean shift -- to keep the entropy bonus and the gradient norm independent of the rollout length).
 - **Loss:**
 
   ```
@@ -212,7 +212,7 @@ screen (scene, 84×84, 4 stacked)
 The execution environment can stop at any moment.
 - Save at every update boundary: policy and value weights, reference policy, optimizer state, schedule positions, save-slot and seed sampler state, all RNG states, logger run id.
 - Discard rollouts in progress on restart.
-- Health checks before each save (2026-11-16): the update reports the share of the trunk's last-layer units that never fire on the batch (`dead_units`), the gradient norm before clipping (`grad_norm`, `grad_norm_max`) and the optimizer steps skipped for a non-finite loss or gradient (`nonfinite_steps`). ReLU collapse (`dead_units` ≥ `--stop-dead-units`, 0.5) or an exploding gradient (`grad_norm_max` > `--stop-grad-norm`, 1000, or any non-finite step) stops training with exit code 1: that update is not saved, there is no end-of-run eval, and no further upload starts. The metrics row records the reason as `stopped`.
+- Health checks before each save (2026-11-16): the update reports the share of the trunk's last-layer units that never fire on the batch (`dead_units`), the gradient norm before clipping (`grad_norm`, `grad_norm_max`) and the optimizer steps skipped for a non-finite loss or gradient (`nonfinite_steps`). ReLU collapse (`dead_units` ≥ `--stop-dead-units`, 0.5) or an exploding gradient (`grad_norm_max` > `--stop-grad-ratio`, 100, times the median of the last 50 healthy updates once 20 exist; or > `--stop-grad-norm`, off by default; or any non-finite step) stops training with exit code 1: that update is not saved, there is no end-of-run eval, and no further upload starts. The metrics row records the reason as `stopped`.
 - One checkpoint file, `doom-runner.pt`, replaced after every update by an atomic write (temp file, `fsync`, `os.replace`), so a crash mid-write leaves the previous one; a checkpoint that fails to load stops the run rather than starting it fresh (2026-11-15: replaces keeping the last 3 `ckpt_NNNNNN.pt`; older versions live in the Hugging Face repo's commits, `--hub-repo`).
 - On startup, delete stale FIFOs and `/dev/shm` segments and kill orphaned DiabloDoom processes. Only leftovers whose owner process is gone are touched, so several trainer processes can share one box.
 

@@ -53,7 +53,7 @@ from env import cleanup_stale  # noqa: E402  (model.py put env on sys.path)
 from env.vector import GroupVecEnv  # noqa: E402
 from rollout import (heldout_eval, make_heldout_vec, nvtx, print_eval, print_eval_delta, run_rollouts, sample_group_options,
                   write_rollout_log)
-from learn import (add_learn_args, build_batch, group_advantages, print_train, setup_learner,
+from learn import (GRAD_WINDOW, add_learn_args, build_batch, group_advantages, print_train, setup_learner,
                    train_metrics, training_health, update)
 
 
@@ -234,6 +234,7 @@ def main():
     first_eval = last_eval = None
     upd_thread = None   # --overlap: the update running in the background
     unhealthy = None    # why training stopped (learn.training_health): no save, no upload
+    grad_recent: list[float] = []   # healthy updates' grad_norm_max (the relative check)
 
     def end_of_run_eval(last: dict, done_it: int) -> dict:
         """The eval after done_it updates (unless one just ran) and the
@@ -305,9 +306,11 @@ def main():
                  "total_steps": total_steps, "total_tics": total_tics,
                  "sps": m["steps"] / t_roll, "rollout_s": t_roll, "iter_s": t_all, "lag": lag,
                  **timing, **upd}
-            unhealthy = training_health(upd, args)
+            unhealthy = training_health(upd, args, grad_recent)
             if unhealthy:
                 m["stopped"] = unhealthy
+            elif upd.get("grad_norm_max") is not None:
+                grad_recent = (grad_recent + [upd["grad_norm_max"]])[-GRAD_WINDOW:]
             metrics_f.write(json.dumps(m) + "\n")
             metrics_f.flush()
             print_train(it, m, upd, f" ({m['sps']:.0f}/s) {t_all:.1f}s"

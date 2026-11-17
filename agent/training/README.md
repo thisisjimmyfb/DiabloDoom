@@ -276,11 +276,22 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   back; with all 512 dead the policy ignores the screen and only its
   biases learn, which is what the 2026-11-16 run did (KL near 0, 92% right
   turns). And an exploding gradient, when the gradient norm before
-  clipping passes `--stop-grad-norm` (1000; `grad_norm_max`, about 50-100
-  early in a run), or any optimizer step has a non-finite loss or gradient
-  (that step is skipped, so it never reaches the weights; this one always
-  stops). 0 turns a threshold off. The `[train]` line shows both:
-  `dead` and `gnorm`.
+  clipping (`grad_norm_max`) passes `--stop-grad-ratio` (100) times the
+  median of the last 50 healthy updates (checked once 20 exist; a resumed
+  run starts the history again), or `--stop-grad-norm` if set (off by
+  default: the fixed 1000 stopped a healthy run on a one-off 1,390, and
+  clipping makes a finite spike harmless -- the worst one in 1,169
+  updates was 25x the median), or any optimizer step has a non-finite
+  loss or gradient (that step is skipped, so it never reaches the
+  weights; this one always stops). 0 turns a threshold off. The `[train]`
+  line shows both: `dead` and `gnorm`.
+- **Advantage scale (2026-11-16):** `--norm-adv` (on; `--no-norm-adv`
+  turns it off) divides each batch's advantages by their standard
+  deviation, with no mean shift, so signs and proportions stay. Process
+  advantages sum every later step's score, so their size follows the
+  rollout length (525-2100 tics): unscaled, long batches drowned the
+  entropy bonus (entropy fell to 0.4) and swung the gradient norm from
+  30 to 1,390. The `[train]` line's `adv` is the spread before scaling.
 - **Checkpoints:** one file, `runs/<name>/doom-runner.pt`, replaced
   after every update. It holds weights, optimizer, the iteration and
   other counters, and every RNG state, including the start-state sampler.
