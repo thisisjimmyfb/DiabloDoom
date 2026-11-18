@@ -51,7 +51,7 @@ from torch.distributions import Categorical
 
 from model import (Policy, add_env_args, avatar_args, check_slots, checkpoint_obs_size, default_groups, env_label,
                    hub_fetch_checkpoint, load_weights, privileged, resolve_iwads, resolve_maps, run_env)
-from env import ACTIONS, CONSULT, Engine, EngineConfig, EngineError, cleanup_stale  # noqa: E402
+from env import ACTIONS, CONSULT, Engine, EngineConfig, EngineError, RewardConfig, cleanup_stale  # noqa: E402
 from env.env import EXPLORE  # noqa: E402
 from env.obs import FrameStack, Preprocessor  # noqa: E402
 from env.vector import GroupVecEnv  # noqa: E402
@@ -254,7 +254,7 @@ def watch(args, ckpt: Path, policy: Policy, device: torch.device) -> None:
     first, counts, tics, dist = d, np.zeros(len(ACTIONS), dtype=np.int64), 0, 0.0
     # Practice spawns: sightings (monstervis coming on), items, uniques, and
     # whether a CONSULT came while the sighting lasted or within the
-    # unique's flash (0.75 s), as the training triggers count them.
+    # unique's window (unique_grace_tics, 3 s), as the training triggers count them.
     practice = dict(seen=0, seen_consulted=0, spawned=0, picked=0, uniques=0, unique_consulted=0)
     seeing, seen_done, unique_tic, unique_done = False, False, None, False
     try:
@@ -271,7 +271,7 @@ def watch(args, ckpt: Path, policy: Policy, device: torch.device) -> None:
                 if seeing and not seen_done:
                     practice["seen_consulted"] += 1
                     seen_done = True
-                if unique_tic is not None and tics - unique_tic <= 26 and not unique_done:
+                if unique_tic is not None and tics - unique_tic <= RewardConfig().unique_grace_tics and not unique_done:
                     practice["unique_consulted"] += 1
                     unique_done = True
             if a == CONSULT and (args.on_consult == "stop" or d.get("mode") != EXPLORE):

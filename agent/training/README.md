@@ -51,8 +51,9 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   a full backpack is salvaged until it has room. The policy learns when
   to hand off, not how to fight. The triggers (2026-11-17): a monster in
   view, combat, and a unique picked up -- the engine holds a strong
-  pickup flash for 0.75 s on a unique (the frame's mean brightness roughly
-  doubles), and the trigger lasts as long (`unique_grace_tics`, 26):
+  pickup flash for 3.5 s on a unique (the frame's mean brightness roughly
+  doubles), and the trigger lasts 3 s (`unique_grace_tics`, 105, as a
+  monster's `grace_tics`), inside the flash's full-strength part:
   CONSULT in that time pays `consult_hit`, letting it pass costs
   `trigger_miss`. It replaced the full-backpack trigger, whose only cue
   was a status message a few pixels tall in the policy's frame. Practice
@@ -476,7 +477,7 @@ practice monsters and items (`--spawn-tics`, `--item-tics`; 2026-11-17
 for watch mode, the engine's spawners now running under `-rldrive`
 too), and watch mode's summary adds a `practice:` line: monsters seen
 and how many got a CONSULT while in view, items picked up of those
-spawned, uniques, and how many got a CONSULT within the 0.75 s flash.
+spawned, uniques, and how many got a CONSULT within the 3 s window.
 
 ```sh
 ./eval.sh --iwad ../../wad/UltimateDoom/DOOM.WAD          # Ultimate Doom E1M1

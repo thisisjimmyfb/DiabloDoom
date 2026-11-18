@@ -80,13 +80,14 @@ class RewardConfig:
     health: float = 0.2
     consult_hit: float = 5.0          # first CONSULT on an explore trigger
     trigger_miss: float = -8.0        # trigger unanswered after the grace window
-    grace_tics: int = 150             # a monster in view: game tics to CONSULT
+    grace_tics: int = 105             # a monster in view: game tics (3 s) to CONSULT
     # A unique picked up (2026-11-17; the engine's pickup event, tier 4)
-    # is a trigger for unique_grace_tics game tics: as long as the screen
-    # flashes for it (the engine holds the pickup flash 0.75 s), the cue
-    # the policy can see. It replaced the full-backpack trigger, whose
-    # only cue was a few pixels of message text.
-    unique_grace_tics: int = 26
+    # is a trigger for unique_grace_tics game tics (3 s, as a monster;
+    # the engine's pickup flash, the cue, lasts 3.5 s, full strength
+    # through the window, so the cue is on screen whenever CONSULT pays). It replaced
+    # the full-backpack trigger, whose only cue was a few pixels of
+    # message text.
+    unique_grace_tics: int = 105
     grace_decisions: int = 5          # combat (frozen, no tics pass): steps to CONSULT
     consult_false: float = -0.3       # CONSULT with no live, unanswered trigger (-1.5 before 2026-11-17)
     # Time and distance, one penalty: every game tic costs

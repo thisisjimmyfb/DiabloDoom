@@ -144,12 +144,12 @@ Notation: `T` is the time penalty's base rate per tic, `--time-penalty` / 35 (de
 
 #### CONSULT
 
-Triggers, while exploring: a **monster in view** that hasn't acquired the player (the state line's `monstervis`; practice monsters from `-rlspawn` make these common), a **unique item picked up** (2026-11-17: the `pickup` event's `tier` 4; the engine holds a strong screen flash for 0.75 s, the cue the policy can see -- it replaced the full-backpack trigger, whose only cue was a few pixels of text), and **combat** (the world is frozen until CONSULT).
+Triggers, while exploring: a **monster in view** that hasn't acquired the player (the state line's `monstervis`; practice monsters from `-rlspawn` make these common), a **unique item picked up** (2026-11-17: the `pickup` event's `tier` 4; the engine holds a strong screen flash for 3.5 s, full strength through the 3 s window, the cue the policy can see -- it replaced the full-backpack trigger, whose only cue was a few pixels of text), and **combat** (the world is frozen until CONSULT).
 
 | Term | Value | Rule |
 |---|---|---|
 | `consult` (hit) | +5 | The first CONSULT on a live monster or unique trigger. A CONSULT in combat pays nothing itself but avoids the miss. |
-| `consult` (miss) | −8 | A trigger left unanswered past its grace: 150 game tics for a monster in view, 26 (the flash) for a unique, 5 steps in combat. Once per trigger. |
+| `consult` (miss) | −8 | A trigger left unanswered past its grace: 105 game tics (3 s) for a monster in view or a unique (its flash stays at full strength through it), 5 steps in combat. Once per trigger. |
 | `consult` (false) | −0.3 | A CONSULT with no live, unanswered trigger (−1.5 before 2026-11-17: a CONSULT then only paid off with a trigger live more than 23% of the time, so the policy stopped consulting). |
 
 #### Damage and death
@@ -326,7 +326,7 @@ Decided:
 - G = 8, 2,100 tics per rollout.
 - Training uses every IWAD under `wad/` (Freedoom Phase 1 and The Ultimate Doom), groups split evenly between them (§7.1).
 - Training runs as one process on one box (`train.py`); the split worker/learner trainer was removed 2026-11-14 (§7.5).
-- CONSULT rewards and penalties as in §5.3; the item trigger is a unique picked up, cued by a 0.75 s screen flash (2026-11-17; before, a backpack-full message on a failed pickup).
+- CONSULT rewards and penalties as in §5.3; the item trigger is a unique picked up, cued by a 3.5 s screen flash (2026-11-17; before, a backpack-full message on a failed pickup).
 - CONSULT is an environment signal that drives Muse VM; the game cannot hand off by itself. The policy is taught to switch to combat or inventory mode with it, and the monster reward is paid only for sightings while exploring. The policy must choose CONSULT itself in every case — including after combat has started, where it earns no reward but each step without it is penalized. No automatic consult, no mode mask.
 - The status bar stays in the policy's view.
 - Phase 6 uses PPO on logged sessions, no live search. The critic gets HP and exit path distance.

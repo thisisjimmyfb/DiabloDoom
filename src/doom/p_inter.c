@@ -848,11 +848,13 @@ P_TouchSpecialThing
         else
             D_BackpackFullMsg(player);
         player->bonuscount += BONUSADD;
-        // A unique (2026-11-17): a strong pickup flash for 0.75 s, a
+        // A unique (2026-11-17): a strong pickup flash for 3.5 s, a
         // cue that survives a small grayscale frame (the policy's CONSULT
-        // trigger; the message alone is a few pixels of text there).
-        if (taken && tier == TIER_UNIQUE && player->bonuscount < 3 * TICRATE / 4)
-            player->bonuscount = 3 * TICRATE / 4;
+        // trigger; the message alone is a few pixels of text there). At
+        // full strength while bonuscount >= 17, so through the env's 3 s
+        // CONSULT window.
+        if (taken && tier == TIER_UNIQUE && player->bonuscount < 7 * TICRATE / 2)
+            player->bonuscount = 7 * TICRATE / 2;
         if (player == &players[consoleplayer])
             S_StartSound(NULL,
                          loot_type >= MT_LOOT_SET ? sfx_getpow

@@ -233,7 +233,7 @@ an `item` event with its position, removed 10 s after spawning or when a
 save holding one is loaded; its `pickup` event carries `"practice":true`
 (every pickup event carries the field; a Diablo item's also `"tier"`, 0
 normal .. 4 unique). A unique pickup holds a strong pickup flash
-(`bonuscount`) for 0.75 s, in normal play too (2026-11-17): the env's
+(`bonuscount`) for 3.5 s, in normal play too (2026-11-17): the env's
 CONSULT trigger in place of the full backpack, since a flash survives
 the policy's small grayscale frame and a status message doesn't. Give each instance
 its own working directory and `-savedir` (the turn profile and
