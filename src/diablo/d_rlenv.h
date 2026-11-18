@@ -92,10 +92,11 @@ void RL_NoteBackpackFull(void);
 // explore tic removes any practice monster a loaded save carried.
 //
 // RL_Consult is the CONSULT driver command under -rlenv (every CONSULT
-// shows "CONSULT" as the status message; anywhere else that's all): the training
-// stand-in for the hand-off to Muse's VLM. It removes every monster in
-// the player's sight and, in combat, every monster targeting the
-// player: a spawned one disappears (no kill, no loot); a map monster is
+// shows "CONSULT" as the status message; under -rldrive alone it removes
+// only the practice monsters; anywhere else, the message is all): the training
+// stand-in for the hand-off to Muse's VLM. It removes every practice
+// monster, in sight or not, every monster in the player's sight and, in
+// combat, every monster targeting the player: a spawned one disappears (no kill, no loot); a map monster is
 // killed (kill count and Diablo drops, as if the VLM had fought it).
 //
 // -rlitems <tics> (2026-11-17): mean game tics between practice items,

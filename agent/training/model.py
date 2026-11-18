@@ -398,10 +398,10 @@ def add_env_args(p) -> None:
                         "with: resuming with another size stops. eval.py takes it from the checkpoint")
     p.add_argument("--stage", type=int, choices=[1, 2], default=1,
                    help="1: no map monsters (exploration); 2: map monsters on")
-    p.add_argument("--spawn-tics", type=int, default=250,
+    p.add_argument("--spawn-tics", type=int, default=350,
                    help="mean game tics between practice monsters spawned on screen while exploring "
                         "(-rlspawn: a sighting the policy should CONSULT about; 0: none)")
-    p.add_argument("--item-tics", type=int, default=300,
+    p.add_argument("--item-tics", type=int, default=420,
                    help="mean game tics between practice items (random Diablo loot: weapons, armor...) "
                         "spawned on screen on the way to a portal, to walk to and pick up (-rlitems; 0: none)")
     p.add_argument("--noblit", action=argparse.BooleanOptionalAction, default=False,

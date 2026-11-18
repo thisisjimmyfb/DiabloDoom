@@ -919,7 +919,7 @@ void RL_EmitState(const char *why, int tics)
                "\"x\":%d,\"y\":%d,\"z\":%d,\"angle\":%d,"
                "\"tp\":%d,\"tp_max\":%d,\"qlen\":%d,"
                "\"weapon\":%d,\"ammo\":%d,\"ammo_max\":%d,"
-               "\"kills\":%d,\"sectors\":%d,\"sector\":%d",
+               "\"kills\":%d,\"sectors\":%d,\"sector\":%d,\"subsector\":%d",
                p->health,
                (p->playerstate == PST_DEAD || p->health <= 0) ? "true" : "false",
                D_EquippedDurabilitySum(p),
@@ -928,7 +928,9 @@ void RL_EmitState(const char *why, int tics)
                turnctrl.tp, turnctrl.tp_max, turnctrl.queue_len,
                (int) w, T_KitAmmo(w), T_KitMaxAmmo(w),
                p->killcount, T_VisitedCount(),
-               mo->subsector ? (int) (mo->subsector->sector - sectors) : -1);
+               mo->subsector ? (int) (mo->subsector->sector - sectors) : -1,
+               // the BSP leaf the player stands in (the env's cover reward)
+               mo->subsector ? (int) (mo->subsector - subsectors) : -1);
 
         if (rl_fast_speed > 0)
             RL_PUT(",\"fast_tics\":%d", rl_fast_tics);
@@ -1202,11 +1204,11 @@ void RL_NotePickup(const char *kind, int hp, boolean practice, int tier)
 // CONSULT practice monsters and the CONSULT command (see d_rlenv.h).
 // ---------------------------------------------------------------------
 
-#define RL_SPAWN_MAX     4
+#define RL_SPAWN_MAX     1              // one at a time (4 before 2026-11-17)
 #define RL_SPAWN_LIFE    (5 * TICRATE)  // removed this long after spawning
 #define RL_SPAWN_TRIES   16             // directions tried, all in view
 #define RL_SPAWN_NEAR    128            // spawn distance range, map units
-#define RL_SPAWN_FAR     640
+#define RL_SPAWN_FAR     384            // 640 before 2026-11-17: too small at 128x80
 
 #define RL_ITEM_LIFE     (10 * TICRATE)
 #define RL_ITEM_NEAR     64
@@ -1251,6 +1253,22 @@ static boolean RL_IsLive(mobj_t *mo)
     for (th = thinkercap.next; th != &thinkercap; th = th->next)
         if (th == &mo->thinker)
             return th->function.acp1 == (actionf_p1) P_MobjThinker;
+    return false;
+}
+
+// Any live practice monster (or item) in the level, tracked or not: a
+// spawn waits for none, so there is only ever one of each.
+static boolean RL_PracticeExists(boolean monster)
+{
+    thinker_t *th;
+    for (th = thinkercap.next; th != &thinkercap; th = th->next)
+    {
+        mobj_t *mo = (mobj_t *) th;
+        if (th->function.acp1 == (actionf_p1) P_MobjThinker
+            && (mo->flags & MF_RLPRACTICE) && mo->health > 0
+            && !!(mo->flags & MF_COUNTKILL) == monster)
+            return true;
+    }
     return false;
 }
 
@@ -1544,7 +1562,7 @@ void RL_SpawnTick(void)
         rl_item = NULL;
     }
     if (rl_item_period > 0 && rl_item == NULL && !D_BackpackFull(pl)
-        && RL_SpawnRand() % (uint32_t) rl_item_period == 0)
+        && RL_SpawnRand() % (uint32_t) rl_item_period == 0 && !RL_PracticeExists(false))
         RL_TrySpawnItem(pl->mo);
 
     if (rl_spawn_period == 0)
@@ -1571,7 +1589,7 @@ void RL_SpawnTick(void)
         }
         live++;
     }
-    if (live == 0 && RL_SpawnRand() % (uint32_t) rl_spawn_period == 0)
+    if (live == 0 && RL_SpawnRand() % (uint32_t) rl_spawn_period == 0 && !RL_PracticeExists(true))
         RL_TrySpawn(pl->mo);
 }
 
@@ -1609,9 +1627,12 @@ void RL_Consult(void)
         mo = (mobj_t *) th;
         if (!(mo->flags & MF_COUNTKILL) || mo->health <= 0 || mo->player != NULL)
             continue;
-        if (!P_CheckSight(pl->mo, mo) && !(combat && mo->target == pl->mo))
-            continue;
         si = RL_SpawnedIndex(mo);
+        if (si < 0 && !rlenv)
+            continue;       // -rldrive: only practice monsters, never the map's
+        // A practice monster goes in or out of sight (2026-11-17).
+        if (si < 0 && !P_CheckSight(pl->mo, mo) && !(combat && mo->target == pl->mo))
+            continue;
         if (si >= 0 && !combat)
         {
             // Explore: nothing else holds it (the target list is

@@ -272,6 +272,11 @@ def train_metrics(recs: list[dict], n_groups: int, collapsed: int) -> dict:
          "items_picked": int(sum(r.get("items", [0, 0])[1] for r in recs)),
          "collapsed_share": collapsed / max(n_groups, 1),
          "action_share": (acts / max(acts.sum(), 1)).round(3).tolist()}
+    cs = np.sum([r.get("consult_stats", [0, 0, 0, 0]) for r in recs], axis=0)
+    if cs[0]:
+        m["consult_trig"] = float(cs[1] / cs[0])    # P(CONSULT | a monster/unique trigger pending)
+    if cs[2]:
+        m["consult_idle"] = float(cs[3] / cs[2])    # P(CONSULT | none pending): should fall toward 0
     if any("frontier" in r for r in recs):
         m["frontier_share"] = float(np.mean([bool(r.get("frontier")) for r in recs]))
     if recs and recs[0].get("frontier_saved"):
@@ -295,7 +300,9 @@ def print_train(it: int, m: dict, upd: dict, extra: str = "") -> None:
           + (f" dead {upd['dead_units']:.2f} gnorm {upd['grad_norm_max']:.0f}"
              if "dead_units" in upd and "grad_norm_max" in upd else "")
           + (f" adv {upd['adv_std']:.0f}" if "adv_std" in upd else "")
-          + (f" items {m['items_picked'] / m['items_spawned']:.2f}" if m.get("items_spawned") else "") + extra)
+          + (f" items {m['items_picked'] / m['items_spawned']:.2f}" if m.get("items_spawned") else "")
+          + (f" consult {m.get('consult_trig', 0):.3f}/{m['consult_idle']:.3f}" if "consult_idle" in m else "")
+          + extra)
 
 
 def add_learn_args(p) -> None:

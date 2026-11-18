@@ -155,7 +155,9 @@ mechanism reward once per mechanism). Pickups (2026-11-14): each thing the playe
 picks up sends a `pickup` event (`kind` loot, armor, health, key or
 other; `hp` the health it gave) for the env's loot and health rewards. Approach (2026-11-14): the state
 line carries `exit_dist` and `frontier_dist` (and, since 2026-11-14, `sector`, the
-player's current sector index, for the training rollout log), map units to the nearest
+player's current sector index, for the training rollout log; and since
+2026-11-17 `subsector`, the BSP leaf the player stands in, for the env's
+once-per-leaf `cover` reward), map units to the nearest
 exit line and to the nearest passable opening into an unvisited sector
 (-1 when none), and since 2026-11-16 `portal_dist`, to the nearest
 passable opening of the player's current sector into any other sector
@@ -210,18 +212,18 @@ CONSULT (2026-11-13): the state line carries `monstervis` (a living
 monster on screen while exploring), `backpack_full` and `bp_count`, the
 CONSULT triggers; `-rlspawn <tics>` (`-rlenv`, and `-rldrive` since
 2026-11-17 so eval.py --iwad shows them)
-spawns practice monsters on screen while exploring (in sight, within 30
+spawns practice monsters on screen while exploring (in sight, 128-384 units ahead, within 30
 degrees of the view; one at a time, facing away and deaf, flagged
 `MF_RLPRACTICE`; a private RNG seeded by `SEED`). They never trigger
 combat (2026-11-14): one that would acquire the player is removed
 instead, they never count as combatants, and each is removed 5 s after
 spawning or when a save holding one is loaded,
 because map monsters almost always acquire the player the moment they are
-seen; and the `CONSULT` driver command (`-rlenv` only, the training
-stand-in's hand-off) removes the monsters in sight and, in combat, those
-targeting the player (a practice monster disappears, a map monster is
-killed); anywhere else (`-rldrive`, eval.py --iwad; 2026-11-16) CONSULT does
-nothing else. Every CONSULT shows `CONSULT` as the status message
+seen; and the `CONSULT` driver command (the training stand-in's hand-off)
+removes every practice monster, in sight or not (2026-11-17), and under
+`-rlenv` also the map monsters in sight and, in combat, those targeting
+the player (a practice monster disappears, a map monster is killed);
+under `-rldrive` alone (eval.py --iwad) it never touches a map monster. Every CONSULT shows `CONSULT` as the status message
 (under `-rlenv` too since 2026-11-17, when the env forwards every policy
 CONSULT), so a watcher sees the policy asked for the hand-off. Practice items (`-rlitems <tics>`,
 `-rlenv` or `-rldrive`, 2026-11-17): the same way, one random Diablo loot item at

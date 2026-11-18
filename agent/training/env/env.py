@@ -40,6 +40,7 @@ MOVE_DIR = [(1 if "W" in a[6:] else -1 if "S" in a[6:] else 0) if a.startswith("
 
 EXPLORE = "EXPLORE"
 COMBAT_MODES = {"PLANNING", "TARGETING", "CONFIRM", "PULSE", "REACTION", "ROUND_END"}
+ITEM_LIFE_TICS = 350    # a practice item lies 10 s (the engine's RL_ITEM_LIFE)
 
 
 @dataclass
@@ -51,6 +52,14 @@ class RewardConfig:
     # A door's own sector never counts (2026-11-17; rooms()): a door
     # crossing pays once, for the room behind it.
     sector: float = 15.0
+    # Coverage (2026-11-17): the first time in a rollout the player stands
+    # in a BSP leaf (subsector, the state line's `subsector`) pays `cover`.
+    # Circling covers a few leaves once, then nothing; moving on keeps
+    # finding new ones (one about every 100-150 map units, ~9 tics at a
+    # run on E1M1-3), so it stays below the clock's base rate there
+    # (1/105 a tic): moving on is nearly free, looping costs the clock.
+    # The leaf at the rollout's start (after any warm-up) never pays.
+    cover: float = 0.05
     exit: float = 100.0               # level complete triggered (ends the rollout): the top reward
     death: float = -100.0             # the player died (ends the rollout): as big as the exit
     mechanism: float = 10.0           # USE that sets a new mechanism going (once per mechanism)
@@ -78,6 +87,10 @@ class RewardConfig:
     # 1), the mirror of hp_loss. A thing left on the ground pays nothing.
     loot: float = 5.0
     health: float = 0.2
+    # Practice items (2026-11-17): while one lies on the ground, each map
+    # unit closed toward it pays item_approach and each unit away costs
+    # the same, so circling nets nothing. 0 turns it off.
+    item_approach: float = 0.01
     consult_hit: float = 5.0          # first CONSULT on an explore trigger
     trigger_miss: float = -8.0        # trigger unanswered after the grace window
     grace_tics: int = 105             # a monster in view: game tics (3 s) to CONSULT
@@ -125,6 +138,12 @@ class RewardConfig:
     # its own, so a short back-off out of a dead end stays cheaper than
     # turning round. False pays every fast tic alike.
     fast_forward: bool = True
+    # Along the way on (2026-11-17): with fast_forward, b is measured from
+    # the way on (way_rel at the step's start: along the walking path,
+    # else toward the nearest unvisited portal) instead of the facing, so
+    # running a circle is refunded only on the part pointing the right
+    # way and a detour not at all; no way known: the facing, as before.
+    fast_path: bool = True
     # Looking toward a way on (2026-11-16): every tic pays
     #   look * max(0, cos(a))
     # a the angle between the player's facing and the closest point of
@@ -243,8 +262,8 @@ def standin_consult(env: "DiabloDoomEnv", state: dict, kinds: list,
     """Training stand-in for Muse's VLM (SPEC.md §5.4): it clears what the
     policy consulted about, cheaply, so the policy learns *when* to hand
     off, not how to fight. env.step has already sent the CONSULT driver
-    command (every CONSULT; -rlenv: it removes the monsters in sight
-    and, in combat, those targeting the player).
+    command (every CONSULT: it removes every practice monster, and under
+    -rlenv the map monsters in sight and, in combat, those targeting the player).
       - a monster sighting or combat: in combat, END then closes the round (back
         to explore once no combatant is visible), up to max_rounds;
       - a unique picked up (or, on the farm, a full backpack): when the
@@ -331,6 +350,7 @@ class DiabloDoomEnv(gym.Env):
         # the last turn_waste_window turns (degrees), for RewardConfig.turn_waste
         self._turn_hist = collections.deque(maxlen=self.cfg.rewards.turn_waste_window)
         self._move_dir, self._move_tic = 0, -10 ** 9          # the last W/S key and its rollout tic
+        self._item, self._consult_stats = None, [0, 0, 0, 0]  # set per rollout in reset
         self._fall_top, self._fall_peak = None, 0.0           # a fall in progress: its start z, fastest tic
         self.state: dict = {}
 
@@ -458,6 +478,7 @@ class DiabloDoomEnv(gym.Env):
         self._used: set = set()
         self._walls_used: set = set()    # wall lines USE has tried this rollout (use_wall)
         warm_item = 0      # a practice item the warm-up spawned and left lying (it lives 10 s)
+        self._item = None  # the practice item lying now: (x, y, gametic spawned)
         for wa in opts.get("warmup") or []:
             if d.get("mode") != EXPLORE or d.get("dead") or int(wa) == CONSULT:
                 break
@@ -466,8 +487,10 @@ class DiabloDoomEnv(gym.Env):
             for e in wevents:
                 if e.get("event") == "item":
                     warm_item = 1
+                    self._item = (e["x"], e["y"], e.get("gametic", 0))
                 elif e.get("event") == "pickup" and e.get("practice"):
                     warm_item = 0
+                    self._item = None
 
         self.state = d
         self._group = opts.get("group")
@@ -475,9 +498,11 @@ class DiabloDoomEnv(gym.Env):
         self._tics = 0
         self._best_sectors = rooms(d)
         self._start_sectors = self._best_sectors
+        self._covered = {d.get("subsector")}      # BSP leaves stood in this rollout (cover)
         self._goal = goal_dist(d)
         self._keys = d.get("keys", 0)     # keys held at the start (or from the warm-up) never pay
         self._items_spawned, self._items_picked = warm_item, 0   # -rlitems practice items this rollout
+        self._consult_stats = [0, 0, 0, 0]   # explore steps with a monster/unique trigger pending, CONSULTs on them; without, CONSULTs
         self._prev_hp = d.get("hp", 0)
         self._combat_steps = 0
         self._turn_hist = collections.deque(maxlen=self.cfg.rewards.turn_waste_window)
@@ -504,6 +529,11 @@ class DiabloDoomEnv(gym.Env):
         self._handler_events: list = []
         events: list = []
 
+        if not in_combat:                 # the metric: CONSULT with and without a trigger pending
+            pending = any(self._trig[k]["active"] and not self._trig[k]["consulted"]
+                          for k in ("monster", "unique"))
+            self._consult_stats[0 if pending else 2] += 1
+            self._consult_stats[1 if pending else 3] += a == CONSULT
         if a == CONSULT:
             kinds = [k for k, t in self._trig.items() if t["active"] and not t["consulted"]]
             if not kinds:
@@ -513,7 +543,7 @@ class DiabloDoomEnv(gym.Env):
                     add("consult", rc.consult_hit)
                 self._trig[k]["consulted"] = True
             # Every CONSULT reaches the game (status message; under
-            # -rlenv it also removes the monsters in sight), then the
+            # it also removes every practice monster), then the
             # handler does the rest.
             d, _ = self.consult_command("CONSULT")
             d = self.consult_handler(self, d, kinds)
@@ -585,6 +615,12 @@ class DiabloDoomEnv(gym.Env):
                 add("move_flip", rc.move_flip)
             self._move_dir, self._move_tic = move, self._tics
 
+        # Coverage: a BSP leaf not yet stood in this rollout.
+        leaf = d.get("subsector")
+        if rc.cover and leaf is not None and leaf >= 0 and leaf not in self._covered:
+            self._covered.add(leaf)
+            add("cover", rc.cover)
+
         # Exploration: newly visited sectors.
         if sec > self._best_sectors:
             add("sector", rc.sector * (sec - self._best_sectors))
@@ -613,17 +649,31 @@ class DiabloDoomEnv(gym.Env):
         new_keys = self._new_keys(d)
         add("key", rc.key * new_keys)
 
+        # Practice item approach (RewardConfig.item_approach): distance
+        # closed toward the item lying since the step began.
+        if rc.item_approach and self._item is not None and "x" in prev and "x" in d:
+            ix, iy, _ = self._item
+            closed = (np.hypot(prev["x"] - ix, prev["y"] - iy)
+                      - np.hypot(d["x"] - ix, d["y"] - iy))
+            if abs(closed) <= 64:         # a jump (teleport) is not walking
+                add("item", rc.item_approach * float(closed))
+
         # Pickups: loot and armor per item, health per HP healed.
         for e in events:
             if e.get("event") == "item":
                 self._items_spawned += 1
+                self._item = (e["x"], e["y"], e.get("gametic", d.get("gametic", 0)))
             if e.get("event") == "pickup" and e.get("practice"):
                 self._items_picked += 1
+                self._item = None
             if e.get("event") == "pickup":
                 if e.get("kind") in ("loot", "armor"):
                     add("loot", rc.loot)
                 elif e.get("kind") == "health":
                     add("health", rc.health * max(int(e.get("hp", 0)), 0))
+
+        if self._item is not None and d.get("gametic", 0) - self._item[2] >= ITEM_LIFE_TICS:
+            self._item = None             # the engine removed it
 
         # HP lost (a death to 0 included); healing just moves the mark up.
         hp = max(d.get("hp", self._prev_hp), 0)
@@ -660,6 +710,7 @@ class DiabloDoomEnv(gym.Env):
         info["portal"] = portal
         info["key"] = got_key             # the key goal reached (EnvConfig.key_goal)
         info["items"] = [getattr(self, "_items_spawned", 0), getattr(self, "_items_picked", 0)]
+        info["consult_stats"] = list(self._consult_stats)
         info["terms"] = terms             # the reward by term
         info["end"] = end                 # why the rollout ended: exit, death, key, portal, time, combat
         info["max_tics"] = self.cfg.max_tics
@@ -720,7 +771,9 @@ class DiabloDoomEnv(gym.Env):
 
     def _forward_share(self, prev: dict, d: dict) -> float:
         """max(0, cos) of the angle between the step's movement and the
-        facing (RewardConfig.fast_forward); 1 when it's off or unknown."""
+        way on at the step's start (RewardConfig.fast_path; else, or with
+        no way known, the facing) (RewardConfig.fast_forward); 1 when
+        it's off or unknown."""
         if not self.cfg.rewards.fast_forward:
             return 1.0
         if None in (prev.get("x"), prev.get("y"), d.get("x"), d.get("y"), prev.get("angle"), d.get("angle")):
@@ -731,6 +784,10 @@ class DiabloDoomEnv(gym.Env):
             return 1.0                    # no displacement: fast_tics is 0 anyway
         a0, a1 = np.radians(prev["angle"]), np.radians(d["angle"])
         fx, fy = np.cos(a0) + np.cos(a1), np.sin(a0) + np.sin(a1)   # mean facing
+        rel = way_rel(prev) if self.cfg.rewards.fast_path else None
+        if rel is not None:                                           # the way on (degrees, left +)
+            w = np.radians(prev["angle"] + rel)
+            fx, fy = np.cos(w), np.sin(w)
         f = np.hypot(fx, fy)
         if f == 0:
             return 1.0
@@ -807,13 +864,17 @@ class DiabloDoomEnv(gym.Env):
         """Start, age and end the CONSULT triggers; the miss penalty once
         one goes unanswered past its grace: grace_tics game tics for a
         monster, unique_grace_tics for a unique picked up, grace_decisions
-        steps in combat (frozen: no tics pass there). A monster or combat
-        is live while it lasts; a unique from its pickup event until it
-        is consulted or its grace runs out."""
+        steps in combat (frozen: no tics pass there). Combat is live while
+        it lasts; a monster from its sighting, and a unique from its pickup
+        event, until consulted or its grace runs out (a monster longer, while
+        it stays in view)."""
         rc = self.cfg.rewards
-        u = self._trig["unique"]
+        u, m = self._trig["unique"], self._trig["monster"]
         live = {
-            "monster": self._monster_visible(d),
+            # Live from the sighting until consulted or penalized, in view
+            # or not (2026-11-17: turning away no longer escapes the miss).
+            "monster": (self._monster_visible(d)
+                        or (m["active"] and not m["consulted"] and not m["penalized"])),
             "unique": (any(e.get("event") == "pickup" and e.get("tier") == 4 for e in events or [])
                        or (u["active"] and not u["consulted"] and not u["penalized"])),
             "combat": d.get("mode") in COMBAT_MODES,

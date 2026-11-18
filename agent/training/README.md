@@ -46,7 +46,8 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
 - **CONSULT** calls `EnvConfig.consult_handler(game, state, kinds)`.
   `null_consult` does nothing; `standin_consult` (training stand-in)
   clears what was consulted about: the `CONSULT` driver command
-  (`-rlenv` only) removes the monsters in sight, and in combat those
+  removes every practice monster, in sight or not (2026-11-17), and
+  under `-rlenv` also the map monsters in sight and, in combat, those
   targeting the player, then `END` closes the round; on a unique pickup
   a full backpack is salvaged until it has room. The policy learns when
   to hand off, not how to fight. The triggers (2026-11-17): a monster in
@@ -63,7 +64,9 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
 - **Rewards:** `RewardConfig` (SPEC.md §5.3). The values are placeholders.
   The portal goal (`--portal-goal`, default 1): a rollout ends once it
   enters a sector not yet visited (paid by `sector`, 15; there is no
-  separate portal bonus);
+  separate portal bonus); `cover` (0.05) pays the first time a rollout
+  stands in each BSP leaf (the state line's `subsector`), so looping in
+  place earns nothing and moving on keeps finding new leaves;
   `--max-tics` is 525 (15 s), per map a starting budget: after a batch
   where no rollout on a map gets through a portal (or to the exit), that
   map's limit grows x`--tics-growth` (1.5) up to `--max-tics-cap` (2100),
@@ -132,8 +135,11 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   in reach, and a mechanism still pays its +10 on top. Such a USE never
   costs `use_miss`; only USE at nothing in reach does.
   Fast movement pays back the clock only going forward (`fast_forward`,
-  2026-11-16): scaled by the cosine between the movement and the facing,
-  so backing up or strafing pays the whole clock, like standing still.
+  2026-11-16): scaled by the cosine between the movement and the way on
+  (`fast_path`, 2026-11-17: the path direction, else the nearest
+  unvisited portal's; with neither, the facing), so running a circle or
+  a detour, backing up or strafing off the way pays the whole clock,
+  like standing still.
   A quick large drop -- freefall past 10 units a tic, 64 units or more in
   all -- costs `fall` (-3 on landing, whatever the height, 2026-11-16): it
   usually means the player left the intended path. Lifts (even the
@@ -288,20 +294,25 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   turn-based combat off entirely, passive damage included; `--stage 2`
   has the map's monsters. Both
   spawn practice monsters on screen while exploring (`--spawn-tics`,
-  default 250 tics on average, 700 before 2026-11-17; 0 turns them off). Map monsters almost
+  default 350 tics on average, 250 and 700 before 2026-11-17; 0 turns them off). Map monsters almost
   always see the player the moment the player sees them, so without the
   practice monsters a sighting would never come before combat. They face
   away and never start a fight: one that would acquire the player is
   removed instead. Each is removed 5 s after spawning (or when a save
   holding one is loaded), and CONSULT on one pays `consult_hit` and
-  removes it. Practice items (2026-11-17; `--item-tics`, default 300; 0
+  removes it. A sighting stays a trigger for its 3 s even if the policy
+  turns away, so looking away still costs `trigger_miss`. The train
+  line's `consult a/b` is the CONSULT rate with a monster or unique
+  trigger pending / with none (`consult_trig` / `consult_idle` in
+  metrics.jsonl): b near a means CONSULT ignores the cue. Practice items (2026-11-17; `--item-tics`, default 420, 300 before; 0
   turns them off): one random Diablo loot item at a time (a weapon,
   armor, jewelry, a potion) appears on the straight line to a portal of
   the current sector that is on screen (within 40 degrees of the
   facing), 64-256 units away, in sight, on a floor within a step of the
   player's: tried in the order unvisited doors and lifts, other
   unvisited portals, visited doors and lifts, other visited portals,
-  nearest first in each. None fits, or a full backpack: no item that time. It is removed after 10 s. Picking one up pays the usual `loot` reward;
+  nearest first in each. None fits, or a full backpack: no item that time. It is removed after 10 s. While it lies, each unit walked toward it
+  pays `item_approach` (0.01) and each unit away costs it. Picking one up pays the usual `loot` reward;
   the train line's `items` is the share of spawned practice items
   picked up (`items_spawned` / `items_picked` in metrics.jsonl, and
   `items` [spawned, picked] per rollout in rollouts.jsonl).
@@ -482,14 +493,14 @@ spawned, uniques, and how many got a CONSULT within the 3 s window.
 ```sh
 ./eval.sh --iwad ../../wad/UltimateDoom/DOOM.WAD          # Ultimate Doom E1M1
 ./eval.sh --iwad ../../wad/FreedoomPhase1/FREEDOOM1.WAD --checkpoint runs/stage1/doom-runner.pt --warp "1 2"
-./eval.sh --iwad ../../wad/UltimateDoom/DOOM.WAD --greedy --delay 0.3   # most likely actions, slowed down
+./eval.sh --iwad ../../wad/UltimateDoom/DOOM.WAD --temperature 0.5 --delay 0.3   # more decisive actions, slowed down
 ```
 
 The drive stops at the exit, on death, after `--max-decisions`, or on
 Ctrl-C. The game window then stays open for you;
-`--quit-at-end` closes it. A CONSULT while exploring is sent and the game
-only shows `CONSULT` as the status message, so you see the policy asked
-for the hand-off; the drive goes on (`--on-consult stop` stops it there).
+`--quit-at-end` closes it. A CONSULT while exploring is sent: the game
+shows `CONSULT` as the status message, so you see the policy asked
+for the hand-off, and removes every practice monster, in sight or not; the drive goes on (`--on-consult stop` stops it there).
 That needs a game built after 2026-11-16; an older one logs `CONSULT
 needs -rlenv` and shows `CMD CONSULT` instead. Each decision prints the
 action, the mode, the position and the sectors gained, and the end of the

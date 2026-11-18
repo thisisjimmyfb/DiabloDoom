@@ -19,16 +19,17 @@
 # (--spawn-tics, --item-tics; 0 turns them off), with a line counting
 # sightings, items and uniques, and the CONSULTs on them. The drive
 # stops at the exit, on death, after
-# --max-decisions, or on Ctrl-C (a CONSULT only shows "CONSULT" on screen:
-# CONSULT's VLM isn't attached here); the game window then stays open for
+# --max-decisions, or on Ctrl-C (a CONSULT shows "CONSULT" on screen and
+# removes every practice monster, in sight or not: CONSULT's VLM isn't attached here); the game window then stays open for
 # you (--quit-at-end closes it). Other arguments pass through to eval.py.
 #
 #   ./eval.sh                                   # training-style eval: the Hub checkpoint, every IWAD, maps 1 1..1 4, 525 tics
 #   ./eval.sh --max-tics 2100 --maps all
 #   ./eval.sh --headless                        # no game windows
+#   ./eval.sh --temperature 0.5                 # sample more decisively, key by key (0: each key's most likely; default 1, as trained)
 #   ./eval.sh --group-size 2 --groups 2         # 4 windows at a time instead of 64
 #   ./eval.sh --iwad ../../wad/UltimateDoom/DOOM.WAD                  # watch it play Ultimate Doom E1M1
-#   ./eval.sh --iwad ../../wad/FreedoomPhase1/FREEDOOM1.WAD --warp "1 2" --greedy --delay 0.3
+#   ./eval.sh --iwad ../../wad/FreedoomPhase1/FREEDOOM1.WAD --warp "1 2" --temperature 0.5 --delay 0.3
 #
 # The policy (both modes): --checkpoint if given; else the Hugging Face
 # repo's doom-runner.pt (--hub-repo, default thisisjimmy/DoomRunner;

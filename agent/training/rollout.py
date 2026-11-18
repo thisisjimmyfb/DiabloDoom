@@ -30,10 +30,34 @@ def nvtx(name: str):
     return torch.cuda.nvtx.range(name) if torch.cuda.is_available() else contextlib.nullcontext()
 
 
+def pick_actions(logits: torch.Tensor, temperature: float = 1.0) -> torch.Tensor:
+    """Actions sampled at a temperature, one key at a time (the chain
+    rule): move / USE / CONSULT, then the forward key, the strafe key
+    given it, the turn key given both (env.ACTIONS: PRESS index
+    9*forward + 3*strafe + turn, then USE, CONSULT), each factor
+    sharpened to p^(1/T). At 1 that is the policy as trained; toward 0
+    each key takes its most likely value, so a forward push split over 9
+    PRESS combinations still wins over one larger turn; 0 (or less) is
+    that limit."""
+    def draw(q):
+        if temperature <= 0:
+            return q.argmax(dim=-1)
+        return Categorical(logits=torch.log(q.clamp_min(1e-12)) / temperature).sample()
+    p = torch.softmax(logits.float(), dim=-1)
+    rows = torch.arange(p.shape[0], device=p.device)
+    move = p[:, :27].reshape(-1, 3, 3, 3)
+    kind = draw(torch.stack([move.sum((1, 2, 3)), p[:, 27], p[:, 28]], dim=-1))
+    f = draw(move.sum((2, 3)))
+    s = draw(move[rows, f].sum(-1))
+    t = draw(move[rows, f, s])
+    return torch.where(kind == 0, 9 * f + 3 * s + t, 26 + kind)
+
+
 def run_rollouts(vec: GroupVecEnv, policy: Policy, device: torch.device,
-                 options: list[dict]) -> list[dict]:
+                 options: list[dict], temperature: float = 1.0) -> list[dict]:
     """Reset every env with its options and run each to its end with
-    sampled actions. Returns one record per env."""
+    sampled actions (at temperature, eval only: training samples at 1,
+    which the logp it records assumes). Returns one record per env."""
     n = len(options)
     t0 = time.perf_counter()
     with nvtx("reset"):
@@ -55,7 +79,7 @@ def run_rollouts(vec: GroupVecEnv, policy: Policy, device: torch.device,
             p = torch.as_tensor(cur_priv[active], device=device)
             logits, _ = policy(o, p)
             dist = Categorical(logits=logits)
-            a = dist.sample()
+            a = dist.sample() if temperature == 1.0 else pick_actions(logits, temperature)
             lp = dist.log_prob(a)
             a_np, lp_np = a.cpu().numpy(), lp.cpu().numpy()   # waits for the GPU
         t1 = time.perf_counter()
@@ -97,6 +121,7 @@ def run_rollouts(vec: GroupVecEnv, policy: Policy, device: torch.device,
         r["death"] = bool(s.get("dead"))
         r["key"] = bool(r["end_info"].get("key"))
         r["items"] = list(r["end_info"].get("items", [0, 0]))   # practice items [spawned, picked up]
+        r["consult_stats"] = list(r["end_info"].get("consult_stats", [0, 0, 0, 0]))
     return recs
 
 

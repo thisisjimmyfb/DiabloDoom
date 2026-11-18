@@ -22,8 +22,8 @@ stack the policy was trained on (its --obs-size, from the checkpoint), the polic
 the matching driver command is sent. The drive stops when the level's exit
 is reached, the player dies, combat starts (CONSULT is the hand-off to
 Muse's VLM, which isn't attached here), or after --max-decisions; Ctrl-C
-stops it too. A CONSULT while exploring is sent and only shows "CONSULT"
-as the status message (--on-consult skip, the default, drives on). Then a
+stops it too. A CONSULT while exploring is sent: it shows "CONSULT" as
+the status message and removes every practice monster, in sight or not (--on-consult skip, the default, drives on). Then a
 summary is printed (drive_summary): the level, why it stopped, decisions
 and game time, sectors gained, exit, death, health, keys, distance, and
 the policy's action use; the game is left running for you to play on or
@@ -35,7 +35,7 @@ Nothing is trained, saved or uploaded. The policy: --checkpoint, else
 Usage (from agent/training; ./eval.sh does the setup):
     .venv/bin/python eval.py --checkpoint runs/stage1/doom-runner.pt --iwads ../../wad/*/*.WAD
     .venv/bin/python eval.py --hub-repo user/name --max-tics 2100 --headless
-    .venv/bin/python eval.py --iwad ../../wad/UltimateDoom/DOOM.WAD --warp "1 2" --greedy
+    .venv/bin/python eval.py --iwad ../../wad/UltimateDoom/DOOM.WAD --warp "1 2" --temperature 0.5
 """
 
 from __future__ import annotations
@@ -47,7 +47,6 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from torch.distributions import Categorical
 
 from model import (Policy, add_env_args, avatar_args, check_slots, checkpoint_obs_size, default_groups, env_label,
                    hub_fetch_checkpoint, load_weights, privileged, resolve_iwads, resolve_maps, run_env)
@@ -55,7 +54,7 @@ from env import ACTIONS, CONSULT, Engine, EngineConfig, EngineError, RewardConfi
 from env.env import EXPLORE  # noqa: E402
 from env.obs import FrameStack, Preprocessor  # noqa: E402
 from env.vector import GroupVecEnv  # noqa: E402
-from rollout import run_rollouts, sample_group_options  # noqa: E402
+from rollout import pick_actions, run_rollouts, sample_group_options  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 MAX_DROPPED = 20      # policy steps in combat without CONSULT before giving up (EnvConfig.max_combat_steps)
@@ -67,6 +66,10 @@ def parse_args():
     p.add_argument("--checkpoint", default=None, help="policy checkpoint (default: --hub-repo's, else the "
                                                       "newest local runs/*/doom-runner.pt)")
     p.add_argument("--seed", type=int, default=0, help="group starts and action sampling")
+    p.add_argument("--temperature", type=float, default=1.0,
+                   help="sample actions at temperature T, key by key (move/USE/CONSULT, forward, strafe, "
+                        "turn): 1 as trained (default), lower is more decisive, 0 takes each key's "
+                        "most likely value")
     p.add_argument("--headless", action=argparse.BooleanOptionalAction, default=False,
                    help="no game windows (and no sound) (default: a window per game; in the training-style "
                         "eval no sound, running as fast as it can, --group-size x --groups at a time)")
@@ -76,7 +79,6 @@ def parse_args():
                    help="watch the policy play this IWAD file (no monsters) instead of the "
                         "training-style eval")
     w.add_argument("--warp", default="1 1", help="level, as -warp args (default: E1M1)")
-    w.add_argument("--greedy", action="store_true", help="take the most likely action instead of sampling")
     w.add_argument("--on-consult", choices=["skip", "stop"], default="skip",
                    help="CONSULT while exploring: keep driving (default), or stop driving; either way "
                         "it is sent, so the game shows \"CONSULT\" as the status message")
@@ -158,7 +160,7 @@ def rollouts(args, ckpt: Path, policy: Policy, device: torch.device) -> None:
     labels = [env_label(w, m, iwads) for w, m in pairs]
     print(f"[eval] {ckpt}: {len(pairs)} IWAD/map pairs x {G} rollouts, {args.max_tics} tics each "
           f"(ended early by the portal goal {args.portal_goal} and keys), {groups} pairs at a time, "
-          f"stage {args.stage}, seed {args.seed}, device {device}, "
+          f"stage {args.stage}, seed {args.seed}, temperature {args.temperature:g}, device {device}, "
           f"{'headless' if args.headless else f'{groups * G} windows at a time'}")
     cleanup_stale()
     sampler = np.random.default_rng(args.seed)
@@ -169,7 +171,8 @@ def rollouts(args, ckpt: Path, policy: Policy, device: torch.device) -> None:
         vec = GroupVecEnv([run_env(args, slots, w, m) for w, m in chunk for _ in range(G)])
         try:
             recs = run_rollouts(vec, policy, device,
-                                sample_group_options(sampler, len(chunk), G, slots, args.warmup_max))
+                                sample_group_options(sampler, len(chunk), G, slots, args.warmup_max),
+                                temperature=args.temperature)
         finally:
             vec.close()
         for j, label in enumerate(labels[start:start + groups]):
@@ -238,7 +241,7 @@ def watch(args, ckpt: Path, policy: Policy, device: torch.device) -> None:
     cfg.iwad = str(Path(args.iwad).resolve())
     engine = Engine(cfg, tag="play")
     print(f"[watch] {ckpt} driving {Path(cfg.iwad).stem} {args.warp} (no monsters), "
-          f"{'greedy' if args.greedy else 'sampled'} actions")
+          f"actions at temperature {args.temperature:g}")
     d = engine.start()
     w, h = policy.obs_size
     pre = Preprocessor(engine.width, engine.height, w, h)
@@ -266,7 +269,7 @@ def watch(args, ckpt: Path, policy: Policy, device: torch.device) -> None:
                 logits, _ = policy(torch.as_tensor(obs[None], device=device),
                                    torch.as_tensor([privileged({"state": d})], device=device))
                 logits = logits[0]
-                a = int(logits.argmax()) if args.greedy else int(Categorical(logits=logits).sample())
+                a = int(pick_actions(logits[None], args.temperature)[0])
             if a == CONSULT:
                 if seeing and not seen_done:
                     practice["seen_consulted"] += 1
