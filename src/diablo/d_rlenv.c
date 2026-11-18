@@ -919,7 +919,7 @@ void RL_EmitState(const char *why, int tics)
                "\"x\":%d,\"y\":%d,\"z\":%d,\"angle\":%d,"
                "\"tp\":%d,\"tp_max\":%d,\"qlen\":%d,"
                "\"weapon\":%d,\"ammo\":%d,\"ammo_max\":%d,"
-               "\"kills\":%d,\"sectors\":%d,\"sector\":%d,\"subsector\":%d",
+               "\"kills\":%d,\"sectors\":%d,\"sector\":%d",
                p->health,
                (p->playerstate == PST_DEAD || p->health <= 0) ? "true" : "false",
                D_EquippedDurabilitySum(p),
@@ -928,9 +928,7 @@ void RL_EmitState(const char *why, int tics)
                turnctrl.tp, turnctrl.tp_max, turnctrl.queue_len,
                (int) w, T_KitAmmo(w), T_KitMaxAmmo(w),
                p->killcount, T_VisitedCount(),
-               mo->subsector ? (int) (mo->subsector->sector - sectors) : -1,
-               // the BSP leaf the player stands in (the env's cover reward)
-               mo->subsector ? (int) (mo->subsector - subsectors) : -1);
+               mo->subsector ? (int) (mo->subsector->sector - sectors) : -1);
 
         if (rl_fast_speed > 0)
             RL_PUT(",\"fast_tics\":%d", rl_fast_tics);

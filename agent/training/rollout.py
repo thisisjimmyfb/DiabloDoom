@@ -66,7 +66,7 @@ def run_rollouts(vec: GroupVecEnv, policy: Policy, device: torch.device,
     t_start = time.time()
     cur_obs = obs.copy()
     cur_priv = np.array([privileged(i) for i in infos], dtype=np.float32)
-    recs = [{"obs": [], "priv": [], "act": [], "logp": [], "rew": [], "tics": [],
+    recs = [{"obs": [], "priv": [], "act": [], "logp": [], "rew": [], "rew_now": [], "tics": [],
              "start_sectors": infos[k]["state"].get("sectors", 0), "end_info": None,
              "start_state": infos[k]["state"], "wall_start": t_start, "terms": {}}
             for k in range(n)]
@@ -94,6 +94,7 @@ def run_rollouts(vec: GroupVecEnv, policy: Policy, device: torch.device,
             r["act"].append(int(a_np[k]))
             r["logp"].append(float(lp_np[k]))
             r["rew"].append(float(rew[k]))
+            r["rew_now"].append(float(ninfo[k].get("reward_now", 0.0)))   # its one-off part
             r["tics"].append(int(ninfo[k]["tics"]))
             for t, v in ninfo[k].get("terms", {}).items():
                 r["terms"][t] = r["terms"].get(t, 0.0) + v

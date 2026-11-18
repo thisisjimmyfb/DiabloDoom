@@ -4,7 +4,8 @@ group-normalized advantages
     A_i = (R_i - mean(R_group)) / (std(R_group) + eps)
 
 (or, with --advantage process, normalized per-step rewards summed from
-each step onward), tic-discounted value targets, the clipped-ratio update,
+each step onward, plus the step's own one-off rewards), tic-discounted
+value targets, the clipped-ratio update,
 the training metrics and line, and the learner's setup (policy, optimizer
 and reference policy, resumed from the newest checkpoint)."""
 
@@ -46,6 +47,10 @@ def group_advantages(groups: list[list[dict]], mode: str,
             advs += [np.full(m["len"], (rets[j] - rets.mean()) / (std + eps), dtype=np.float32)
                      for j, m in enumerate(members)]
     else:  # process: normalize per-step rewards across the group
+        # Two streams (2026-11-17): chained rewards (rew - rew_now) are
+        # summed from each step onward; one-off rewards (rew_now, the
+        # env's RewardConfig.immediate terms) count on their own step only,
+        # on the same scale (no mean shift: most steps have none).
         for members in groups:
             allr = np.concatenate([np.array(m["rew"], dtype=np.float64) for m in members])
             std = allr.std()
@@ -53,11 +58,19 @@ def group_advantages(groups: list[list[dict]], mode: str,
                 collapsed += 1
                 advs += [None] * len(members)
                 continue
-            mean = allr.mean()
-            for m in members:
-                norm = (np.array(m["rew"], dtype=np.float64) - mean) / (std + eps)
-                advs.append(np.cumsum(norm[::-1])[::-1].astype(np.float32))
+            now = [_rew_now(m) for m in members]
+            chain = [np.array(m["rew"], dtype=np.float64) - n for m, n in zip(members, now)]
+            mean = np.concatenate(chain).mean()
+            for c, n in zip(chain, now):
+                norm = (c - mean) / (std + eps)
+                advs.append((np.cumsum(norm[::-1])[::-1] + n / (std + eps)).astype(np.float32))
     return advs, collapsed
+
+
+def _rew_now(r: dict) -> np.ndarray:
+    """A rollout's per-step one-off rewards (zeros if it has none)."""
+    n = r.get("rew_now")
+    return np.zeros(len(r["rew"])) if n is None else np.array(n, dtype=np.float64)
 
 
 def value_targets(rew: list[float], tics: list[int], gamma_tic: float) -> np.ndarray:
@@ -100,7 +113,9 @@ def build_batch(recs: list[dict], advs: list[np.ndarray | None], gamma_tic: floa
             "act": np.concatenate([np.asarray(r["act"], dtype=np.int64) for r, _ in keep]),
             "logp": np.concatenate([np.asarray(r["logp"], dtype=np.float32) for r, _ in keep]),
             "adv": np.concatenate([a for _, a in keep]).astype(np.float32),
-            "ret": np.concatenate([value_targets(r["rew"], r["tics"], gamma_tic) for r, _ in keep])}
+            # chained rewards only: one-off ones are credited on their own step
+            "ret": np.concatenate([value_targets(np.array(r["rew"]) - _rew_now(r), r["tics"], gamma_tic)
+                                   for r, _ in keep])}
 
 
 def update(policy: Policy, optimizer: torch.optim.Optimizer, ref: Policy | None,
@@ -308,7 +323,7 @@ def print_train(it: int, m: dict, upd: dict, extra: str = "") -> None:
 def add_learn_args(p) -> None:
     """Optimizer and checkpoint arguments shared with train.py."""
     p.add_argument("--iterations", type=int, default=1000)
-    p.add_argument("--advantage", choices=["outcome", "process"], default="outcome")
+    p.add_argument("--advantage", choices=["outcome", "process"], default="process")
     p.add_argument("--lr", type=float, default=2.5e-4)
     p.add_argument("--epochs", type=int, default=4)
     p.add_argument("--minibatch", type=int, default=8192,

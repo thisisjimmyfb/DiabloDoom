@@ -112,7 +112,6 @@ Notation: `T` is the time penalty's base rate per tic, `--time-penalty` / 35 (de
 | Term | Value | Rule |
 |---|---|---|
 | `sector` | +15 per room | Each sector visited for the first time this rollout, by the engine's visited-sector count -- except door sectors (2026-11-17): the env counts `sectors − door_sectors` (`rooms()`), so walking through a door pays once, for the room behind it. Sectors visited at the start (a progress save's visited list, the warm-up) never pay. A sector is any area with its own floor, ceiling or light, so a stair step or a lit patch counts too; each pays once. |
-| `cover` | +0.05 per leaf | Each BSP leaf (subsector: the convex pieces the map's BSP splits sectors into) the player stands in for the first time this rollout, by the state line's `subsector` (2026-11-17). The leaf at the start (after the warm-up) never pays. Circling covers a few leaves once, then nothing; moving on finds a new one about every 100–150 map units (~9 tics at a run on E1M1–3, measured), so it stays below the clock's base rate there: moving on is nearly free, looping costs the full clock. Leaves vary in size (stairs and curved walls split into many small ones), so detailed areas pay more per unit walked. |
 | `exit` | +100 | Level completion triggered (exit switch or line). Ends the rollout. |
 | `key` | +25 per colour | A key colour (blue, yellow, red; card and skull alike) first held this rollout, from the state line's `keys` mask. Keys held at the start never pay. In training a new key also ends the rollout (the key goal); the held-out eval doesn't stop for it. |
 | `mechanism` | +10 | A USE that sets a mechanism going -- a sector starts moving (door, lift, floor, stairs) or a switch flips -- from the engine's `use` event. Once per mechanism per rollout; ones used in the warm-up count as used. |
@@ -151,7 +150,7 @@ Triggers, while exploring: a **monster in view** that hasn't acquired the player
 | Term | Value | Rule |
 |---|---|---|
 | `consult` (hit) | +5 | The first CONSULT on a live monster or unique trigger. A CONSULT in combat pays nothing itself but avoids the miss. |
-| `consult` (miss) | −8 | A trigger left unanswered past its grace: 105 game tics (3 s) from a monster's sighting or a unique's pickup (its flash stays at full strength through it), 5 steps in combat. Once per trigger. A monster trigger stays live through its grace after the monster leaves the view (2026-11-17: turning away used to end it with no penalty, so the miss almost never fired), and a CONSULT then still pays the hit. |
+| `consult` (miss) | −8 | A trigger left unanswered through its grace: 105 game tics (3 s) from a monster's sighting or a unique's pickup (its flash stays at full strength through it), 5 steps in combat. Charged step by step while it waits, −8 over the whole window (2026-11-17; once at the end before), so each frame without a CONSULT gets its share; a CONSULT stops it. A monster trigger stays live through its grace after the monster leaves the view (2026-11-17: turning away used to end it with no penalty, so the miss almost never fired), and a CONSULT then still pays the hit. |
 | `consult` (false) | −0.3 | A CONSULT with no live, unanswered trigger (−1.5 before 2026-11-17: a CONSULT then only paid off with a trigger live more than 23% of the time, so the policy stopped consulting). |
 
 #### Damage and death
@@ -172,7 +171,7 @@ Triggers, while exploring: a **monster in view** that hasn't acquired the player
 | `time` | truncated | `--max-tics` game tics (default 525, 15 s); the held-out eval runs `--eval-max-tics` (2100, 60 s) with no portal or key goal, so its sectors compare across versions. |
 | `combat` | truncated | 20 steps in combat. |
 
-The return is the plain sum over the rollout. GRPO compares rollouts within a group that started from the same state (§7.1, `learn.group_advantages`): with `--advantage outcome` (the default) every step of a rollout gets its return's z-score within the group; with `--advantage process` each step's reward is z-scored against all the group's step rewards and summed from that step to the end (reward-to-go). A group whose rollouts all score alike carries no signal and is dropped ("collapsed"). `--norm-adv` (default on) then divides the batch's advantages by their standard deviation, so batches of different lengths update alike.
+The return is the plain sum over the rollout. GRPO compares rollouts within a group that started from the same state (§7.1, `learn.group_advantages`): with `--advantage outcome` (the default) every step of a rollout gets its return's z-score within the group; with `--advantage process` each step's reward is z-scored against all the group's step rewards and summed from that step to the end (reward-to-go); the one-off terms (`RewardConfig.immediate`: `consult`, `use_miss`, `use_wall`, `move_flip`, `turn_waste`, `wall_look`; the env's `info["reward_now"]`, 2026-11-17) judge only the step's own action, so they are left out of that sum and added, divided by the same group spread, to their own step's advantage alone, and the value targets leave them out (§7.1, "Process advantage"). A group whose rollouts all score alike carries no signal and is dropped ("collapsed"). `--norm-adv` (default on) then divides the batch's advantages by their standard deviation, so batches of different lengths update alike.
 
 #### Design notes
 
@@ -222,6 +221,45 @@ screen (scene, 84×84, 4 stacked)
   ```
 
   Every decision in rollout i gets A_i. Fallback if learning is slow: the process variant (normalize per-step rewards across the group, sum from each step onward; the sums grow with the steps left, so `--norm-adv`, on by default since 2026-11-16, divides each batch's advantages by their standard deviation -- no mean shift -- to keep the entropy bonus and the gradient norm independent of the rollout length).
+- **Process advantage: chained and one-off rewards (2026-11-17).** Each step's reward r_t is split in two:
+  - the **one-off** part n_t: the terms that judge only the action taken on that step (`RewardConfig.immediate`: `consult`, `use_miss`, `use_wall`, `move_flip`, `turn_waste`, `wall_look`). The env reports it per step as `info["reward_now"]`, and the rollout keeps it as `rew_now`.
+  - the **chained** part c_t = r_t − n_t: everything else (`sector`, `fast`, `look`, `time`, `item`, `loot`, `health`, `key`, `mechanism`, `exit`, `death`, `hp_loss`, `fall`), which comes from a run of decisions, so earlier steps share its credit.
+
+  The rule: a term is one-off when the step's own action fully decides it and no earlier decision set it up. It is chained when getting there took earlier steps: the way walked, the turns that lined the view up, the room entered.
+
+  | Term | Stream | Why |
+  |---|---|---|
+  | `sector` | chained | A new room is reached by the whole walk that led there, not just the step that crossed its line. |
+  | `fast` | chained | Running speed builds up over several tics of holding forward (4 units/tic on the third tic from rest), and lining up with the way on (`fast_path`) took the turns before. |
+  | `look` | chained | Facing the way on is the result of the turns that got the view there. |
+  | `time` | chained | The clock and its distance part (far from a way out costs more) follow from where earlier steps took the player. |
+  | `item` | chained | Distance closed toward a practice item is the walk toward it, step after step. |
+  | `loot` | chained | A pickup is the end of the walk to the item. |
+  | `health` | chained | Same: a health pickup is reached by walking to it. |
+  | `key` | chained | A key is picked up at the end of the route to it. |
+  | `mechanism` | chained | The USE step starts the door or lift, but reaching the switch and facing it took the steps before. |
+  | `exit` | chained | The level exit is the end of the whole route. |
+  | `death` | chained | A death follows from the walk into the hazard (or a long stay in it), not only the last step. |
+  | `hp_loss` | chained | Damage comes from where earlier steps took the player (nukage, crushers). |
+  | `fall` | chained | Charged on landing, for a drop the player walked off steps earlier. |
+  | `consult` | one-off | A hit (+5) or a false CONSULT (−0.3) judges that CONSULT alone; the miss is charged on each step without a CONSULT while the trigger waits. Whether the trigger is on screen is not the policy's doing, so no earlier step earned it. |
+  | `use_miss` | one-off | USE with nothing usable ahead: that press alone was wasted. |
+  | `use_wall` | one-off | USE on a wall line not yet tried: it pays the press itself, whatever the wall turns out to be. Setting a mechanism going is `mechanism`, which is chained. |
+  | `move_flip` | one-off | Forward right after back (or back after forward): it judges this step's key against the last one. |
+  | `turn_waste` | one-off | Turning back against the recent turns: it judges this step's turn. |
+  | `wall_look` | one-off | Staring at a wall up close, charged per tic of the step: the next step can turn away. |
+
+  A new term must be put in one stream or the other: the env counts it as chained unless it is added to `RewardConfig.immediate`.
+
+  ```
+  σ   = std of every r_t in the group             (the collapse test, as before)
+  μ_c = mean of every c_t in the group
+  A_t = Σ_{u ≥ t} (c_u − μ_c) / (σ + ε)  +  n_t / (σ + ε)
+  ```
+
+  The chained part is summed from each step on, as before. The one-off part counts on its own step only, on the same scale as the chained part and with no mean shift: most steps have none, and z-scoring such a sparse stream on its own would blow a single hit up. The value targets use only the chained part, since the one-off part is already credited where it happened. `--advantage outcome` is unchanged: it ranks whole returns, which include both.
+
+  Why: summed into the reward-to-go, a one-off reward moved every earlier step's advantage too. A CONSULT's +5 also credited the steps just before it, including the frames where a monster was in view and the policy did something else, so consulting late, or spamming CONSULT, scored about the same as consulting on sight. Measured at iteration 592, before the split: the CONSULT rate was 2.4% with a monster in view and 2.5% without. That's also why the CONSULT miss penalty (§5.3) is charged step by step over the grace window, −8 in all, instead of once at its end: each frame without a CONSULT carries its own share, on that step alone.
 - **Loss:**
 
   ```

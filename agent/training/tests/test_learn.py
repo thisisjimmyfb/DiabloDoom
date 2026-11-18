@@ -52,6 +52,20 @@ def test_process_advantages(groups):
             i += 1
 
 
+def test_process_one_off_rewards():
+    """A one-off reward (rew_now) counts on its own step only, on the
+    group's scale: it never reaches earlier steps, and the value targets
+    leave it out."""
+    rew = [0.0, 0.0, 5.0, 0.0, -1.0]
+    a = {"rew": rew, "rew_now": [0.0, 0.0, 5.0, 0.0, 0.0], "len": 5, "tics": [1] * 5}
+    b = {"rew": [0.0, 0.0, 0.0, 0.0, -1.0], "rew_now": [0.0] * 5, "len": 5, "tics": [1] * 5}
+    (adv_a, adv_b), collapsed = group_advantages([[a, b]], "process")
+    assert collapsed == 0
+    std = np.concatenate([a["rew"], b["rew"]]).std()
+    assert np.allclose(adv_a - adv_b, [0, 0, 5 / std, 0, 0], atol=1e-5), adv_a - adv_b
+    assert np.allclose(value_targets(np.array(rew) - a["rew_now"], a["tics"], 1.0), [-1] * 5)
+
+
 def test_value_targets():
     """Return-to-go discounted per tic: gamma_tic ** tics per step, 0 bootstrap."""
     rew, tics, g = [1.0, 0.0, 2.0], [10, 30, 5], 0.99

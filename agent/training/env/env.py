@@ -52,14 +52,6 @@ class RewardConfig:
     # A door's own sector never counts (2026-11-17; rooms()): a door
     # crossing pays once, for the room behind it.
     sector: float = 15.0
-    # Coverage (2026-11-17): the first time in a rollout the player stands
-    # in a BSP leaf (subsector, the state line's `subsector`) pays `cover`.
-    # Circling covers a few leaves once, then nothing; moving on keeps
-    # finding new ones (one about every 100-150 map units, ~9 tics at a
-    # run on E1M1-3), so it stays below the clock's base rate there
-    # (1/105 a tic): moving on is nearly free, looping costs the clock.
-    # The leaf at the rollout's start (after any warm-up) never pays.
-    cover: float = 0.05
     exit: float = 100.0               # level complete triggered (ends the rollout): the top reward
     death: float = -100.0             # the player died (ends the rollout): as big as the exit
     mechanism: float = 10.0           # USE that sets a new mechanism going (once per mechanism)
@@ -92,7 +84,10 @@ class RewardConfig:
     # the same, so circling nets nothing. 0 turns it off.
     item_approach: float = 0.01
     consult_hit: float = 5.0          # first CONSULT on an explore trigger
-    trigger_miss: float = -8.0        # trigger unanswered after the grace window
+    # Charged tic by tic while a trigger waits unanswered, trigger_miss
+    # over the whole grace window (2026-11-17: once at its end before),
+    # so each frame the policy didn't CONSULT on gets its share.
+    trigger_miss: float = -8.0
     grace_tics: int = 105             # a monster in view: game tics (3 s) to CONSULT
     # A unique picked up (2026-11-17; the engine's pickup event, tier 4)
     # is a trigger for unique_grace_tics game tics (3 s, as a monster;
@@ -204,6 +199,11 @@ class RewardConfig:
     # crushers, barrels) in stage 1. Healing never pays; a death costs
     # the HP it lost on the way plus `death`.
     hp_loss: float = -0.2
+    # One-off terms (2026-11-17): they judge only the step's own action,
+    # so the learner adds them to that step's advantage alone instead of
+    # summing them into every earlier step's reward-to-go
+    # (info["reward_now"], learn.group_advantages).
+    immediate: tuple = ("consult", "use_miss", "use_wall", "move_flip", "turn_waste", "wall_look")
 
 
 # A CONSULT handler answers a CONSULT: it may drive the engine with any
@@ -498,7 +498,6 @@ class DiabloDoomEnv(gym.Env):
         self._tics = 0
         self._best_sectors = rooms(d)
         self._start_sectors = self._best_sectors
-        self._covered = {d.get("subsector")}      # BSP leaves stood in this rollout (cover)
         self._goal = goal_dist(d)
         self._keys = d.get("keys", 0)     # keys held at the start (or from the warm-up) never pay
         self._items_spawned, self._items_picked = warm_item, 0   # -rlitems practice items this rollout
@@ -615,12 +614,6 @@ class DiabloDoomEnv(gym.Env):
                 add("move_flip", rc.move_flip)
             self._move_dir, self._move_tic = move, self._tics
 
-        # Coverage: a BSP leaf not yet stood in this rollout.
-        leaf = d.get("subsector")
-        if rc.cover and leaf is not None and leaf >= 0 and leaf not in self._covered:
-            self._covered.add(leaf)
-            add("cover", rc.cover)
-
         # Exploration: newly visited sectors.
         if sec > self._best_sectors:
             add("sector", rc.sector * (sec - self._best_sectors))
@@ -712,6 +705,7 @@ class DiabloDoomEnv(gym.Env):
         info["items"] = [getattr(self, "_items_spawned", 0), getattr(self, "_items_picked", 0)]
         info["consult_stats"] = list(self._consult_stats)
         info["terms"] = terms             # the reward by term
+        info["reward_now"] = sum(v for t, v in terms.items() if t in rc.immediate)
         info["end"] = end                 # why the rollout ended: exit, death, key, portal, time, combat
         info["max_tics"] = self.cfg.max_tics
         return obs, float(reward), terminated, truncated, info
@@ -861,8 +855,8 @@ class DiabloDoomEnv(gym.Env):
         return len(d.get("targets", [])) > 0
 
     def _update_triggers(self, d: dict, tics: int = 0, events: list | None = None) -> float:
-        """Start, age and end the CONSULT triggers; the miss penalty once
-        one goes unanswered past its grace: grace_tics game tics for a
+        """Start, age and end the CONSULT triggers; the miss penalty while
+        one waits unanswered, spread over its grace: grace_tics game tics for a
         monster, unique_grace_tics for a unique picked up, grace_decisions
         steps in combat (frozen: no tics pass there). Combat is live while
         it lasts; a monster from its sighting, and a unique from its pickup
@@ -882,16 +876,19 @@ class DiabloDoomEnv(gym.Env):
         penalty = 0.0
         for k, on in live.items():
             t = self._trig[k]
+            step = 0
             if on and not t["active"]:
                 self._trig[k] = t = {"active": True, "consulted": False, "age": 0, "penalized": False}
             elif on:
-                t["age"] += 1 if k == "combat" else tics
+                step = 1 if k == "combat" else tics
+                t["age"] += step
             else:
                 t["active"] = False
             grace = (rc.grace_decisions if k == "combat" else
                      rc.unique_grace_tics if k == "unique" else rc.grace_tics)
-            if (t["active"] and not t["consulted"] and not t["penalized"]
-                    and t["age"] >= grace):
-                penalty += rc.trigger_miss
-                t["penalized"] = True
+            if t["active"] and not t["consulted"] and not t["penalized"]:
+                # This step's share of the window (trigger_miss in all).
+                waited = min(t["age"], grace) - min(t["age"] - step, grace)
+                penalty += rc.trigger_miss * waited / max(grace, 1)
+                t["penalized"] = t["age"] >= grace
         return penalty

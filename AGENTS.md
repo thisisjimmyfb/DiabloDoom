@@ -155,9 +155,7 @@ mechanism reward once per mechanism). Pickups (2026-11-14): each thing the playe
 picks up sends a `pickup` event (`kind` loot, armor, health, key or
 other; `hp` the health it gave) for the env's loot and health rewards. Approach (2026-11-14): the state
 line carries `exit_dist` and `frontier_dist` (and, since 2026-11-14, `sector`, the
-player's current sector index, for the training rollout log; and since
-2026-11-17 `subsector`, the BSP leaf the player stands in, for the env's
-once-per-leaf `cover` reward), map units to the nearest
+player's current sector index, for the training rollout log), map units to the nearest
 exit line and to the nearest passable opening into an unvisited sector
 (-1 when none), and since 2026-11-16 `portal_dist`, to the nearest
 passable opening of the player's current sector into any other sector

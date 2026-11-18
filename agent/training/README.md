@@ -56,7 +56,7 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   doubles), and the trigger lasts 3 s (`unique_grace_tics`, 105, as a
   monster's `grace_tics`), inside the flash's full-strength part:
   CONSULT in that time pays `consult_hit`, letting it pass costs
-  `trigger_miss`. It replaced the full-backpack trigger, whose only cue
+  `trigger_miss`, charged step by step over the window (2026-11-17). It replaced the full-backpack trigger, whose only cue
   was a status message a few pixels tall in the policy's frame. Practice
   items roll a unique a quarter of the time so it comes up. A farm handler
   would signal Muse VM instead. Handlers send driver commands through
@@ -64,9 +64,7 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
 - **Rewards:** `RewardConfig` (SPEC.md §5.3). The values are placeholders.
   The portal goal (`--portal-goal`, default 1): a rollout ends once it
   enters a sector not yet visited (paid by `sector`, 15; there is no
-  separate portal bonus); `cover` (0.05) pays the first time a rollout
-  stands in each BSP leaf (the state line's `subsector`), so looping in
-  place earns nothing and moving on keeps finding new leaves;
+  separate portal bonus);
   `--max-tics` is 525 (15 s), per map a starting budget: after a batch
   where no rollout on a map gets through a portal (or to the exit), that
   map's limit grows x`--tics-growth` (1.5) up to `--max-tics-cap` (2100),
@@ -257,7 +255,11 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   slots exist (`--slots-dir`, `--slots`), the warm-up is what varies the
   start states.
 - **Advantage:** group-normalized return (`--advantage outcome`) or the
-  process variant (`process`). Zero-variance groups are dropped and
+  process variant (`process`): per-step rewards normalized across the
+  group and summed from each step on, except the one-off terms
+  (`RewardConfig.immediate`: consult, use_miss, use_wall, move_flip,
+  turn_waste, wall_look; 2026-11-17), which count on their own step only,
+  since they judge just that action and later steps don't follow from it. Zero-variance groups are dropped and
   reported as `collapsed_share`.
 - **Loss:** clipped ratio (`--clip` 0.2), `--epochs` 4, entropy bonus
   `--ent-coef` 0.01, and an optional KL to a reference policy
@@ -407,7 +409,12 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   also removes any `frontier/` an older version uploaded. Metrics and logs
   stay local. Uses the
   `hf` CLI (`hf auth login` once, with a write token), so the venv needs
-  no extra package; its output goes to `<run-dir>/hub_upload.log`. A repo
+  no extra package; its output goes to `<run-dir>/hub_upload.log`. When
+  the Hub closes an upload's connection, `hf` never notices and waits
+  forever, so an upload that prints no progress for 5 minutes, or runs
+  over 30, is killed with everything it started (2026-11-18; logged as
+  `killed` in hub_upload.log): during training the next save retries, and
+  at the end the newest checkpoint gets up to 3 tries. A repo
   that can't be read (network, login) stops the run before training,
   rather than starting fresh and overwriting the repo's checkpoint.
 - **Replays:** off by default. `./train.sh --capture` turns them on:

@@ -199,7 +199,7 @@ def test_fast_tics():
     """E1M1: running (PRESS W) passes 4 units/tic within a few tics and
     then every tic counts (fast_tics, -rlfast added by the env), each
     paying `fast`; running into a wall has none."""
-    only = RewardConfig(cover=0, sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
+    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hp_loss=0, death=0,
                         loot=0, health=0, fast=0.005, fast_speed=4, fast_path=False, look=0, turn_waste=0, move_flip=0, use_miss=0, fall=0, wall_look=0)
     e = make_env(engine=EngineConfig(warp="1 1", extra_args=["--eval"]), rewards=only, max_tics=100000)
@@ -378,8 +378,8 @@ def test_unique_trigger():
     walk, consult = ACTIONS.index("PRESS W"), ACTIONS.index("CONSULT")
     # Consulted in time: +5, and nothing afterwards.
     assert run([unique, [], []], [walk, consult, walk]) == [0.0, 5.0, 0.0]
-    # Left alone: -8 once the grace (3 tics) runs out, then nothing more.
-    assert run([unique, [], [], [], [], []], [walk] * 6) == [0.0, 0.0, 0.0, -8.0, 0.0, 0.0]
+    # Left alone: -8 spread over the grace (3 tics), then nothing more.
+    assert run([unique, [], [], [], [], []], [walk] * 6) == [0.0, -2.666667, -2.666667, -2.666667, 0.0, 0.0]
     # A magic item is no trigger: CONSULT is a false consult.
     assert run([magic, []], [walk, consult]) == [0.0, -1.5]
 
@@ -405,20 +405,23 @@ def _fake_explore(rewards, states):
 def test_monster_trigger_sticky():
     """A monster sighting stays a trigger for grace_tics after it leaves
     the view: turning away still costs trigger_miss, and CONSULT after it
-    left still pays consult_hit. The metric counts CONSULTs with a trigger
+    left still pays consult_hit; the miss is charged tic by tic over the
+    grace window. The metric counts CONSULTs with a trigger
     pending and without. Engine faked, one tic per step."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=5.0, trigger_miss=-8.0,
                         consult_false=-0.3, grace_tics=3, key=0, time=0, hp_loss=0, death=0,
                         loot=0, health=0, fast=0, look=0, turn_waste=0, move_flip=0, use_miss=0,
-                        use_wall=0, fall=0, wall_look=0, cover=0, item_approach=0)
+                        use_wall=0, fall=0, wall_look=0, item_approach=0)
     seen = ({"mode": "EXPLORE", "hp": 100, "tics": 1, "monstervis": True}, [])
     gone = ({"mode": "EXPLORE", "hp": 100, "tics": 1, "monstervis": False}, [])
     walk, consult = ACTIONS.index("PRESS W"), ACTIONS.index("CONSULT")
     e = _fake_explore(only, [seen] + [gone] * 5)
-    assert [round(e.step(walk)[1], 6) for _ in range(6)] == [0, 0, 0, -8.0, 0, 0]
+    assert [round(e.step(walk)[1], 6) for _ in range(6)] == [0, -2.666667, -2.666667, -2.666667, 0, 0]
     e = _fake_explore(only, [seen, gone, gone, gone, gone])
-    got = [round(e.step(a)[1], 6) for a in (walk, walk, consult, walk, consult)]
-    assert got == [0, 0, 5.0, 0, -0.3], got
+    steps = [e.step(a) for a in (walk, walk, consult, walk, consult)]
+    assert [round(st[1], 6) for st in steps] == [0, -2.666667, 5.0, 0, -0.3]
+    # all of it one-off (consult is in RewardConfig.immediate)
+    assert [round(st[4]["reward_now"], 6) for st in steps] == [0, -2.666667, 5.0, 0, -0.3]
     # steps: walk (none pending), walk, consult (pending), walk, consult (none)
     assert e._consult_stats == [2, 1, 3, 1], e._consult_stats
 
@@ -430,7 +433,7 @@ def test_item_approach():
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hp_loss=0, death=0, loot=0, health=0,
                         fast=0, look=0, turn_waste=0, move_flip=0, use_miss=0, use_wall=0,
-                        fall=0, wall_look=0, cover=0, item_approach=0.01)
+                        fall=0, wall_look=0, item_approach=0.01)
 
     def at(x, events=(), gametic=1):
         return {"mode": "EXPLORE", "hp": 100, "tics": 1, "x": x, "y": 0, "gametic": gametic}, list(events)
@@ -802,7 +805,7 @@ def test_standin_consult():
 @pytest.mark.game
 def test_consult_clears_combat():
     """Monsters on, E1M1: once combat starts, other actions are dropped
-    (no tics, no reward); CONSULT (the stand-in's CONSULT command) ends the fight with
+    (no tics; each costs its share of the miss); CONSULT (the stand-in's CONSULT command) ends the fight with
     the monster killed and no penalty."""
     e = make_env(engine=EngineConfig(warp="1 1"), consult_handler=standin_consult, max_tics=100000)
     try:
@@ -824,7 +827,9 @@ def test_consult_clears_combat():
             pytest.fail("no combat in 6000 random tics")
         before = info["state"]
         _, r, _, _, info = e.step(0)                      # PRESS in combat: dropped
-        assert info["tics"] == 0 and r == 0, f"dropped (reward {r})"
+        rc = RewardConfig()                               # costs only its share of the miss
+        assert info["tics"] == 0 and r == pytest.approx(rc.trigger_miss / rc.grace_decisions), \
+            f"dropped (reward {r})"
         _, r, _, _, info = e.step(ACTIONS.index("CONSULT"))
         after = info["state"]
         assert after["mode"] == "EXPLORE", f"consult should end combat, still {after['mode']}"
@@ -965,7 +970,7 @@ def test_time_distance_penalty():
     portal_dist, and with every other reward off each step costs time *
     its tics * (1 + d / far_scale), d the mean of its start and end
     distances to the nearest portal of the current sector."""
-    only = RewardConfig(cover=0, sector=0, exit=0, mechanism=0, consult_hit=0,
+    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0,
                         trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, fast=0, look=0, turn_waste=0, move_flip=0, use_miss=0, fall=0, wall_look=0,
                         time=1.0, far_scale=256.0)
     e = make_env(engine=EngineConfig(warp="1 1", extra_args=["--eval"]), rewards=only,
@@ -1000,7 +1005,7 @@ def test_portal_goal():
     is the sector's reward minus time * tics. Its end state saved with its visited
     list (VISITED) and reinstalled restores that visited count after the
     load (VISIT), so the next rollout's goal is a sector beyond it."""
-    only = RewardConfig(cover=0, sector=15.0, exit=0, mechanism=0, consult_hit=0,
+    only = RewardConfig(sector=15.0, exit=0, mechanism=0, consult_hit=0,
                         trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, fast=0, look=0, turn_waste=0, move_flip=0, use_miss=0, fall=0, wall_look=0,
                         time=0.01, far_scale=1e12)   # time and sector only
     e = DiabloDoomEnv(EnvConfig(engine=EngineConfig(warp="1 1", extra_args=["--eval"]), rewards=only,
@@ -1053,30 +1058,6 @@ def test_map_tics():
 
 
 
-def test_cover():
-    """cover pays the first time a rollout stands in a BSP leaf (the state
-    line's subsector): not the start leaf, not a leaf again, nothing
-    without the field. Engine faked, one tic per step."""
-    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
-                        consult_false=0, key=0, time=0, hp_loss=0, death=0, loot=0, health=0,
-                        fast=0, look=0, turn_waste=0, move_flip=0, use_miss=0, use_wall=0,
-                        fall=0, wall_look=0, cover=0.05)
-    e = make_env(rewards=only, max_tics=100000)
-    leaves = iter([8, 8, 7, 9, None])
-    e.engine.command = lambda line: (dict({"mode": "EXPLORE", "hp": 100, "tics": 1},
-                                          **({"subsector": l} if (l := next(leaves)) is not None else {})), [])
-    e._frame = lambda: np.zeros((200, 320), dtype=np.uint8)
-    e.state = {"mode": "EXPLORE", "hp": 100, "subsector": 7}
-    e._prev_hp, e._tics, e._combat_steps = 100, 0, 0
-    e._best_sectors = e._start_sectors = 0
-    e._keys, e._goal, e._group, e._slot, e._seed, e._used = 0, None, 0, None, 0, set()
-    e._walls_used, e._covered = set(), {7}
-    e._trig = {k: e._new_trigger() for k in ("monster", "unique", "combat")}
-    e._stack.reset(e._frame())
-    rs = [round(e.step(ACTIONS.index("PRESS W"))[1], 6) for _ in range(5)]
-    assert rs == [0.05, 0.0, 0.0, 0.05, 0.0], rs
-
-
 def test_fast_path():
     """fast_path: the fast pay follows the way on (path_rel at the step's
     start), not the facing: running along it pays in full, running
@@ -1085,7 +1066,7 @@ def test_fast_path():
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hp_loss=0, death=0, loot=0, health=0,
                         fast=1.0, look=0, turn_waste=0, move_flip=0, use_miss=0, use_wall=0,
-                        fall=0, wall_look=0, cover=0)
+                        fall=0, wall_look=0)
 
     def pay(path_rel, dx, dy, angle=0):
         e = make_env(rewards=only, max_tics=100000)
@@ -1097,7 +1078,7 @@ def test_fast_path():
         e._prev_hp, e._tics, e._combat_steps = 100, 0, 0
         e._best_sectors = e._start_sectors = 0
         e._keys, e._goal, e._group, e._slot, e._seed, e._used = 0, None, 0, None, 0, set()
-        e._walls_used, e._covered = set(), set()
+        e._walls_used = set()
         e._trig = {k: e._new_trigger() for k in ("monster", "unique", "combat")}
         e._stack.reset(e._frame())
         return round(e.step(ACTIONS.index("PRESS W"))[1], 3)

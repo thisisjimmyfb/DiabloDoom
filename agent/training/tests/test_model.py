@@ -5,6 +5,8 @@ instances."""
 
 from __future__ import annotations
 
+import os
+import time
 from pathlib import Path
 
 import pytest
@@ -366,6 +368,14 @@ elif a[0] == "download":
         os.makedirs(os.path.dirname(os.path.join(d, f)), exist_ok=True)
         shutil.copyfile(os.path.join(hub, f), os.path.join(d, f))
 elif a[0] == "upload":
+    hang = os.environ.get("FAKE_HANG")      # a file holding how many uploads hang, silently
+    left = int(open(hang).read() or 0) if hang else 0
+    if left > 0:
+        open(hang, "w").write(str(left - 1))
+        import subprocess, time
+        child = subprocess.Popen(["sleep", "600"])     # like hf's workers: must die too
+        open(hang + ".pids", "a").write(f"{os.getpid()} {child.pid}\n")
+        time.sleep(600)
     src, dst = a[2], a[3]
     if os.path.isdir(src):
         for f in files():
@@ -381,6 +391,40 @@ elif a[0] == "upload":
     with open(os.path.join(hub, "..", "commits"), "a") as c:
         c.write(opt("--commit-message") + "\n")
 '''
+
+
+def test_hub_stuck_upload(tmp_path, monkeypatch):
+    """An upload that goes quiet (the Hub closed its connection: hf waits
+    forever) is killed after UPLOAD_STALL_S, with everything it started;
+    finish() then retries and the checkpoint gets there."""
+    import model
+    from model import HUB_FILE, HubUploader
+    bin_dir, hub = tmp_path / "bin", tmp_path / "hub"
+    bin_dir.mkdir(); hub.mkdir()
+    (bin_dir / "hf").write_text(_FAKE_HF)
+    (bin_dir / "hf").chmod(0o755)
+    hang = tmp_path / "hang"
+    hang.write_text("1")                  # the first upload hangs
+    monkeypatch.setenv("PATH", f"{bin_dir}:{Path('/usr/bin')}:{Path('/bin')}")
+    monkeypatch.setenv("FAKE_HUB", str(hub))
+    monkeypatch.setenv("FAKE_HANG", str(hang))
+    monkeypatch.setattr(model, "UPLOAD_STALL_S", 2)
+    run = tmp_path / "run"
+    run.mkdir()
+    save_checkpoint(run / CKPT_NAME, {"iteration": 7})
+    up = HubUploader("u/m", run)
+    t0 = time.time()
+    up.finish(run / CKPT_NAME, 7)
+    assert time.time() - t0 < 60, "the stuck upload was killed, not waited out"
+    assert torch.load(hub / HUB_FILE, weights_only=False)["iteration"] == 7, "the retry uploaded it"
+    assert "killed, no progress" in (run / "hub_upload.log").read_text()
+    for pid in map(int, (tmp_path / "hang.pids").read_text().split()):
+        try:
+            os.kill(pid, 0)
+            alive = open(f"/proc/{pid}/stat").read().split()[2] != "Z"
+        except (ProcessLookupError, FileNotFoundError):
+            alive = False
+        assert not alive, f"pid {pid} (hf or its child) still running"
 
 
 def test_hub(tmp_path, monkeypatch):

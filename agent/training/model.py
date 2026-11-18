@@ -11,8 +11,10 @@ import json
 import os
 import random
 import shutil
+import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -803,11 +805,21 @@ def hub_pull(repo: str, run_dir: Path) -> Path | None:
     return dst
 
 
+# A stuck upload (2026-11-18): when the Hub closes the connection, hf
+# (hf_xet) never notices and waits forever. hf prints progress whenever
+# bytes move, so a log that stays quiet this long means a dead upload;
+# none may run longer than UPLOAD_MAX_S either. Either way it is killed.
+UPLOAD_STALL_S = 300
+UPLOAD_MAX_S = 1800
+UPLOAD_TRIES = 3          # at the end of a run (finish); during it, the next save retries
+
+
 class HubUploader:
     """Pushes the checkpoint to the repo as HUB_FILE, in the background
     (one upload at a time; a push while one is running is skipped). It is
     staged in run_dir/hub/upload first, so the next save can't change it
-    mid-upload. The hf output goes to run_dir/hub_upload.log."""
+    mid-upload. The hf output goes to run_dir/hub_upload.log. A stuck
+    upload is killed (UPLOAD_STALL_S, UPLOAD_MAX_S) and counts as failed."""
 
     def __init__(self, repo: str, run_dir: Path):
         self.repo, self.dir, self.hf = repo, run_dir / "hub", _hf()
@@ -815,13 +827,41 @@ class HubUploader:
         self.proc: subprocess.Popen | None = None
         self.it: int | None = None         # the upload in flight (or last started)
         self.done: int | None = None       # the last iteration uploaded
+        self.started = 0.0                 # when the upload in flight started
+
+    def _check(self) -> None:
+        """Kill the upload in flight if it is stuck (see UPLOAD_STALL_S)."""
+        if self.proc is None or self.proc.poll() is not None:
+            return
+        now = time.time()
+        quiet = now - max(self.started, os.fstat(self.log.fileno()).st_mtime)
+        why = (f"over {UPLOAD_MAX_S}s" if now - self.started > UPLOAD_MAX_S else
+               f"no progress for {UPLOAD_STALL_S}s" if quiet > UPLOAD_STALL_S else None)
+        if why is None:
+            return
+        print(f"[hub] upload of iteration {self.it} stuck ({why}): killed")
+        self.log.write(f"--- iteration {self.it}: killed, {why}\n")
+        self.log.flush()
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(self.proc.pid, sig)      # hf and anything it started
+            except ProcessLookupError:
+                break
+            try:
+                self.proc.wait(10)
+                break
+            except subprocess.TimeoutExpired:
+                pass
 
     def busy(self) -> bool:
+        self._check()
         return self.proc is not None and self.proc.poll() is None
 
     def _reap(self) -> None:
         if self.proc is None:
             return
+        while self.busy():
+            time.sleep(1)
         rc = self.proc.wait()
         self.proc = None
         if rc == 0:
@@ -844,7 +884,7 @@ class HubUploader:
             return False
         self._reap()
         staged = self._stage(ckpt)
-        self.it = it
+        self.it, self.started = it, time.time()
         self.log.write(f"--- iteration {self.it}\n")
         self.log.flush()
         # --delete: progress saves an older version of this code uploaded
@@ -852,7 +892,8 @@ class HubUploader:
         self.proc = subprocess.Popen([self.hf, "upload", self.repo, str(staged), ".",
                                       "--delete", HUB_STALE,
                                       "--commit-message", f"iteration {self.it}"],
-                                     stdout=self.log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+                                     stdout=self.log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                     start_new_session=True)      # its own group, for _check's kill
         return True
 
     def finish(self, ckpt: Path | None, it: int | None) -> None:
@@ -861,7 +902,9 @@ class HubUploader:
         if self.busy():
             print(f"[hub] waiting for the upload of iteration {self.it}...")
         self._reap()
-        if ckpt is not None and it is not None and it != self.done:
+        for _ in range(UPLOAD_TRIES):
+            if ckpt is None or it is None or it == self.done:
+                break
             self.push(ckpt, it)
             print(f"[hub] uploading iteration {self.it}...")
             self._reap()
