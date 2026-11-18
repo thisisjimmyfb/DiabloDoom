@@ -33,4 +33,7 @@ int D_Color(dcolor_t c);
 int D_TierColor(int tier);
 int D_TierColorDark(int tier);
 
+// The palette entry nearest frac/256 of index a over index b.
+int D_BlendColor(int a, int b, int frac);
+
 #endif

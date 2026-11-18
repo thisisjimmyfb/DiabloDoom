@@ -52,7 +52,7 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   a full backpack is salvaged until it has room. The policy learns when
   to hand off, not how to fight. The triggers (2026-11-17): a monster in
   view, combat, and a unique picked up -- the engine draws a
-  gold border around the avatar (status-bar face) for 3.5 s on a unique
+  gold border around the avatar (status-bar face) for 3.5 s (fading over the last half second) on a unique
   (2026-11-18; magic, rare and set items get one too, in blue, yellow and
   green; a screen
   flash before), and the trigger lasts 3 s (`unique_grace_tics`, 105, as a
@@ -120,20 +120,8 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   net turning; a steady turn either way, or holding still, costs nothing.
   Reversing forward and back costs `move_flip` (-0.015): W within 4 tics
   of S, or S of W; strafing back and forth is free.
-  A USE that sets nothing going (no engine `use` event: a plain wall,
-  empty space) costs `use_miss` (-0.1; 2026-11-16, raised 2026-11-17);
-  opening a door, even one used before, costs nothing, and so does a USE
-  facing something usable that didn't move (the engine's `wall_use`: a
-  pressed one-shot switch, or the face of a remote door, one only a
-  switch or trigger opens). A locked door counts as usable only with its
-  key (2026-11-17): without it, USE on it costs `use_miss`.
-  Trying walls pays (`use_wall`, +0.25, 2026-11-17): a USE with a wall
-  straight ahead within USE range (64 units; the state line's
-  `wall_dist` and `wall_line`) pays once per wall line per rollout,
-  whatever the wall -- the frames can't tell a switch or door from a
-  plain wall, so the policy is paid for what it can see, trying a wall
-  in reach, and a mechanism still pays its +10 on top. Such a USE never
-  costs `use_miss`; only USE at nothing in reach does.
+  USE earns only `mechanism` (`use_miss` and `use_wall` removed
+  2026-11-18).
   Fast movement pays back the clock only going forward (`fast_forward`,
   2026-11-16): scaled by the cosine between the movement and the way on
   (`fast_path`, 2026-11-17: the path direction, else the nearest
@@ -141,7 +129,7 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   a detour, backing up or strafing off the way pays the whole clock,
   like standing still.
   A quick large drop -- freefall past 10 units a tic, 64 units or more in
-  all -- costs `fall` (-3 on landing, whatever the height, 2026-11-16): it
+  all -- costs `fall` (-10 on landing, whatever the height, 2026-11-16): it
   usually means the player left the intended path. Lifts (even the
   blazing one, 8 units a tic), stairs, going up and teleports never cost.
   Staring at a wall up close costs `wall_look` (the clock's base rate, per
@@ -151,17 +139,17 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   `--eval-max-tics` (4200; 2100 before 2026-11-18) with no goal and no penalty, so its numbers
   compare across versions. Stage 1 has no map monsters, but passive
   damage (nukage, slime, crushers, barrels) still hurts: every HP lost
-  costs `hp_loss` (-0.2; healing pays nothing), and a death ends the
+  costs `hp_loss` (-0.5; healing pays nothing), and a death ends the
   rollout with `death` (-100, as big as the exit) on top. There is no
   combat or stuck term (a long combat still ends the rollout).
   Pickups pay from the engine's `pickup` events: `loot` (5) per Diablo
   item or armor picked up, `health` (0.2) per HP a health pickup healed
-  (a medikit 5, a +1 health bonus 0.2), the mirror of `hp_loss`.
+  (a medikit 12.5, a +1 health bonus 0.5), the mirror of `hp_loss`.
   Positive reinforcement: `exit` (100, the top reward) for triggering the
   level complete (ends the rollout), `key` (25) per key colour, `sector`
   (15) per new sector (more than a mechanism: getting somewhere new is
   the goal, a door only the way there), `mechanism` (10) for each new
-  mechanism set going. `consult_false` (-0.5) per CONSULT with nothing to
+  mechanism set going. `consult_false` (-2.5) per CONSULT with nothing to
   consult about.
   `key` (25) pays each key colour (blue, yellow, red) the first time it is
   held in a rollout, from the state line's `keys` mask; keys held at the
@@ -260,7 +248,7 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   process variant (`process`): per-step rewards normalized across the
   group and summed from each step on (the sums scaled to unit std over
   the group, 2026-11-18), except the one-off terms
-  (`RewardConfig.immediate`: consult, use_miss, use_wall, move_flip,
+  (`RewardConfig.immediate`: consult, move_flip,
   turn_waste, wall_look; 2026-11-17), which count on their own step only,
   since they judge just that action and later steps don't follow from it. Zero-variance groups are dropped and
   reported as `collapsed_share`.

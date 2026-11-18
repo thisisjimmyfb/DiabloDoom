@@ -30,7 +30,6 @@ Standing rules:
 | Headless launch | `SDL_VIDEODRIVER=dummy` in `agent/doom_loop.sh` | Proven on the farm |
 | Fixed-tic option | `singletics` in `src/d_loop.c`, `D_RunFrame` in `src/doom/d_main.c` | Fast-forward switch |
 | Item pickup choke point | `D_BackpackAdd` / `D_BackpackAddDur` in `src/diablo/d_diablo.c` | `ITEM` events |
-| Automap | `AM_Start` / `AM_Stop` / `AM_Drawer` in `src/doom/am_map.c` | `MAP` toggle |
 | LLM player and logs | `agent/doom_loop.sh`, `SYSTEM_PROMPT.md`, `PROMPT.md` | VLM handoff; logs are item-model training data |
 
 The replay system (`d_replay.c`) records 15-second MP4 video, not inputs, and `T_Init` disables turn mode under `-record` / `-playdemo`. There is no demo-replay determinism test; §10 replaces it.
@@ -64,8 +63,6 @@ The replay system (`d_replay.c`) records 15-second MP4 video, not inputs, and `T
 | Frame to shared memory | At each decision, copy `I_VideoBuffer` (320×200, 8-bit) and the palette. No PNG, no SDL surface. |
 | Render only at decisions | Skip `D_Display` on tics between decisions. Moot since per-tic decisions (2026-11-15): every tic is a decision, so every tic renders. |
 | `STATEHASH` command | Hash of player, mobj and turn-controller state, for determinism checks. |
-| `MAP [tics]` command (new) | Opens the automap via `AM_Start`, as Tab does, for <tics> game tics (default 18, 0.5 s; clamped to 1–350), then closes it (`AM_Stop`); `MAP` while it is open closes it at once. Training never sends it (no `MAP` action, no forced glances). Follow mode, fixed zoom. Explore only (combat hides the map on entry; `MAP` in combat does nothing). Movement keeps working with the map open. |
-| Automap rotation | Rotate the automap to the player's heading (vanilla points north). |
 | Explore-mode strafes | Today `STRAFE_L/R` queue a TP-costing turn move that only previews until END TURN. Under `-rlenv` in EXPLORE they take a fixed sideways step without turning, like `WALK <angle>`. |
 | `-rlnocombat` | Removes every monster at level load. Reuse vanilla's monster-removal flag (`d_main.c`; the variable renamed `eval_mode` 2026-11-17) rather than new removal code: launched as `--eval` (vanilla's `-nomonsters`, renamed 2026-11-17). It also turns turn-based combat off entirely: no passive-damage planning, no explore mini-combat (Ctrl / `ATTACK` do nothing in explore), and no monster-sighting entry. |
 | Mechanism use events | Under `-rlenv`, every player USE that sets something going sends `{"event":"use","sectors":[...],"lines":[...]}`: the sectors that gained an active special (doors, lifts, floors, ceilings, stairs) and the switch lines flipped. A use that does nothing (a wall, a locked door without its key, a door already moving) sends nothing. Feeds the mechanism reward (§5.3). |
@@ -82,7 +79,7 @@ The replay system (`d_replay.c`) records 15-second MP4 video, not inputs, and `T
 
 ### 5.1 Observation
 
-- The screen as displayed: the scene, status bar kept. Training never shows the automap (no `MAP` action, no forced glances; §12).
+- The screen as displayed: the scene, status bar kept.
 - Downsampled to 84×84, last 4 frames stacked.
 - Nothing from the state pipe.
 
@@ -117,7 +114,7 @@ Notation: `T` is the time penalty's base rate per tic, `--time-penalty` / 35 (de
 | `mechanism` | +10 | A USE that sets a mechanism going -- a sector starts moving (door, lift, floor, stairs) or a switch flips -- from the engine's `use` event. Once per mechanism per rollout; ones used in the warm-up count as used. |
 | `loot` | +5 per item | A Diablo item into the backpack, or armor (which grants one), from the `pickup` event. Practice items (`-rlitems`) pay the same. Something left on the ground (full backpack) pays nothing. |
 | `item` | +0.01 per unit | While a practice item lies (from its `item` event, 10 s or until picked up), each map unit closed toward it; moving away costs the same, so circling nets nothing (`item_approach`, 2026-11-17). |
-| `health` | +0.2 per HP | The HP a health pickup actually gave (the `pickup` event's `hp`): a medikit at 75 HP pays 5. The mirror of `hp_loss`. |
+| `health` | +0.5 per HP (+0.2 before 2026-11-18) | The HP a health pickup actually gave (the `pickup` event's `hp`): a medikit at 75 HP pays 12.5. The mirror of `hp_loss`. |
 
 #### Time, distance and direction
 
@@ -134,30 +131,28 @@ Notation: `T` is the time penalty's base rate per tic, `--time-penalty` / 35 (de
 | `wall_look` | −`T` per tic | Each tic the first line ahead the player can't pass is nearer than 48 units (`wall_dist`): a view of bare wall shows nothing. Not while a usable wall is in reach (`wall_use`: a switch, a pressed one-shot switch, a closed door -- a locked one only with its key -- or a remote door's face, within USE range ahead or 45° off it). |
 | `turn_waste` | −0.005 per 45° | Turning that gets undone: over the last 8 tics, Σ\|Δθ\| − \|ΣΔθ\|, charged as it accrues. A steady turn either way, and holding still, cost nothing; a teleport resets the window. |
 | `move_flip` | −0.015 | W within 4 tics of S, or S within 4 of W. Strafing back and forth is free. |
-| `fall` | −3 per fall | An unbroken descent that at some point drops faster than 10 units a tic (freefall; the fastest lift lowers 8) and totals at least 64 units, charged once on landing whatever the height. Going up, stairs and lifts never cost; a teleport is no fall. From the state line's `z`. |
+| `fall` | −10 per fall (−3 before 2026-11-18) | An unbroken descent that at some point drops faster than 10 units a tic (freefall; the fastest lift lowers 8) and totals at least 64 units, charged once on landing whatever the height. Going up, stairs and lifts never cost; a teleport is no fall. From the state line's `z`. |
 
 #### USE
 
 | Term | Value | Rule |
 |---|---|---|
-| `use_wall` | +0.25 | A USE with a wall straight ahead within 64 units (Doom's USE reach; the state line's `wall_dist` and `wall_line` before the USE), once per wall line per rollout, whether or not anything moves (2026-11-17): the frames can't tell a switch or door from a plain wall, so trying walls is what the policy can learn. A mechanism pays `mechanism` on top; the same line again pays nothing. |
-| `use_miss` | −0.1 | A USE with no wall in reach ahead, no usable wall in reach off the facing (`wall_use`), and nothing set going. |
 
 #### CONSULT
 
-Triggers, while exploring: a **monster in view** that hasn't acquired the player (the state line's `monstervis`; practice monsters from `-rlspawn` make these common), a **unique item picked up** (2026-11-17: the `pickup` event's `tier` 4; the engine draws a gold border around the avatar (status-bar face) for 3.5 s (2026-11-18; magic, rare and set pickups get one too, in blue, yellow and green, so in grayscale the unique's is told apart by brightness alone; a screen flash before), through the 3 s window, the cue the policy can see -- it replaced the full-backpack trigger, whose only cue was a few pixels of text), and **combat** (the world is frozen until CONSULT).
+Triggers, while exploring: a **monster in view** that hasn't acquired the player (the state line's `monstervis`; practice monsters from `-rlspawn` make these common), a **unique item picked up** (2026-11-17: the `pickup` event's `tier` 4; the engine draws a gold border around the avatar (status-bar face) for 3.5 s, fading out over its last half second (2026-11-18; magic, rare and set pickups get one too, in blue, yellow and green, so in grayscale the unique's is told apart by brightness alone; a screen flash before), through the 3 s window, the cue the policy can see -- it replaced the full-backpack trigger, whose only cue was a few pixels of text), and **combat** (the world is frozen until CONSULT).
 
 | Term | Value | Rule |
 |---|---|---|
 | `consult` (hit) | +5 | The first CONSULT on a live monster or unique trigger. A CONSULT in combat pays nothing itself but avoids the miss. |
-| `consult` (miss) | −12 (−8 before 2026-11-18) | A trigger left unanswered through its grace: 105 game tics (3 s) from a monster's sighting or a unique's pickup (its border stays on through it), 5 steps in combat. Charged step by step while it waits, −12 over the whole window (2026-11-17; once at the end before), so each frame without a CONSULT gets its share; a CONSULT stops it. A monster trigger stays live through its grace after the monster leaves the view (2026-11-17: turning away used to end it with no penalty, so the miss almost never fired), and a CONSULT then still pays the hit. |
-| `consult` (false) | −0.5 | A CONSULT with no live, unanswered trigger (−1.5 before 2026-11-17: a CONSULT then only paid off with a trigger live more than 23% of the time, so the policy stopped consulting; −0.3 before 2026-11-18: the policy consulted more everywhere, never more on a trigger). |
+| `consult` (miss) | −2.5 (−8, then −12, before 2026-11-18) | A trigger left unanswered through its grace: 105 game tics (3 s) from a monster's sighting or a unique's pickup (its border stays on through it), 5 steps in combat. Charged step by step while it waits, −12 over the whole window (2026-11-17; once at the end before), so each frame without a CONSULT gets its share; a CONSULT stops it. A monster trigger stays live through its grace after the monster leaves the view (2026-11-17: turning away used to end it with no penalty, so the miss almost never fired), and a CONSULT then still pays the hit. |
+| `consult` (false) | −2.5 (−0.5 before 2026-11-18) | A CONSULT with no live, unanswered trigger (−1.5 before 2026-11-17: a CONSULT then only paid off with a trigger live more than 23% of the time, so the policy stopped consulting; −0.3 before 2026-11-18: the policy consulted more everywhere, never more on a trigger). |
 
 #### Damage and death
 
 | Term | Value | Rule |
 |---|---|---|
-| `hp_loss` | −0.2 per HP | Any HP lost (stage 1 has no map monsters, but nukage, slime, crushers and barrels still hurt). Healing only moves the mark up. |
+| `hp_loss` | −0.5 per HP (−0.2 before 2026-11-18) | Any HP lost (stage 1 has no map monsters, but nukage, slime, crushers and barrels still hurt). Healing only moves the mark up. |
 | `death` | −100 | Ends the rollout; as big as the exit, on top of the HP lost on the way. |
 
 #### How a rollout ends
@@ -171,7 +166,7 @@ Triggers, while exploring: a **monster in view** that hasn't acquired the player
 | `time` | truncated | `--max-tics` game tics (default 525, 15 s); the held-out eval runs `--eval-max-tics` (4200, 120 s; 2100 before 2026-11-18) with no portal or key goal, so its sectors compare across versions. |
 | `combat` | truncated | 20 steps in combat. |
 
-The return is the plain sum over the rollout. GRPO compares rollouts within a group that started from the same state (§7.1, `learn.group_advantages`): with `--advantage outcome` (the default) every step of a rollout gets its return's z-score within the group; with `--advantage process` each step's reward is z-scored against all the group's step rewards and summed from that step to the end (reward-to-go); the one-off terms (`RewardConfig.immediate`: `consult`, `use_miss`, `use_wall`, `move_flip`, `turn_waste`, `wall_look`; the env's `info["reward_now"]`, 2026-11-17) judge only the step's own action, so they are left out of that sum and added, divided by the same group spread, to their own step's advantage alone, and the value targets leave them out (§7.1, "Process advantage"). A group whose rollouts all score alike carries no signal and is dropped ("collapsed"). `--norm-adv` (default on) then divides the batch's advantages by their standard deviation, so batches of different lengths update alike.
+The return is the plain sum over the rollout. GRPO compares rollouts within a group that started from the same state (§7.1, `learn.group_advantages`): with `--advantage outcome` (the default) every step of a rollout gets its return's z-score within the group; with `--advantage process` each step's reward is z-scored against all the group's step rewards and summed from that step to the end (reward-to-go); the one-off terms (`RewardConfig.immediate`: `consult`, `move_flip`, `turn_waste`, `wall_look`; the env's `info["reward_now"]`, 2026-11-17) judge only the step's own action, so they are left out of that sum and added, divided by the same group spread, to their own step's advantage alone, and the value targets leave them out (§7.1, "Process advantage"). A group whose rollouts all score alike carries no signal and is dropped ("collapsed"). `--norm-adv` (default on) then divides the batch's advantages by their standard deviation, so batches of different lengths update alike.
 
 #### Design notes
 
@@ -179,7 +174,7 @@ The return is the plain sum over the rollout. GRPO compares rollouts within a gr
 - **The clock is the backbone.** `fast`, `look` and `wall_look` are tied to `T`, so the shaping terms only ever trade against time: none of them can pay for standing still.
 - **Shaping state is reward-only.** `path_dist`, `path_rel`, `portal_dist`, `portal_rel`, `wall_dist`, `wall_use`, `door_sectors`, `monstervis` and the events are never in the observation.
 - **No combat or stuck term:** stage 1 has no map monsters (a long combat ends the rollout instead), and the clock already charges standing still.
-- Magnitudes are tuned from training curves; watch for a term growing in `rollouts.jsonl` without progress following (e.g. `use_wall` or `loot` farming against `sector`).
+- Magnitudes are tuned from training curves; watch for a term growing in `rollouts.jsonl` without progress following (e.g. `loot` farming against `sector`).
 
 ### 5.4 Episodes, rollouts and resets
 
@@ -222,7 +217,7 @@ screen (scene, 84×84, 4 stacked)
 
   Every decision in rollout i gets A_i. Fallback if learning is slow: the process variant (normalize per-step rewards across the group, sum from each step onward; the sums grow with the steps left, so `--norm-adv`, on by default since 2026-11-16, divides each batch's advantages by their standard deviation -- no mean shift -- to keep the entropy bonus and the gradient norm independent of the rollout length).
 - **Process advantage: chained and one-off rewards (2026-11-17).** Each step's reward r_t is split in two:
-  - the **one-off** part n_t: the terms that judge only the action taken on that step (`RewardConfig.immediate`: `consult`, `use_miss`, `use_wall`, `move_flip`, `turn_waste`, `wall_look`). The env reports it per step as `info["reward_now"]`, and the rollout keeps it as `rew_now`.
+  - the **one-off** part n_t: the terms that judge only the action taken on that step (`RewardConfig.immediate`: `consult`, `move_flip`, `turn_waste`, `wall_look`). The env reports it per step as `info["reward_now"]`, and the rollout keeps it as `rew_now`.
   - the **chained** part c_t = r_t − n_t: everything else (`sector`, `fast`, `look`, `time`, `item`, `loot`, `health`, `key`, `mechanism`, `exit`, `death`, `hp_loss`, `fall`), which comes from a run of decisions, so earlier steps share its credit.
 
   The rule: a term is one-off when the step's own action fully decides it and no earlier decision set it up. It is chained when getting there took earlier steps: the way walked, the turns that lined the view up, the room entered.
@@ -242,9 +237,7 @@ screen (scene, 84×84, 4 stacked)
   | `death` | chained | A death follows from the walk into the hazard (or a long stay in it), not only the last step. |
   | `hp_loss` | chained | Damage comes from where earlier steps took the player (nukage, crushers). |
   | `fall` | chained | Charged on landing, for a drop the player walked off steps earlier. |
-  | `consult` | one-off | A hit (+5) or a false CONSULT (−0.5) judges that CONSULT alone; the miss is charged on each step without a CONSULT while the trigger waits. Whether the trigger is on screen is not the policy's doing, so no earlier step earned it. |
-  | `use_miss` | one-off | USE with nothing usable ahead: that press alone was wasted. |
-  | `use_wall` | one-off | USE on a wall line not yet tried: it pays the press itself, whatever the wall turns out to be. Setting a mechanism going is `mechanism`, which is chained. |
+  | `consult` | one-off | A hit (+5) or a false CONSULT (−2.5) judges that CONSULT alone; the miss is charged on each step without a CONSULT while the trigger waits. Whether the trigger is on screen is not the policy's doing, so no earlier step earned it. |
   | `move_flip` | one-off | Forward right after back (or back after forward): it judges this step's key against the last one. |
   | `turn_waste` | one-off | Turning back against the recent turns: it judges this step's turn. |
   | `wall_look` | one-off | Staring at a wall up close, charged per tic of the step: the next step can turn away. |
@@ -363,7 +356,6 @@ Phases 0–3 are the first trainable env, about 4½ days.
 
 Decided:
 - Exploration trains with `-rlnocombat` (monsters removed), then a monsters-on stage for CONSULT.
-- The automap counts as screen visual, but training never shows it: no `MAP` action, and no forced glances (removed 2026-11-16: the policy's 4 frames of memory can't hold a glance).
 - Training runs on the RTX 5080 box.
 - G = 8, 2,100 tics per rollout.
 - Training uses every IWAD under `wad/` (Freedoom Phase 1 and The Ultimate Doom), groups split evenly between them (§7.1).

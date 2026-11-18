@@ -55,30 +55,13 @@ class RewardConfig:
     exit: float = 100.0               # level complete triggered (ends the rollout): the top reward
     death: float = -100.0             # the player died (ends the rollout): as big as the exit
     mechanism: float = 10.0           # USE that sets a new mechanism going (once per mechanism)
-    # A USE that sets nothing going (no engine "use" event: a plain wall,
-    # empty space) costs use_miss (2026-11-16), so pressing it at random
-    # costs more than standing still. Opening a door, even one used
-    # before, costs nothing; nor (2026-11-17) does a USE facing something
-    # usable that didn't move (the engine's wall_use: a locked door, a
-    # pressed one-shot switch). -0.1 is about 10 tics of the clock's base.
-    # Since 2026-11-17 a USE with a wall ahead in USE range never costs
-    # it (use_wall below): only USE at nothing does.
-    use_miss: float = -0.1
-    # USE with a wall straight ahead within USE range (use_range: Doom's
-    # USERANGE, 64; the engine's wall_dist / wall_line, 2026-11-17) pays
-    # use_wall once per wall line per rollout, whether or not anything
-    # moves: the frames can't tell a switch or a door from a plain wall,
-    # so trying walls is what can be learned; a mechanism still pays
-    # `mechanism` on top. Again on the same line: nothing.
-    use_wall: float = 0.25
-    use_range: int = 64
     key: float = 25.0                 # per key colour newly held (blue, yellow, red; once each)
     # Pickups, from the engine's pickup events: each Diablo item picked
     # up (or armor, which also grants one) pays `loot`; a health pickup
     # pays `health` per HP it actually healed (a medikit 25 HP, a bonus
     # 1), the mirror of hp_loss. A thing left on the ground pays nothing.
     loot: float = 5.0
-    health: float = 0.2
+    health: float = 0.5               # 0.2 before 2026-11-18
     # Practice items (2026-11-17): while one lies on the ground, each map
     # unit closed toward it pays item_approach and each unit away costs
     # the same, so circling nets nothing. 0 turns it off.
@@ -87,7 +70,7 @@ class RewardConfig:
     # Charged tic by tic while a trigger waits unanswered, trigger_miss
     # over the whole grace window (2026-11-17: once at its end before),
     # so each frame the policy didn't CONSULT on gets its share.
-    trigger_miss: float = -12.0       # -8 before 2026-11-18
+    trigger_miss: float = -2.5        # -8, then -12, before 2026-11-18
     grace_tics: int = 105             # a monster in view: game tics (3 s) to CONSULT
     # A unique picked up (2026-11-17; the engine's pickup event, tier 4)
     # is a trigger for unique_grace_tics game tics (3 s, as a monster;
@@ -97,7 +80,7 @@ class RewardConfig:
     # message text.
     unique_grace_tics: int = 105
     grace_decisions: int = 5          # combat (frozen, no tics pass): steps to CONSULT
-    consult_false: float = -0.5       # CONSULT with no live, unanswered trigger (-1.5 before 2026-11-17, -0.3 before 2026-11-18)
+    consult_false: float = -2.5       # CONSULT with no live, unanswered trigger (-1.5 before 2026-11-17, -0.3 then -0.5 before 2026-11-18)
     # Time and distance, one penalty: every game tic costs
     #   time * (1 + d / far_scale)
     # where d is the distance (map units) to the nearest portal of the
@@ -181,7 +164,7 @@ class RewardConfig:
     # has little verticality: a fall is the event, not its size). Going up
     # never costs; a teleport (a jump of more than 64 units sideways) is
     # no fall. 0 turns it off.
-    fall: float = -3.0
+    fall: float = -10.0               # -3 before 2026-11-18
     fall_min: float = 64.0
     fall_speed: float = 10.0
     # Staring at a wall up close (2026-11-16): every tic the first line the
@@ -198,12 +181,12 @@ class RewardConfig:
     # Per HP lost, whatever the cause: passive damage (nukage, slime,
     # crushers, barrels) in stage 1. Healing never pays; a death costs
     # the HP it lost on the way plus `death`.
-    hp_loss: float = -0.2
+    hp_loss: float = -0.5             # -0.2 before 2026-11-18
     # One-off terms (2026-11-17): they judge only the step's own action,
     # so the learner adds them to that step's advantage alone instead of
     # summing them into every earlier step's reward-to-go
     # (info["reward_now"], learn.group_advantages).
-    immediate: tuple = ("consult", "use_miss", "use_wall", "move_flip", "turn_waste", "wall_look")
+    immediate: tuple = ("consult", "move_flip", "turn_waste", "wall_look")
 
 
 # A CONSULT handler answers a CONSULT: it may drive the engine with any
@@ -476,7 +459,6 @@ class DiabloDoomEnv(gym.Env):
         # Mechanisms used during the warm-up count as already used: the
         # reward is for setting something going within the rollout.
         self._used: set = set()
-        self._walls_used: set = set()    # wall lines USE has tried this rollout (use_wall)
         warm_item = 0      # a practice item the warm-up spawned and left lying (it lives 10 s)
         self._item = None  # the practice item lying now: (x, y, gametic spawned)
         for wa in opts.get("warmup") or []:
@@ -627,16 +609,6 @@ class DiabloDoomEnv(gym.Env):
         # reusing the same door or switch never pays again.
         if self._new_mechanisms(events):
             add("mechanism", rc.mechanism)
-        if a == USE and sent:
-            line, wd = prev.get("wall_line"), prev.get("wall_dist")
-            if line is not None and wd is not None and 0 <= wd <= rc.use_range:
-                # A wall in reach: tried once per line, mechanism or not.
-                if rc.use_wall and line not in self._walls_used:
-                    add("use_wall", rc.use_wall)
-                self._walls_used.add(line)
-            elif (rc.use_miss and not prev.get("wall_use")
-                  and not any(e.get("event") == "use" for e in events)):
-                add("use_miss", rc.use_miss)
 
         # Keys: each colour pays once per rollout, when first held.
         new_keys = self._new_keys(d)

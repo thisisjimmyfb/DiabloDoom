@@ -105,3 +105,14 @@ int D_TierColorDark(int tier)
     ResolveColors();
     return dc_tier_dark[tier];
 }
+
+int D_BlendColor(int a, int b, int frac)
+{
+    const byte *pal = W_CacheLumpName("PLAYPAL", PU_CACHE);
+    byte rgb[3];
+    int i;
+
+    for (i = 0; i < 3; i++)
+        rgb[i] = (pal[3 * a + i] * frac + pal[3 * b + i] * (256 - frac)) >> 8;
+    return NearestColor(rgb);
+}

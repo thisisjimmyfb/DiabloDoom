@@ -174,9 +174,9 @@ penalty and look reward use them first), and `wall_dist` / `wall_use`, the dista
 facing to the first line the player can't pass (-1 beyond 128) and
 whether a switch (pressed one-shots too, 2026-11-17) or closed door (a
 locked one only with its key, a remote door's face too; 2026-11-17) is
-within USE range ahead (the env's wall_look penalty, and its use_miss
-exemption), and (2026-11-17) `wall_line`, the index of the line
-`wall_dist` measures (the env's once-per-wall `use_wall` reward) -- reward shaping only, never
+within USE range ahead (the env's wall_look penalty; its use_miss
+exemption until 2026-11-18), and (2026-11-17) `wall_line`, the index of the line
+`wall_dist` measures (the env's `use_wall` reward until 2026-11-18; unused since) -- reward shaping only, never
 a policy input, so the 2026-10-21 no-oracle ruling for the farm agent
 stands.
 Automap (2026-11-14): it also carries `automap` (the map is on screen).
@@ -233,7 +233,7 @@ an `item` event with its position, removed 10 s after spawning or when a
 save holding one is loaded; its `pickup` event carries `"practice":true`
 (every pickup event carries the field; a Diablo item's also `"tier"`, 0
 normal .. 4 unique). A magic or better pickup draws a thin border around the status-bar
-face (the avatar) in its tier's item colour for 3.5 s -- blue magic,
+face (the avatar) in its tier's item colour for 3.5 s, fading out over the last half second -- blue magic,
 yellow rare, green set, gold unique -- in normal play too (2026-11-18,
 `ST_DrawLootBorder`, `st_loottics`; the colours are the shared scheme
 in `src/diablo/d_colors.c`; a held 3.5 s screen flash from 2026-11-17).

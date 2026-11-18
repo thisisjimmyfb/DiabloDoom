@@ -1031,22 +1031,39 @@ void ST_doPaletteStuff(void)
 // status-bar face (the avatar), 2 px just outside its 35x31 box (the
 // bottom one on the box's last rows: the screen ends there). A unique's
 // is the policy's CONSULT cue (2026-11-18; a screen tint, then a border
-// around the view, before).
+// around the view, before). It fades out over its last half second.
+#define LOOT_FADE_TICS (TICRATE / 2)  // TICRATE before 2026-11-18
+
+static void ST_LootPixel(int x, int y, int c, int frac)
+{
+    pixel_t *dest = I_VideoBuffer + SCREENWIDTH * y + x;
+    int under;
+
+    if (frac < 256)
+    {
+        // What the border covers: the bar's background, or the view
+        // (redrawn every frame) above the bar.
+        under = y >= ST_Y ? st_backing_screen[(y - ST_Y) * ST_WIDTH + x - ST_X]
+                          : *dest;
+        c = D_BlendColor(c, under, frac);
+    }
+    *dest = c;
+}
+
 void ST_DrawLootBorder(void)
 {
     int c = D_TierColor(st_loottier);
     int x = ST_FX - 2, y = ST_FY - 2, w = 35 + 4, h = SCREENHEIGHT - y;
-    int o;
+    int frac = st_loottics >= LOOT_FADE_TICS ? 256
+             : st_loottics * 256 / LOOT_FADE_TICS;
+    int i, j;
 
     if (st_loottics <= 0 || gamestate != GS_LEVEL || !st_statusbaron)
         return;
-    for (o = 0; o < 2; o++)
-    {
-        V_DrawHorizLine(x + o, y + o, w - 2 * o, c);
-        V_DrawHorizLine(x + o, y + h - 1 - o, w - 2 * o, c);
-        V_DrawVertLine(x + o, y + o, h - 2 * o, c);
-        V_DrawVertLine(x + w - 1 - o, y + o, h - 2 * o, c);
-    }
+    for (j = 0; j < h; j++)
+        for (i = 0; i < w; i++)
+            if (i < 2 || i >= w - 2 || j < 2 || j >= h - 2)
+                ST_LootPixel(x + i, y + j, c, frac);
 }
 
 // ---------------------------------------------------------------------------
