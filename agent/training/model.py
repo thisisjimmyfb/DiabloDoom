@@ -449,9 +449,9 @@ def add_env_args(p) -> None:
     p.add_argument("--time-penalty", type=float, default=1 / 3,
                    help="reward lost per game second until the rollout ends, so the faster portal "
                         "crossing wins its group (default 1/3: a point every 3 s)")
-    p.add_argument("--eval-max-tics", type=int, default=2100,
+    p.add_argument("--eval-max-tics", type=int, default=4200,  # 2100 before 2026-11-18
                    help="held-out eval rollout limit (the training rewards, but no portal or key goal "
-                        "ending it early: sectors visited in 60 s, comparable across versions)")
+                        "ending it early: sectors visited in 120 s, comparable across versions)")
     p.add_argument("--frontier", action=argparse.BooleanOptionalAction, default=True,
                    help="keep progress: every group loads its start from save slot 4; after each "
                         "batch, each map's highest-scoring rollout that made progress saves to slot 5 "
@@ -471,7 +471,7 @@ def add_env_args(p) -> None:
                    help="don't pull the --hub-repo checkpoint (start from --run-dir alone, e.g. fresh)")
     p.add_argument("--no-hub-upload", dest="hub_upload", action="store_false",
                    help="don't push checkpoints to --hub-repo")
-    p.add_argument("--hub-every", type=int, default=100,
+    p.add_argument("--hub-every", type=int, default=200,  # 100 before 2026-11-18
                    help="push the checkpoint to --hub-repo every N updates (the end always pushes)")
     p.add_argument("--max-tics-cap", type=int, default=2100,
                    help="per-map tic budget: after a batch where no rollout on a map reaches a new "

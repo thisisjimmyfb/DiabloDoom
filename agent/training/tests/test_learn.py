@@ -40,15 +40,17 @@ def test_outcome_advantages(groups):
 
 
 def test_process_advantages(groups):
-    """Per-step rewards normalized across the group, summed from each step on."""
+    """Per-step rewards normalized across the group, summed from each step
+    on, the sums scaled to unit std over the group."""
     advs, collapsed = group_advantages(groups, "process")
     assert collapsed == 0, "differing per-step rewards never collapse"
     i = 0
     for g in groups:
         allr = np.concatenate([r["rew"] for r in g])
-        for r in g:
-            norm = (np.array(r["rew"]) - allr.mean()) / (allr.std() + 1e-8)
-            assert np.allclose(advs[i], np.cumsum(norm[::-1])[::-1], atol=1e-5)
+        togo = [np.cumsum(((np.array(r["rew"]) - allr.mean()) / (allr.std() + 1e-8))[::-1])[::-1] for r in g]
+        cstd = np.concatenate(togo).std()
+        for t in togo:
+            assert np.allclose(advs[i], t / cstd, atol=1e-5)
             i += 1
 
 

@@ -61,9 +61,14 @@ def group_advantages(groups: list[list[dict]], mode: str,
             now = [_rew_now(m) for m in members]
             chain = [np.array(m["rew"], dtype=np.float64) - n for m, n in zip(members, now)]
             mean = np.concatenate(chain).mean()
-            for c, n in zip(chain, now):
-                norm = (c - mean) / (std + eps)
-                advs.append((np.cumsum(norm[::-1])[::-1] + n / (std + eps)).astype(np.float32))
+            togo = [np.cumsum(((c - mean) / (std + eps))[::-1])[::-1] for c in chain]
+            # 2026-11-18: the summed chained stream is scaled to unit std
+            # over the group, so its spread no longer grows with rollout
+            # length and drowns the one-off stream (a CONSULT hit was
+            # 0.3 of its std).
+            cstd = np.concatenate(togo).std()
+            for t, n in zip(togo, now):
+                advs.append((t / (cstd + eps) + n / (std + eps)).astype(np.float32))
     return advs, collapsed
 
 
@@ -312,9 +317,7 @@ def print_train(it: int, m: dict, upd: dict, extra: str = "") -> None:
           f"exit {m['exit_rate']:.2f} collapsed {m['collapsed_share']:.2f} steps {m['steps']} "
           f"ent {upd.get('entropy', float('nan')):.3f} kl {upd.get('approx_kl', float('nan')):.4f}"
           + (f" front {m['frontier_share']:.2f}" if "frontier_share" in m else "")
-          + (f" dead {upd['dead_units']:.2f} gnorm {upd['grad_norm_max']:.0f}"
-             if "dead_units" in upd and "grad_norm_max" in upd else "")
-          + (f" adv {upd['adv_std']:.0f}" if "adv_std" in upd else "")
+          + (f" dead {upd['dead_units']:.2f}" if "dead_units" in upd else "")
           + (f" items {m['items_picked'] / m['items_spawned']:.2f}" if m.get("items_spawned") else "")
           + (f" consult {m.get('consult_trig', 0):.3f}/{m['consult_idle']:.3f}" if "consult_idle" in m else "")
           + extra)

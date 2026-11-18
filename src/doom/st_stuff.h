@@ -55,6 +55,9 @@ void ST_Init (void);
 
 
 extern pixel_t *st_backing_screen;
+extern int st_loottics;          // a magic+ pickup: tics left of its avatar border
+extern int st_loottier;          // and its tier (the border's colour)
+void ST_DrawLootBorder(void);
 extern cheatseq_t cheat_mus;
 extern cheatseq_t cheat_god;
 extern cheatseq_t cheat_ammo;

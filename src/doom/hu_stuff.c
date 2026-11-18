@@ -30,6 +30,7 @@
 #include "i_video.h"
 
 #include "hu_stuff.h"
+#include "st_stuff.h"
 #include "hu_lib.h"
 #include "m_controls.h"
 #include "m_misc.h"
@@ -451,6 +452,7 @@ void HU_Drawer(void)
     T_DrawHUD();  // turn-based mode indicator (no-op in real-time)
     T_DrawHealthBars();  // enemy health bars (both modes, 10 s fade)
     T_DrawFloatText();  // floating hit damage text, above the health bar
+    ST_DrawLootBorder();  // magic+ picked up: tier-coloured border around the avatar (3.5 s)
 }
 
 void HU_Erase(void)

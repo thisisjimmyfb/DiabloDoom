@@ -17,6 +17,7 @@
 #include "d_diablo_icons.h"
 #include "d_pistol_sprite.h"
 #include "d_diablo_ui.h"
+#include "d_colors.h"
 #include "d_player.h"
 #include "doomdef.h"
 #include "doomkeys.h"
@@ -110,49 +111,24 @@ static int c_rarity[NUM_TIERS];
 static int c_rarity_dark[NUM_TIERS];
 static boolean colors_done = false;
 
-static int FindColor(int r, int g, int b)
-{
-    byte *pal;
-    int i, best = 0, bestd = INT_MAX;
-
-    pal = W_CacheLumpName("PLAYPAL", PU_CACHE);
-    for (i = 0; i < 256; i++)
-    {
-        int dr = pal[3 * i] - r;
-        int dg = pal[3 * i + 1] - g;
-        int db = pal[3 * i + 2] - b;
-        int d = dr * dr + dg * dg + db * db;
-        if (d < bestd)
-        {
-            bestd = d;
-            best = i;
-        }
-    }
-    return best;
-}
-
 static void ResolveColors(void)
 {
+    int t;
+
     if (colors_done)
         return;
-    c_bg    = FindColor(10, 8, 14);
-    c_panel = FindColor(26, 22, 30);
-    c_edge  = FindColor(110, 100, 110);
-    c_dim   = FindColor(120, 120, 130);
-    c_white = FindColor(235, 235, 235);
-    c_red   = FindColor(220, 30, 30);
 
-    c_rarity[TIER_NORMAL] = FindColor(200, 200, 200);
-    c_rarity[TIER_MAGIC]  = FindColor(90, 130, 255);
-    c_rarity[TIER_RARE]   = FindColor(255, 220, 70);
-    c_rarity[TIER_SET]    = FindColor(80, 220, 90);
-    c_rarity[TIER_UNIQUE] = FindColor(255, 170, 50);
-
-    c_rarity_dark[TIER_NORMAL] = FindColor(40, 40, 44);
-    c_rarity_dark[TIER_MAGIC]  = FindColor(18, 26, 60);
-    c_rarity_dark[TIER_RARE]   = FindColor(60, 50, 14);
-    c_rarity_dark[TIER_SET]    = FindColor(16, 52, 20);
-    c_rarity_dark[TIER_UNIQUE] = FindColor(62, 40, 12);
+    c_bg    = D_Color(DC_BG);        // the scheme: d_colors.c
+    c_panel = D_Color(DC_PANEL);
+    c_edge  = D_Color(DC_EDGE);
+    c_dim   = D_Color(DC_DIM);
+    c_white = D_Color(DC_WHITE);
+    c_red   = D_Color(DC_RED);
+    for (t = 0; t < NUM_TIERS; t++)
+    {
+        c_rarity[t] = D_TierColor(t);
+        c_rarity_dark[t] = D_TierColorDark(t);
+    }
     colors_done = true;
 }
 

@@ -38,6 +38,7 @@
 #include "g_game.h"
 
 #include "st_stuff.h"
+#include "d_colors.h"
 #include "t_turn.h"
 #include "t_combat.h"
 #include "st_lib.h"
@@ -947,10 +948,18 @@ void ST_Ticker (void)
     st_randomnumber = M_Random();
     ST_updateWidgets();
     st_oldhealth = plyr->health;
+    if (st_loottics > 0 && --st_loottics == 0)
+        st_firsttime = true;      // repaint the bar over the avatar's border
 
 }
 
 static int st_palette = 0;
+
+// A magic or better pickup's HUD cue (2026-11-18): tics left of the
+// border around the avatar in its tier's colour (ST_DrawLootBorder), and
+// the tier. Set by P_TouchSpecialThing.
+int st_loottics = 0;
+int st_loottier = 0;
 
 void ST_doPaletteStuff(void)
 {
@@ -1015,6 +1024,29 @@ void ST_doPaletteStuff(void)
 	I_SetPalette (pal);
     }
 
+}
+
+// A magic or better item picked up: a thin border in its tier's item
+// colour (blue magic, yellow rare, green set, gold unique) around the
+// status-bar face (the avatar), 2 px just outside its 35x31 box (the
+// bottom one on the box's last rows: the screen ends there). A unique's
+// is the policy's CONSULT cue (2026-11-18; a screen tint, then a border
+// around the view, before).
+void ST_DrawLootBorder(void)
+{
+    int c = D_TierColor(st_loottier);
+    int x = ST_FX - 2, y = ST_FY - 2, w = 35 + 4, h = SCREENHEIGHT - y;
+    int o;
+
+    if (st_loottics <= 0 || gamestate != GS_LEVEL || !st_statusbaron)
+        return;
+    for (o = 0; o < 2; o++)
+    {
+        V_DrawHorizLine(x + o, y + o, w - 2 * o, c);
+        V_DrawHorizLine(x + o, y + h - 1 - o, w - 2 * o, c);
+        V_DrawVertLine(x + o, y + o, h - 2 * o, c);
+        V_DrawVertLine(x + w - 1 - o, y + o, h - 2 * o, c);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1705,6 +1737,7 @@ void ST_initData(void)
 
     st_faceindex = 0;
     st_palette = -1;
+    st_loottics = 0;
 
     st_oldhealth = -1;
 

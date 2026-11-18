@@ -51,10 +51,12 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   targeting the player, then `END` closes the round; on a unique pickup
   a full backpack is salvaged until it has room. The policy learns when
   to hand off, not how to fight. The triggers (2026-11-17): a monster in
-  view, combat, and a unique picked up -- the engine holds a strong
-  pickup flash for 3.5 s on a unique (the frame's mean brightness roughly
-  doubles), and the trigger lasts 3 s (`unique_grace_tics`, 105, as a
-  monster's `grace_tics`), inside the flash's full-strength part:
+  view, combat, and a unique picked up -- the engine draws a
+  gold border around the avatar (status-bar face) for 3.5 s on a unique
+  (2026-11-18; magic, rare and set items get one too, in blue, yellow and
+  green; a screen
+  flash before), and the trigger lasts 3 s (`unique_grace_tics`, 105, as a
+  monster's `grace_tics`), inside the border's time:
   CONSULT in that time pays `consult_hit`, letting it pass costs
   `trigger_miss`, charged step by step over the window (2026-11-17). It replaced the full-backpack trigger, whose only cue
   was a status message a few pixels tall in the policy's frame. Practice
@@ -146,7 +148,7 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   tic, 2026-11-16): the wall straight ahead nearer than 48 units, from the
   engine's `wall_dist`. Not while a switch or door is in reach
   (`wall_use`), so using mechanisms is free. The held-out eval keeps
-  `--eval-max-tics` (2100) with no goal and no penalty, so its numbers
+  `--eval-max-tics` (4200; 2100 before 2026-11-18) with no goal and no penalty, so its numbers
   compare across versions. Stage 1 has no map monsters, but passive
   damage (nukage, slime, crushers, barrels) still hurts: every HP lost
   costs `hp_loss` (-0.2; healing pays nothing), and a death ends the
@@ -159,7 +161,7 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   level complete (ends the rollout), `key` (25) per key colour, `sector`
   (15) per new sector (more than a mechanism: getting somewhere new is
   the goal, a door only the way there), `mechanism` (10) for each new
-  mechanism set going. `consult_false` (-0.3) per CONSULT with nothing to
+  mechanism set going. `consult_false` (-0.5) per CONSULT with nothing to
   consult about.
   `key` (25) pays each key colour (blue, yellow, red) the first time it is
   held in a rollout, from the state line's `keys` mask; keys held at the
@@ -256,7 +258,8 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   start states.
 - **Advantage:** group-normalized return (`--advantage outcome`) or the
   process variant (`process`): per-step rewards normalized across the
-  group and summed from each step on, except the one-off terms
+  group and summed from each step on (the sums scaled to unit std over
+  the group, 2026-11-18), except the one-off terms
   (`RewardConfig.immediate`: consult, use_miss, use_wall, move_flip,
   turn_waste, wall_look; 2026-11-17), which count on their own step only,
   since they judge just that action and later steps don't follow from it. Zero-variance groups are dropped and
@@ -364,14 +367,14 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   updates was 25x the median), or any optimizer step has a non-finite
   loss or gradient (that step is skipped, so it never reaches the
   weights; this one always stops). 0 turns a threshold off. The `[train]`
-  line shows both: `dead` and `gnorm`.
+  line shows `dead`; `grad_norm_max` is in the metrics rows.
 - **Advantage scale (2026-11-16):** `--norm-adv` (on; `--no-norm-adv`
   turns it off) divides each batch's advantages by their standard
   deviation, with no mean shift, so signs and proportions stay. Process
   advantages sum every later step's score, so their size follows the
   rollout length (525-2100 tics): unscaled, long batches drowned the
   entropy bonus (entropy fell to 0.4) and swung the gradient norm from
-  30 to 1,390. The `[train]` line's `adv` is the spread before scaling.
+  30 to 1,390. The metrics rows' `adv_std` is the spread before scaling.
 - **Checkpoints:** one file, `runs/<name>/doom-runner.pt`, replaced
   after every update. It holds weights, optimizer, the iteration and
   other counters, and every RNG state, including the start-state sampler.
@@ -400,7 +403,7 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   `doom-runner.pt` is downloaded into the run directory, so training
   resumes from it (policy, optimizer, RNG and counters), unless the run
   directory's checkpoint is at that iteration or a newer one. While training, the newest checkpoint is
-  uploaded as `doom-runner.pt` every `--hub-every` (100) updates and at the
+  uploaded as `doom-runner.pt` every `--hub-every` (200) updates and at the
   end (Ctrl-C included), in the background, one upload at a time, so the
   repo's commit history ("iteration N") is the checkpoint history. Only
   the checkpoint goes up: a run on a fresh machine (a recycled VM)

@@ -103,6 +103,7 @@ boolean P_DoCorpseRespawn(void)
 #include "s_sound.h"
 
 #include "p_inter.h"
+#include "st_stuff.h"
 
 
 #define BONUSADD	6
@@ -848,13 +849,16 @@ P_TouchSpecialThing
         else
             D_BackpackFullMsg(player);
         player->bonuscount += BONUSADD;
-        // A unique (2026-11-17): a strong pickup flash for 3.5 s, a
-        // cue that survives a small grayscale frame (the policy's CONSULT
-        // trigger; the message alone is a few pixels of text there). At
-        // full strength while bonuscount >= 17, so through the env's 3 s
-        // CONSULT window.
-        if (taken && tier == TIER_UNIQUE && player->bonuscount < 7 * TICRATE / 2)
-            player->bonuscount = 7 * TICRATE / 2;
+        // Magic or better: a border around the avatar in the tier's
+        // colour for 3.5 s (2026-11-18). A unique's is the policy's
+        // CONSULT cue (a held 3.5 s screen flash from 2026-11-17; the
+        // message alone is a few pixels of text in its small grayscale
+        // frame), through the env's 3 s CONSULT window.
+        if (taken && tier >= TIER_MAGIC && player == &players[consoleplayer])
+        {
+            st_loottics = 7 * TICRATE / 2;
+            st_loottier = tier;
+        }
         if (player == &players[consoleplayer])
             S_StartSound(NULL,
                          loot_type >= MT_LOOT_SET ? sfx_getpow

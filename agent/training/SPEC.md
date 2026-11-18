@@ -145,13 +145,13 @@ Notation: `T` is the time penalty's base rate per tic, `--time-penalty` / 35 (de
 
 #### CONSULT
 
-Triggers, while exploring: a **monster in view** that hasn't acquired the player (the state line's `monstervis`; practice monsters from `-rlspawn` make these common), a **unique item picked up** (2026-11-17: the `pickup` event's `tier` 4; the engine holds a strong screen flash for 3.5 s, full strength through the 3 s window, the cue the policy can see -- it replaced the full-backpack trigger, whose only cue was a few pixels of text), and **combat** (the world is frozen until CONSULT).
+Triggers, while exploring: a **monster in view** that hasn't acquired the player (the state line's `monstervis`; practice monsters from `-rlspawn` make these common), a **unique item picked up** (2026-11-17: the `pickup` event's `tier` 4; the engine draws a gold border around the avatar (status-bar face) for 3.5 s (2026-11-18; magic, rare and set pickups get one too, in blue, yellow and green, so in grayscale the unique's is told apart by brightness alone; a screen flash before), through the 3 s window, the cue the policy can see -- it replaced the full-backpack trigger, whose only cue was a few pixels of text), and **combat** (the world is frozen until CONSULT).
 
 | Term | Value | Rule |
 |---|---|---|
 | `consult` (hit) | +5 | The first CONSULT on a live monster or unique trigger. A CONSULT in combat pays nothing itself but avoids the miss. |
-| `consult` (miss) | −8 | A trigger left unanswered through its grace: 105 game tics (3 s) from a monster's sighting or a unique's pickup (its flash stays at full strength through it), 5 steps in combat. Charged step by step while it waits, −8 over the whole window (2026-11-17; once at the end before), so each frame without a CONSULT gets its share; a CONSULT stops it. A monster trigger stays live through its grace after the monster leaves the view (2026-11-17: turning away used to end it with no penalty, so the miss almost never fired), and a CONSULT then still pays the hit. |
-| `consult` (false) | −0.3 | A CONSULT with no live, unanswered trigger (−1.5 before 2026-11-17: a CONSULT then only paid off with a trigger live more than 23% of the time, so the policy stopped consulting). |
+| `consult` (miss) | −12 (−8 before 2026-11-18) | A trigger left unanswered through its grace: 105 game tics (3 s) from a monster's sighting or a unique's pickup (its border stays on through it), 5 steps in combat. Charged step by step while it waits, −12 over the whole window (2026-11-17; once at the end before), so each frame without a CONSULT gets its share; a CONSULT stops it. A monster trigger stays live through its grace after the monster leaves the view (2026-11-17: turning away used to end it with no penalty, so the miss almost never fired), and a CONSULT then still pays the hit. |
+| `consult` (false) | −0.5 | A CONSULT with no live, unanswered trigger (−1.5 before 2026-11-17: a CONSULT then only paid off with a trigger live more than 23% of the time, so the policy stopped consulting; −0.3 before 2026-11-18: the policy consulted more everywhere, never more on a trigger). |
 
 #### Damage and death
 
@@ -168,14 +168,14 @@ Triggers, while exploring: a **monster in view** that hasn't acquired the player
 | `death` | terminated | The player dies (−100). |
 | `key` | terminated | Training only: a new key colour (+25). |
 | `portal` | terminated | Training only, `--portal-goal n` (default 1): n new rooms entered (each +15). No bonus of its own; it is what makes the clock matter, and with frontier starts the agent advances room by room. |
-| `time` | truncated | `--max-tics` game tics (default 525, 15 s); the held-out eval runs `--eval-max-tics` (2100, 60 s) with no portal or key goal, so its sectors compare across versions. |
+| `time` | truncated | `--max-tics` game tics (default 525, 15 s); the held-out eval runs `--eval-max-tics` (4200, 120 s; 2100 before 2026-11-18) with no portal or key goal, so its sectors compare across versions. |
 | `combat` | truncated | 20 steps in combat. |
 
 The return is the plain sum over the rollout. GRPO compares rollouts within a group that started from the same state (§7.1, `learn.group_advantages`): with `--advantage outcome` (the default) every step of a rollout gets its return's z-score within the group; with `--advantage process` each step's reward is z-scored against all the group's step rewards and summed from that step to the end (reward-to-go); the one-off terms (`RewardConfig.immediate`: `consult`, `use_miss`, `use_wall`, `move_flip`, `turn_waste`, `wall_look`; the env's `info["reward_now"]`, 2026-11-17) judge only the step's own action, so they are left out of that sum and added, divided by the same group spread, to their own step's advantage alone, and the value targets leave them out (§7.1, "Process advantage"). A group whose rollouts all score alike carries no signal and is dropped ("collapsed"). `--norm-adv` (default on) then divides the batch's advantages by their standard deviation, so batches of different lengths update alike.
 
 #### Design notes
 
-- **Only what the policy can perceive is rewarded as a behaviour.** It sees 4 stacked grayscale frames (default 128×80), so a cue must survive that: hence USE paid for trying a wall rather than for its being a switch, and the unique flash rather than a status message.
+- **Only what the policy can perceive is rewarded as a behaviour.** It sees 4 stacked grayscale frames (default 128×80), so a cue must survive that: hence USE paid for trying a wall rather than for its being a switch, and the unique border rather than a status message.
 - **The clock is the backbone.** `fast`, `look` and `wall_look` are tied to `T`, so the shaping terms only ever trade against time: none of them can pay for standing still.
 - **Shaping state is reward-only.** `path_dist`, `path_rel`, `portal_dist`, `portal_rel`, `wall_dist`, `wall_use`, `door_sectors`, `monstervis` and the events are never in the observation.
 - **No combat or stuck term:** stage 1 has no map monsters (a long combat ends the rollout instead), and the clock already charges standing still.
@@ -242,7 +242,7 @@ screen (scene, 84×84, 4 stacked)
   | `death` | chained | A death follows from the walk into the hazard (or a long stay in it), not only the last step. |
   | `hp_loss` | chained | Damage comes from where earlier steps took the player (nukage, crushers). |
   | `fall` | chained | Charged on landing, for a drop the player walked off steps earlier. |
-  | `consult` | one-off | A hit (+5) or a false CONSULT (−0.3) judges that CONSULT alone; the miss is charged on each step without a CONSULT while the trigger waits. Whether the trigger is on screen is not the policy's doing, so no earlier step earned it. |
+  | `consult` | one-off | A hit (+5) or a false CONSULT (−0.5) judges that CONSULT alone; the miss is charged on each step without a CONSULT while the trigger waits. Whether the trigger is on screen is not the policy's doing, so no earlier step earned it. |
   | `use_miss` | one-off | USE with nothing usable ahead: that press alone was wasted. |
   | `use_wall` | one-off | USE on a wall line not yet tried: it pays the press itself, whatever the wall turns out to be. Setting a mechanism going is `mechanism`, which is chained. |
   | `move_flip` | one-off | Forward right after back (or back after forward): it judges this step's key against the last one. |
@@ -254,12 +254,14 @@ screen (scene, 84×84, 4 stacked)
   ```
   σ   = std of every r_t in the group             (the collapse test, as before)
   μ_c = mean of every c_t in the group
-  A_t = Σ_{u ≥ t} (c_u − μ_c) / (σ + ε)  +  n_t / (σ + ε)
+  G_t = Σ_{u ≥ t} (c_u − μ_c) / (σ + ε)
+  σ_G = std of every G_t in the group
+  A_t = G_t / (σ_G + ε)  +  n_t / (σ + ε)
   ```
 
-  The chained part is summed from each step on, as before. The one-off part counts on its own step only, on the same scale as the chained part and with no mean shift: most steps have none, and z-scoring such a sparse stream on its own would blow a single hit up. The value targets use only the chained part, since the one-off part is already credited where it happened. `--advantage outcome` is unchanged: it ranks whole returns, which include both.
+  The chained part is summed from each step on, as before, then scaled to unit std over the group (2026-11-18). Its spread grows with rollout length, since each G_t sums every step after it: at std ≈ 8, a CONSULT hit's +5 was only about 0.3 of it, and the policy's P(CONSULT) didn't depend on a monster being on screen. The one-off part counts on its own step only, on the same scale as the chained part and with no mean shift: most steps have none, and z-scoring such a sparse stream on its own would blow a single hit up. The value targets use only the chained part, since the one-off part is already credited where it happened. `--advantage outcome` is unchanged: it ranks whole returns, which include both.
 
-  Why: summed into the reward-to-go, a one-off reward moved every earlier step's advantage too. A CONSULT's +5 also credited the steps just before it, including the frames where a monster was in view and the policy did something else, so consulting late, or spamming CONSULT, scored about the same as consulting on sight. Measured at iteration 592, before the split: the CONSULT rate was 2.4% with a monster in view and 2.5% without. That's also why the CONSULT miss penalty (§5.3) is charged step by step over the grace window, −8 in all, instead of once at its end: each frame without a CONSULT carries its own share, on that step alone.
+  Why: summed into the reward-to-go, a one-off reward moved every earlier step's advantage too. A CONSULT's +5 also credited the steps just before it, including the frames where a monster was in view and the policy did something else, so consulting late, or spamming CONSULT, scored about the same as consulting on sight. Measured at iteration 592, before the split: the CONSULT rate was 2.4% with a monster in view and 2.5% without. That's also why the CONSULT miss penalty (§5.3) is charged step by step over the grace window, −12 in all, instead of once at its end: each frame without a CONSULT carries its own share, on that step alone.
 - **Loss:**
 
   ```
@@ -366,7 +368,7 @@ Decided:
 - G = 8, 2,100 tics per rollout.
 - Training uses every IWAD under `wad/` (Freedoom Phase 1 and The Ultimate Doom), groups split evenly between them (§7.1).
 - Training runs as one process on one box (`train.py`); the split worker/learner trainer was removed 2026-11-14 (§7.5).
-- CONSULT rewards and penalties as in §5.3; the item trigger is a unique picked up, cued by a 3.5 s screen flash (2026-11-17; before, a backpack-full message on a failed pickup).
+- CONSULT rewards and penalties as in §5.3; the item trigger is a unique picked up, cued by a 3.5 s gold border around the avatar (2026-11-18; a screen flash from 2026-11-17; before, a backpack-full message on a failed pickup).
 - CONSULT is an environment signal that drives Muse VM; the game cannot hand off by itself. The policy is taught to switch to combat or inventory mode with it, and the monster reward is paid only for sightings while exploring. The policy must choose CONSULT itself in every case — including after combat has started, where it earns no reward but each step without it is penalized. No automatic consult, no mode mask.
 - The status bar stays in the policy's view.
 - Phase 6 uses PPO on logged sessions, no live search. The critic gets HP and exit path distance.

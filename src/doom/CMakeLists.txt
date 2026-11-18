@@ -13,6 +13,7 @@ add_library(doom STATIC
                             d_englsh.h
             ../diablo/d_diablo.c      ../diablo/d_diablo.h
             ../diablo/d_diablo_ui.c   ../diablo/d_diablo_ui.h
+            ../diablo/d_colors.c      ../diablo/d_colors.h
             ../diablo/d_diablo_icons.c ../diablo/d_diablo_icons.h
             ../diablo/d_pistol_sprite.c ../diablo/d_pistol_sprite.h
             ../diablo/d_ssg_sprite.c ../diablo/d_ssg_sprite.h

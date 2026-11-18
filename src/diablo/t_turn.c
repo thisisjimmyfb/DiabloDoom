@@ -17,6 +17,7 @@
 #include "hu_stuff.h"
 #include "m_controls.h"
 #include "t_turn.h"
+#include "d_colors.h"
 #include "t_combat.h"
 #include "d_diablo.h"
 #include "d_rlenv.h"
@@ -3182,10 +3183,10 @@ static void T_ResolveHealthBarColors(void)
 {
     if (t_hb_bg >= 0)
         return;
-    t_hb_bg = I_GetPaletteIndex(32, 32, 32);
-    t_hb_green = I_GetPaletteIndex(0, 200, 0);
-    t_hb_yellow = I_GetPaletteIndex(255, 220, 0);
-    t_hb_red = I_GetPaletteIndex(220, 40, 40);
+    t_hb_bg = D_Color(DC_HB_BG);     // the scheme: d_colors.c
+    t_hb_green = D_Color(DC_HB_GREEN);
+    t_hb_yellow = D_Color(DC_HB_YELLOW);
+    t_hb_red = D_Color(DC_HB_RED);
 }
 
 // Record a monster just attacked: move it to the front of the window

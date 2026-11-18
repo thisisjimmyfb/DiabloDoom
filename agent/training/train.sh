@@ -16,7 +16,7 @@
 #
 # Hugging Face Hub (train mode, not --smoke): the repo's doom-runner.pt is
 # pulled into the run directory first (resumed from unless the run
-# directory has a newer checkpoint) and pushed back every --hub-every (100)
+# directory has a newer checkpoint) and pushed back every --hub-every (200)
 # updates and at the end. Needs the hf CLI, logged in: hf auth login.
 #
 # Setup is idempotent and only does what is missing:

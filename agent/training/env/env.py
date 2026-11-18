@@ -87,17 +87,17 @@ class RewardConfig:
     # Charged tic by tic while a trigger waits unanswered, trigger_miss
     # over the whole grace window (2026-11-17: once at its end before),
     # so each frame the policy didn't CONSULT on gets its share.
-    trigger_miss: float = -8.0
+    trigger_miss: float = -12.0       # -8 before 2026-11-18
     grace_tics: int = 105             # a monster in view: game tics (3 s) to CONSULT
     # A unique picked up (2026-11-17; the engine's pickup event, tier 4)
     # is a trigger for unique_grace_tics game tics (3 s, as a monster;
-    # the engine's pickup flash, the cue, lasts 3.5 s, full strength
-    # through the window, so the cue is on screen whenever CONSULT pays). It replaced
+    # the engine's gold border around the avatar, the cue, lasts 3.5 s,
+    # so the cue is on screen whenever CONSULT pays). It replaced
     # the full-backpack trigger, whose only cue was a few pixels of
     # message text.
     unique_grace_tics: int = 105
     grace_decisions: int = 5          # combat (frozen, no tics pass): steps to CONSULT
-    consult_false: float = -0.3       # CONSULT with no live, unanswered trigger (-1.5 before 2026-11-17)
+    consult_false: float = -0.5       # CONSULT with no live, unanswered trigger (-1.5 before 2026-11-17, -0.3 before 2026-11-18)
     # Time and distance, one penalty: every game tic costs
     #   time * (1 + d / far_scale)
     # where d is the distance (map units) to the nearest portal of the
