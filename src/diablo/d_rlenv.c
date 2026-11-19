@@ -552,6 +552,7 @@ static boolean RL_WallUse(mobj_t *mo)
 
 #define RL_CELL      32
 #define RL_PATH_AIM  4              // cells ahead along the path: path_rel's aim
+#define RL_PATH_AHEAD 6             // cells ahead along the path: path_ahead (training waypoints)
 static const int rl_dx[8] = { 1, 1, 0, -1, -1, -1, 0, 1 };
 static const int rl_dy[8] = { 0, 1, 1, 1, 0, -1, -1, -1 };
 static const int rl_cost[8] = { 32, 45, 32, 45, 32, 45, 32, 45 };
@@ -794,6 +795,9 @@ static boolean RL_Reach(mobj_t *mo, fixed_t x, fixed_t y)
 // path_rel (degrees off the facing, positive left, to the point
 // RL_PATH_AIM cells ahead along the path; *rel_ok false when the player
 // is already in a target cell or there is no path).
+static int rl_ahead_x, rl_ahead_y;     // path_ahead, map units
+static boolean rl_ahead_ok;
+
 static int RL_PathQuery(mobj_t *mo, int *rel, boolean *rel_ok)
 {
     int px = (mo->x >> FRACBITS) - rl_gx0, py = (mo->y >> FRACBITS) - rl_gy0;
@@ -802,6 +806,7 @@ static int RL_PathQuery(mobj_t *mo, int *rel, boolean *rel_ok)
     double best = -1;
 
     *rel_ok = false;
+    rl_ahead_ok = false;
     if (rl_graph_dirty || rl_graph_for != sectors)
         RL_BuildGraph(mo);
     if (rl_gdist == NULL)
@@ -844,10 +849,10 @@ static int RL_PathQuery(mobj_t *mo, int *rel, boolean *rel_ok)
     // player can walk to in a straight line (RL_Reach), so the aim never
     // cuts a corner into a wall; the next cell when none is.
     {
-        int chain[RL_PATH_AIM + 1], len = 1;
+        int chain[RL_PATH_AHEAD + 1], len = 1;
         chain[0] = start;
         cur = start;
-        for (k = 0; k < RL_PATH_AIM && rl_gdist[cur] > 0; k++)
+        for (k = 0; k < RL_PATH_AHEAD && rl_gdist[cur] > 0; k++)
         {
             int next = -1, nv = rl_gdist[cur];
             for (d = 0; d < 8; d++)
@@ -867,6 +872,14 @@ static int RL_PathQuery(mobj_t *mo, int *rel, boolean *rel_ok)
             cur = next;
             chain[len++] = cur;
         }
+        // path_ahead (2026-11-18): the cell RL_PATH_AHEAD down the path,
+        // or the last one (the target room's) -- where the training env
+        // puts its WAYPOINT, standing in for the VLM's.
+        rl_ahead_x = RL_CellX(chain[len - 1]) >> FRACBITS;
+        rl_ahead_y = RL_CellY(chain[len - 1]) >> FRACBITS;
+        rl_ahead_ok = true;
+        if (len > RL_PATH_AIM + 1)
+            len = RL_PATH_AIM + 1;
         cur = len > 1 ? chain[1] : start;
         for (k = len - 1; k > 1; k--)
             if (RL_Reach(mo, RL_CellX(chain[k]), RL_CellY(chain[k])))
@@ -1081,6 +1094,8 @@ void RL_EmitState(const char *why, int tics)
             RL_PUT(",\"path_dist\":%d", pdist);
             if (rel_ok)
                 RL_PUT(",\"path_rel\":%d", rel);
+            if (rl_ahead_ok)
+                RL_PUT(",\"path_ahead\":[%d,%d]", rl_ahead_x, rl_ahead_y);
         }
 
         // CONSULT triggers (SPEC.md §5.3). monstervis: a living monster

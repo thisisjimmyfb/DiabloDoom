@@ -22,7 +22,6 @@
 #define WP_MIN_W   6        // px: at least 2 px of the policy's 128-wide frame
 #define WP_MAX_W   24
 #define WP_DASH    4        // px: the dash length while a wall hides it
-#define WP_ARROW   9        // px: the edge arrow's half height
 
 static boolean wp_on = false;
 static fixed_t wp_x, wp_y;
@@ -64,30 +63,37 @@ void D_WaypointTick(void)
             wp_x >> FRACBITS, wp_y >> FRACBITS, gametic);
 }
 
-// A box clipped to the 3D view.
-static void WP_Box(int x, int y, int w, int h, int c)
+// See-through, in DC_WP_CORE (green; 2026-11-18; solid with a black outline, and an
+// arrow at the screen edge while out of view, before): a level's
+// palette entry nearest wp_alpha[level]/256 of DC_WP_CORE over each entry,
+// built once.
+#define WP_LEVELS 3
+static const int wp_alpha[WP_LEVELS] = { 90, 128, 180 };   // the middle .. the sides
+static byte wp_tab[WP_LEVELS][256];
+static boolean wp_tab_done = false;
+
+static void WP_Column(int x, int top, int bot, int level)
 {
-    int x0 = viewwindowx, x1 = viewwindowx + scaledviewwidth;
-    int y0 = viewwindowy, y1 = viewwindowy + viewheight;
+    int y;
 
-    if (x < x0) { w -= x0 - x; x = x0; }
-    if (y < y0) { h -= y0 - y; y = y0; }
-    if (x + w > x1) w = x1 - x;
-    if (y + h > y1) h = y1 - y;
-    if (w > 0 && h > 0)
-        V_DrawFilledBox(x, y, w, h, c);
-}
-
-// A triangle pointing left (dir -1) or right (dir 1), its tip at
-// (tipx, cy).
-static void WP_Triangle(int tipx, int cy, int half, int dir, int c)
-{
-    int r;
-
-    for (r = -half; r <= half; r++)
+    if (!wp_tab_done)
     {
-        int len = half - (r < 0 ? -r : r) + 1;
-        WP_Box(dir > 0 ? tipx - half : tipx + half - len + 1, cy + r, len, 1, c);
+        int l, i;
+        for (l = 0; l < WP_LEVELS; l++)
+            for (i = 0; i < 256; i++)
+                wp_tab[l][i] = (byte) D_BlendColor(D_Color(DC_WP_CORE), i, wp_alpha[l]);
+        wp_tab_done = true;
+    }
+    if (x < viewwindowx || x >= viewwindowx + scaledviewwidth)
+        return;
+    if (top < viewwindowy)
+        top = viewwindowy;
+    if (bot > viewwindowy + viewheight)
+        bot = viewwindowy + viewheight;
+    for (y = top; y < bot; y++)
+    {
+        pixel_t *p = I_VideoBuffer + y * SCREENWIDTH + x;
+        *p = wp_tab[level][*p];
     }
 }
 
@@ -109,43 +115,36 @@ static boolean WP_InSight(mobj_t *pmo, subsector_t *ss)
 void D_WaypointDraw(void)
 {
     mobj_t *pmo = players[consoleplayer].mo;
-    int core = D_Color(DC_WP_CORE), edge = D_Color(DC_WP_EDGE);
     subsector_t *ss;
     fixed_t floor;
-    int sx, sbot, stop, w, y;
+    int sx, sbot, stop, w, x, y;
+    boolean seen;
     double depth;
 
     if (!wp_on || pmo == NULL || gamestate != GS_LEVEL || automapactive)
         return;
     ss = R_PointInSubsector(wp_x, wp_y);
     floor = ss->sector->floorheight;
-    if (T_ProjectPoint(wp_x, wp_y, floor, &sx, &sbot, &depth)
-        && T_ProjectPoint(wp_x, wp_y, floor + (WP_HEIGHT << FRACBITS), &sx, &stop, NULL)
-        && sx >= 0 && sx < SCREENWIDTH)
+    if (!T_ProjectPoint(wp_x, wp_y, floor, &sx, &sbot, &depth)
+        || !T_ProjectPoint(wp_x, wp_y, floor + (WP_HEIGHT << FRACBITS), &sx, &stop, NULL))
+        return;
+    // The pillar, a see-through cylinder: more opaque at its sides, solid in
+    // plain sight, dashed while a wall hides it.
+    w = (int) (WP_WIDTH * 160.0 / depth);
+    if (w < WP_MIN_W)
+        w = WP_MIN_W;
+    if (w > WP_MAX_W)
+        w = WP_MAX_W;
+    seen = WP_InSight(pmo, ss);
+    for (x = sx - w / 2; x < sx - w / 2 + w; x++)
     {
-        // The pillar: white with a black outline, solid in plain
-        // sight, dashed while a wall hides it.
-        w = (int) (WP_WIDTH * 160.0 / depth);
-        if (w < WP_MIN_W)
-            w = WP_MIN_W;
-        if (w > WP_MAX_W)
-            w = WP_MAX_W;
-        WP_Box(sx - w / 2 - 1, stop - 1, w + 2, sbot - stop + 2, edge);
-        if (WP_InSight(pmo, ss))
-            WP_Box(sx - w / 2, stop, w, sbot - stop, core);
+        int off = 2 * (x - sx) + 1, level = (off < 0 ? -off : off) * WP_LEVELS / (w + 1);
+        if (level >= WP_LEVELS)
+            level = WP_LEVELS - 1;
+        if (seen)
+            WP_Column(x, stop, sbot, level);
         else
             for (y = stop; y < sbot; y += 2 * WP_DASH)
-                WP_Box(sx - w / 2, y, w, y + WP_DASH < sbot ? WP_DASH : sbot - y, core);
-        return;
-    }
-    // Out of view: an arrow at the screen edge on its side.
-    {
-        angle_t a = R_PointToAngle2(viewx, viewy, wp_x, wp_y) - viewangle;
-        int left = a < ANG180;
-        int cy = viewwindowy + viewheight / 2;
-        int x0 = viewwindowx, x1 = viewwindowx + scaledviewwidth - 1;
-
-        WP_Triangle(left ? x0 : x1, cy, WP_ARROW + 2, left ? -1 : 1, edge);
-        WP_Triangle(left ? x0 + 3 : x1 - 3, cy, WP_ARROW, left ? -1 : 1, core);
+                WP_Column(x, y, y + WP_DASH < sbot ? y + WP_DASH : sbot, level);
     }
 }

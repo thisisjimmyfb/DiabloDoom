@@ -42,6 +42,7 @@ def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
              slots_dir: str | None, slots: list[int], capture_dir: str | None = None,
              spawn_tics: int = 0, item_tics: int = 0, nodraw: bool = False, noblit: bool = False,
              portal_goal: int = 0, time_penalty: float = 0.0, key_goal: bool = False,
+             waypoints: bool = False,
              headless: bool = True, obs_size: tuple[int, int] = DEFAULT_OBS_SIZE):
     """time_penalty: reward per game second (negative pays, e.g. 1/3
     costs a point every 3 s), with portal_goal n > 0 ending a rollout
@@ -82,6 +83,7 @@ def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
         consult_handler=standin_consult,
         portal_goal=portal_goal,
         key_goal=key_goal,
+        waypoints=waypoints,            # the env stands in for the VLM's WAYPOINT (EnvConfig)
         # A fast tic pays back the clock's base rate (RewardConfig.fast);
         # facing a way on pays up to half of it (RewardConfig.look).
         rewards=RewardConfig(time=time_penalty / 35.0, fast=time_penalty / 35.0,
@@ -114,6 +116,7 @@ def run_env(args, slots: list[int], iwad: str | None, warp: str, capture_dir: st
                              slots=slots, capture_dir=capture_dir, spawn_tics=args.spawn_tics,
                              item_tics=getattr(args, "item_tics", 0),
                              nodraw=args.nodraw, noblit=args.noblit, time_penalty=args.time_penalty,
+                             waypoints=getattr(args, "waypoints", False),
                              headless=getattr(args, "headless", True),
                              obs_size=getattr(args, "obs_size", None) or DEFAULT_OBS_SIZE, **rules)
 
@@ -449,6 +452,9 @@ def add_env_args(p) -> None:
     p.add_argument("--time-penalty", type=float, default=1 / 3,
                    help="reward lost per game second until the rollout ends, so the faster portal "
                         "crossing wins its group (default 1/3: a point every 3 s)")
+    p.add_argument("--waypoints", action=argparse.BooleanOptionalAction, default=True,
+                   help="the env sets WAYPOINTs along the path to the nearest unvisited room, as the VLM "
+                        "will in production; the clock, fast and look follow them (2026-11-18)")
     p.add_argument("--eval-max-tics", type=int, default=4200,  # 2100 before 2026-11-18
                    help="held-out eval rollout limit (the training rewards, but no portal or key goal "
                         "ending it early: sectors visited in 120 s, comparable across versions)")

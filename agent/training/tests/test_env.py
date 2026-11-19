@@ -1046,3 +1046,57 @@ def test_fast_path():
     assert pay(90, 0, 10) == 1.0              # running north, along the way on (facing east)
     assert pay(45, 10, 0) == 0.707            # 45 degrees off the way on
     assert pay(None, 10, 0) == 1.0            # no way known: the facing
+
+
+def test_waypoints():
+    """EnvConfig.waypoints: the first step sends WAYPOINT at path_ahead with
+    the action; the clock runs toward it (term "waypoint", not "time"),
+    fast and look point at it; reaching it clears it, and the next comes
+    waypoint_gap tics later. Engine faked."""
+    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
+                        consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0,
+                        time=1.0, far_scale=100.0, fast=1.0, look=1.0, turn_waste=0, move_flip=0,
+                        fall=0, wall_look=0)
+    e = make_env(rewards=only, max_tics=100000, waypoints=True, waypoint_noise=0.0, waypoint_gap=2, waypoint_min=0.0)
+    sent = []
+    script = iter([
+        # (state after the step, events)
+        ({"x": 10, "y": 0, "waypoint": [100, 0]}, []),        # running east, toward it
+        ({"x": 10, "y": 10, "waypoint": [100, 0]}, []),       # north: across it
+        ({"x": 70, "y": 0}, [{"event": "waypoint_reached"}]),
+        ({"x": 70, "y": 0}, []),
+        ({"x": 70, "y": 0}, []),
+        ({"x": 70, "y": 0, "waypoint": [300, 0]}, []),
+    ])
+
+    def command(line):
+        sent.append(line)
+        st, ev = next(script)
+        return dict({"mode": "EXPLORE", "hp": 100, "tics": 1, "fast_tics": 1, "angle": 0,
+                     "path_ahead": [300, 0] if len(sent) > 2 else [100, 0]}, **st), ev
+    e.engine.command = command
+    e._frame = lambda: np.zeros((200, 320), dtype=np.uint8)
+    e.state = {"mode": "EXPLORE", "hp": 100, "x": 0, "y": 0, "angle": 0, "path_ahead": [100, 0]}
+    e._prev_hp, e._tics, e._combat_steps = 100, 0, 0
+    e._best_sectors = e._start_sectors = 0
+    e._keys, e._goal, e._group, e._slot, e._seed, e._used = 0, None, 0, None, 0, set()
+    e._trig = {k: e._new_trigger() for k in ("monster", "unique", "combat")}
+    e._wp_on = True
+    e._stack.reset(e._frame())
+    w = ACTIONS.index("PRESS W")
+    _, _, _, _, i1 = e.step(w)
+    assert sent[0] == "WAYPOINT 100 0;PRESS W"
+    t = i1["terms"]
+    assert "time" not in t and t["waypoint"] == pytest.approx(-(1 + 95 / 100))   # distance 100 -> 90
+    assert t["fast"] == pytest.approx(1.0) and t["look"] == pytest.approx(1.0)   # all toward it
+    _, _, _, _, i2 = e.step(w)
+    assert sent[1] == "PRESS W"                       # not due again
+    assert "fast" not in i2["terms"]                   # moved north: across the way to it
+    _, _, _, _, i3 = e.step(w)                         # reached
+    assert e._wp is None and i3["waypoints"] == [1, 1]
+    e.step(w)                                          # 0 and 1 tics since: the gap is 2
+    e.step(w)
+    assert ";" not in sent[3] and ";" not in sent[4]
+    _, _, _, _, i6 = e.step(w)
+    assert sent[5] == "WAYPOINT 300 0;PRESS W"
+    assert i6["waypoints"] == [2, 1]

@@ -290,6 +290,8 @@ def train_metrics(recs: list[dict], n_groups: int, collapsed: int) -> dict:
          "key_rate": float(np.mean([r.get("key", False) for r in recs])),
          "items_spawned": int(sum(r.get("items", [0, 0])[0] for r in recs)),
          "items_picked": int(sum(r.get("items", [0, 0])[1] for r in recs)),
+         "waypoints_set": int(sum(r.get("waypoints", [0, 0])[0] for r in recs)),
+         "waypoints_reached": int(sum(r.get("waypoints", [0, 0])[1] for r in recs)),
          "collapsed_share": collapsed / max(n_groups, 1),
          "action_share": (acts / max(acts.sum(), 1)).round(3).tolist()}
     cs = np.sum([r.get("consult_stats", [0, 0, 0, 0]) for r in recs], axis=0)
@@ -319,6 +321,7 @@ def print_train(it: int, m: dict, upd: dict, extra: str = "") -> None:
           + (f" front {m['frontier_share']:.2f}" if "frontier_share" in m else "")
           + (f" dead {upd['dead_units']:.2f}" if "dead_units" in upd else "")
           + (f" items {m['items_picked'] / m['items_spawned']:.2f}" if m.get("items_spawned") else "")
+          + (f" wp {m['waypoints_reached'] / m['waypoints_set']:.2f}" if m.get("waypoints_set") else "")
           + (f" consult {m.get('consult_trig', 0):.3f}/{m['consult_idle']:.3f}" if "consult_idle" in m else "")
           + extra)
 

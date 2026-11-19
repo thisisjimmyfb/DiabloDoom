@@ -301,6 +301,25 @@ class EnvConfig:
     # the policy can't use a map it saw a moment ago. The engine's
     # FORCEMAP / -rlforcemap stay, off unless sent.
     consult_handler: Optional[ConsultHandler] = None
+    # Waypoints (2026-11-18): the env stands in for the VLM, which sets
+    # the engine's WAYPOINT in production. It puts one at the engine's
+    # path_ahead (about 192 units along the walking path to the nearest
+    # unvisited room) plus waypoint_noise, replaces it every
+    # waypoint_every game tics while it lasts, and sets the next one
+    # waypoint_gap tics after one is reached. A group in waypoint_off
+    # gets none (all its members alike, from the group's seed), so the
+    # policy still learns to explore without. While one is set the
+    # clock runs toward it and fast / look point at it (DiabloDoomEnv.step).
+    waypoints: bool = False
+    waypoint_every: int = 175          # 5 s
+    waypoint_gap: int = 35             # 1 s
+    waypoint_off: float = 0.3
+    waypoint_noise: float = 16.0       # map units, std per axis
+    # None nearer than this (map units): path_ahead stops at the target
+    # room's first cell, and one within the engine's 64-unit reach would
+    # clear before the player is in the room; the clock without one leads
+    # the last stretch.
+    waypoint_min: float = 128.0
 
 
 class DiabloDoomEnv(gym.Env):
@@ -328,6 +347,7 @@ class DiabloDoomEnv(gym.Env):
         # Per-env reset request for vector envs:
         #   envs.set_attr("next_reset", [{"slot": 3, "seed": 17, "group": 0}, ...])
         self.next_reset: dict | None = None
+        self._wp_on, self._wp, self._wp_tic, self._wp_stats = False, None, -10 ** 9, [0, 0]   # waypoints (reset sets them)
         self._installed: dict[int, bytes | None] = {}   # install_state slots
         self._installed_visited: dict[int, str | None] = {}  # their visited lists (VISITED hex)
         # the last turn_waste_window turns (degrees), for RewardConfig.turn_waste
@@ -491,6 +511,10 @@ class DiabloDoomEnv(gym.Env):
         self._fall_top, self._fall_peak = None, 0.0
         self._trig = {k: self._new_trigger() for k in ("monster", "unique", "combat")}
         self._update_triggers(d)
+        # Waypoints (EnvConfig.waypoints): this group's on or off, from
+        # its seed; the first one goes out with the first action.
+        self._wp_on = self.cfg.waypoints and (int(rng_seed) * 2654435761 % 1000) / 1000.0 >= self.cfg.waypoint_off
+        self._wp, self._wp_tic, self._wp_stats = None, -10 ** 9, [0, 0]
         obs = self._stack.reset(self._frame())
         return obs, self._info(0, d)
 
@@ -539,12 +563,21 @@ class DiabloDoomEnv(gym.Env):
             # Combat: everything but CONSULT is dropped (SPEC.md §5.2).
             d, tics, sent = prev, 0, False
         else:
-            d, events = self.engine.command(ACTIONS[a])
+            line = ACTIONS[a]
+            wl = self._waypoint_due(prev)
+            if wl:
+                line = f"{wl};{line}"     # the same tic as the action
+            d, events = self.engine.command(line)
             tics = max(d.get("tics", 0), 0)
             sent = True
+        wp = self._wp                     # the waypoint this step ran toward
 
         self.state = d
         self._tics += tics
+        if any(e.get("event") == "waypoint_reached" for e in events) or (wp is not None and "waypoint" not in d):
+            if any(e.get("event") == "waypoint_reached" for e in events):
+                self._wp_stats[1] += 1
+            self._wp, self._wp_tic = None, self._tics
 
         # Steps in combat (capped: the world is frozen until CONSULT).
         if d.get("mode") in COMBAT_MODES:
@@ -554,9 +587,14 @@ class DiabloDoomEnv(gym.Env):
 
         # Time and distance: every tic costs time * (1 + d / far_scale),
         # d the distance to the nearest exit line or frontier portal.
+        # With a waypoint (EnvConfig.waypoints), d is the distance to it
+        # instead, the term "waypoint".
         sec = rooms(d, self._best_sectors)
         goal = goal_dist(d)
-        if tics > 0 and rc.time:
+        if tics > 0 and rc.time and wp is not None and "x" in prev and "x" in d:
+            dist = (np.hypot(prev["x"] - wp[0], prev["y"] - wp[1]) + np.hypot(d["x"] - wp[0], d["y"] - wp[1])) / 2
+            add("waypoint", -rc.time * tics * (1.0 + float(dist) / rc.far_scale))
+        elif tics > 0 and rc.time:
             known = [g for g in (self._goal, goal) if g is not None]
             dist = sum(known) / len(known) if known else 0.0
             add("time", -rc.time * tics * (1.0 + dist / rc.far_scale))
@@ -566,11 +604,15 @@ class DiabloDoomEnv(gym.Env):
         # High velocity: the tics the engine counted at fast_speed or more
         # (a dropped action re-reads the last state line: nothing new).
         if sent:
-            add("fast", rc.fast * max(int(d.get("fast_tics", 0)), 0) * self._forward_share(prev, d))
+            add("fast", rc.fast * max(int(d.get("fast_tics", 0)), 0) * self._forward_share(prev, d, wp))
         # Looking the way on (way_rel: along the path, else toward the
         # nearest unvisited portal), by the facing at the step's end (one
-        # tic, under per-tic decisions).
-        rel = way_rel(d)
+        # tic, under per-tic decisions). With waypoints: toward the
+        # waypoint, nothing without one.
+        if wp is not None and "x" in d and d.get("angle") is not None:
+            rel = float(np.degrees(np.arctan2(wp[1] - d["y"], wp[0] - d["x"]))) - d["angle"]
+        else:
+            rel = None if self.cfg.waypoints else way_rel(d)
         if sent and rc.look and rel is not None:
             add("look", rc.look * tics * max(0.0, float(np.cos(np.radians(rel)))))
         # Staring at a wall up close (RewardConfig.wall_look).
@@ -676,6 +718,7 @@ class DiabloDoomEnv(gym.Env):
         info["key"] = got_key             # the key goal reached (EnvConfig.key_goal)
         info["items"] = [getattr(self, "_items_spawned", 0), getattr(self, "_items_picked", 0)]
         info["consult_stats"] = list(self._consult_stats)
+        info["waypoints"] = list(self._wp_stats)   # [set, reached]
         info["terms"] = terms             # the reward by term
         info["reward_now"] = sum(v for t, v in terms.items() if t in rc.immediate)
         info["end"] = end                 # why the rollout ended: exit, death, key, portal, time, combat
@@ -735,11 +778,12 @@ class DiabloDoomEnv(gym.Env):
         self._turn_hist.append(turn)
         return rc.turn_waste * wasted / 45.0
 
-    def _forward_share(self, prev: dict, d: dict) -> float:
+    def _forward_share(self, prev: dict, d: dict, wp: tuple | None = None) -> float:
         """max(0, cos) of the angle between the step's movement and the
         way on at the step's start (RewardConfig.fast_path; else, or with
         no way known, the facing) (RewardConfig.fast_forward); 1 when
-        it's off or unknown."""
+        it's off or unknown. With waypoints (EnvConfig.waypoints): toward
+        the waypoint wp, else the facing (never fast_path)."""
         if not self.cfg.rewards.fast_forward:
             return 1.0
         if None in (prev.get("x"), prev.get("y"), d.get("x"), d.get("y"), prev.get("angle"), d.get("angle")):
@@ -750,7 +794,9 @@ class DiabloDoomEnv(gym.Env):
             return 1.0                    # no displacement: fast_tics is 0 anyway
         a0, a1 = np.radians(prev["angle"]), np.radians(d["angle"])
         fx, fy = np.cos(a0) + np.cos(a1), np.sin(a0) + np.sin(a1)   # mean facing
-        rel = way_rel(prev) if self.cfg.rewards.fast_path else None
+        rel = way_rel(prev) if self.cfg.rewards.fast_path and not self.cfg.waypoints else None
+        if wp is not None:
+            rel = float(np.degrees(np.arctan2(wp[1] - prev["y"], wp[0] - prev["x"]))) - prev["angle"]
         if rel is not None:                                           # the way on (degrees, left +)
             w = np.radians(prev["angle"] + rel)
             fx, fy = np.cos(w), np.sin(w)
@@ -758,6 +804,26 @@ class DiabloDoomEnv(gym.Env):
         if f == 0:
             return 1.0
         return max(0.0, float((dx * fx + dy * fy) / (n * f)))
+
+    def _waypoint_due(self, d: dict) -> str | None:
+        """The WAYPOINT command to send with this step's action, or None
+        (EnvConfig.waypoints): at path_ahead plus noise, when none is set
+        and waypoint_gap tics have passed since the last was reached, or
+        when the one set is waypoint_every tics old; never within
+        waypoint_min of the player."""
+        cfg = self.cfg
+        ahead = d.get("path_ahead")
+        if not self._wp_on or ahead is None or d.get("mode") != EXPLORE:
+            return None
+        age = self._tics - self._wp_tic
+        if age < (cfg.waypoint_gap if self._wp is None else cfg.waypoint_every):
+            return None
+        if "x" in d and np.hypot(ahead[0] - d["x"], ahead[1] - d["y"]) < cfg.waypoint_min:
+            return None
+        x, y = (int(round(v + self.np_random.normal(0.0, cfg.waypoint_noise))) for v in ahead[:2])
+        self._wp, self._wp_tic = (x, y), self._tics
+        self._wp_stats[0] += 1
+        return f"WAYPOINT {x} {y}"
 
     def _fall_step(self, prev: dict, d: dict, tics: int) -> float:
         """Track a fall across steps (RewardConfig.fall); the penalty on the

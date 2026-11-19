@@ -1420,7 +1420,7 @@ void AM_drawMarks(void)
 
 }
 
-// The WAYPOINT (2026-11-18): a white, black-outlined square.
+// The WAYPOINT (2026-11-18): a black-outlined square in the marker colour (DC_WP_CORE).
 static void AM_drawWaypoint(void)
 {
     int wx, wy, fx, fy;

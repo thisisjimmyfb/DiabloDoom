@@ -106,6 +106,16 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   Lifts and raised floors are taken as they were at the load, and steps
   finer than the grid (a spiral stair of 16-unit steps) are a blur. No
   path (nothing reachable): the straight portal distances below.
+  Waypoints (`--waypoints`, on by default, 2026-11-18): the env stands in
+  for the VLM, which sets the engine's `WAYPOINT` in production. It puts
+  one at the state line's `path_ahead` (about 192 units along the walking
+  path, 16-unit noise), never within 128 units of the player, replaces it
+  every 5 s, and sets the next 1 s after one is reached; 30% of groups get
+  none. While one is set the clock's distance is the straight distance to
+  it (the term `waypoint` instead of `time`), and `fast` and `look` point
+  at it; without one `fast` pays running along the facing and `look`
+  nothing. The rollout log and metrics count them (`waypoints` [set,
+  reached]; the console's `wp` is reached / set).
   Doors first (2026-11-17): the engine finds the door and lift sectors
   from the line specials that move them (a manual door line's back
   sector, a remote door or lift trigger's tagged sectors), and both
