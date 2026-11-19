@@ -1057,7 +1057,8 @@ def test_waypoints():
                         consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0,
                         time=1.0, far_scale=100.0, fast=1.0, look=1.0, turn_waste=0, move_flip=0,
                         fall=0, wall_look=0)
-    e = make_env(rewards=only, max_tics=100000, waypoints=True, waypoint_noise=0.0, waypoint_gap=2, waypoint_min=0.0)
+    e = make_env(rewards=only, max_tics=100000, waypoints=True, waypoint_noise=0.0, waypoint_gap=2, waypoint_min=0.0,
+                 waypoint_place="path")
     sent = []
     script = iter([
         # (state after the step, events)
@@ -1100,3 +1101,44 @@ def test_waypoints():
     _, _, _, _, i6 = e.step(w)
     assert sent[5] == "WAYPOINT 300 0;PRESS W"
     assert i6["waypoints"] == [2, 1]
+
+
+def test_waypoints_sector():
+    """waypoint_place "sector": the env sends WAYPOINT RANDOM <seed> <min>
+    with the action and takes the point the engine picked from the state
+    line; none picked (no point far enough), none set. Engine faked."""
+    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
+                        consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0,
+                        time=1.0, fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0)
+    e = make_env(rewards=only, max_tics=100000, waypoints=True, waypoint_gap=1)
+    sent, picks = [], iter([None, [50, 60]])
+
+    def command(line):
+        sent.append(line)
+        st = {"mode": "EXPLORE", "hp": 100, "tics": 1, "x": 0, "y": 0, "angle": 0}
+        if line.startswith("WAYPOINT RANDOM"):
+            p = next(picks)
+            if p is not None:
+                st["waypoint"] = p
+        elif e._wp is not None:
+            st["waypoint"] = list(e._wp)
+        return st, []
+    e.engine.command = command
+    e._frame = lambda: np.zeros((200, 320), dtype=np.uint8)
+    e.state = {"mode": "EXPLORE", "hp": 100, "x": 0, "y": 0, "angle": 0}
+    e._prev_hp, e._tics, e._combat_steps = 100, 0, 0
+    e._best_sectors = e._start_sectors = 0
+    e._keys, e._goal, e._group, e._slot, e._seed, e._used = 0, None, 0, None, 0, set()
+    e._trig = {k: e._new_trigger() for k in ("monster", "unique", "combat")}
+    e._wp_on = True
+    e._stack.reset(e._frame())
+    w = ACTIONS.index("PRESS W")
+    _, _, _, _, i1 = e.step(w)
+    assert sent[0].startswith("WAYPOINT RANDOM ") and sent[0].endswith(" 256;PRESS W")
+    assert e._wp is None and i1["waypoints"] == [0, 0] and "time" in i1["terms"]
+    _, _, _, _, i2 = e.step(w)                         # 1 tic later: asks again
+    assert sent[1].startswith("WAYPOINT RANDOM ")
+    assert e._wp == (50, 60) and i2["waypoints"] == [1, 0] and "waypoint" in i2["terms"]
+    for _ in range(300):                               # kept until reached: never replaced
+        e.step(w)
+    assert not any(l.startswith("WAYPOINT") for l in sent[2:]) and e._wp == (50, 60)

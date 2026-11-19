@@ -51,7 +51,7 @@ import torch
 from model import (Policy, add_env_args, avatar_args, check_slots, checkpoint_obs_size, default_groups, env_label,
                    hub_fetch_checkpoint, load_weights, privileged, resolve_iwads, resolve_maps, run_env)
 from env import ACTIONS, CONSULT, Engine, EngineConfig, EngineError, RewardConfig, cleanup_stale  # noqa: E402
-from env.env import EXPLORE  # noqa: E402
+from env.env import EXPLORE, EnvConfig  # noqa: E402
 from env.obs import FrameStack, Preprocessor  # noqa: E402
 from env.vector import GroupVecEnv  # noqa: E402
 from rollout import pick_actions, run_rollouts, sample_group_options  # noqa: E402
@@ -260,6 +260,9 @@ def watch(args, ckpt: Path, policy: Policy, device: torch.device) -> None:
     # unique's window (unique_grace_tics, 3 s), as the training triggers count them.
     practice = dict(seen=0, seen_consulted=0, spawned=0, picked=0, uniques=0, unique_consulted=0)
     seeing, seen_done, unique_tic, unique_done = False, False, None, False
+    # Waypoints (--waypoints), on the training env's schedule (EnvConfig):
+    # WAYPOINT RANDOM, a random point of the current sector.
+    wcfg, wp_rng, wp_tic, wp_stats = EnvConfig(), np.random.default_rng(args.seed), -10 ** 9, [0, 0]
     try:
         while not args.max_decisions or n < args.max_decisions:
             if d.get("dead"):
@@ -292,7 +295,12 @@ def watch(args, ckpt: Path, policy: Policy, device: torch.device) -> None:
             dropped = 0
             if args.delay:
                 time.sleep(args.delay)
-            engine.send(ACTIONS[a])
+            line, wp_asked = ACTIONS[a], False
+            if args.waypoints and (d.get("waypoint") is None or wcfg.waypoint_every > 0) \
+                    and tics - wp_tic >= (wcfg.waypoint_gap if d.get("waypoint") is None else wcfg.waypoint_every):
+                line = f"WAYPOINT RANDOM {int(wp_rng.integers(0, 2 ** 31))} {int(wcfg.waypoint_min)};{line}"
+                wp_tic, wp_asked = tics, True
+            engine.send(line)
             counts[a] += 1
             prev = d
             d, events = engine.wait_decision()
@@ -306,6 +314,11 @@ def watch(args, ckpt: Path, policy: Policy, device: torch.device) -> None:
             n += 1
             step_tics = max(int(d.get("tics") or 0), 0)
             tics += step_tics
+            if wp_asked and d.get("waypoint") is not None:
+                wp_stats[0] += 1
+            if any(ev.get("event") == "waypoint_reached" for ev in events):
+                wp_stats[1] += 1
+                wp_tic = tics
             for ev in events:
                 if ev.get("event") == "item":
                     practice["spawned"] += 1
@@ -333,7 +346,8 @@ def watch(args, ckpt: Path, policy: Policy, device: torch.device) -> None:
     except EngineError as e:
         print(f"[watch] game error: {e}", file=sys.stderr)
         why = "game error"
-    print(f"[watch] stopped after {n} decisions: {why}")
+    print(f"[watch] stopped after {n} decisions: {why}"
+          + (f" (waypoints set {wp_stats[0]}, reached {wp_stats[1]})" if args.waypoints else ""))
     print("\n".join(drive_summary(ckpt, f"{Path(cfg.iwad).stem} {args.warp}", why, n, counts, tics,
                                    dist, first, d,
                                    practice if args.spawn_tics > 0 or args.item_tics > 0 else None)))

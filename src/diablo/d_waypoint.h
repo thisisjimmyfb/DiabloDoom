@@ -1,7 +1,7 @@
 //
 // d_waypoint.h — the WAYPOINT marker (2026-11-18): one point on the map,
 // set by the driver's WAYPOINT command (the VLM in production, the
-// training env in training), drawn in the scene as a see-through pillar
+// training env in training), drawn in the scene as the menu skull (green)
 // that shows through walls, until the player comes within reach of it.
 //
 // Part of the DiabloDoom mod (GPL-2.0-or-later, like Chocolate Doom).
@@ -19,7 +19,7 @@ boolean D_WaypointGet(int *x, int *y);  // false when none is set
 // "waypoint_reached" event.
 void D_WaypointTick(void);
 
-// From HU_Drawer: the pillar.
+// From HU_Drawer: the marker.
 void D_WaypointDraw(void);
 
 #endif

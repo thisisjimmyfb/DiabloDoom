@@ -906,6 +906,109 @@ static int RL_PathQuery(mobj_t *mo, int *rel, boolean *rel_ok)
     return (int) (best + 0.5);
 }
 
+// WAYPOINT RANDOM (2026-11-18, the training env's waypoints): a random
+// cell of the path grid in a sector next to the player's, so it leads out
+// of the room (in the player's own sector before, 2026-11-18). From the
+// part of the player's sector it can walk to without leaving it (a flood
+// fill from the player's cell; id's maps share one sector between rooms
+// far apart), a second flood fill takes each neighbouring sector it walks
+// into, through doors it can open, door sectors and small sectors (stair
+// steps, under RL_SMALL_SEC cells) counting as the way into the sector
+// behind them, not as the neighbour. The cell is at least min_dist map
+// units from the player (any beyond WP reach, 96, when none is), seed
+// picks it. False when there is none.
+#define RL_SMALL_SEC 6
+boolean RL_SectorPoint(unsigned seed, int min_dist, int *x, int *y)
+{
+    mobj_t *mo = players[consoleplayer].mo;
+    int n, sec, start, head = 0, tail = 0, region, count = 0, c, d, pick, pass;
+    int *queue, *size, *cand;
+    byte *seen;
+
+    if (mo == NULL || gamestate != GS_LEVEL)
+        return false;
+    if (rl_graph_dirty || rl_graph_for != sectors)
+        RL_BuildGraph(mo);
+    if (rl_gsec == NULL)
+        return false;
+    n = rl_gw * rl_gh;
+    sec = (int) (mo->subsector->sector - sectors);
+    {
+        int px = ((mo->x >> FRACBITS) - rl_gx0) / RL_CELL, py = ((mo->y >> FRACBITS) - rl_gy0) / RL_CELL;
+        if (px < 0 || py < 0 || px >= rl_gw || py >= rl_gh)
+            return false;
+        start = py * rl_gw + px;
+    }
+    if (rl_gsec[start] != sec)
+        return false;
+    queue = malloc(n * sizeof(int));
+    seen = calloc(n, 1);
+    size = calloc(numsectors, sizeof(int));
+    for (c = 0; c < n; c++)
+        if (rl_gsec[c] >= 0)
+            size[rl_gsec[c]]++;
+#define RL_THROUGH(s) (RL_Passage(&sectors[s]) == RL_DOOR || size[s] < RL_SMALL_SEC)
+    queue[tail++] = start;
+    seen[start] = 1;
+    // Pass 0: the player's part of its sector. Pass 1: from its edge, the
+    // neighbours, entering another sector only from a door or small one.
+    region = 0;
+    for (pass = 0; pass < 2; pass++)
+    {
+        if (pass == 1)
+        {
+            region = tail;     // the player's part: queue[0 .. region)
+            head = 0;
+        }
+        while (head < tail)
+        {
+            int cur = queue[head++];
+            for (d = 0; d < 8; d++)
+            {
+                int nx = cur % rl_gw + rl_dx[d], ny = cur / rl_gw + rl_dy[d], nc, door;
+                if (!(rl_gedge[cur] & (1 << d)))
+                    continue;
+                nc = ny * rl_gw + nx;
+                door = rl_gdoor[cur * 8 + d];
+                if (seen[nc] || (door >= 0 && !rl_doorok[door]))
+                    continue;
+                if (pass == 0 ? rl_gsec[nc] != sec
+                    : rl_gsec[nc] == sec || (rl_gsec[cur] != sec && rl_gsec[nc] != rl_gsec[cur]
+                                             && !RL_THROUGH(rl_gsec[cur])))
+                    continue;
+                seen[nc] = 1;
+                queue[tail++] = nc;
+            }
+        }
+    }
+    // The neighbours' cells far enough away (else any beyond reach), then
+    // pick one.
+    cand = malloc((tail - region + 1) * sizeof(int));
+    for (pass = 0; pass < 2 && count == 0; pass++)
+    {
+        int lim = pass == 0 ? min_dist : 96;
+        for (c = region; c < tail; c++)
+        {
+            double dx = (RL_CellX(queue[c]) - mo->x) / (double) FRACUNIT;
+            double dy = (RL_CellY(queue[c]) - mo->y) / (double) FRACUNIT;
+            if (!RL_THROUGH(rl_gsec[queue[c]]) && dx * dx + dy * dy >= (double) lim * lim)
+                cand[count++] = queue[c];
+        }
+    }
+#undef RL_THROUGH
+    if (count > 0)
+    {
+        pick = cand[(seed * 2654435761u >> 8) % (unsigned) count];
+        *x = RL_CellX(pick) >> FRACBITS;
+        *y = RL_CellY(pick) >> FRACBITS;
+    }
+    free(cand);
+    free(queue);
+    free(seen);
+    free(size);
+    return count > 0;
+}
+
 void RL_EmitState(const char *why, int tics)
 {
     char buf[3600];

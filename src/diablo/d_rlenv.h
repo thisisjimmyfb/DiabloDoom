@@ -59,6 +59,10 @@ void RL_Emit(const char *fmt, ...) PRINTF_ATTR(1, 2);
 // tics = game tics since the previous decision (-1 if not tracked).
 void RL_EmitState(const char *why, int tics);
 
+// WAYPOINT RANDOM: a random standable point of the player's current
+// sector (the part it can walk to within it), min_dist or more away.
+boolean RL_SectorPoint(unsigned seed, int min_dist, int *x, int *y);
+
 // Copy the current screen (I_VideoBuffer, 320x200 8-bit) and the
 // palette into the -shm segment. No-op without -shm.
 void RL_PublishFrame(void);

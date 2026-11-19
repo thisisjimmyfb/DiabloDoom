@@ -453,8 +453,9 @@ def add_env_args(p) -> None:
                    help="reward lost per game second until the rollout ends, so the faster portal "
                         "crossing wins its group (default 1/3: a point every 3 s)")
     p.add_argument("--waypoints", action=argparse.BooleanOptionalAction, default=True,
-                   help="the env sets WAYPOINTs along the path to the nearest unvisited room, as the VLM "
-                        "will in production; the clock, fast and look follow them (2026-11-18)")
+                   help="the env sets WAYPOINTs at random points of the current sector, standing in for "
+                        "the VLM in production; the clock, fast and look follow them (2026-11-18); "
+                        "eval.py --iwad sends them on the same schedule")
     p.add_argument("--eval-max-tics", type=int, default=4200,  # 2100 before 2026-11-18
                    help="held-out eval rollout limit (the training rewards, but no portal or key goal "
                         "ending it early: sectors visited in 120 s, comparable across versions)")

@@ -302,16 +302,19 @@ class EnvConfig:
     # FORCEMAP / -rlforcemap stay, off unless sent.
     consult_handler: Optional[ConsultHandler] = None
     # Waypoints (2026-11-18): the env stands in for the VLM, which sets
-    # the engine's WAYPOINT in production. It puts one at the engine's
-    # path_ahead (about 192 units along the walking path to the nearest
-    # unvisited room) plus waypoint_noise, replaces it every
-    # waypoint_every game tics while it lasts, and sets the next one
+    # the engine's WAYPOINT in production. waypoint_place "sector": the
+    # engine picks a random standable point of a sector next to the
+    # player's, waypoint_min or more away (WAYPOINT RANDOM); "path": at the
+    # engine's path_ahead (about 192 units along the walking path to the
+    # nearest unvisited room) plus waypoint_noise. It keeps it until it is
+    # reached (or replaces it every waypoint_every game tics), and sets the next one
     # waypoint_gap tics after one is reached. A group in waypoint_off
     # gets none (all its members alike, from the group's seed), so the
     # policy still learns to explore without. While one is set the
     # clock runs toward it and fast / look point at it (DiabloDoomEnv.step).
     waypoints: bool = False
-    waypoint_every: int = 175          # 5 s
+    waypoint_place: str = "sector"     # or "path"
+    waypoint_every: int = 0            # 0: kept until reached (175, 5 s, before 2026-11-18)
     waypoint_gap: int = 35             # 1 s
     waypoint_off: float = 0.3
     waypoint_noise: float = 16.0       # map units, std per axis
@@ -319,7 +322,7 @@ class EnvConfig:
     # room's first cell, and one within the engine's 64-unit reach would
     # clear before the player is in the room; the clock without one leads
     # the last stretch.
-    waypoint_min: float = 128.0
+    waypoint_min: float = 256.0      # 128 before 2026-11-18
 
 
 class DiabloDoomEnv(gym.Env):
@@ -348,6 +351,7 @@ class DiabloDoomEnv(gym.Env):
         #   envs.set_attr("next_reset", [{"slot": 3, "seed": 17, "group": 0}, ...])
         self.next_reset: dict | None = None
         self._wp_on, self._wp, self._wp_tic, self._wp_stats = False, None, -10 ** 9, [0, 0]   # waypoints (reset sets them)
+        self._wp_pending = False
         self._installed: dict[int, bytes | None] = {}   # install_state slots
         self._installed_visited: dict[int, str | None] = {}  # their visited lists (VISITED hex)
         # the last turn_waste_window turns (degrees), for RewardConfig.turn_waste
@@ -514,7 +518,7 @@ class DiabloDoomEnv(gym.Env):
         # Waypoints (EnvConfig.waypoints): this group's on or off, from
         # its seed; the first one goes out with the first action.
         self._wp_on = self.cfg.waypoints and (int(rng_seed) * 2654435761 % 1000) / 1000.0 >= self.cfg.waypoint_off
-        self._wp, self._wp_tic, self._wp_stats = None, -10 ** 9, [0, 0]
+        self._wp, self._wp_tic, self._wp_stats, self._wp_pending = None, -10 ** 9, [0, 0], False
         obs = self._stack.reset(self._frame())
         return obs, self._info(0, d)
 
@@ -570,6 +574,13 @@ class DiabloDoomEnv(gym.Env):
             d, events = self.engine.command(line)
             tics = max(d.get("tics", 0), 0)
             sent = True
+        if self._wp_pending:              # WAYPOINT RANDOM: the point the engine picked, if any
+            self._wp_pending = False
+            if d.get("waypoint") is not None:
+                self._wp = tuple(d["waypoint"])
+                self._wp_stats[0] += 1
+            else:
+                self._wp = None
         wp = self._wp                     # the waypoint this step ran toward
 
         self.state = d
@@ -807,16 +818,25 @@ class DiabloDoomEnv(gym.Env):
 
     def _waypoint_due(self, d: dict) -> str | None:
         """The WAYPOINT command to send with this step's action, or None
-        (EnvConfig.waypoints): at path_ahead plus noise, when none is set
+        (EnvConfig.waypoints): a random point of the current sector
+        (waypoint_place "sector"), or at path_ahead plus noise, when none is set
         and waypoint_gap tics have passed since the last was reached, or
         when the one set is waypoint_every tics old; never within
         waypoint_min of the player."""
         cfg = self.cfg
         ahead = d.get("path_ahead")
-        if not self._wp_on or ahead is None or d.get("mode") != EXPLORE:
+        if not self._wp_on or d.get("mode") != EXPLORE:
             return None
         age = self._tics - self._wp_tic
+        if self._wp is not None and cfg.waypoint_every <= 0:
+            return None
         if age < (cfg.waypoint_gap if self._wp is None else cfg.waypoint_every):
+            return None
+        if cfg.waypoint_place == "sector":
+            # The engine picks the point; the step reads it back.
+            self._wp_tic, self._wp_pending = self._tics, True
+            return f"WAYPOINT RANDOM {int(self.np_random.integers(0, 2 ** 31))} {int(cfg.waypoint_min)}"
+        if ahead is None:
             return None
         if "x" in d and np.hypot(ahead[0] - d["x"], ahead[1] - d["y"]) < cfg.waypoint_min:
             return None

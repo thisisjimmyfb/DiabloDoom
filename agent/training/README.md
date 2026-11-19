@@ -108,14 +108,20 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   path (nothing reachable): the straight portal distances below.
   Waypoints (`--waypoints`, on by default, 2026-11-18): the env stands in
   for the VLM, which sets the engine's `WAYPOINT` in production. It puts
-  one at the state line's `path_ahead` (about 192 units along the walking
-  path, 16-unit noise), never within 128 units of the player, replaces it
-  every 5 s, and sets the next 1 s after one is reached; 30% of groups get
+  one at a random standable point of a sector next to the player's (one
+  it can walk into from its part of its sector, door and small sectors
+  leading on to the one behind; `WAYPOINT RANDOM`, the engine picks
+  it), never within 256 units of the player (`EnvConfig.waypoint_place`
+  "path": at the state line's `path_ahead` instead, about 192 units along
+  the walking path, 16-unit noise), keeps it
+  until it is reached, and sets the next 1 s after one is reached; 30% of groups get
   none. While one is set the clock's distance is the straight distance to
   it (the term `waypoint` instead of `time`), and `fast` and `look` point
   at it; without one `fast` pays running along the facing and `look`
   nothing. The rollout log and metrics count them (`waypoints` [set,
-  reached]; the console's `wp` is reached / set).
+  reached]; the console's `wp` is reached / set). `eval.py` sets them
+  too: its scoring run through the same env, and `--iwad` (watching) on
+  the same schedule, every time (`--no-waypoints` for neither).
   Doors first (2026-11-17): the engine finds the door and lift sectors
   from the line specials that move them (a manual door line's back
   sector, a remote door or lift trigger's tagged sectors), and both

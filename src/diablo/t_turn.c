@@ -2451,9 +2451,24 @@ static void cmd_dispatch_one(const char *cmd)
     {
         // WAYPOINT <x> <y> (2026-11-18): one point in map units, drawn
         // until the player reaches it (d_waypoint.c); WAYPOINT clears it.
+        // WAYPOINT RANDOM <seed> [min] (training): a random point of the
+        // player's current sector, min (default 0) or more away.
         int x, y;
+        unsigned seed;
         T_EchoUnderRlenv(cmd);
-        if (cmd[8] == '\0')
+        if (cmd[8] != '\0' && !strncmp(cmd + 9, "RANDOM ", 7) && sscanf(cmd + 16, "%u", &seed) == 1)
+        {
+            int min = 0;
+            sscanf(cmd + 16, "%*u %d", &min);
+            if (RL_SectorPoint(seed, min, &x, &y))
+            {
+                D_WaypointSet(x, y);
+                printf("[WAYPOINT] random %d %d\n", x, y);
+            }
+            else
+                printf("[WAYPOINT] random: no point %d+ away in this sector\n", min);
+        }
+        else if (cmd[8] == '\0')
         {
             D_WaypointClear();
             printf("[WAYPOINT] cleared\n");
