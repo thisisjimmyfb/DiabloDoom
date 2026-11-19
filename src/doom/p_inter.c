@@ -1429,6 +1429,7 @@ P_DamageMobj
 {
     unsigned	ang;
     int		saved;
+    int		hp0;
     player_t*	player;
     fixed_t	thrust;
     int		temp;
@@ -1659,7 +1660,13 @@ P_DamageMobj
     }
 
     // do the damage	
+    hp0 = target->health;
     target->health -= damage;	
+    // -rlenv: a monster the player hurt (2026-11-18, the env's damage
+    // and kill rewards).
+    if (source && source->player && target->player == NULL
+        && ((target->flags & MF_COUNTKILL) || target->type == MT_SKULL))
+        RL_PlayerHit(target, hp0 - (target->health > 0 ? target->health : 0));
 
     // Diablo equipment (mod): life steal heals the attacker for a
     // percentage of damage dealt to monsters.

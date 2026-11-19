@@ -17,6 +17,7 @@ from torch.distributions import Categorical
 
 from model import WARMUP_ACTIONS, WARMUP_HOLD, Policy, env_label, privileged, run_env
 from env import ACTIONS, goal_dist  # noqa: E402  (model.py put env on sys.path)
+from env.env import N_MOVE  # noqa: E402
 from env.vector import GroupVecEnv  # noqa: E402
 
 
@@ -33,8 +34,9 @@ def nvtx(name: str):
 def pick_actions(logits: torch.Tensor, temperature: float = 1.0) -> torch.Tensor:
     """Actions sampled at a temperature, one key at a time (the chain
     rule): move / USE / CONSULT, then the forward key, the strafe key
-    given it, the turn key given both (env.ACTIONS: PRESS index
-    9*forward + 3*strafe + turn, then USE, CONSULT), each factor
+    given it, the turn key given both, the fire key given all three
+    (env.ACTIONS: PRESS index 18*forward + 6*strafe + 2*turn + fire,
+    then USE, CONSULT; 2026-11-18, before it no fire key), each factor
     sharpened to p^(1/T). At 1 that is the policy as trained; toward 0
     each key takes its most likely value, so a forward push split over 9
     PRESS combinations still wins over one larger turn; 0 (or less) is
@@ -45,12 +47,13 @@ def pick_actions(logits: torch.Tensor, temperature: float = 1.0) -> torch.Tensor
         return Categorical(logits=torch.log(q.clamp_min(1e-12)) / temperature).sample()
     p = torch.softmax(logits.float(), dim=-1)
     rows = torch.arange(p.shape[0], device=p.device)
-    move = p[:, :27].reshape(-1, 3, 3, 3)
-    kind = draw(torch.stack([move.sum((1, 2, 3)), p[:, 27], p[:, 28]], dim=-1))
-    f = draw(move.sum((2, 3)))
-    s = draw(move[rows, f].sum(-1))
-    t = draw(move[rows, f, s])
-    return torch.where(kind == 0, 9 * f + 3 * s + t, 26 + kind)
+    move = p[:, :N_MOVE].reshape(-1, 3, 3, 3, 2)
+    kind = draw(torch.stack([move.sum((1, 2, 3, 4)), p[:, N_MOVE], p[:, N_MOVE + 1]], dim=-1))
+    f = draw(move.sum((2, 3, 4)))
+    s = draw(move[rows, f].sum((-1, -2)))
+    t = draw(move[rows, f, s].sum(-1))
+    c = draw(move[rows, f, s, t])
+    return torch.where(kind == 0, 18 * f + 6 * s + 2 * t + c, N_MOVE - 1 + kind)
 
 
 def run_rollouts(vec: GroupVecEnv, policy: Policy, device: torch.device,
@@ -123,6 +126,7 @@ def run_rollouts(vec: GroupVecEnv, policy: Policy, device: torch.device,
         r["key"] = bool(r["end_info"].get("key"))
         r["items"] = list(r["end_info"].get("items", [0, 0]))   # practice items [spawned, picked up]
         r["waypoints"] = list(r["end_info"].get("waypoints", [0, 0]))   # [set, reached]
+        r["combat"] = list(r["end_info"].get("combat", [0, 0, 0, 0, 0]))   # [on, shots, hits, kills, damage]
         r["consult_stats"] = list(r["end_info"].get("consult_stats", [0, 0, 0, 0]))
     return recs
 
@@ -156,6 +160,7 @@ def rollout_log_rows(recs: list[dict], options: list[dict], labels: list[str], *
             "goal_dist": [goal_dist(s0), goal_dist(s1)],
             "mode": s1.get("mode"), "keys": s1.get("keys"), "items": r.get("items"),
             "waypoints": r.get("waypoints"),
+            "combat": r.get("combat"),
             "actions": dict(zip(ACTIONS, acts.tolist())),
             "wall_start": _clock(r["wall_start"]) if "wall_start" in r else None,
             "wall_end": _clock(r["wall_end"]) if "wall_end" in r else None,

@@ -25,18 +25,22 @@ from .obs import FrameStack, Preprocessor
 # (2026-11-15): each action is the keys held for the next tic, the way a
 # keyboard is played. PRESS <keys>: W/S run forward/back, A/D strafe,
 # L/R turn (about 7 degrees a tic), every combination of one key from
-# each pair or none: 27, "PRESS" alone (nothing held) first. Then USE
-# and CONSULT. The engine's multi-tic commands (WALK, GOTO, the 45-degree
+# each pair or none: 27, "PRESS" alone (nothing held) first; each with
+# and without CTRL, the fire key (2026-11-18): 54, index 18*forward +
+# 6*strafe + 2*turn + fire. Then USE and CONSULT. The engine's multi-tic commands (WALK, GOTO, the 45-degree
 # TURNL/TURNR, ...) stay for the farm driver; the policy doesn't send them.
 # No MAP (removed 2026-11-14): the env's forced glances show the map.
-ACTIONS = [("PRESS " + f + s + t).rstrip()
-           for f in ("", "W", "S") for s in ("", "A", "D") for t in ("", "L", "R")] + ["USE", "CONSULT"]
+ACTIONS = [" ".join(k for k in ("PRESS", f + s + t, c) if k)
+           for f in ("", "W", "S") for s in ("", "A", "D") for t in ("", "L", "R")
+           for c in ("", "CTRL")] + ["USE", "CONSULT"]
+N_MOVE = 54                       # the PRESS actions, before USE and CONSULT
 CONSULT = ACTIONS.index("CONSULT")
 USE = ACTIONS.index("USE")
 # Each action's forward/back key: +1 W, -1 S, 0 none (strafes, A/D,
 # aren't tracked).
-MOVE_DIR = [(1 if "W" in a[6:] else -1 if "S" in a[6:] else 0) if a.startswith("PRESS") else 0
-            for a in ACTIONS]
+MOVE_DIR = [(1 if "W" in a[6:].replace("CTRL", "") else -1 if "S" in a[6:].replace("CTRL", "") else 0)
+            if a.startswith("PRESS") else 0 for a in ACTIONS]
+FIRE = [a.endswith("CTRL") for a in ACTIONS]
 
 EXPLORE = "EXPLORE"
 COMBAT_MODES = {"PLANNING", "TARGETING", "CONFIRM", "PULSE", "REACTION", "ROUND_END"}
@@ -53,7 +57,7 @@ class RewardConfig:
     # crossing pays once, for the room behind it.
     sector: float = 15.0
     exit: float = 100.0               # level complete triggered (ends the rollout): the top reward
-    death: float = -100.0             # the player died (ends the rollout): as big as the exit
+    death: float = -150.0             # the player died (ends the rollout): 1.5x the exit (-100 before 2026-11-18)
     mechanism: float = 10.0           # USE that sets a new mechanism going (once per mechanism)
     key: float = 25.0                 # per key colour newly held (blue, yellow, red; once each)
     # Pickups, from the engine's pickup events: each Diablo item picked
@@ -61,7 +65,7 @@ class RewardConfig:
     # pays `health` per HP it actually healed (a medikit 25 HP, a bonus
     # 1), the mirror of hp_loss. A thing left on the ground pays nothing.
     loot: float = 5.0
-    health: float = 0.5               # 0.2 before 2026-11-18
+    health: float = 0.75              # 0.2, then 0.5, before 2026-11-18
     # Practice items (2026-11-17): while one lies on the ground, each map
     # unit closed toward it pays item_approach and each unit away costs
     # the same, so circling nets nothing. 0 turns it off.
@@ -71,7 +75,6 @@ class RewardConfig:
     # over the whole grace window (2026-11-17: once at its end before),
     # so each frame the policy didn't CONSULT on gets its share.
     trigger_miss: float = -2.5        # -8, then -12, before 2026-11-18
-    grace_tics: int = 105             # a monster in view: game tics (3 s) to CONSULT
     # A unique picked up (2026-11-17; the engine's pickup event, tier 4)
     # is a trigger for unique_grace_tics game tics (3 s, as a monster;
     # the engine's gold border around the avatar, the cue, lasts 3.5 s,
@@ -181,17 +184,26 @@ class RewardConfig:
     # Per HP lost, whatever the cause: passive damage (nukage, slime,
     # crushers, barrels) in stage 1. Healing never pays; a death costs
     # the HP it lost on the way plus `death`.
-    hp_loss: float = -0.5             # -0.2 before 2026-11-18
+    hp_loss: float = -0.75            # -0.2, then -0.5, before 2026-11-18
+    # Combat (2026-11-18), half again as much as the maze run (a kill
+    # 22.5 against a new sector's 15; hp_loss, health and death x1.5 too):
+    # damage per a monster's full HP dealt (so a kill pays the same for
+    # any monster), from the engine's damage events, plus kill on the
+    # kill; fire_waste per shot that hurt nothing at once (a projectile's
+    # hit comes later: never charged), so firing at nothing costs.
+    damage: float = 11.25
+    kill: float = 11.25
+    fire_waste: float = -0.1
     # One-off terms (2026-11-17): they judge only the step's own action,
     # so the learner adds them to that step's advantage alone instead of
     # summing them into every earlier step's reward-to-go
     # (info["reward_now"], learn.group_advantages).
-    immediate: tuple = ("consult", "move_flip", "turn_waste", "wall_look")
+    immediate: tuple = ("consult", "move_flip", "turn_waste", "wall_look", "fire_waste")
 
 
 # A CONSULT handler answers a CONSULT: it may drive the engine with any
 # driver commands and returns the decision it ends on. `kinds` names the
-# live triggers ("monster", "unique", "combat"; empty for a false
+# live triggers ("unique", "combat"; no "monster" since 2026-11-18, the policy fights; empty for a false
 # consult). On the farm this signals Muse VM; in training a stand-in.
 ConsultHandler = Callable[["DiabloDoomEnv", dict, list], dict]
 
@@ -245,9 +257,9 @@ def standin_consult(env: "DiabloDoomEnv", state: dict, kinds: list,
     """Training stand-in for Muse's VLM (SPEC.md §5.4): it clears what the
     policy consulted about, cheaply, so the policy learns *when* to hand
     off, not how to fight. env.step has already sent the CONSULT driver
-    command (every CONSULT: it removes every practice monster, and under
-    -rlenv the map monsters in sight and, in combat, those targeting the player).
-      - a monster sighting or combat: in combat, END then closes the round (back
+    command (every CONSULT: it removes every practice monster; map monsters
+    never since 2026-11-18, the policy fights them).
+      - combat (turn-based, -turnbased only): in combat, END then closes the round (back
         to explore once no combatant is visible), up to max_rounds;
       - a unique picked up (or, on the farm, a full backpack): when the
         backpack is full, salvage the oldest items until it has room, plus
@@ -261,7 +273,7 @@ def standin_consult(env: "DiabloDoomEnv", state: dict, kinds: list,
             if not s.get("backpack_full"):
                 extra -= 1
             s, _ = env.consult_command("SALVAGE 0")
-    if "monster" in kinds or "combat" in kinds:
+    if "combat" in kinds:
         # env.step already sent the policy's CONSULT.
         rounds = 0
         while s["mode"] in COMBAT_MODES and not s.get("dead") and rounds < max_rounds:
@@ -312,6 +324,13 @@ class EnvConfig:
     # gets none (all its members alike, from the group's seed), so the
     # policy still learns to explore without. While one is set the
     # clock runs toward it and fast / look point at it (DiabloDoomEnv.step).
+    # Combat (2026-11-18): the share of groups that fight. The rest hide
+    # every living map monster (the engine's MONSTERS HIDE) and only
+    # explore; all members of a group alike, from the group's seed.
+    combat: float = 0.5
+    # A random gun equipped at every rollout's start (2026-11-18): the
+    # player starts on fists otherwise.
+    give_gun: bool = True
     waypoints: bool = False
     waypoint_place: str = "sector"     # or "path"
     waypoint_every: int = 0            # 0: kept until reached (175, 5 s, before 2026-11-18)
@@ -352,6 +371,7 @@ class DiabloDoomEnv(gym.Env):
         self.next_reset: dict | None = None
         self._wp_on, self._wp, self._wp_tic, self._wp_stats = False, None, -10 ** 9, [0, 0]   # waypoints (reset sets them)
         self._wp_pending = False
+        self._combat_on, self._combat_stats = False, [0, 0, 0, 0.0]   # combat (reset sets them)
         self._installed: dict[int, bytes | None] = {}   # install_state slots
         self._installed_visited: dict[int, str | None] = {}  # their visited lists (VISITED hex)
         # the last turn_waste_window turns (degrees), for RewardConfig.turn_waste
@@ -468,6 +488,13 @@ class DiabloDoomEnv(gym.Env):
         # frame rendered from the loaded state.
         self.engine.command(f"LOAD {slot}")
         d, _ = self.engine.command(f"SEED {int(rng_seed) % 256}")
+        self._combat_on = (int(rng_seed) * 40503 + 7919) % 1000 / 1000.0 < self.cfg.combat
+        d, _ = self.engine.command("MONSTERS SHOW" if self._combat_on else "MONSTERS HIDE")
+        if self.cfg.give_gun:
+            # A random gun equipped (2026-11-18; the engine's GIVEGUN), the
+            # same for the whole group (from its seed).
+            d, _ = self.engine.command(f"GIVEGUN {int(rng_seed) * 7 + 3}")
+        self._combat_stats = [0, 0, 0, 0.0]   # shots, hits, kills, damage dealt (HP)
         # A progress save's visited list (the save doesn't store it; the
         # load reset it): VISIT in pieces that fit a command line.
         vis = self._installed_visited.get(slot)
@@ -507,13 +534,13 @@ class DiabloDoomEnv(gym.Env):
         self._goal = goal_dist(d)
         self._keys = d.get("keys", 0)     # keys held at the start (or from the warm-up) never pay
         self._items_spawned, self._items_picked = warm_item, 0   # -rlitems practice items this rollout
-        self._consult_stats = [0, 0, 0, 0]   # explore steps with a monster/unique trigger pending, CONSULTs on them; without, CONSULTs
+        self._consult_stats = [0, 0, 0, 0]   # explore steps with a unique trigger pending, CONSULTs on them; without, CONSULTs
         self._prev_hp = d.get("hp", 0)
         self._combat_steps = 0
         self._turn_hist = collections.deque(maxlen=self.cfg.rewards.turn_waste_window)
         self._move_dir, self._move_tic = 0, -10 ** 9
         self._fall_top, self._fall_peak = None, 0.0
-        self._trig = {k: self._new_trigger() for k in ("monster", "unique", "combat")}
+        self._trig = {k: self._new_trigger() for k in ("unique", "combat")}
         self._update_triggers(d)
         # Waypoints (EnvConfig.waypoints): this group's on or off, from
         # its seed; the first one goes out with the first action.
@@ -540,7 +567,7 @@ class DiabloDoomEnv(gym.Env):
 
         if not in_combat:                 # the metric: CONSULT with and without a trigger pending
             pending = any(self._trig[k]["active"] and not self._trig[k]["consulted"]
-                          for k in ("monster", "unique"))
+                          for k in ("unique",))
             self._consult_stats[0 if pending else 2] += 1
             self._consult_stats[1 if pending else 3] += a == CONSULT
         if a == CONSULT:
@@ -548,7 +575,7 @@ class DiabloDoomEnv(gym.Env):
             if not kinds:
                 add("consult", rc.consult_false)
             for k in kinds:
-                if k in ("monster", "unique"):
+                if k == "unique":
                     add("consult", rc.consult_hit)
                 self._trig[k]["consulted"] = True
             # Every CONSULT reaches the game (status message; under
@@ -684,6 +711,17 @@ class DiabloDoomEnv(gym.Env):
             if e.get("event") == "pickup" and e.get("practice"):
                 self._items_picked += 1
                 self._item = None
+            if e.get("event") == "damage" and e.get("max"):
+                add("damage", rc.damage * min(int(e.get("amount", 0)), int(e["max"])) / int(e["max"]))
+                self._combat_stats[3] += int(e.get("amount", 0))
+                if e.get("kill"):
+                    add("kill", rc.kill)
+                    self._combat_stats[2] += 1
+            if e.get("event") == "shot":
+                self._combat_stats[0] += 1
+                self._combat_stats[1] += bool(e.get("hit"))
+                if not e.get("hit") and not e.get("proj"):
+                    add("fire_waste", rc.fire_waste)
             if e.get("event") == "pickup":
                 if e.get("kind") in ("loot", "armor"):
                     add("loot", rc.loot)
@@ -729,6 +767,7 @@ class DiabloDoomEnv(gym.Env):
         info["key"] = got_key             # the key goal reached (EnvConfig.key_goal)
         info["items"] = [getattr(self, "_items_spawned", 0), getattr(self, "_items_picked", 0)]
         info["consult_stats"] = list(self._consult_stats)
+        info["combat"] = [int(self._combat_on)] + list(self._combat_stats)   # on, shots, hits, kills, damage
         info["waypoints"] = list(self._wp_stats)   # [set, reached]
         info["terms"] = terms             # the reward by term
         info["reward_now"] = sum(v for t, v in terms.items() if t in rc.immediate)
@@ -900,33 +939,17 @@ class DiabloDoomEnv(gym.Env):
     def _new_trigger() -> dict:
         return {"active": False, "consulted": False, "age": 0, "penalized": False}
 
-    @staticmethod
-    def _monster_visible(d: dict) -> bool:
-        """A monster seen before it acquires the player, while exploring:
-        the engine's monstervis field (a living monster among the visible
-        targets; enemies are frozen in explore and an acquisition starts
-        combat at once). Older engines without it: any visible target."""
-        if d.get("mode") != EXPLORE:
-            return False
-        if "monstervis" in d:
-            return bool(d["monstervis"])
-        return len(d.get("targets", [])) > 0
-
     def _update_triggers(self, d: dict, tics: int = 0, events: list | None = None) -> float:
         """Start, age and end the CONSULT triggers; the miss penalty while
-        one waits unanswered, spread over its grace: grace_tics game tics for a
-        monster, unique_grace_tics for a unique picked up, grace_decisions
-        steps in combat (frozen: no tics pass there). Combat is live while
-        it lasts; a monster from its sighting, and a unique from its pickup
-        event, until consulted or its grace runs out (a monster longer, while
-        it stays in view)."""
+        one waits unanswered, spread over its grace: unique_grace_tics game
+        tics for a unique picked up, grace_decisions steps in combat
+        (frozen: no tics pass there). Combat is live while it lasts; a
+        unique from its pickup event, until consulted or its grace runs
+        out. (No monster sighting trigger since 2026-11-18: the policy
+        fights.)"""
         rc = self.cfg.rewards
-        u, m = self._trig["unique"], self._trig["monster"]
+        u = self._trig["unique"]
         live = {
-            # Live from the sighting until consulted or penalized, in view
-            # or not (2026-11-17: turning away no longer escapes the miss).
-            "monster": (self._monster_visible(d)
-                        or (m["active"] and not m["consulted"] and not m["penalized"])),
             "unique": (any(e.get("event") == "pickup" and e.get("tier") == 4 for e in events or [])
                        or (u["active"] and not u["consulted"] and not u["penalized"])),
             "combat": d.get("mode") in COMBAT_MODES,
@@ -942,8 +965,7 @@ class DiabloDoomEnv(gym.Env):
                 t["age"] += step
             else:
                 t["active"] = False
-            grace = (rc.grace_decisions if k == "combat" else
-                     rc.unique_grace_tics if k == "unique" else rc.grace_tics)
+            grace = rc.grace_decisions if k == "combat" else rc.unique_grace_tics
             if t["active"] and not t["consulted"] and not t["penalized"]:
                 # This step's share of the window (trigger_miss in all).
                 waited = min(t["age"], grace) - min(t["age"] - step, grace)

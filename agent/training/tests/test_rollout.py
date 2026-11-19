@@ -24,9 +24,10 @@ def test_group_starts_shared():
 
 
 def test_warmup_moves_only():
-    """Warm-up actions never toggle the map or consult."""
+    """Warm-up actions never consult or fire."""
     assert CONSULT not in WARMUP_ACTIONS
-    assert len(WARMUP_ACTIONS) == len(ACTIONS) - 1
+    assert not any(ACTIONS[a].endswith("CTRL") for a in WARMUP_ACTIONS)
+    assert len(WARMUP_ACTIONS) == len(ACTIONS) - 1 - 27
     opts = sample_group_options(np.random.default_rng(0), 20, 1, [], warmup_max=40)
     assert all(a in WARMUP_ACTIONS for o in opts for a in o["warmup"])
 

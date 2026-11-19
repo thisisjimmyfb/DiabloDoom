@@ -475,6 +475,8 @@ P_NightmareRespawn (mobj_t* mobj)
 //
 void P_MobjThinker (mobj_t* mobj)
 {
+    if (mobj->flags & MF_RLHIDDEN)     // MONSTERS HIDE: out of the world
+        return;
     // Explore mode: enemies are frozen solid. The player, barrels, and
     // other inert objects tick normally. Without -turnbased (2026-11-18)
     // only -rlspawn practice monsters stay frozen; the rest fight in

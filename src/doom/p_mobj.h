@@ -202,7 +202,12 @@ typedef enum
     // -rlenv -rlspawn practice monster (d_rlenv.c, 2026-11-14). Bit 29.
     // Savegames store the flags, so one in a loaded save is still
     // recognised (and removed).
-    MF_RLPRACTICE	= 0x20000000
+    MF_RLPRACTICE	= 0x20000000,
+
+    // -rlenv MONSTERS HIDE (d_rlenv.c, 2026-11-18): a monster taken out
+    // of the world (unlinked, not thinking) for a no-combat rollout.
+    // Bit 30. A loaded save clears it (p_saveg.c).
+    MF_RLHIDDEN		= 0x40000000
 
 } mobjflag_t;
 

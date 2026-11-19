@@ -14,7 +14,8 @@ as it can) unless --headless. Prints one line per pair and an overall line
 in the [it] line's terms (return, sectors, exit, death, steps).
 
 Watching it play (--iwad PATH). Launches a normal game on that IWAD file,
-with no monsters (--eval, as in stage-1 training), with
+with its map monsters (2026-11-18, the policy fights now; --no-monsters:
+none, --eval, as before), with
 -rldrive (control and output only: the game runs in real time with its
 window and sound, and publishes a decision whenever it is ready for input,
 without waiting). At each decision the frame is turned into the same 4-frame
@@ -65,7 +66,9 @@ def parse_args():
     add_env_args(p)
     p.add_argument("--checkpoint", default=None, help="policy checkpoint (default: --hub-repo's, else the "
                                                       "newest local runs/*/doom-runner.pt)")
-    p.add_argument("--seed", type=int, default=0, help="group starts and action sampling")
+    p.add_argument("--seed", type=int, default=None,
+                   help="group starts, action sampling and the gun (default: from the clock, printed "
+                        "so a run can be repeated; 0 before 2026-11-19)")
     p.add_argument("--temperature", type=float, default=1.0,
                    help="sample actions at temperature T, key by key (move/USE/CONSULT, forward, strafe, "
                         "turn): 1 as trained (default), lower is more decisive, 0 takes each key's "
@@ -76,15 +79,26 @@ def parse_args():
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     w = p.add_argument_group("watching it play (--iwad)")
     w.add_argument("--iwad", default=None, metavar="PATH",
-                   help="watch the policy play this IWAD file (no monsters) instead of the "
+                   help="watch the policy play this IWAD file (map monsters on; --no-monsters) instead of the "
                         "training-style eval")
     w.add_argument("--warp", default="1 1", help="level, as -warp args (default: E1M1)")
+    w.add_argument("--monsters", action=argparse.BooleanOptionalAction, default=True,
+                   help="the map's monsters (default; 2026-11-18, none before: the policy fights "
+                        "now), or none (--no-monsters: --eval)")
+    w.add_argument("--on-death", choices=["respawn", "stop"], default="respawn",
+                   help="when the player dies: respawn and play on with a new gun (default; "
+                        "2026-11-18), or stop driving")
     w.add_argument("--on-consult", choices=["skip", "stop"], default="skip",
                    help="CONSULT while exploring: keep driving (default), or stop driving; either way "
                         "it is sent, so the game shows \"CONSULT\" as the status message")
     w.add_argument("--max-decisions", type=int, default=0, help="stop after this many decisions (0: no limit)")
     w.add_argument("--delay", type=float, default=0.0, help="seconds to wait before each action, for watching")
     w.add_argument("--quit-at-end", action="store_true", help="quit the game when the drive ends")
+    w.add_argument("--give-gun", action=argparse.BooleanOptionalAction, default=True,
+                   help="start with a random gun (or fists) and the strength gear it needs, as every "
+                        "training rollout does (GIVEGUN)")
+    w.add_argument("--gun-seed", type=int, default=None,
+                   help="the GIVEGUN seed (default: --seed, itself from the clock by default)")
     return p.parse_args()
 
 
@@ -148,7 +162,7 @@ def rollouts(args, ckpt: Path, policy: Policy, device: torch.device) -> None:
         print("[eval] windows: --noblit / --nodraw ignored (they would leave the windows black)")
         args.noblit = args.nodraw = False
     if args.stage != 1:
-        print(f"[eval] --stage {args.stage} ignored: eval never has monsters (stage 1)")
+        print(f"[eval] --stage {args.stage} ignored: eval runs stage 1 (--combat of the groups fight)")
         args.stage = 1
     slots = [int(s) for s in args.slots.split(",") if s.strip()]
     iwads = resolve_iwads(args.iwads)
@@ -199,7 +213,7 @@ def drive_summary(ckpt, level: str, why: str, n: int, counts: np.ndarray, tics: 
     def share(pred) -> float:
         tot = counts.sum()
         return sum(c for a, c in zip(ACTIONS, counts) if pred(a)) / tot if tot else 0.0
-    keys = lambda a: a[6:] if a.startswith("PRESS") else ""
+    keys = lambda a: a[6:].replace("CTRL", "") if a.startswith("PRESS") else ""
     sectors = last.get("sectors", 0) - first.get("sectors", 0)
     held = last.get("keys", 0) or 0
     key_names = [c for bit, c in ((1, "blue"), (2, "yellow"), (4, "red")) if held & bit]
@@ -219,6 +233,7 @@ def drive_summary(ckpt, level: str, why: str, n: int, counts: np.ndarray, tics: 
         f"[eval]   forward {share(lambda a: 'W' in keys(a)):.0%}  back {share(lambda a: 'S' in keys(a)):.0%}  "
         f"strafe {share(lambda a: 'A' in keys(a) or 'D' in keys(a)):.0%}  "
         f"turn L {share(lambda a: 'L' in keys(a)):.0%}  turn R {share(lambda a: 'R' in keys(a)):.0%}  "
+        f"fire {share(lambda a: a.endswith('CTRL')):.0%}  "
         f"idle {share(lambda a: a == 'PRESS'):.0%}  USE {int(counts[ACTIONS.index('USE')])}  "
         f"CONSULT {int(counts[CONSULT])}",
         "[eval]   top actions: " + ", ".join(f"{a} {c / counts.sum():.0%}" for c, a in top),
@@ -234,13 +249,14 @@ def watch(args, ckpt: Path, policy: Policy, device: torch.device) -> None:
     if args.item_tics > 0:
         spawns += ["-rlitems", str(args.item_tics)]
     cfg = EngineConfig(warp=args.warp, skill=args.skill, drive=True, headless=args.headless,
-                       extra_args=["--eval"] + spawns + avatar_args(),     # never map monsters, as in stage 1
+                       extra_args=([] if args.monsters else ["--eval"]) + spawns + avatar_args(),
                        step_timeout=120.0)
     if not Path(args.iwad).is_file():
         raise SystemExit(f"--iwad {args.iwad}: no such file (it takes an IWAD path)")
     cfg.iwad = str(Path(args.iwad).resolve())
     engine = Engine(cfg, tag="play")
-    print(f"[watch] {ckpt} driving {Path(cfg.iwad).stem} {args.warp} (no monsters), "
+    print(f"[watch] {ckpt} driving {Path(cfg.iwad).stem} {args.warp} "
+          f"({'map monsters' if args.monsters else 'no monsters'}), "
           f"actions at temperature {args.temperature:g}")
     d = engine.start()
     w, h = policy.obs_size
@@ -263,11 +279,25 @@ def watch(args, ckpt: Path, policy: Policy, device: torch.device) -> None:
     # Waypoints (--waypoints), on the training env's schedule (EnvConfig):
     # WAYPOINT RANDOM, a random point of the current sector.
     wcfg, wp_rng, wp_tic, wp_stats = EnvConfig(), np.random.default_rng(args.seed), -10 ** 9, [0, 0]
+    deaths, give_gun = 0, args.give_gun
+    gun_seed = args.gun_seed if args.gun_seed is not None else args.seed
     try:
         while not args.max_decisions or n < args.max_decisions:
             if d.get("dead"):
-                why = "the player died"
-                break
+                deaths += 1
+                if args.on_death == "stop":
+                    why = "the player died"
+                    break
+                # Respawn and play on (2026-11-18), with a new gun.
+                print(f"[watch] the player died ({deaths}); respawning")
+                engine.send("RESPAWN")
+                d, _ = engine.wait_decision()
+                for ev in engine.poll():
+                    if ev.get("event") == "decision":
+                        d = ev
+                obs = stack.reset(screen())
+                give_gun = args.give_gun
+                continue
             with torch.no_grad():
                 logits, _ = policy(torch.as_tensor(obs[None], device=device),
                                    torch.as_tensor([privileged({"state": d})], device=device))
@@ -296,6 +326,12 @@ def watch(args, ckpt: Path, policy: Policy, device: torch.device) -> None:
             if args.delay:
                 time.sleep(args.delay)
             line, wp_asked = ACTIONS[a], False
+            if give_gun:
+                # A random gun, as every training rollout starts with
+                # (GIVEGUN; --gun-seed, else --seed, and a new one each
+                # respawn).
+                line = f"GIVEGUN {(gun_seed + deaths) % 2 ** 28 * 7 + 3};{line}"
+                give_gun = False
             if args.waypoints and (d.get("waypoint") is None or wcfg.waypoint_every > 0) \
                     and tics - wp_tic >= (wcfg.waypoint_gap if d.get("waypoint") is None else wcfg.waypoint_every):
                 line = f"WAYPOINT RANDOM {int(wp_rng.integers(0, 2 ** 31))} {int(wcfg.waypoint_min)};{line}"
@@ -346,7 +382,7 @@ def watch(args, ckpt: Path, policy: Policy, device: torch.device) -> None:
     except EngineError as e:
         print(f"[watch] game error: {e}", file=sys.stderr)
         why = "game error"
-    print(f"[watch] stopped after {n} decisions: {why}"
+    print(f"[watch] stopped after {n} decisions: {why}" + (f", {deaths} deaths" if deaths else "")
           + (f" (waypoints set {wp_stats[0]}, reached {wp_stats[1]})" if args.waypoints else ""))
     print("\n".join(drive_summary(ckpt, f"{Path(cfg.iwad).stem} {args.warp}", why, n, counts, tics,
                                    dist, first, d,
@@ -361,6 +397,9 @@ def watch(args, ckpt: Path, policy: Policy, device: torch.device) -> None:
 
 def main():
     args = parse_args()
+    if args.seed is None:
+        args.seed = int(time.time()) % 2 ** 31
+        print(f"[eval] seed {args.seed} from the clock (--seed {args.seed} repeats it)")
     ckpt = find_checkpoint(args)
     device = torch.device(args.device)
     torch.manual_seed(args.seed)

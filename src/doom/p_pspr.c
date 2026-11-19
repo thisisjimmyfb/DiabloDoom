@@ -38,6 +38,7 @@
 #include "d_diablo.h"
 #include "t_turn.h"
 #include "t_combat.h"
+#include "d_rlenv.h"
 
 #define LOWERSPEED		FRACUNIT*6
 #define RAISESPEED		FRACUNIT*6
@@ -379,6 +380,7 @@ P_FireDiabloWeapon
 {
     const t_kitdef_t *kit;
     boolean own_hitscan = false;   // this call set d_diablo_hitscan_weapon
+    int hits0;
 
     // Clear any stale suppression from an interrupted chain, so the
     // direct fire below is never suppressed. Also clear any stale
@@ -423,6 +425,7 @@ P_FireDiabloWeapon
         }
     }
 
+    hits0 = rl_player_hits;
     // Fire synchronously (the old T_NativeFire logic, folded in): the
     // damage callback runs now, so the executor reads t_last_damage
     // right after this returns. The A_Fire* functions take (player,
@@ -469,6 +472,14 @@ P_FireDiabloWeapon
     }
     if (own_hitscan)
         d_diablo_hitscan_weapon = -1;
+    // -rlenv: the shot, whether it hurt a monster now (a projectile's
+    // hit comes later, so it is never a miss; the env's fire_waste).
+    {
+        weapontype_t w = player->readyweapon;
+        RL_Emit("{\"event\":\"shot\",\"hit\":%s,\"proj\":%s,\"gametic\":%d}",
+                rl_player_hits != hits0 ? "true" : "false",
+                (w == wp_missile || w == wp_plasma || w == wp_bfg) ? "true" : "false", gametic);
+    }
 
     // Play the attack state chain on EVERY shot, not just on reload
     // (vanilla P_FireWeapon behavior, now the single fire path).

@@ -129,6 +129,20 @@ void RL_MoveTick(void);
 void RL_DecisionMade(void);
 void RL_LevelSetup(void);
 void RL_Consult(void);
+
+// The player hurt a monster (P_DamageMobj, 2026-11-18): counts it in
+// rl_player_hits and sends a "damage" event (amount, max HP, kill).
+struct mobj_s;
+extern int rl_player_hits;
+void RL_PlayerHit(struct mobj_s *target, int dealt);
+
+// MONSTERS HIDE / SHOW (2026-11-18): every living map monster out of
+// the world or back in (MF_RLHIDDEN), for the env's no-combat rollouts.
+void RL_Monsters(boolean hide);
+
+// GIVEGUN <seed> (2026-11-18): a random normal-tier gun equipped; false
+// when there is none the player can use.
+boolean RL_GiveGun(unsigned seed);
 // Explore detection found mo acquiring the player: if it is a practice
 // monster, remove it and return true (no combat); else false.
 struct mobj_s;

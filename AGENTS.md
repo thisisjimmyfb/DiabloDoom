@@ -257,10 +257,24 @@ instead, they never count as combatants, and each is removed 5 s after
 spawning or when a save holding one is loaded,
 because map monsters almost always acquire the player the moment they are
 seen; and the `CONSULT` driver command (the training stand-in's hand-off)
-removes every practice monster, in sight or not (2026-11-17), and under
-`-rlenv` also the map monsters in sight and, in combat, those targeting
-the player (a practice monster disappears, a map monster is killed);
-under `-rldrive` alone (eval.py --iwad) it never touches a map monster. Every CONSULT shows `CMD CONSULT` (`CONSULT` before 2026-11-18) as the status message
+removes every practice monster, in sight or not (2026-11-17), and never
+a map monster (since 2026-11-18 under `-rlenv` too, where it killed those
+in sight before: the policy fights them).
+Combat in training (2026-11-18): `MONSTERS HIDE` / `MONSTERS SHOW`
+(`-rlenv` only) takes every living map monster out of the world
+(`MF_RLHIDDEN`: unlinked, not thinking, never a target; a loaded save
+brings them back) or puts them back, for the env's groups that only
+explore; a player hit on a monster sends a `damage` event (`amount`
+taken off, `max` HP, `kill`), each shot a `shot` event (`hit`: it hurt a
+monster at once; `proj`: rocket, plasma or BFG, whose hit comes later),
+and `-rlenv` never autosaves (training games have map monsters now).
+`GIVEGUN <seed>` (`-rlenv`, and `-rldrive` for `eval.py --iwad`) equips a random normal-tier gun at full
+durability in place of the weapon slot's item (dropped, not stashed),
+or fists (the slot emptied), evenly among the eight (no chainsaw); strength comes only from
+gear, so when the gun needs more, the strength pieces with the most
+strength go on too, any tier, one a slot (Immortal King's Soul Cage +8,
+and for the BFG Mara's Kaleidoscope +8 as well); the env sends it at
+every rollout's start. Every CONSULT shows `CMD CONSULT` (`CONSULT` before 2026-11-18) as the status message
 (under `-rlenv` too since 2026-11-17, when the env forwards every policy
 CONSULT), so a watcher sees the policy asked for the hand-off. Practice items (`-rlitems <tics>`,
 `-rlenv` or `-rldrive`, 2026-11-17): the same way, one random Diablo loot item at
@@ -391,8 +405,11 @@ save. `-rlenv` implies it (`rldrive` is true under both).
    Ranged attacks cost 0 TP -- ammo is the limiter, so a round
    can dump the whole magazine. Melee (fists, chainsaw) costs TP per attack.
    Capacities/costs: pistol 10/1, shotgun 12/2, chaingun 10/1, chainsaw 6/1,
-   rocket 20/10, SSG 8/8, BFG 20/20. Plasma's magazine is **inverted**
-   (2026-10-22): its ammo counter represents heat — capacity 125, starts
+   rocket 20/10, SSG 8/8, BFG 20/20, plasma 125/20 (a normal magazine
+   since 2026-11-18: about 6 shots, then the 20-tic reload). Plasma's
+   magazine was **inverted** from 2026-10-22 until then (the
+   `ammo_inverted` kit field and its code stay, unused): its ammo
+   counter represented heat — capacity 125, starts
    at 0, each shot adds 20, it fires while the count is below capacity,
    and the count drains at the replenish rate. There is no separate heat
    state anywhere: one counter, one gate, one spend, one rate system,

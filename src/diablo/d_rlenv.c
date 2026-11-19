@@ -1729,6 +1729,128 @@ boolean RL_PracticeAcquired(mobj_t *mo)
     return true;
 }
 
+int rl_player_hits = 0;
+
+void RL_PlayerHit(mobj_t *t, int dealt)
+{
+    int max = t->info->spawnhealth;
+    if (t->flags & MF_COUNTKILL)
+        max = max * D_LoopHpMult() / 100;     // as P_SpawnMobj gave it
+    rl_player_hits++;
+    RL_Emit("{\"event\":\"damage\",\"amount\":%d,\"max\":%d,\"kill\":%s,\"type\":%d,\"gametic\":%d}",
+            dealt, max, t->health <= 0 ? "true" : "false", (int) t->type, gametic);
+}
+
+void RL_Monsters(boolean hide)
+{
+    thinker_t *th;
+    int n = 0;
+
+    for (th = thinkercap.next; th != &thinkercap; th = th->next)
+    {
+        mobj_t *mo;
+        if (th->function.acp1 != (actionf_p1) P_MobjThinker)
+            continue;
+        mo = (mobj_t *) th;
+        if (mo->player != NULL || mo->health <= 0
+            || !((mo->flags & MF_COUNTKILL) || mo->type == MT_SKULL))
+            continue;
+        if (hide && !(mo->flags & MF_RLHIDDEN))
+        {
+            P_UnsetThingPosition(mo);
+            mo->flags |= MF_RLHIDDEN;
+            n++;
+        }
+        else if (!hide && (mo->flags & MF_RLHIDDEN))
+        {
+            mo->flags &= ~MF_RLHIDDEN;
+            P_SetThingPosition(mo);
+            n++;
+        }
+    }
+    printf("[RL] MONSTERS %s: %d\n", hide ? "HIDE" : "SHOW", n);
+    T_RefreshTargets();
+}
+
+// GIVEGUN <seed> (-rlenv, 2026-11-18, the env's rollout start): a
+// random normal-tier gun (pistol, shotgun, chaingun, rocket launcher,
+// plasma, BFG, super shotgun: no chainsaw) for this difficulty, or
+// fists (the weapon slot emptied), evenly among the eight, equipped in the weapon slot at full durability in
+// place of whatever was there. The old one is dropped, not stashed: a
+// progress save carries the gun, so stashing would fill the backpack
+// over the batches. Strength comes only from gear, so when the player
+// lacks it for the gun (it would be on fists), strength gear goes on
+// too, the most strength first from any tier (set and unique pieces;
+// the lowest tier first before), one piece a slot (not the weapon or shield slots), until it is usable;
+// a two-handed gun takes the shield off. seed picks it, never the game's
+// RNG.
+boolean RL_GiveGun(unsigned seed)
+{
+    player_t *pl = &players[consoleplayer];
+    int ids[64], n = 0, i, t, id;
+    boolean used[NUM_ESLOTS];
+    const diablo_itemdef_t *def;
+
+    if (pl->mo == NULL || pl->health <= 0 || gamestate != GS_LEVEL)
+        return false;
+    for (i = 0; i < D_TierCount(TIER_NORMAL) && n < 64; i++)
+    {
+        def = D_GetItemDef(TIER_NORMAL, i);
+        if (def && def->slot == ESLOT_WEAPON && def->diff_tier <= D_DifficultyTier()
+            && def->doomweapon != wp_fist && def->doomweapon != wp_chainsaw
+            && def->doomweapon >= 0 && def->doomweapon < NUMWEAPONS)
+            ids[n++] = D_MAKEITEM(TIER_NORMAL, i);
+    }
+    // Fists count as one more choice (2026-11-18): the weapon slot left
+    // empty.
+    i = (int) ((seed * 2654435761u >> 8) % (unsigned) (n + 1));
+    if (i == n)
+    {
+        pl->diablo_equipped[ESLOT_WEAPON] = D_NOITEM;
+        pl->diablo_equipped_dur[ESLOT_WEAPON] = 0;
+        D_RecalcStats((struct player_s *) pl);
+        printf("[RL] GIVEGUN: fists\n");
+        return true;
+    }
+    id = ids[i];
+    def = D_GetItemDef(D_ITEMTIER(id), D_ITEMIDX(id));
+    if (D_IsTwoHandedWeapon(def->doomweapon))
+        pl->diablo_equipped[ESLOT_SHIELD] = D_NOITEM;
+    pl->diablo_equipped[ESLOT_WEAPON] = id;
+    pl->diablo_equipped_dur[ESLOT_WEAPON] = D_ItemMaxDurability(def);
+    for (i = 0; i < NUM_ESLOTS; i++)
+        used[i] = (i == ESLOT_WEAPON || i == ESLOT_SHIELD);
+    // Strength gear until the gun is usable.
+    while (D_EquippedSlotStrDisabled((struct player_s *) pl, ESLOT_WEAPON))
+    {
+        int best = D_NOITEM, best_str = 0;
+        for (t = 0; t < NUM_TIERS; t++)
+            for (i = 0; i < D_TierCount(t); i++)
+            {
+                const diablo_itemdef_t *g = D_GetItemDef(t, i);
+                if (g && g->str > best_str && !g->consumable && g->slot >= 0 && g->slot < NUM_ESLOTS
+                    && !used[g->slot] && g->diff_tier <= D_DifficultyTier())
+                {
+                    best = D_MAKEITEM(t, i);
+                    best_str = g->str;
+                }
+            }
+        if (best == D_NOITEM)
+            break;              // no more to give: on fists
+        {
+            const diablo_itemdef_t *g = D_GetItemDef(D_ITEMTIER(best), D_ITEMIDX(best));
+            used[g->slot] = true;
+            pl->diablo_equipped[g->slot] = best;
+            pl->diablo_equipped_dur[g->slot] = D_ItemMaxDurability(g);
+            printf("[RL] GIVEGUN: + %s (STR %d)\n", g->name, g->str);
+        }
+    }
+    D_RecalcStats((struct player_s *) pl);
+    printf("[RL] GIVEGUN: %s%s\n", def->name,
+           D_EquippedSlotStrDisabled((struct player_s *) pl, ESLOT_WEAPON) ? " (not enough strength)" : "");
+    return true;
+}
+
 void RL_Consult(void)
 {
     player_t *pl = &players[consoleplayer];
@@ -1750,8 +1872,9 @@ void RL_Consult(void)
         if (!(mo->flags & MF_COUNTKILL) || mo->health <= 0 || mo->player != NULL)
             continue;
         si = RL_SpawnedIndex(mo);
-        if (si < 0 && !rlenv)
-            continue;       // -rldrive: only practice monsters, never the map's
+        if (si < 0)
+            continue;       // only practice monsters, never the map's (under -rlenv too
+                            // since 2026-11-18: the policy fights them)
         // A practice monster goes in or out of sight (2026-11-17).
         if (si < 0 && !P_CheckSight(pl->mo, mo) && !(combat && mo->target == pl->mo))
             continue;

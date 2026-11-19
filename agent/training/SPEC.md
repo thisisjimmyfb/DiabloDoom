@@ -91,9 +91,9 @@ Discrete, 29 outputs, one decision every game tic (2026-11-15): each action is t
 
 | # | Action | Notes |
 |---|---|---|
-| 0–26 | `PRESS <keys>` | Every combination of one key or none from each pair: W/S run forward/back, A/D strafe left/right, L/R turn left/right (`PRESS`, `PRESS L`, ..., `PRESS WAL`, ..., `PRESS SDR`; 0 is `PRESS` alone, nothing held). `G_BuildTiccmd` adds the keys to the ticcmd, so the player moves exactly as with those keys held: run speed, strafe-running, the run turn rate (about 7° a tic). Explore only |
-| 27 | `USE` | Doors and switches, including exits |
-| 28 | `CONSULT` | Environment signal, not a driver command: it drives Muse VM to make a decision — switching to combat or inventory mode. The handler is swappable: on the farm it signals Muse VM (e.g. `doom_loop.sh` exits so Muse's VLM takes over); in training the env forwards every CONSULT to the game as the `-rlenv` `CONSULT` driver command (§4), false ones included, and a stand-in (§5.4) does the rest. |
+| 0–53 | `PRESS <keys>` | Every combination of one key or none from each pair: W/S run forward/back, A/D strafe left/right, L/R turn left/right, each without and with `CTRL`, the fire key (2026-11-18: the ready weapon, fists when none; 0–26 without fire before) (`PRESS`, `PRESS CTRL`, `PRESS L`, ..., `PRESS WAL CTRL`, ..., `PRESS SDR CTRL`; index 18·forward + 6·strafe + 2·turn + fire; 0 is `PRESS` alone, nothing held). `G_BuildTiccmd` adds the keys to the ticcmd, so the player moves exactly as with those keys held: run speed, strafe-running, the run turn rate (about 7° a tic). Explore only |
+| 54 | `USE` | Doors and switches, including exits |
+| 55 | `CONSULT` | Environment signal, not a driver command: it drives Muse VM to make a decision — switching to combat or inventory mode. The handler is swappable: on the farm it signals Muse VM (e.g. `doom_loop.sh` exits so Muse's VLM takes over); in training the env forwards every CONSULT to the game as the `-rlenv` `CONSULT` driver command (§4), false ones included, and a stand-in (§5.4) does the rest. |
 Everything else stays with the LLM/VLM or the harness: the engine's multi-tic movement (`WALK` in every form, the 45° `TURNL`/`TURNR`, `STRAFE_L`/`STRAFE_R`), `WAIT`, `COLLECT`, `SNAP_WALL` (aims from engine geometry), bare `WALK` (stops on engine detection), `SURVEY`, `GOTO`, the combat commands (`MOVE_FWD`, `MOVE_BACK`, `ATTACK`, `UNDO`, `END`), gear (`EQUIP`, `UNEQUIP`, `SALVAGE`), read-outs (`INSPECT`, `INVENTORY`, `KEYS`, `SECTORS`, `SCREENSHOT`, `CAPTURE`, `REPLAY`, `VERSION`) and session control (`SAVE`, `LOAD`, `RESPAWN`, `QUIT`).
 
 The policy plays per tic (2026-11-15): no multi-tic commands, and no angled walks (`WALK <angle>` snaps the facing in a single tic).
@@ -116,7 +116,7 @@ Notation: `T` is the time penalty's base rate per tic, `--time-penalty` / 35 (de
 | `mechanism` | +10 | A USE that sets a mechanism going -- a sector starts moving (door, lift, floor, stairs) or a switch flips -- from the engine's `use` event. Once per mechanism per rollout; ones used in the warm-up count as used. |
 | `loot` | +5 per item | A Diablo item into the backpack, or armor (which grants one), from the `pickup` event. Practice items (`-rlitems`) pay the same. Something left on the ground (full backpack) pays nothing. |
 | `item` | +0.01 per unit | While a practice item lies (from its `item` event, 10 s or until picked up), each map unit closed toward it; moving away costs the same, so circling nets nothing (`item_approach`, 2026-11-17). |
-| `health` | +0.5 per HP (+0.2 before 2026-11-18) | The HP a health pickup actually gave (the `pickup` event's `hp`): a medikit at 75 HP pays 12.5. The mirror of `hp_loss`. |
+| `health` | +0.75 per HP (+0.2, then +0.5, before 2026-11-18) | The HP a health pickup actually gave (the `pickup` event's `hp`): a medikit at 75 HP pays 18.75. The mirror of `hp_loss`. |
 
 #### Time, distance and direction
 
@@ -143,11 +143,11 @@ Notation: `T` is the time penalty's base rate per tic, `--time-penalty` / 35 (de
 
 #### CONSULT
 
-Triggers, while exploring: a **monster in view** that hasn't acquired the player (the state line's `monstervis`; practice monsters from `-rlspawn` make these common), a **unique item picked up** (2026-11-17: the `pickup` event's `tier` 4; the engine draws a gold border around the avatar (status-bar face) for 3.5 s, fading out over its last half second (2026-11-18; magic, rare and set pickups get one too, in blue, yellow and green, so in grayscale the unique's is told apart by brightness alone; a screen flash before), through the 3 s window, the cue the policy can see -- it replaced the full-backpack trigger, whose only cue was a few pixels of text), and **combat** (the world is frozen until CONSULT).
+Triggers, while exploring (no **monster in view** trigger since 2026-11-18: the policy fights; training no longer launches `-rlspawn` practice monsters): a **unique item picked up** (2026-11-17: the `pickup` event's `tier` 4; the engine draws a gold border around the avatar (status-bar face) for 3.5 s, fading out over its last half second (2026-11-18; magic, rare and set pickups get one too, in blue, yellow and green, so in grayscale the unique's is told apart by brightness alone; a screen flash before), through the 3 s window, the cue the policy can see -- it replaced the full-backpack trigger, whose only cue was a few pixels of text), and **combat** (the world is frozen until CONSULT).
 
 | Term | Value | Rule |
 |---|---|---|
-| `consult` (hit) | +5 | The first CONSULT on a live monster or unique trigger. A CONSULT in combat pays nothing itself but avoids the miss. |
+| `consult` (hit) | +5 | The first CONSULT on a live unique trigger. A CONSULT in combat pays nothing itself but avoids the miss. |
 | `consult` (miss) | −2.5 (−8, then −12, before 2026-11-18) | A trigger left unanswered through its grace: 105 game tics (3 s) from a monster's sighting or a unique's pickup (its border stays on through it), 5 steps in combat. Charged step by step while it waits, −12 over the whole window (2026-11-17; once at the end before), so each frame without a CONSULT gets its share; a CONSULT stops it. A monster trigger stays live through its grace after the monster leaves the view (2026-11-17: turning away used to end it with no penalty, so the miss almost never fired), and a CONSULT then still pays the hit. |
 | `consult` (false) | −2.5 (−0.5 before 2026-11-18) | A CONSULT with no live, unanswered trigger (−1.5 before 2026-11-17: a CONSULT then only paid off with a trigger live more than 23% of the time, so the policy stopped consulting; −0.3 before 2026-11-18: the policy consulted more everywhere, never more on a trigger). |
 
@@ -155,15 +155,25 @@ Triggers, while exploring: a **monster in view** that hasn't acquired the player
 
 | Term | Value | Rule |
 |---|---|---|
-| `hp_loss` | −0.5 per HP (−0.2 before 2026-11-18) | Any HP lost (stage 1 has no map monsters, but nukage, slime, crushers and barrels still hurt). Healing only moves the mark up. |
-| `death` | −100 | Ends the rollout; as big as the exit, on top of the HP lost on the way. |
+| `hp_loss` | −0.75 per HP (−0.2, then −0.5, before 2026-11-18) | Any HP lost: monsters in the fighting groups, and nukage, slime, crushers and barrels everywhere. Healing only moves the mark up. |
+| `death` | −150 (−100 before 2026-11-18) | Ends the rollout; 1.5× the exit, on top of the HP lost on the way. |
+
+#### Combat (2026-11-18)
+
+A share of the groups fight (`--combat`, 0.5; stage 2: all): every game launches with its map monsters (no `--eval`), and right after loading the start save the env sends `MONSTERS SHOW`, or `MONSTERS HIDE` to take every living map monster out of the world for a group that only explores (all members alike, from the group's seed). Every rollout also starts with a random gun equipped (`GIVEGUN`: any of the seven, or fists, evenly among the eight, the same for the whole group; `EnvConfig.give_gun`), else the player is on fists, with the strength gear the gun needs (strength comes only from gear: Immortal King's Soul Cage, and for the BFG Mara's Kaleidoscope too). Combat and survival weigh half again as much as the maze run: a kill's 22.5 against a new sector's 15, and `hp_loss`, `death` and `health` ×1.5.
+
+| Term | Value | Rule |
+|---|---|---|
+| `damage` | +11.25 per a monster's full HP | The engine's `damage` event: the HP the player took off a monster (capped at its max), over its max HP, so every kill pays the same in all. Chained. |
+| `kill` | +11.25 | The `damage` event that killed it. Chained. |
+| `fire_waste` | −0.1 per shot | A shot (the engine's `shot` event) that hurt no monster at once; a projectile's (rocket, plasma, BFG) hit comes later, so it is never charged. One-off. |
 
 #### How a rollout ends
 
 | End | Kind | When |
 |---|---|---|
 | `exit` | terminated | The level is completed (+100). |
-| `death` | terminated | The player dies (−100). |
+| `death` | terminated | The player dies (−150). |
 | `key` | terminated | Training only: a new key colour (+25). |
 | `portal` | terminated | Training only, `--portal-goal n` (default 1): n new rooms entered (each +15). No bonus of its own; it is what makes the clock matter, and with frontier starts the agent advances room by room. |
 | `time` | truncated | `--max-tics` game tics (default 525, 15 s); the held-out eval runs `--eval-max-tics` (4200, 120 s; 2100 before 2026-11-18) with no portal or key goal, so its sectors compare across versions. |
@@ -176,7 +186,7 @@ The return is the plain sum over the rollout. GRPO compares rollouts within a gr
 - **Only what the policy can perceive is rewarded as a behaviour.** It sees 4 stacked grayscale frames (default 128×80), so a cue must survive that: hence the unique border rather than a status message.
 - **The clock is the backbone.** `fast`, `look` and `wall_look` are tied to `T`, so the shaping terms only ever trade against time: none of them can pay for standing still.
 - **Shaping state is reward-only.** `path_dist`, `path_rel`, `portal_dist`, `portal_rel`, `wall_dist`, `wall_use`, `door_sectors`, `monstervis` and the events are never in the observation.
-- **No combat or stuck term:** stage 1 has no map monsters (a long combat ends the rollout instead), and the clock already charges standing still.
+- **No stuck term:** the clock already charges standing still. (Combat has its own terms since 2026-11-18, above.)
 - Magnitudes are tuned from training curves; watch for a term growing in `rollouts.jsonl` without progress following (e.g. `loot` farming against `sector`).
 
 ### 5.4 Episodes, rollouts and resets
@@ -272,8 +282,8 @@ screen (scene, 84×84, 4 stacked)
 
 ### 7.2 Training stages
 
-1. `-rlnocombat` (no map monsters): exploration, plus CONSULT on `-rlspawn` practice sightings.
-2. Map monsters on: CONSULT on sighting, and on combat started without one.
+1. Exploration and combat (2026-11-18): half the groups fight the map monsters with `PRESS ... CTRL`, the rest explore with them hidden (`MONSTERS HIDE`). No map monsters at all (`--eval`), plus CONSULT on `-rlspawn` practice sightings, before.
+2. Every group fights (`--stage 2`).
 3. Scripted combat stand-in with an HP-loss penalty: learning which fights to avoid. **Open; details later.**
 
 ### 7.3 Phase 6: session fine-tuning with PPO

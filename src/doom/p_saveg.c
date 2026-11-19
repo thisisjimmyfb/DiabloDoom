@@ -1720,6 +1720,7 @@ void P_UnArchiveThinkers (void)
 
 	    mobj->target = NULL;
             mobj->tracer = NULL;
+	    mobj->flags &= ~MF_RLHIDDEN;   // MONSTERS HIDE: back in the world
 	    P_SetThingPosition (mobj);
 	    mobj->info = &mobjinfo[mobj->type];
 	    mobj->floorz = mobj->subsector->sector->floorheight;

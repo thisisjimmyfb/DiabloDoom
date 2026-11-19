@@ -20,6 +20,7 @@
 #include "doomstat.h"
 #include "t_turn.h"
 #include "d_progress.h"
+#include "d_rlenv.h"
 #include "p_saveg.h"
 #include "g_game.h"
 #include "r_main.h"
@@ -387,7 +388,7 @@ void D_AutoSaveGame(void)
     // Never under --eval (2026-11-17; the `eval_mode` flag): eval and
     // stage-1 training runs aren't the player's game to save. Explicit
     // SAVE commands (training's start slots) are unaffected.
-    if (eval_mode)
+    if (eval_mode || rlenv)     // nor in training (2026-11-18: it has map monsters now)
         return;
 
     // Don't autosave while a savegame load is pending (ga_loadgame).

@@ -31,11 +31,12 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
 
 - **Observation:** `uint8 (4, 84, 84)`, the last 4 decision frames in
   grayscale, area-resampled from the 320x200 screen (status bar kept).
-- **Actions:** `Discrete(29)`, one decision every game tic (2026-11-15),
+- **Actions:** `Discrete(56)` (29 before 2026-11-18), one decision every game tic (2026-11-15),
   see `env.ACTIONS`: `PRESS <keys>`, the keys held for the next tic, in
   every combination of one key or none from each pair (W/S run
   forward/back, A/D strafe, L/R turn about 7° a tic; `PRESS` alone holds
-  nothing), then `USE` and `CONSULT`. The engine's multi-tic commands
+  nothing), each without and with `CTRL`, the fire key (2026-11-18), then
+  `USE` and `CONSULT`. The engine's multi-tic commands
   (`WALK`, `GOTO`, the 45° `TURNL`/`TURNR`, ...) stay for the farm driver.
   There is no `MAP` action (removed 2026-11-14), and no forced map
   glances either (removed 2026-11-16: with 4 frames of memory the policy
@@ -47,16 +48,16 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   `null_consult` does nothing; `standin_consult` (training stand-in)
   clears what was consulted about: the `CONSULT` driver command
   removes every practice monster, in sight or not (2026-11-17), and
-  under `-rlenv` also the map monsters in sight and, in combat, those
-  targeting the player, then `END` closes the round; on a unique pickup
-  a full backpack is salvaged until it has room. The policy learns when
-  to hand off, not how to fight. The triggers (2026-11-17): a monster in
-  view, combat, and a unique picked up -- the engine draws a
+  never a map monster (2026-11-18: the policy fights them), then `END`
+  closes a turn-based round; on a unique pickup a full backpack is
+  salvaged until it has room. The triggers: a unique picked up (no
+  monster in view since 2026-11-18), and turn-based combat (only with
+  `-turnbased`) -- on a unique -- the engine draws a
   gold border around the avatar (status-bar face) for 3.5 s (fading over the last half second) on a unique
   (2026-11-18; magic, rare and set items get one too, in blue, yellow and
   green; a screen
-  flash before), and the trigger lasts 3 s (`unique_grace_tics`, 105, as a
-  monster's `grace_tics`), inside the border's time:
+  flash before), and the trigger lasts 3 s (`unique_grace_tics`, 105),
+  inside the border's time:
   CONSULT in that time pays `consult_hit`, letting it pass costs
   `trigger_miss`, charged step by step over the window (2026-11-17). It replaced the full-backpack trigger, whose only cue
   was a status message a few pixels tall in the policy's frame. Practice
@@ -153,14 +154,24 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   engine's `wall_dist`. Not while a switch or door is in reach
   (`wall_use`), so using mechanisms is free. The held-out eval keeps
   `--eval-max-tics` (4200; 2100 before 2026-11-18) with no goal and no penalty, so its numbers
-  compare across versions. Stage 1 has no map monsters, but passive
-  damage (nukage, slime, crushers, barrels) still hurts: every HP lost
-  costs `hp_loss` (-0.5; healing pays nothing), and a death ends the
-  rollout with `death` (-100, as big as the exit) on top. There is no
-  combat or stuck term (a long combat still ends the rollout).
-  Pickups pay from the engine's `pickup` events: `loot` (5) per Diablo
-  item or armor picked up, `health` (0.2) per HP a health pickup healed
-  (a medikit 12.5, a +1 health bonus 0.5), the mirror of `hp_loss`.
+  compare across versions. Combat (2026-11-18): every game has its map
+  monsters; a share of the groups fight them (`--combat`, 0.5; stage 2:
+  all), and the env hides them (`MONSTERS HIDE`, right after the start
+  save's LOAD) for the rest, so they only explore. Every rollout starts
+  with a random gun equipped (`GIVEGUN`, any of the seven or fists, per group),
+  plus the strength gear it needs (Immortal King's Soul Cage; for the
+  BFG also Mara's Kaleidoscope). Combat and survival
+  weigh half again as much as the maze run: `damage` (11.25 per a
+  monster's full HP the player took off it, from the engine's `damage`
+  events) and `kill` (11.25), a kill 22.5 against a sector's 15, both
+  chained; `fire_waste` (-0.1, one-off) per shot that hurt nothing at once
+  (a projectile never); every HP lost costs `hp_loss` (-0.75; -0.5
+  before; healing pays nothing), and a death ends the rollout with
+  `death` (-150, -100 before) on top. The train line shows `kills` and
+  the hit rate. Pickups pay from the engine's `pickup` events: `loot` (5)
+  per Diablo item or armor picked up, `health` (0.75) per HP a health
+  pickup healed (a medikit 18.75, a +1 health bonus 0.75), the mirror of
+  `hp_loss`.
   Positive reinforcement: `exit` (100, the top reward) for triggering the
   level complete (ends the rollout), `key` (25) per key colour, `sector`
   (15) per new sector (more than a mechanism: getting somewhere new is
@@ -197,7 +208,7 @@ GRPO pretraining of the level runner (SPEC.md §6, §7.1, §7.4).
 
 ```sh
 uv pip install --python .venv/bin/python torch --index-url https://download.pytorch.org/whl/cu128
-.venv/bin/python train.py --run-dir runs/stage1          # stage 1: no monsters
+.venv/bin/python train.py --run-dir runs/stage1          # stage 1: half the groups fight
 .venv/bin/python train.py --run-dir runs/stage1          # same command resumes
 .venv/bin/python train.py --stage 2 --run-dir runs/stage2 --init runs/stage1/doom-runner.pt
 ```
@@ -298,20 +309,21 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   starts over. `front` in the training line is the share of rollouts that
   started from a frontier. `--no-frontier` turns it off (every start is
   the map start, still from slot 4). `--slots` can't include 4 or 5.
-- **Stages:** `--stage 1` runs with `--eval` (vanilla's `-nomonsters`,
-  renamed 2026-11-17; the spec's `-rlnocombat`), which also turns
-  turn-based combat off entirely, passive damage included; `--stage 2`
-  has the map's monsters. Both
+- **Stages:** since 2026-11-18 every game has its map monsters:
+  `--stage 1` fights them in `--combat` (0.5) of the groups and hides
+  them in the rest, `--stage 2` fights them in all. (Before, `--stage 1`
+  ran with `--eval`, vanilla's `-nomonsters`: no map monsters at all.)
+  `eval.py --iwad` has them too (`--no-monsters`: none). Both
   spawn practice monsters on screen while exploring (`--spawn-tics`,
-  default 350 tics on average, 250 and 700 before 2026-11-17; 0 turns them off). Map monsters almost
+  default 0 since 2026-11-18, off: the policy fights the map monsters
+  and they are no CONSULT trigger any more; 350 before, 250 and 700
+  before 2026-11-17). Map monsters almost
   always see the player the moment the player sees them, so without the
   practice monsters a sighting would never come before combat. They face
   away and never start a fight: one that would acquire the player is
   removed instead. Each is removed 5 s after spawning (or when a save
-  holding one is loaded), and CONSULT on one pays `consult_hit` and
-  removes it. A sighting stays a trigger for its 3 s even if the policy
-  turns away, so looking away still costs `trigger_miss`. The train
-  line's `consult a/b` is the CONSULT rate with a monster or unique
+  holding one is loaded), and CONSULT removes it. The train
+  line's `consult a/b` is the CONSULT rate with a unique
   trigger pending / with none (`consult_trig` / `consult_idle` in
   metrics.jsonl): b near a means CONSULT ignores the cue. Practice items (2026-11-17; `--item-tics`, default 420, 300 before; 0
   turns them off): one random Diablo loot item at a time (a weapon,
@@ -468,7 +480,8 @@ fullscreen config can't take over, running as fast as it can; `--headless`
 turns the windows off, and `--noblit` / `--nodraw` are ignored with
 windows, which they would leave black), with training's env, rewards and
 rollout rules: the `--max-tics` limit (525), ended early by the portal
-and key goals, from training's random group starts (`--seed`, 0). With
+and key goals, from training's random group starts (`--seed`: from the clock by default
+since 2026-11-19, printed so a run can be repeated; 0 before). With
 more pairs than `--groups` (the cores minus 2) they take turns, like
 training's map rotation. Nothing is trained, saved or uploaded.
 
@@ -510,8 +523,10 @@ spawned, uniques, and how many got a CONSULT within the 3 s window.
 ./eval.sh --iwad ../../wad/UltimateDoom/DOOM.WAD --temperature 0.5 --delay 0.3   # more decisive actions, slowed down
 ```
 
-The drive stops at the exit, on death, after `--max-decisions`, or on
-Ctrl-C. The game window then stays open for you;
+The drive stops at the exit, after `--max-decisions`, or on Ctrl-C. On
+death it respawns (`RESPAWN`) with a new random gun and plays on
+(2026-11-18; `--on-death stop` stops instead), and the summary counts the
+deaths. The game window then stays open for you;
 `--quit-at-end` closes it. A CONSULT while exploring is sent: the game
 shows `CMD CONSULT` as the status message, so you see the policy asked
 for the hand-off, and removes every practice monster, in sight or not; the drive goes on (`--on-consult stop` stops it there).

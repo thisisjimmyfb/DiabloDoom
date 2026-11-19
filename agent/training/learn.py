@@ -292,11 +292,18 @@ def train_metrics(recs: list[dict], n_groups: int, collapsed: int) -> dict:
          "items_picked": int(sum(r.get("items", [0, 0])[1] for r in recs)),
          "waypoints_set": int(sum(r.get("waypoints", [0, 0])[0] for r in recs)),
          "waypoints_reached": int(sum(r.get("waypoints", [0, 0])[1] for r in recs)),
+         # Combat (2026-11-18): the fighting rollouts' shots, hits, kills, damage dealt.
+         "combat_rollouts": int(sum(r.get("combat", [0])[0] for r in recs)),
+         "shots": int(sum(r.get("combat", [0, 0])[1] for r in recs)),
+         "hits": int(sum(r.get("combat", [0, 0, 0])[2] for r in recs)),
+         "kills": int(sum(r.get("combat", [0, 0, 0, 0])[3] for r in recs)),
+         "damage_dealt": float(sum(r.get("combat", [0, 0, 0, 0, 0])[4] for r in recs)),
+         "combat_death_rate": float(np.mean([r["death"] for r in recs if r.get("combat", [0])[0]] or [0.0])),
          "collapsed_share": collapsed / max(n_groups, 1),
          "action_share": (acts / max(acts.sum(), 1)).round(3).tolist()}
     cs = np.sum([r.get("consult_stats", [0, 0, 0, 0]) for r in recs], axis=0)
     if cs[0]:
-        m["consult_trig"] = float(cs[1] / cs[0])    # P(CONSULT | a monster/unique trigger pending)
+        m["consult_trig"] = float(cs[1] / cs[0])    # P(CONSULT | a unique trigger pending)
     if cs[2]:
         m["consult_idle"] = float(cs[3] / cs[2])    # P(CONSULT | none pending): should fall toward 0
     if any("frontier" in r for r in recs):
@@ -322,6 +329,7 @@ def print_train(it: int, m: dict, upd: dict, extra: str = "") -> None:
           + (f" dead {upd['dead_units']:.2f}" if "dead_units" in upd else "")
           + (f" items {m['items_picked'] / m['items_spawned']:.2f}" if m.get("items_spawned") else "")
           + (f" wp {m['waypoints_reached'] / m['waypoints_set']:.2f}" if m.get("waypoints_set") else "")
+          + (f" kills {m['kills']} hit {m['hits'] / m['shots']:.2f}" if m.get("shots") else "")
           + (f" consult {m.get('consult_trig', 0):.3f}/{m['consult_idle']:.3f}" if "consult_idle" in m else "")
           + extra)
 

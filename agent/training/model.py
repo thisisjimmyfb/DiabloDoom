@@ -24,10 +24,10 @@ import torch.nn as nn
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from env import ACTIONS, CONSULT  # noqa: E402
 
-# Warm-up uses movement only (no CONSULT), each action held for
+# Warm-up uses movement only (no CONSULT, no fire: 2026-11-18), each action held for
 # WARMUP_HOLD tics (decisions are per tic: single random tics would
 # barely move the player).
-WARMUP_ACTIONS = [i for i in range(len(ACTIONS)) if i != CONSULT]
+WARMUP_ACTIONS = [i for i in range(len(ACTIONS)) if i != CONSULT and not ACTIONS[i].endswith("CTRL")]
 WARMUP_HOLD = 15
 N_PRIV = 2  # privileged critic inputs: HP/100, exit path distance (SPEC.md §6)
 
@@ -42,7 +42,7 @@ def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
              slots_dir: str | None, slots: list[int], capture_dir: str | None = None,
              spawn_tics: int = 0, item_tics: int = 0, nodraw: bool = False, noblit: bool = False,
              portal_goal: int = 0, time_penalty: float = 0.0, key_goal: bool = False,
-             waypoints: bool = False,
+             waypoints: bool = False, combat: float = 0.5,
              headless: bool = True, obs_size: tuple[int, int] = DEFAULT_OBS_SIZE):
     """time_penalty: reward per game second (negative pays, e.g. 1/3
     costs a point every 3 s), with portal_goal n > 0 ending a rollout
@@ -52,9 +52,14 @@ def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
     # combat at all, not even from passive damage: --eval (vanilla's -nomonsters,
     # renamed 2026-11-17), the
     # -rlnocombat of the spec. Stage 2: map monsters on. In both,
-    # -rlspawn puts practice monsters on screen (a sighting to CONSULT
-    # about), and the stand-in answers CONSULT.
-    extra = ["--eval"] if stage == 1 else []
+    # -rlspawn put practice monsters on screen (a sighting to CONSULT
+    # about; off by default since 2026-11-18, --spawn-tics 0), and the
+    # stand-in answers CONSULT.
+    # Since 2026-11-18 every game has its map monsters (no --eval): the env
+    # hides them in the groups that don't fight (EnvConfig.combat; stage
+    # 2: all fight), since --eval is for the whole game and a save made
+    # under it holds no monsters.
+    extra = []
     if spawn_tics > 0:
         extra += ["-rlspawn", str(spawn_tics)]
     if item_tics > 0:
@@ -84,6 +89,7 @@ def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
         portal_goal=portal_goal,
         key_goal=key_goal,
         waypoints=waypoints,            # the env stands in for the VLM's WAYPOINT (EnvConfig)
+        combat=1.0 if stage == 2 else combat,   # the share of groups that fight (EnvConfig)
         # A fast tic pays back the clock's base rate (RewardConfig.fast);
         # facing a way on pays up to half of it (RewardConfig.look).
         rewards=RewardConfig(time=time_penalty / 35.0, fast=time_penalty / 35.0,
@@ -117,6 +123,7 @@ def run_env(args, slots: list[int], iwad: str | None, warp: str, capture_dir: st
                              item_tics=getattr(args, "item_tics", 0),
                              nodraw=args.nodraw, noblit=args.noblit, time_penalty=args.time_penalty,
                              waypoints=getattr(args, "waypoints", False),
+                             combat=getattr(args, "combat", 0.5),
                              headless=getattr(args, "headless", True),
                              obs_size=getattr(args, "obs_size", None) or DEFAULT_OBS_SIZE, **rules)
 
@@ -402,10 +409,15 @@ def add_env_args(p) -> None:
                         f"{DEFAULT_OBS_SIZE[0]}x{DEFAULT_OBS_SIZE[1]}). A run keeps the size it started "
                         "with: resuming with another size stops. eval.py takes it from the checkpoint")
     p.add_argument("--stage", type=int, choices=[1, 2], default=1,
-                   help="1: no map monsters (exploration); 2: map monsters on")
-    p.add_argument("--spawn-tics", type=int, default=350,
+                   help="1: --combat of the groups fight the map monsters, the rest have them hidden "
+                        "(no map monsters at all before 2026-11-18); 2: every group fights")
+    p.add_argument("--combat", type=float, default=0.5,
+                   help="stage 1: the share of groups that fight (the rest explore with the map "
+                        "monsters hidden; per group, from its seed)")
+    p.add_argument("--spawn-tics", type=int, default=0,   # 350 before 2026-11-18: the policy fights now
                    help="mean game tics between practice monsters spawned on screen while exploring "
-                        "(-rlspawn: a sighting the policy should CONSULT about; 0: none)")
+                        "(-rlspawn: frozen practice monsters, no longer a CONSULT trigger since 2026-11-18; "
+                        "0: none, the default)")
     p.add_argument("--item-tics", type=int, default=420,
                    help="mean game tics between practice items (random Diablo loot: weapons, armor...) "
                         "spawned on screen on the way to a portal, to walk to and pick up (-rlitems; 0: none)")

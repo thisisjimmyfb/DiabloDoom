@@ -2594,6 +2594,21 @@ static void cmd_dispatch_one(const char *cmd)
         if (rldrive)
             RL_Consult();
     }
+    else if (rlenv && (!strcmp(cmd, "MONSTERS HIDE") || !strcmp(cmd, "MONSTERS SHOW")))
+    {
+        // MONSTERS HIDE / SHOW (-rlenv, 2026-11-18): the env's no-combat
+        // rollouts take every living map monster out of the world.
+        RL_Monsters(cmd[9] == 'H');
+    }
+    else if (rldrive && !strncmp(cmd, "GIVEGUN ", 8))
+    {
+        // GIVEGUN <seed> (-rlenv, and -rldrive for eval.py --iwad;
+        // 2026-11-18): a random gun equipped at each rollout's start
+        // (RL_GiveGun).
+        unsigned seed;
+        if (sscanf(cmd + 8, "%u", &seed) == 1)
+            RL_GiveGun(seed);
+    }
     else if (!strcmp(cmd, "VERSION"))
     {
         // Print the git commit hash this binary was built from.
@@ -3504,7 +3519,7 @@ void T_RefreshTargets(void)
         if (mo == player->mo)
             continue;
         // Shootable, living, countable enemies only.
-        if (!(mo->flags & MF_SHOOTABLE))
+        if (!(mo->flags & MF_SHOOTABLE) || (mo->flags & MF_RLHIDDEN))
             continue;
         if (mo->health <= 0)
             continue;

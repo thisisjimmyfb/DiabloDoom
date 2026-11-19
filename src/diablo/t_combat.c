@@ -345,8 +345,11 @@ static const t_kitdef_t t_kits[NUMWEAPONS] = {
     // limiter instead -- ammo_max 10, ammo_cost 10, so 1 shot per
     // magazine, then the reload. Cooldown 21 tics (vanilla chain).
     { "ROCKET",     5,   9,   6,   21,  128,  50,      1, true,   10,   10, false,   0,   0,   0,  80, REPLENISH_AS },
-    // wp_plasma: AP energy, inverted magazine (2026-10-22):
-    // the ammo counter represents heat. It starts at 0, each shot
+    // wp_plasma: AP energy, a normal magazine since 2026-11-18: 125,
+    // each shot spends 20, so ~6 shots, then the 20-tic reload refills
+    // it, like every other gun (the numbers kept, so Energy and the
+    // plasma-capacity affixes keep their worth). Before, an inverted
+    // magazine (2026-10-22): the ammo counter represented heat. It starts at 0, each shot
     // adds 20, the weapon fires while the counter is below the 125
     // capacity, and the counter drains at the replenish rate -- the
     // drain is the "reload" period. Same gate/spend/rate utilities
@@ -361,7 +364,7 @@ static const t_kitdef_t t_kits[NUMWEAPONS] = {
     // is 20 tics; the heat-drain pause stays in rounds (see
     // T_KitOnFire). The attack segment (S_PLASMA1, 3 tics) scales
     // with attack speed on top.
-    { "PULSE",      2,   4,   4,   20,    0,   0,      1, true,   20,  125,  true,   0,   0,   0,  16, REPLENISH_AS },
+    { "PULSE",      2,   4,   4,   20,    0,   0,      1, true,   20,  125,  false,  0,   0,   0,  16, REPLENISH_AS },
     // wp_bfg: AP ultimate. Cooldown 20 tics (2026-11-07, vanilla
     // reload-segment total: S_BFG4, the hold after firing) drives
     // the reload animation (and the reload refills the magazine at

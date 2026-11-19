@@ -9,7 +9,7 @@ import gymnasium as gym
 import numpy as np
 import pytest
 
-from env import ACTIONS, DiabloDoomEnv, EngineConfig, EnvConfig, RewardConfig, standin_consult
+from env import ACTIONS, DiabloDoomEnv, Engine, EngineConfig, EnvConfig, RewardConfig, standin_consult
 
 RANDOM_STEPS = 10000      # random agent: decisions across resets
 DETERM_STEPS = 1500       # determinism: decisions per run
@@ -359,30 +359,6 @@ def _fake_explore(rewards, states):
     e._trig = {k: e._new_trigger() for k in ("monster", "unique", "combat")}
     e._stack.reset(e._frame())
     return e
-
-
-def test_monster_trigger_sticky():
-    """A monster sighting stays a trigger for grace_tics after it leaves
-    the view: turning away still costs trigger_miss, and CONSULT after it
-    left still pays consult_hit; the miss is charged tic by tic over the
-    grace window. The metric counts CONSULTs with a trigger
-    pending and without. Engine faked, one tic per step."""
-    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=5.0, trigger_miss=-8.0,
-                        consult_false=-0.3, grace_tics=3, key=0, time=0, hp_loss=0, death=0,
-                        loot=0, health=0, fast=0, look=0, turn_waste=0, move_flip=0,
-                        fall=0, wall_look=0, item_approach=0)
-    seen = ({"mode": "EXPLORE", "hp": 100, "tics": 1, "monstervis": True}, [])
-    gone = ({"mode": "EXPLORE", "hp": 100, "tics": 1, "monstervis": False}, [])
-    walk, consult = ACTIONS.index("PRESS W"), ACTIONS.index("CONSULT")
-    e = _fake_explore(only, [seen] + [gone] * 5)
-    assert [round(e.step(walk)[1], 6) for _ in range(6)] == [0, -2.666667, -2.666667, -2.666667, 0, 0]
-    e = _fake_explore(only, [seen, gone, gone, gone, gone])
-    steps = [e.step(a) for a in (walk, walk, consult, walk, consult)]
-    assert [round(st[1], 6) for st in steps] == [0, -2.666667, 5.0, 0, -0.3]
-    # all of it one-off (consult is in RewardConfig.immediate)
-    assert [round(st[4]["reward_now"], 6) for st in steps] == [0, -2.666667, 5.0, 0, -0.3]
-    # steps: walk (none pending), walk, consult (pending), walk, consult (none)
-    assert e._consult_stats == [2, 1, 3, 1], e._consult_stats
 
 
 def test_item_approach():
@@ -762,47 +738,11 @@ def test_standin_consult():
 
 
 @pytest.mark.game
-def test_consult_clears_combat():
-    """Monsters on, E1M1: once combat starts, other actions are dropped
-    (no tics; each costs its share of the miss); CONSULT (the stand-in's CONSULT command) ends the fight with
-    the monster killed and no penalty."""
-    e = make_env(engine=EngineConfig(warp="1 1"), consult_handler=standin_consult, max_tics=100000)
-    try:
-        rng = np.random.default_rng(1)
-        _, info = e.reset(options={"seed": 0})
-        for k in ("monstervis", "backpack_full", "bp_count"):
-            assert k in info["state"], f"state line lacks {k}"
-        w, l, r = (ACTIONS.index(a) for a in ("PRESS W", "PRESS L", "PRESS R"))
-        act = w
-        for t in range(6000):              # run and turn at random, each held 8 tics
-            if info["mode"] != "EXPLORE":
-                break
-            if t % 8 == 0:
-                act = int(rng.choice([w, w, w, l, r]))
-            _, _, term, trunc, info = e.step(act)
-            if term or trunc:
-                _, info = e.reset(options={"seed": 0})
-        else:
-            pytest.fail("no combat in 6000 random tics")
-        before = info["state"]
-        _, r, _, _, info = e.step(0)                      # PRESS in combat: dropped
-        rc = RewardConfig()                               # costs only its share of the miss
-        assert info["tics"] == 0 and r == pytest.approx(rc.trigger_miss / rc.grace_decisions), \
-            f"dropped (reward {r})"
-        _, r, _, _, info = e.step(ACTIONS.index("CONSULT"))
-        after = info["state"]
-        assert after["mode"] == "EXPLORE", f"consult should end combat, still {after['mode']}"
-        assert after["kills"] > before["kills"]
-        assert r >= 0, f"consulting on combat costs nothing (reward {r})"
-    finally:
-        e.close()
-
-
-@pytest.mark.game
 def test_spawn_consult():
     """-rlspawn (no map monsters): a practice monster appears on screen
-    without starting combat; CONSULT on it pays consult_hit and removes
-    it. Spawns follow SEED: the same seed and actions give the same run."""
+    without starting combat; CONSULT removes it (no longer a trigger
+    since 2026-11-18: the policy fights). Spawns follow SEED: the same
+    seed and actions give the same run."""
     def run():
         e = make_env(engine=EngineConfig(warp="1 1", extra_args=["--eval", "-rlspawn", "60"]),
                      consult_handler=standin_consult, max_tics=100000)
@@ -816,13 +756,12 @@ def test_spawn_consult():
                 if s["monstervis"]:
                     _, r, _, _, info = e.step(ACTIONS.index("CONSULT"))
                     return trace, s, r, info["state"]
-                _, _, _, _, info = e.step(int(rng.choice([0, 0, 1, 2])))
+                _, _, _, _, info = e.step(ACTIONS.index(str(rng.choice(["PRESS", "PRESS", "PRESS L", "PRESS R"]))))
                 trace.append((info["state"]["x"], info["state"]["y"], info["state"]["monstervis"]))
             pytest.fail("no practice monster in 600 steps")
         finally:
             e.close()
     trace, seen, r, after = run()
-    assert r >= RewardConfig().consult_hit, f"CONSULT on a sighting pays (reward {r})"
     assert not after["monstervis"] and after["kills"] == seen["kills"], "removed, not killed"
     assert run()[0] == trace, "spawns are deterministic under SEED"
 
@@ -975,7 +914,8 @@ def test_portal_goal():
         rng = np.random.default_rng(0)
         ret = 0.0
         for _ in range(3000):
-            _, r, term, trunc, info = e.step(int(rng.choice([0, 0, 0, 1, 2, 3, 4])))
+            _, r, term, trunc, info = e.step(ACTIONS.index(str(rng.choice(
+                ["PRESS", "PRESS", "PRESS", "PRESS L", "PRESS R", "PRESS A", "PRESS AL"]))))
             ret += r
             if term or trunc:
                 break
@@ -1142,3 +1082,60 @@ def test_waypoints_sector():
     for _ in range(300):                               # kept until reached: never replaced
         e.step(w)
     assert not any(l.startswith("WAYPOINT") for l in sent[2:]) and e._wp == (50, 60)
+
+
+def test_combat_rewards():
+    """Combat (2026-11-18): damage pays per a monster's full HP dealt,
+    kill on the kill, fire_waste per shot that hurt nothing (a projectile
+    never); info["combat"] counts them. Engine faked."""
+    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
+                        consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0,
+                        time=0, fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0,
+                        damage=10.0, kill=4.0, fire_waste=-0.5)
+    e = make_env(rewards=only, max_tics=100000)
+    script = iter([
+        [{"event": "shot", "hit": True, "proj": False}, {"event": "damage", "amount": 30, "max": 60, "kill": False}],
+        [{"event": "shot", "hit": False, "proj": False}],
+        [{"event": "shot", "hit": False, "proj": True}],
+        [{"event": "damage", "amount": 50, "max": 60, "kill": True}],    # overkill: capped at max
+    ])
+
+    def command(line):
+        return {"mode": "EXPLORE", "hp": 100, "tics": 1, "x": 0, "y": 0, "angle": 0}, next(script)
+    e.engine.command = command
+    e._frame = lambda: np.zeros((200, 320), dtype=np.uint8)
+    e.state = {"mode": "EXPLORE", "hp": 100, "x": 0, "y": 0, "angle": 0}
+    e._prev_hp, e._tics, e._combat_steps = 100, 0, 0
+    e._best_sectors = e._start_sectors = 0
+    e._keys, e._goal, e._group, e._slot, e._seed, e._used = 0, None, 0, None, 0, set()
+    e._trig = {k: e._new_trigger() for k in ("unique", "combat")}
+    e._combat_on = True
+    e._stack.reset(e._frame())
+    fire = ACTIONS.index("PRESS CTRL")
+    rs = [e.step(fire)[1] for _ in range(3)]
+    _, r4, _, _, info = e.step(ACTIONS.index("PRESS"))
+    assert rs == [5.0, -0.5, 0.0] and abs(r4 - (50 / 60 * 10.0 + 4.0)) < 1e-9, (rs, r4)
+    assert info["combat"] == [1, 3, 1, 1, 80]
+    assert "fire_waste" in RewardConfig().immediate and "damage" not in RewardConfig().immediate
+
+
+@pytest.mark.game
+def test_monsters_hide_show():
+    """MONSTERS HIDE takes E1M1's map monsters out of the world (no
+    targets, no damage), SHOW puts them back; firing sends shot events,
+    and a hit a damage event. Real game, map monsters on."""
+    e = Engine(EngineConfig(warp="1 1"))
+    try:
+        e.start()
+        st, _ = e.command("MONSTERS HIDE")
+        st, _ = e.command("STATE")
+        assert not st["monstervis"]
+        st, ev = e.command("MONSTERS SHOW")
+        st, ev = e.command("PRESS CTRL")
+        shots = []
+        for _ in range(20):
+            st, ev = e.command("PRESS CTRL")
+            shots += [v for v in ev if v.get("event") == "shot"]
+        assert shots and all("hit" in s and "proj" in s for s in shots)
+    finally:
+        e.close()
