@@ -653,7 +653,7 @@ void G_BuildTiccmd (ticcmd_t* cmd, int maketic)
     mousex = mousey = 0; 
 
     // Driver PRESS: the keys the policy holds this tic (t_turn.c).
-    T_DriverPress(&forward, &side, &cmd->angleturn);
+    T_DriverPress(&forward, &side, &cmd->angleturn, &cmd->buttons);
 	 
     if (forward > MAXPLMOVE) 
 	forward = MAXPLMOVE; 

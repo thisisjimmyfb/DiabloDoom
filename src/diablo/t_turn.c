@@ -1190,7 +1190,9 @@ static int cmd_turn_dir = 0;        // +1 left, -1 right
 
 // PRESS <keys> (2026-11-15): the keys held for the next tic, the
 // policy's per-tic input. Letters: W/S run forward/back, A/D strafe
-// left/right, L/R turn left/right ("PRESS" alone holds nothing).
+// left/right, L/R turn left/right, CTRL
+// fires the ready weapon (fists when none; 2026-11-18, the fire key)
+// ("PRESS" alone holds nothing).
 // G_BuildTiccmd adds T_DriverPress() to the ticcmd, so P_MovePlayer
 // moves the player exactly as those keys held on a keyboard do (run
 // speed, the run turn rate: 1280 angle units, about 7 degrees a tic).
@@ -1203,10 +1205,12 @@ static int cmd_turn_dir = 0;        // +1 left, -1 right
 static int press_forward = 0;       // +1 W, -1 S
 static int press_side = 0;          // +1 D, -1 A
 static int press_turn = 0;          // +1 L, -1 R
+static boolean press_fire = false;  // CTRL
 
 static void T_PressRelease(void)
 {
     press_forward = press_side = press_turn = 0;
+    press_fire = false;
 }
 
 static boolean T_IsPress(const char *cmd)
@@ -1221,6 +1225,12 @@ static void T_PressAdd(const char *keys)
     const char *k;
     for (k = keys; *k != '\0'; k++)
     {
+        if (!strncmp(k, "CTRL", 4))
+        {
+            press_fire = true;
+            k += 3;
+            continue;
+        }
         switch (*k)
         {
             case 'W': press_forward += 1; break;
@@ -1231,7 +1241,7 @@ static void T_PressAdd(const char *keys)
             case 'R': press_turn -= 1; break;
             case ' ': break;
             default:
-                printf("[PRESS] unknown key '%c' (W A S D L R)\n", *k);
+                printf("[PRESS] unknown key '%c' (W A S D L R CTRL)\n", *k);
                 break;
         }
     }
@@ -1240,10 +1250,10 @@ static void T_PressAdd(const char *keys)
     press_turn = press_turn > 0 ? 1 : press_turn < 0 ? -1 : 0;
 }
 
-void T_DriverPress(int *forward, int *side, short *turn)
+void T_DriverPress(int *forward, int *side, short *turn, byte *buttons)
 {
     extern fixed_t angleturn[3];
-    if (!(press_forward || press_side || press_turn))
+    if (!(press_forward || press_side || press_turn || press_fire))
         return;
     if (gamestate != GS_LEVEL || !T_InExplore()
      || players[consoleplayer].mo == NULL || players[consoleplayer].health <= 0)
@@ -1254,6 +1264,8 @@ void T_DriverPress(int *forward, int *side, short *turn)
     *forward += press_forward * forwardmove[1];
     *side += press_side * sidemove[1];
     *turn += press_turn * angleturn[1];
+    if (press_fire)
+        *buttons |= BT_ATTACK;
 }
 
 // SURVEY: one driver command for a full 360-degree survey spin.

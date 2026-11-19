@@ -232,8 +232,9 @@ env's velocity reward; the env adds the flag itself.
 Per-tic input (2026-11-15): `PRESS <keys>` holds keys for the next tic
 through the keyboard path (`G_BuildTiccmd` adds `T_DriverPress()` to
 the ticcmd): W/S run forward/back, A/D strafe, L/R turn at the run turn
-rate (about 7 degrees a tic), any combination, `PRESS` alone holds
-nothing. Explore only; it cancels a running WALK/GOTO (only a running
+rate (about 7 degrees a tic), `CTRL` the fire key (2026-11-18: the ready
+weapon, fists when none, as held Ctrl; `PRESS W CTRL`), any combination,
+`PRESS` alone holds nothing. Explore only; it cancels a running WALK/GOTO (only a running
 one: cancelling a GOTO zeroes momentum), every gameplay command line
 starts by releasing the keys, and under `-rldrive` they stay held until
 the next line. PRESS is never logged or echoed (it comes every tic). This
