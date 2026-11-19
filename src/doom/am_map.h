@@ -21,6 +21,7 @@
 
 #include "d_event.h"
 #include "m_cheat.h"
+#include "m_fixed.h"
 
 // Used by ST StatusBar stuff.
 #define AM_MSGHEADER (('a'<<24)+('m'<<16))
@@ -41,6 +42,15 @@ void AM_Drawer (void);
 // Called to force the automap to quit
 // if the level is completed while it is up.
 void AM_Stop (void);
+
+// MAPSHOT's zoom: the scale (pixels per map unit, fixed point), and a
+// zoom that fits the player's sector.
+fixed_t AM_GetScale(void);
+void AM_SetScale(fixed_t scale);
+void AM_ZoomToSector(void);
+
+// The view the last AM_Drawer drew (MAPSHOT's pixel-to-map numbers).
+void AM_ViewInfo(double *x0, double *y0, double *upp, int *w, int *h);
 
 
 extern cheatseq_t cheat_amap;

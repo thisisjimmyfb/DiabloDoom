@@ -32,6 +32,7 @@
 #include "i_timer.h"
 
 #include "d_rlenv.h"
+#include "d_waypoint.h"
 
 boolean rlenv = false;
 boolean rldrive = false;
@@ -942,6 +943,11 @@ void RL_EmitState(const char *why, int tics)
                 if (RL_Passage(&sectors[i]) == RL_DOOR && T_SectorVisited(i))
                     doors++;
             RL_PUT(",\"door_sectors\":%d", doors);
+        }
+        {
+            int wx, wy;
+            if (D_WaypointGet(&wx, &wy))
+                RL_PUT(",\"waypoint\":[%d,%d]", wx, wy);   // WAYPOINT set, not yet reached
         }
 
         // Key colours held, as a mask (1 blue, 2 yellow, 4 red): a

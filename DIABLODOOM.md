@@ -149,7 +149,12 @@ It is the wasted-RAM joke made into an item.
 
 ## Explore / combat
 
-The game is not always turn-based. **Explore** freely with WASD + arrows
+Since 2026-11-18 combat is real-time by default: monsters fight as in
+Doom and Right Ctrl fires; your gear's AD/AP, attack speed, cooldown and
+magazines still apply. Launch with `-turnbased` for the turn-based
+combat below.
+
+With `-turnbased`, the game is not always turn-based. **Explore** freely with WASD + arrows
 (real-time movement); walking over loot picks it up. When an enemy
 **spots you**, the game switches to **turn-based combat**: queue actions
 (W/S/A/D move, F attack, Space use), then press **T** to execute them

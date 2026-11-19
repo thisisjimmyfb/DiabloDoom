@@ -135,6 +135,9 @@ boolean T_Responder(event_t *ev)
                 // explore mode (it hides on combat entry instead).
                 return true;
               case KEY_RCTRL:
+                // Without -turnbased (2026-11-18): the plain fire key.
+                if (!t_turnbased)
+                    return false;
                 // Hold-Ctrl in explore: fall through to the main handler
                 // to start mini-combat targeting.
                 break;

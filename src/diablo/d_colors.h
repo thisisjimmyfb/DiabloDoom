@@ -22,6 +22,9 @@ typedef enum
     DC_HB_GREEN,
     DC_HB_YELLOW,
     DC_HB_RED,
+    // The WAYPOINT marker (d_waypoint.c).
+    DC_WP_CORE,
+    DC_WP_EDGE,
     NUM_DCOLORS
 } dcolor_t;
 

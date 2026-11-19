@@ -2384,7 +2384,7 @@ void T_StartCtrlTargeting(void)
     T_ClearContinuousFire();
     // --eval: no turn-based combat at all (2026-11-17), so no
     // explore mini-combat either (Ctrl / ATTACK do nothing in explore).
-    if (turnctrl.state == TS_EXPLORE && eval_mode)
+    if (turnctrl.state == TS_EXPLORE && (eval_mode || !t_turnbased))
         return;
     // Mini-combat: allow hold-Ctrl in explore mode for barrels/props.
     if (turnctrl.state == TS_EXPLORE)

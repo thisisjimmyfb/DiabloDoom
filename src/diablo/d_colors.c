@@ -22,6 +22,8 @@ static const byte dc_rgb[NUM_DCOLORS][3] =
     [DC_HB_GREEN]  = { 0, 200, 0 },
     [DC_HB_YELLOW] = { 255, 220, 0 },
     [DC_HB_RED]    = { 220, 40, 40 },
+    [DC_WP_CORE]   = { 255, 255, 255 },
+    [DC_WP_EDGE]   = { 0, 0, 0 },
 };
 
 // Rarity colours: normal white, magic blue, rare yellow, set green,

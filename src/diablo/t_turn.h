@@ -143,6 +143,7 @@ typedef struct
 } turnctrl_t;
 
 extern turnctrl_t turnctrl;
+extern boolean t_turnbased;     // -turnbased (2026-11-18; off: real-time combat)
 
 // ------------------------------------------------------------------
 // Target service (phase 3): visible-enemy enumeration with stable
@@ -356,5 +357,6 @@ void T_DrawFloatText(void);
 // Diablo damage callback; drawn by the HUD.
 void T_RecordHealthBar(mobj_t *mo);
 void T_DrawHealthBars(void);
+boolean T_ProjectPoint(fixed_t x, fixed_t y, fixed_t z, int *sx, int *sy, double *depth);
 
 #endif

@@ -476,9 +476,12 @@ P_NightmareRespawn (mobj_t* mobj)
 void P_MobjThinker (mobj_t* mobj)
 {
     // Explore mode: enemies are frozen solid. The player, barrels, and
-    // other inert objects tick normally.
+    // other inert objects tick normally. Without -turnbased (2026-11-18)
+    // only -rlspawn practice monsters stay frozen; the rest fight in
+    // real time.
     if (T_InExplore() && mobj->player == NULL
-     && (mobj->flags & MF_COUNTKILL))
+     && (mobj->flags & MF_COUNTKILL)
+     && (t_turnbased || (mobj->flags & MF_RLPRACTICE)))
         return;
 
     // momentum movement

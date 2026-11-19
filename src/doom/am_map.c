@@ -46,6 +46,9 @@
 #include "dstrings.h"
 
 #include "am_map.h"
+#include "d_colors.h"
+#include "d_waypoint.h"
+#include "m_bbox.h"
 
 
 // For use if I do walls with outsides/insides
@@ -563,6 +566,75 @@ void AM_Start (void)
     }
     AM_initVariables();
     AM_loadPics();
+}
+
+// MAPSHOT's zoom (2026-11-18): the scale, and a scale that fits the
+// player's sector with a margin round it (at least 256 units each way
+// of the player), centred on the player. The sector's lines farther
+// than 1024 units away are left out: id's maps often share one sector
+// between rooms far apart.
+fixed_t AM_GetScale(void)
+{
+    return scale_mtof;
+}
+
+void AM_SetScale(fixed_t scale)
+{
+    if (scale < min_scale_mtof)
+        scale = min_scale_mtof;
+    if (scale > max_scale_mtof)
+        scale = max_scale_mtof;
+    scale_mtof = scale;
+    scale_ftom = FixedDiv(FRACUNIT, scale_mtof);
+    AM_activateNewScale();
+}
+
+void AM_ZoomToSector(void)
+{
+    sector_t *sec;
+    double px, py, hx = 0, hy = 0;
+    int i;
+
+    if (plr == NULL || plr->mo == NULL)
+        return;
+    sec = plr->mo->subsector->sector;
+    px = (double) plr->mo->x / FRACUNIT;
+    py = (double) plr->mo->y / FRACUNIT;
+    for (i = 0; i < sec->linecount; i++)
+    {
+        const fixed_t *b = sec->lines[i]->bbox;
+        double l = px - (double) b[BOXLEFT] / FRACUNIT, r = (double) b[BOXRIGHT] / FRACUNIT - px;
+        double d = py - (double) b[BOXBOTTOM] / FRACUNIT, u = (double) b[BOXTOP] / FRACUNIT - py;
+        double nx = -l > -r ? -l : -r, ny = -d > -u ? -d : -u;   // >0: that far outside the line's box
+        if ((nx > 0 ? nx : 0) > 1024 || (ny > 0 ? ny : 0) > 1024)
+            continue;
+        if (l > hx) hx = l;
+        if (r > hx) hx = r;
+        if (d > hy) hy = d;
+        if (u > hy) hy = u;
+    }
+    hx = hx * 1.25 + 64;
+    hy = hy * 1.25 + 64;
+    if (hx < 256)
+        hx = 256;
+    if (hy < 256)
+        hy = 256;
+    hx = f_w / (2 * hx);
+    hy = f_h / (2 * hy);
+    AM_SetScale((fixed_t) ((hx < hy ? hx : hy) * FRACUNIT));
+}
+
+// The view the last AM_Drawer drew (2026-11-18, MAPSHOT): the map
+// coordinates of the window's lower left corner, map units per pixel,
+// and the window size in pixels. A pixel (px, py) is the map point
+// (x0 + px * upp, y0 + (h - py) * upp).
+void AM_ViewInfo(double *x0, double *y0, double *upp, int *w, int *h)
+{
+    *x0 = (double) m_x / FRACUNIT;
+    *y0 = (double) m_y / FRACUNIT;
+    *upp = (double) FRACUNIT / scale_mtof;
+    *w = f_w;
+    *h = f_h;
 }
 
 //
@@ -1348,6 +1420,21 @@ void AM_drawMarks(void)
 
 }
 
+// The WAYPOINT (2026-11-18): a white, black-outlined square.
+static void AM_drawWaypoint(void)
+{
+    int wx, wy, fx, fy;
+
+    if (!D_WaypointGet(&wx, &wy))
+        return;
+    fx = CXMTOF(wx << FRACBITS);
+    fy = CYMTOF(wy << FRACBITS);
+    if (fx < f_x + 3 || fx > f_x + f_w - 4 || fy < f_y + 3 || fy > f_y + f_h - 4)
+        return;
+    V_DrawFilledBox(fx - 3, fy - 3, 7, 7, D_Color(DC_WP_EDGE));
+    V_DrawFilledBox(fx - 2, fy - 2, 5, 5, D_Color(DC_WP_CORE));
+}
+
 void AM_drawCrosshair(int color)
 {
     fb[(f_w*(f_h+1))/2] = color; // single point for now
@@ -1368,6 +1455,7 @@ void AM_Drawer (void)
     AM_drawCrosshair(XHAIRCOLORS);
 
     AM_drawMarks();
+    AM_drawWaypoint();
 
     V_MarkRect(f_x, f_y, f_w, f_h);
 

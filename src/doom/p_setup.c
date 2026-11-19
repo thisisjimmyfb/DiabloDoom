@@ -831,10 +831,12 @@ P_SetupLevel
         extern boolean rlenv, rldrive;
         extern void T_TrackReset(void);
         extern void RL_LevelSetup(void);
+        extern void D_WaypointClear(void);
         if (rlenv)
             T_TrackReset();
         if (rldrive)             // -rlenv implies it
             RL_LevelSetup();     // forget spawned CONSULT monsters
+        D_WaypointClear();       // a waypoint belongs to its level
     }
 }
 

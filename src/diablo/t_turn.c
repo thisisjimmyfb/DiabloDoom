@@ -21,6 +21,8 @@
 #include "t_combat.h"
 #include "d_diablo.h"
 #include "d_rlenv.h"
+#include "d_waypoint.h"
+#include "am_map.h"
 #include "doomstat.h"
 #include "doomdef.h"
 #include "doomkeys.h"
@@ -129,7 +131,6 @@ static int t_map_close_tic = -1;
 
 static void T_MapClose(void)
 {
-    extern void AM_Stop(void);
     t_map_close_tic = -1;
     if (automapactive)
     {
@@ -348,7 +349,7 @@ void T_ExploreTick(void)
     {
         passive_last_hp = hp;
     }
-    else if (hp < passive_last_hp && hp > 0 && !eval_mode)
+    else if (hp < passive_last_hp && hp > 0 && !eval_mode && t_turnbased)
     {
         // --eval: no turn-based combat at all (2026-11-17), so
         // damage is just damage (the else branch re-baselines).
@@ -383,6 +384,10 @@ void T_ExploreTick(void)
 }
 
 turnctrl_t turnctrl;
+// Turn-based combat (2026-11-18: off by default, -turnbased turns it
+// on): off, the game stays in explore mode and monsters fight in real
+// time; the weapon kits (AD/AP, AS, CD, magazines) work in both.
+boolean t_turnbased = false;
 
 // Enemy health bars (2026-11-11): a window of the most recently
 // attacked monsters. t_combat_end_tic is the gametic when combat
@@ -427,6 +432,7 @@ void T_Init(void)
     turnctrl.tp = turnctrl.tp_max;
     turnctrl.selected_target = -1;
     turnctrl.state = TS_OFF;
+    t_turnbased = M_CheckParm("-turnbased") > 0;
 
     // Single-player only; no demos. This fork has no real-time mode to
     // fall back to, so netplay/demos are simply unsupported: warn and
@@ -610,8 +616,9 @@ void T_EnterCombat(mobj_t *spotter)
         KEY_UPARROW, KEY_DOWNARROW, KEY_LEFTARROW, KEY_RIGHTARROW
     };
     unsigned int i;
-    // --eval turns turn-based combat off entirely (2026-11-17).
-    if (eval_mode)
+    // --eval turns turn-based combat off entirely (2026-11-17), and so
+    // does running without -turnbased (2026-11-18).
+    if (eval_mode || !t_turnbased)
         return;
     // A -rlspawn practice monster never starts combat (backstop: explore
     // detection already removes or skips it).
@@ -1330,7 +1337,7 @@ static boolean cmd_is_diagnostic(const char *cmd)
 {
     static const char *diag[] = {
         "SCREENSHOT", "REPLAY", "CAPTURE", "VERSION",
-        "INVENTORY", "KEYS", "SECTORS", "STATE", "VISITED", NULL
+        "INVENTORY", "KEYS", "SECTORS", "STATE", "VISITED", "MAPSHOT", NULL
     };
     int i;
     for (i = 0; diag[i] != NULL; i++)
@@ -1919,6 +1926,18 @@ static void T_SnapToNearestWall(void)
 // (any gameplay line starts from nothing held).
 static void cmd_dispatch_one(const char *cmd);
 
+// The CMD echo for a command the policy also sees in production
+// (WAYPOINT, MAPSHOT; 2026-11-18): under -rlenv too, where the general
+// echo is off, so training shows what -rldrive shows.
+static void T_EchoUnderRlenv(const char *cmd)
+{
+    static char msg[96];
+    if (!rlenv)
+        return;
+    M_snprintf(msg, sizeof(msg), "CMD %s", cmd);
+    players[consoleplayer].message = msg;
+}
+
 static void cmd_dispatch(const char *line)
 {
     char buf[CMD_LINE_MAX];
@@ -2380,6 +2399,75 @@ static void cmd_dispatch_one(const char *cmd)
             printf("[MAP] automap off\n");
         }
     }
+    else if (!strcmp(cmd, "MAPSHOT"))
+    {
+        // MAPSHOT (2026-11-18): the automap drawn into the frame buffer
+        // and saved as a PNG within this tic, then closed again; the 3D
+        // view is drawn over it before the frame is shown or published,
+        // so the screen never shows the map. It is zoomed to fit the
+        // player's sector and shows the WAYPOINT. The mapshot event
+        // carries the file and what turns a pixel into map coordinates.
+        mobj_t *mo = players[consoleplayer].mo;
+        T_EchoUnderRlenv(cmd);
+        if (gamestate != GS_LEVEL || mo == NULL)
+        {
+            printf("[MAPSHOT] blocked: not in a level\n");
+        }
+        else
+        {
+            boolean was_open = automapactive;
+            char name[128];
+            double x0, y0, upp;
+            int w, h;
+            time_t now = time(NULL);
+            struct tm *tm = localtime(&now);
+
+            fixed_t scale;
+
+            if (!was_open)
+                AM_Start();
+            scale = AM_GetScale();
+            AM_ZoomToSector();       // the player's sector fills the shot
+            AM_Drawer();
+            D_EnsureDoomshotsDir();
+            snprintf(name, sizeof(name), "doomshots/mapshot_%04d%02d%02d_%02d%02d%02d_%d.png",
+                     tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
+                     tm->tm_hour, tm->tm_min, tm->tm_sec, gametic);
+            V_ScreenShotFile(name);
+            AM_ViewInfo(&x0, &y0, &upp, &w, &h);
+            AM_SetScale(scale);      // Tab's map keeps its own zoom
+            if (!was_open)
+                AM_Stop();
+            printf("[MAPSHOT] %s\n", name);
+            RL_Emit("{\"event\":\"mapshot\",\"file\":\"%s\",\"gametic\":%d,"
+                    "\"x0\":%.3f,\"y0\":%.3f,\"upp\":%.5f,\"w\":%d,\"h\":%d,"
+                    "\"x\":%d,\"y\":%d,\"angle\":%d}",
+                    name, gametic, x0, y0, upp, w, h,
+                    mo->x >> FRACBITS, mo->y >> FRACBITS,
+                    (int) ((double) mo->angle * 360.0 / 4294967296.0));
+        }
+    }
+    else if (!strcmp(cmd, "WAYPOINT") || !strncmp(cmd, "WAYPOINT ", 9))
+    {
+        // WAYPOINT <x> <y> (2026-11-18): one point in map units, drawn
+        // until the player reaches it (d_waypoint.c); WAYPOINT clears it.
+        int x, y;
+        T_EchoUnderRlenv(cmd);
+        if (cmd[8] == '\0')
+        {
+            D_WaypointClear();
+            printf("[WAYPOINT] cleared\n");
+        }
+        else if (sscanf(cmd + 9, "%d %d", &x, &y) == 2)
+        {
+            D_WaypointSet(x, y);
+            printf("[WAYPOINT] %d %d\n", x, y);
+        }
+        else
+        {
+            printf("[WAYPOINT] usage: WAYPOINT [<x> <y>]\n");
+        }
+    }
     else if (!strcmp(cmd, "SECTORS"))
     {
         // Log sector traversal progress: current sector, visited count,
@@ -2475,7 +2563,7 @@ static void cmd_dispatch_one(const char *cmd)
         // the policy asked for the hand-off (no VLM is attached there).
         // The message shows under -rlenv too (2026-11-17), and under
         // -rldrive it removes the practice monsters in sight (2026-11-17).
-        players[consoleplayer].message = "CONSULT";
+        players[consoleplayer].message = "CMD CONSULT";   // "CONSULT" before 2026-11-18
         if (rldrive)
             RL_Consult();
     }
@@ -2729,6 +2817,7 @@ void T_Ticker(void)
     // Continuous visited-sector tracking (both modes: presence is
     // presence). Feeds SECTORS.
     T_TrackTick();
+    D_WaypointTick();            // WAYPOINT: reached? (any mode)
 
     // Kill banner counts down in real time, independent of turn state.
     T_TickKillBanner();
@@ -3019,14 +3108,22 @@ static double T_DepthScale(double tz)
 // stores the forward distance (tz) in map units for depth scaling.
 static boolean T_ProjectTarget(mobj_t *mo, int *sx, int *sy, double *depth)
 {
+    if (mo == NULL || sx == NULL || sy == NULL)
+        return false;
+    return T_ProjectPoint(mo->x, mo->y, mo->z + mo->height, sx, sy, depth);
+}
+
+// A world point (map coordinates, fixed point) to 320x200 screen space,
+// the same math (2026-11-18: split out of T_ProjectTarget for the
+// waypoint marker). False if behind.
+boolean T_ProjectPoint(fixed_t x, fixed_t y, fixed_t z, int *sx, int *sy, double *depth)
+{
     double dx, dy, dz, tz, tx;
     double va, rad;
 
-    if (mo == NULL || sx == NULL || sy == NULL)
-        return false;
-    dx = (double)(mo->x - viewx) / FRACUNIT;
-    dy = (double)(mo->y - viewy) / FRACUNIT;
-    dz = (double)((mo->z + mo->height) - viewz) / FRACUNIT;
+    dx = (double)(x - viewx) / FRACUNIT;
+    dy = (double)(y - viewy) / FRACUNIT;
+    dz = (double)(z - viewz) / FRACUNIT;
     va = (double)viewangle * 360.0 / 4294967296.0;
     rad = va * 3.141592653589793 / 180.0;
     tz = dx * cos(rad) + dy * sin(rad);
@@ -3200,6 +3297,8 @@ void T_RecordHealthBar(mobj_t *mo)
         return;
     if (mo->type == MT_BARREL)
         return; // barrels are not monsters
+    if (!t_turnbased)
+        t_combat_end_tic = gametic;   // real time: the bars fade 10 s after the last attack
     for (i = 0; i < t_healthbar_count; i++)
     {
         if (t_healthbars[i] == mo)
@@ -3596,21 +3695,11 @@ void T_DrawHUD(void)
         return;
     T_TintFonts();
 
-    // EXPLORE mode: minimal header, no turn UI. Combat UI appears only
-    // once an enemy is spotted. The controls hint shows only at the
-    // start of a level and fades out after 5 seconds.
+    // EXPLORE mode: no turn UI. Combat UI appears only once an enemy is
+    // spotted. (The level-start controls hint was removed 2026-11-18: it
+    // covered the HUD message line.)
     if (turnctrl.state == TS_EXPLORE)
-    {
-        int elapsed = gametic - levelstarttic;
-        if (elapsed < 175) // 5 seconds at 35 tics/sec
-        {
-            if (elapsed < 105) // first 3 seconds: bright
-                T_DrawTextCenteredHi(2, "EXPLORE - WASD MOVE - ARROWS TURN");
-            else // last 2 seconds: dim (fade out)
-                T_DrawTextCentered(2, "EXPLORE - WASD MOVE - ARROWS TURN");
-        }
         return;
-    }
 
     // Points readout shows reserved (queued) points separately:
     // "4/10 points" is spendable now, "(6 IN QUEUE)" is already

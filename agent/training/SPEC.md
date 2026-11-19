@@ -63,6 +63,8 @@ The replay system (`d_replay.c`) records 15-second MP4 video, not inputs, and `T
 | Frame to shared memory | At each decision, copy `I_VideoBuffer` (320×200, 8-bit) and the palette. No PNG, no SDL surface. |
 | Render only at decisions | Skip `D_Display` on tics between decisions. Moot since per-tic decisions (2026-11-15): every tic is a decision, so every tic renders. |
 | `STATEHASH` command | Hash of player, mobj and turn-controller state, for determinism checks. |
+| `WAYPOINT <x> <y>` / `WAYPOINT` (2026-11-18) | One point in map units, drawn in the scene until the player comes within 64 units (then a `waypoint_reached` event): a white, black-outlined pillar shown through walls (dashed behind one), or an arrow at the screen edge while it is out of view. The state line carries `waypoint`. The VLM sets it in production (from a `MAPSHOT`); the env in training. |
+| `MAPSHOT` (2026-11-18) | Draws the automap and saves it as a PNG within one tic, then closes it: the policy's frame never shows the map. Zoomed to fit the player's sector (its lines within 1024 units, with a margin), with the waypoint drawn as a white square. The `mapshot` event gives the file and the pixel-to-map numbers (`x0`, `y0`, `upp`, `h`, in 320x200 frame pixels). |
 | Explore-mode strafes | Today `STRAFE_L/R` queue a TP-costing turn move that only previews until END TURN. Under `-rlenv` in EXPLORE they take a fixed sideways step without turning, like `WALK <angle>`. |
 | `-rlnocombat` | Removes every monster at level load. Reuse vanilla's monster-removal flag (`d_main.c`; the variable renamed `eval_mode` 2026-11-17) rather than new removal code: launched as `--eval` (vanilla's `-nomonsters`, renamed 2026-11-17). It also turns turn-based combat off entirely: no passive-damage planning, no explore mini-combat (Ctrl / `ATTACK` do nothing in explore), and no monster-sighting entry. |
 | Mechanism use events | Under `-rlenv`, every player USE that sets something going sends `{"event":"use","sectors":[...],"lines":[...]}`: the sectors that gained an active special (doors, lifts, floors, ceilings, stairs) and the switch lines flipped. A use that does nothing (a wall, a locked door without its key, a door already moving) sends nothing. Feeds the mechanism reward (§5.3). |
@@ -170,7 +172,7 @@ The return is the plain sum over the rollout. GRPO compares rollouts within a gr
 
 #### Design notes
 
-- **Only what the policy can perceive is rewarded as a behaviour.** It sees 4 stacked grayscale frames (default 128×80), so a cue must survive that: hence USE paid for trying a wall rather than for its being a switch, and the unique border rather than a status message.
+- **Only what the policy can perceive is rewarded as a behaviour.** It sees 4 stacked grayscale frames (default 128×80), so a cue must survive that: hence the unique border rather than a status message.
 - **The clock is the backbone.** `fast`, `look` and `wall_look` are tied to `T`, so the shaping terms only ever trade against time: none of them can pay for standing still.
 - **Shaping state is reward-only.** `path_dist`, `path_rel`, `portal_dist`, `portal_rel`, `wall_dist`, `wall_use`, `door_sectors`, `monstervis` and the events are never in the observation.
 - **No combat or stuck term:** stage 1 has no map monsters (a long combat ends the rollout instead), and the clock already charges standing still.

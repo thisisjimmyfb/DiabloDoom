@@ -378,6 +378,7 @@ P_FireDiabloWeapon
 ( player_t* player )
 {
     const t_kitdef_t *kit;
+    boolean own_hitscan = false;   // this call set d_diablo_hitscan_weapon
 
     // Clear any stale suppression from an interrupted chain, so the
     // direct fire below is never suppressed. Also clear any stale
@@ -406,6 +407,20 @@ P_FireDiabloWeapon
     {
         T_KitSpendAmmo(player->readyweapon);
         T_KitOnFire(player);
+    }
+
+    // Hitscan hits take Diablo AD/AP damage in real time too
+    // (2026-11-18; the turn executor sets this before calling here,
+    // real-time fire didn't, so its hitscan shots did vanilla damage).
+    {
+        weapontype_t w = player->readyweapon;
+        if (d_diablo_hitscan_weapon < 0
+            && (w == wp_fist || w == wp_pistol || w == wp_shotgun || w == wp_chaingun
+                || w == wp_chainsaw || w == wp_supershotgun))
+        {
+            d_diablo_hitscan_weapon = w;
+            own_hitscan = true;
+        }
     }
 
     // Fire synchronously (the old T_NativeFire logic, folded in): the
@@ -452,6 +467,8 @@ P_FireDiabloWeapon
         case wp_supershotgun: A_FireShotgun2(player, NULL); break;
         default:             A_FirePistol(player, NULL); break;
     }
+    if (own_hitscan)
+        d_diablo_hitscan_weapon = -1;
 
     // Play the attack state chain on EVERY shot, not just on reload
     // (vanilla P_FireWeapon behavior, now the single fire path).

@@ -497,7 +497,7 @@ spawned, uniques, and how many got a CONSULT within the 3 s window.
 The drive stops at the exit, on death, after `--max-decisions`, or on
 Ctrl-C. The game window then stays open for you;
 `--quit-at-end` closes it. A CONSULT while exploring is sent: the game
-shows `CONSULT` as the status message, so you see the policy asked
+shows `CMD CONSULT` as the status message, so you see the policy asked
 for the hand-off, and removes every practice monster, in sight or not; the drive goes on (`--on-consult stop` stops it there).
 That needs a game built after 2026-11-16; an older one logs `CONSULT
 needs -rlenv` and shows `CMD CONSULT` instead. Each decision prints the
