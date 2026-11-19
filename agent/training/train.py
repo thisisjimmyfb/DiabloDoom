@@ -53,8 +53,9 @@ from env import cleanup_stale  # noqa: E402  (model.py put env on sys.path)
 from env.vector import GroupVecEnv  # noqa: E402
 from rollout import (heldout_eval, make_heldout_vec, nvtx, print_eval, print_eval_delta, run_rollouts, sample_group_options,
                   write_rollout_log)
+from env.env import RewardConfig  # noqa: E402
 from learn import (GRAD_WINDOW, add_learn_args, build_batch, group_advantages, print_train, setup_learner,
-                   train_metrics, training_health, update)
+                   term_advantages, train_metrics, training_health, update)
 
 
 def parse_args():
@@ -235,6 +236,7 @@ def main():
     upd_thread = None   # --overlap: the update running in the background
     unhealthy = None    # why training stopped (learn.training_health): no save, no upload
     grad_recent: list[float] = []   # healthy updates' grad_norm_max (the relative check)
+    cos_hist: dict[str, list[float]] = {}   # reward-term pair -> gradient cosines (the conflict check)
 
     def end_of_run_eval(last: dict, done_it: int) -> dict:
         """The eval after done_it updates (unless one just ran) and the
@@ -266,7 +268,12 @@ def main():
             with nvtx("batch"):
                 advs, collapsed = group_advantages([recs[g * G:(g + 1) * G] for g in range(groups)],
                                                    args.advantage)
+                term_adv = (term_advantages([recs[g * G:(g + 1) * G] for g in range(groups)],
+                                            args.advantage, advs, RewardConfig().immediate)
+                            if args.conflict_every > 0 and it % args.conflict_every == 0 else None)
                 batch = build_batch(recs, advs, args.gamma_tic)
+                if batch is not None and term_adv:
+                    batch["term_adv"] = term_adv
             # What a checkpoint for this update must hold: the RNGs as they
             # are before the next batch is drawn and played, so a restart
             # (which discards a batch in flight) replays the same starts.
@@ -307,7 +314,9 @@ def main():
                  "total_steps": total_steps, "total_tics": total_tics,
                  "sps": m["steps"] / t_roll, "rollout_s": t_roll, "iter_s": t_all, "lag": lag,
                  **timing, **upd}
-            unhealthy = training_health(upd, args, grad_recent)
+            for pair, c in upd.get("term_cos", {}).items():
+                cos_hist[pair] = (cos_hist.get(pair, []) + [c])[-max(args.conflict_window, 1):]
+            unhealthy = training_health(upd, args, grad_recent, cos_hist)
             if unhealthy:
                 m["stopped"] = unhealthy
             elif upd.get("grad_norm_max") is not None:

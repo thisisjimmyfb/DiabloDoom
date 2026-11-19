@@ -78,6 +78,66 @@ def _rew_now(r: dict) -> np.ndarray:
     return np.zeros(len(r["rew"])) if n is None else np.array(n, dtype=np.float64)
 
 
+def term_advantages(groups: list[list[dict]], mode: str, advs: list[np.ndarray | None],
+                    immediate: tuple) -> dict[str, np.ndarray]:
+    """The gradient conflict check (2026-11-19): per reward term, the
+    advantages group_advantages gives with only that term's rewards
+    (r["step_terms"]; a term in `immediate` one-off), concatenated as
+    build_batch concatenates the rollouts it keeps (advs not None);
+    zeros where the term's own group collapsed."""
+    recs = [m for g in groups for m in g]
+    names = sorted({t for r in recs for st in r["step_terms"] for t in st})
+    out = {}
+    for name in names:
+        tg = []
+        for g in groups:
+            tg.append([])
+            for m in g:
+                rew = [st.get(name, 0.0) for st in m["step_terms"]]
+                tg[-1].append({"rew": rew, "rew_now": rew if name in immediate else None,
+                               "ret": float(sum(rew)), "len": len(rew)})
+        ta, _ = group_advantages(tg, mode)
+        out[name] = np.concatenate([np.zeros(len(m["step_terms"]), np.float32) if t is None else t
+                                    for m, t, a in zip(recs, ta, advs) if a is not None])
+    return out
+
+
+def term_grad_cosines(policy: Policy, batch: dict, args, device: torch.device) -> dict[str, float]:
+    """The cosine similarity of each pair of reward terms' policy
+    gradients (batch["term_adv"], term_advantages), at the current
+    weights (the update's gradient at its start, where the clipped ratio
+    is 1), on --conflict-samples random samples of the batch; "a|b" ->
+    cosine. A term zero on every sample is left out."""
+    n = len(batch["act"])
+    k = min(n, args.conflict_samples)
+    idx = torch.randperm(n)[:k]
+    names = [t for t, a in batch["term_adv"].items() if np.abs(a[idx.numpy()]).max() > 0]
+    if len(names) < 2:
+        return {}
+    params = [p for p in policy.parameters() if p.requires_grad]
+    grads = {t: torch.zeros(sum(p.numel() for p in params), device=device) for t in names}
+    obs, priv = torch.as_tensor(batch["obs"]), torch.as_tensor(batch["priv"])
+    act = torch.as_tensor(batch["act"])
+    micro = getattr(args, "micro_batch", 0) or k
+    for m0 in range(0, k, micro):
+        sub = idx[m0:m0 + micro]
+        logits, _ = policy(obs[sub].to(device), priv[sub].to(device))
+        lp = Categorical(logits=logits).log_prob(act[sub].to(device))
+        for j, t in enumerate(names):
+            a = torch.as_tensor(batch["term_adv"][t][sub.numpy()], device=device)
+            g = torch.autograd.grad(-(a * lp).sum() / k, params, retain_graph=j < len(names) - 1,
+                                    allow_unused=True)
+            grads[t] += torch.cat([(torch.zeros_like(p) if gi is None else gi).flatten()
+                                   for p, gi in zip(params, g)])
+    out = {}
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            na, nb = grads[a].norm(), grads[b].norm()
+            if na > 0 and nb > 0:
+                out[f"{a}|{b}"] = float((grads[a] @ grads[b]) / (na * nb))
+    return out
+
+
 def value_targets(rew: list[float], tics: list[int], gamma_tic: float) -> np.ndarray:
     """Return-to-go with the discount raised to the tics each step took
     (SPEC.md §7.3), so long walks count as more time than quick turns.
@@ -148,6 +208,7 @@ def update(policy: Policy, optimizer: torch.optim.Optimizer, ref: Policy | None,
     # the optimizer steps skipped for a non-finite loss or gradient.
     alive = None
     nonfinite = 0
+    term_cos = term_grad_cosines(policy, batch, args, device) if batch.get("term_adv") else None
 
     def watch(_module, _inp, out):
         nonlocal alive
@@ -166,6 +227,8 @@ def update(policy: Policy, optimizer: torch.optim.Optimizer, ref: Policy | None,
         out["dead_units"] = 1.0 - alive.float().mean().item()
     out["nonfinite_steps"] = nonfinite
     out["adv_std"] = adv_std
+    if term_cos is not None:
+        out["term_cos"] = term_cos
     return out
 
 
@@ -243,7 +306,8 @@ GRAD_WINDOW = 50
 GRAD_WARMUP = 20
 
 
-def training_health(upd: dict, args, recent: list[float] | None = None) -> str | None:
+def training_health(upd: dict, args, recent: list[float] | None = None,
+                    cos_hist: dict[str, list[float]] | None = None) -> str | None:
     """Why training must stop after this update, or None if it's healthy:
     - exploding gradient: an optimizer step had a non-finite loss or
       gradient (skipped); the gradient norm before clipping went past
@@ -253,7 +317,11 @@ def training_health(upd: dict, args, recent: list[float] | None = None) -> str |
     - ReLU collapse: at least --stop-dead-units of the trunk's last-layer
       units never fired on the whole batch (a dead unit gets no gradient
       and never comes back; with all of them dead the policy ignores the
-      screen and only its biases still learn).
+      screen and only its biases still learn);
+    - reward conflict (2026-11-19): two reward terms' policy gradients
+      point apart: their cosine (term_grad_cosines), averaged over the
+      last --conflict-window checks (`cos_hist`, pair -> cosines), is
+      below --stop-conflict (-1: off).
     A threshold of 0 turns that check off."""
     if upd.get("nonfinite_steps", 0):
         return (f"exploding gradient: {upd['nonfinite_steps']} optimizer steps had a non-finite "
@@ -269,6 +337,15 @@ def training_health(upd: dict, args, recent: list[float] | None = None) -> str |
     if args.stop_grad_norm > 0 and gmax is not None and gmax > args.stop_grad_norm:
         return (f"exploding gradient: gradient norm {gmax:.3g} before clipping "
                 f"(--stop-grad-norm {args.stop_grad_norm:g})")
+    win = getattr(args, "conflict_window", 0)
+    worst = None
+    for pair, cs in (cos_hist or {}).items():
+        if win > 0 and len(cs) >= win and (worst is None or np.mean(cs[-win:]) < worst[1]):
+            worst = (pair, float(np.mean(cs[-win:])))
+    if worst is not None and worst[1] < getattr(args, "stop_conflict", -1.0):
+        return (f"reward conflict: {worst[0].replace('|', ' and ')} have a gradient cosine of "
+                f"{worst[1]:.3f} averaged over the last {win} checks (--stop-conflict "
+                f"{args.stop_conflict:g})")
     dead = upd.get("dead_units")
     if args.stop_dead_units > 0 and dead is not None and dead >= args.stop_dead_units:
         return (f"ReLU collapse: {dead:.0%} of the trunk's last-layer units never fired on this "
@@ -331,6 +408,8 @@ def print_train(it: int, m: dict, upd: dict, extra: str = "") -> None:
           + (f" wp {m['waypoints_reached'] / m['waypoints_set']:.2f}" if m.get("waypoints_set") else "")
           + (f" kills {m['kills']} hit {m['hits'] / m['shots']:.2f}" if m.get("shots") else "")
           + (f" consult {m.get('consult_trig', 0):.3f}/{m['consult_idle']:.3f}" if "consult_idle" in m else "")
+          + (" cos min {} {:.3f}".format(*min(upd["term_cos"].items(), key=lambda kv: kv[1]))
+             if upd.get("term_cos") else "")
           + extra)
 
 
@@ -361,6 +440,16 @@ def add_learn_args(p) -> None:
     p.add_argument("--stop-grad-norm", type=float, default=0.0,
                    help="also stop when the gradient norm before clipping goes past this absolute "
                         "value (0: off, the default)")
+    p.add_argument("--conflict-every", type=int, default=10,
+                   help="every this many updates, the cosine similarity of each pair of reward terms' "
+                        "policy gradients (metrics term_cos; 0: off)")
+    p.add_argument("--conflict-samples", type=int, default=4096,
+                   help="batch samples the reward-term gradients are taken on")
+    p.add_argument("--conflict-window", type=int, default=5,
+                   help="checks a pair's cosine is averaged over before --stop-conflict judges it")
+    p.add_argument("--stop-conflict", type=float, default=-0.1,
+                   help="stop training (no save, no upload) when two reward terms' gradient cosine, "
+                        "averaged over --conflict-window checks, is below this (-1: never)")
     p.add_argument("--norm-adv", action=argparse.BooleanOptionalAction, default=True,
                    help="scale each batch's advantages to a standard deviation of 1 (no mean shift), "
                         "so their size doesn't follow the rollout length")

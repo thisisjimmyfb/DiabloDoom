@@ -113,13 +113,14 @@ each way -- and shows the waypoint as a green square), `WAYPOINT <x> <y>` / `WAY
 (2026-11-18: set / clear one point in map units, `src/diablo/d_waypoint.c`;
 it is drawn as the menu skull (`M_SKULL1`/`M_SKULL2`, the IWAD's own,
 blinking as in the menu), recoloured green by brightness onto the
-palette's green ramp (112-127), at 2 map units a pixel (6 px wide at
-least) standing on the floor (before: flat white, then green, then a
+palette's green ramp (112-127), at 1 map unit a pixel (2 before
+2026-11-19; about a pickup's size; 6 px wide at least) standing on the floor (before: flat white, then green, then a
 pillar textured with the status bar, then the respawn fog `IFOG` --
 the automap square is green too) that shows through walls,
 and nothing while out of view (no edge arrow since
-2026-11-18); within 64 units it is
-cleared with a `waypoint_reached` event; the state line carries
+2026-11-18); touched as a pickup is (2026-11-19: the player's box and a
+20-radius thing's overlap, its floor within the player's height; within 64
+units before) it is cleared with a `waypoint_reached` event; the state line carries
 `waypoint` [x, y] while one is set; a level load clears it; the VLM sets
 it in production, the training env in training, with `WAYPOINT RANDOM <seed>
 [min]`: a random standable point of a sector next to the player's (its

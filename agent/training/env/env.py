@@ -70,6 +70,14 @@ class RewardConfig:
     # unit closed toward it pays item_approach and each unit away costs
     # the same, so circling nets nothing. 0 turns it off.
     item_approach: float = 0.01
+    # Waypoints (2026-11-19): each one reached pays waypoint, and each map
+    # unit closed toward the one set pays waypoint_approach (away costs the
+    # same, so hovering or circling nets nothing). A rollout ending early on
+    # a goal (exit, key, portal) pays waypoint for each of its
+    # EnvConfig.waypoint_count not reached, so the new sector a waypoint
+    # leads into never costs the waypoints after it.
+    waypoint: float = 15.0
+    waypoint_approach: float = 0.01
     consult_hit: float = 5.0          # first CONSULT on an explore trigger
     # Charged tic by tic while a trigger waits unanswered, trigger_miss
     # over the whole grace window (2026-11-17: once at its end before),
@@ -323,7 +331,8 @@ class EnvConfig:
     # waypoint_gap tics after one is reached. A group in waypoint_off
     # gets none (all its members alike, from the group's seed), so the
     # policy still learns to explore without. While one is set the
-    # clock runs toward it and fast / look point at it (DiabloDoomEnv.step).
+    # clock runs at its base rate (toward it, distance-scaled, before
+    # 2026-11-19) and fast / look point at it (DiabloDoomEnv.step).
     # Combat (2026-11-18): the share of groups that fight. The rest hide
     # every living map monster (the engine's MONSTERS HIDE) and only
     # explore; all members of a group alike, from the group's seed.
@@ -342,6 +351,7 @@ class EnvConfig:
     # clear before the player is in the room; the clock without one leads
     # the last stretch.
     waypoint_min: float = 256.0      # 128 before 2026-11-18
+    waypoint_count: int = 5            # per rollout (2026-11-19); 0: no limit
 
 
 class DiabloDoomEnv(gym.Env):
@@ -615,6 +625,7 @@ class DiabloDoomEnv(gym.Env):
         if any(e.get("event") == "waypoint_reached" for e in events) or (wp is not None and "waypoint" not in d):
             if any(e.get("event") == "waypoint_reached" for e in events):
                 self._wp_stats[1] += 1
+                add("waypoint", rc.waypoint)
             self._wp, self._wp_tic = None, self._tics
 
         # Steps in combat (capped: the world is frozen until CONSULT).
@@ -625,13 +636,16 @@ class DiabloDoomEnv(gym.Env):
 
         # Time and distance: every tic costs time * (1 + d / far_scale),
         # d the distance to the nearest exit line or frontier portal.
-        # With a waypoint (EnvConfig.waypoints), d is the distance to it
-        # instead, the term "waypoint".
+        # With a waypoint (EnvConfig.waypoints), the base rate, the term
+        # "waypoint_time" (2026-11-19; d the distance to it before), and
+        # the distance closed toward it pays waypoint_approach.
         sec = rooms(d, self._best_sectors)
         goal = goal_dist(d)
-        if tics > 0 and rc.time and wp is not None and "x" in prev and "x" in d:
-            dist = (np.hypot(prev["x"] - wp[0], prev["y"] - wp[1]) + np.hypot(d["x"] - wp[0], d["y"] - wp[1])) / 2
-            add("waypoint", -rc.time * tics * (1.0 + float(dist) / rc.far_scale))
+        if wp is not None and "x" in prev and "x" in d:
+            add("waypoint_time", -rc.time * tics)
+            closed = np.hypot(prev["x"] - wp[0], prev["y"] - wp[1]) - np.hypot(d["x"] - wp[0], d["y"] - wp[1])
+            if abs(closed) <= 64:         # a jump (teleport) is not walking
+                add("waypoint_approach", rc.waypoint_approach * float(closed))
         elif tics > 0 and rc.time:
             known = [g for g in (self._goal, goal) if g is not None]
             dist = sum(known) / len(known) if known else 0.0
@@ -758,6 +772,9 @@ class DiabloDoomEnv(gym.Env):
                 truncated, end = True, "time"
             elif self._combat_steps >= self.cfg.max_combat_steps:
                 truncated, end = True, "combat"
+        # Waypoints not reached, paid when a goal ends the rollout early.
+        if end in ("exit", "key", "portal") and self._wp_on and self.cfg.waypoint_count > 0:
+            add("waypoint", rc.waypoint * max(self.cfg.waypoint_count - self._wp_stats[1], 0))
         reward = sum(terms.values())
 
         obs = self._stack.push(self._frame()) if sent else self._stack.get()
@@ -864,7 +881,8 @@ class DiabloDoomEnv(gym.Env):
         waypoint_min of the player."""
         cfg = self.cfg
         ahead = d.get("path_ahead")
-        if not self._wp_on or d.get("mode") != EXPLORE:
+        if not self._wp_on or d.get("mode") != EXPLORE or (
+                cfg.waypoint_count > 0 and self._wp is None and self._wp_stats[0] >= cfg.waypoint_count):
             return None
         age = self._tics - self._wp_tic
         if self._wp is not None and cfg.waypoint_every <= 0:

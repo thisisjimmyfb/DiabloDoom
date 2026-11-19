@@ -214,3 +214,24 @@ def test_micro_batch(rng, make_rollout):
     assert all(torch.allclose(a, b, atol=1e-5) for a, b in zip(whole_w, split_w))
     for k in ("pg_loss", "v_loss", "entropy", "approx_kl", "grad_norm"):
         assert split[k] == pytest.approx(whole[k], rel=1e-4, abs=1e-6), k
+
+
+def test_reward_conflict(rng, make_rollout):
+    """The gradient conflict check (2026-11-19): a term paying exactly what
+    another costs has a policy gradient cosine of -1 with it and +1 with a
+    copy of itself; a pair averaging below --stop-conflict over
+    --conflict-window checks stops training."""
+    from learn import term_advantages, term_grad_cosines
+    gs = [[make_rollout(int(n)) for n in rng.integers(5, 40, 8)]]
+    for r in gs[0]:
+        r["step_terms"] = [{"a": v, "b": -v, "c": 2 * v} for v in r["rew"]]
+    advs, _ = group_advantages(gs, "process")
+    tadv = term_advantages(gs, "process", advs, ())
+    batch = {**build_batch(gs[0], advs, 0.999), "term_adv": tadv}
+    args = types.SimpleNamespace(**HEALTH_ARGS, conflict_samples=4096, micro_batch=0,
+                                 conflict_window=2, stop_conflict=-0.1)
+    cos = term_grad_cosines(Policy(), batch, args, torch.device("cpu"))
+    assert cos["a|b"] == pytest.approx(-1, abs=1e-4) and cos["a|c"] == pytest.approx(1, abs=1e-4)
+    assert training_health({}, args, None, {"a|b": [-1.0]}) is None, "one check: not yet"
+    assert "reward conflict: a and b" in training_health({}, args, None, {"a|b": [-1.0, -0.5]})
+    assert training_health({}, args, None, {"a|c": [1.0, 0.9]}) is None

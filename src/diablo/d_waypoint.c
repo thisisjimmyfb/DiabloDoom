@@ -19,7 +19,10 @@
 #include "w_wad.h"
 #include "z_zone.h"
 
-#define WP_REACH   64       // map units: closer than this, it is reached
+// Reached as a pickup is touched (2026-11-19; within 64 units before):
+// the boxes of the player and a WP_RADIUS thing overlap, its floor at
+// most 8 units below the player's feet and not above the player's head.
+#define WP_RADIUS  20       // map units: as the pickup things'
 #define WP_MIN_W   6        // px: at least 2 px of the policy's 128-wide frame
 
 static boolean wp_on = false;
@@ -49,13 +52,14 @@ boolean D_WaypointGet(int *x, int *y)
 void D_WaypointTick(void)
 {
     mobj_t *mo = players[consoleplayer].mo;
-    int dx, dy;
+    fixed_t block, dz;
 
     if (!wp_on || mo == NULL)
         return;
-    dx = (mo->x - wp_x) >> FRACBITS;
-    dy = (mo->y - wp_y) >> FRACBITS;
-    if (dx * dx + dy * dy > WP_REACH * WP_REACH)
+    block = mo->radius + (WP_RADIUS << FRACBITS);
+    dz = R_PointInSubsector(wp_x, wp_y)->sector->floorheight - mo->z;
+    if (abs(mo->x - wp_x) >= block || abs(mo->y - wp_y) >= block
+        || dz > mo->height || dz < -8 * FRACUNIT)
         return;
     wp_on = false;
     RL_Emit("{\"event\":\"waypoint_reached\",\"x\":%d,\"y\":%d,\"gametic\":%d}",
@@ -64,11 +68,11 @@ void D_WaypointTick(void)
 
 // Drawn as the menu skull (2026-11-18: M_SKULL1 / M_SKULL2, each IWAD's
 // own, blinking as in the menu, 8 tics a frame), at WP_SCALE map units a
-// pixel, standing on the floor and over everything, so it shows through
+// pixel (2 before 2026-11-19: now about a pickup's size), standing on the floor and over everything, so it shows through
 // walls. Before: the item respawn fog (IFOG); a pillar textured with
 // the status bar, see-through and dashed behind walls at first; flat
 // green, white with a black outline and an edge arrow before that.
-#define WP_SCALE   2
+#define WP_SCALE   1
 #define WP_FRAME   8        // tics per frame, as M_Ticker
 #define WP_MAX_H   100      // px
 static const char *const wp_frames[2] = { "M_SKULL1", "M_SKULL2" };

@@ -71,7 +71,8 @@ def run_rollouts(vec: GroupVecEnv, policy: Policy, device: torch.device,
     cur_priv = np.array([privileged(i) for i in infos], dtype=np.float32)
     recs = [{"obs": [], "priv": [], "act": [], "logp": [], "rew": [], "rew_now": [], "tics": [],
              "start_sectors": infos[k]["state"].get("sectors", 0), "end_info": None,
-             "start_state": infos[k]["state"], "wall_start": t_start, "terms": {}}
+             "start_state": infos[k]["state"], "wall_start": t_start, "terms": {},
+             "step_terms": []}
             for k in range(n)]
     active = list(range(n))
     policy.eval()
@@ -101,6 +102,7 @@ def run_rollouts(vec: GroupVecEnv, policy: Policy, device: torch.device,
             r["tics"].append(int(ninfo[k]["tics"]))
             for t, v in ninfo[k].get("terms", {}).items():
                 r["terms"][t] = r["terms"].get(t, 0.0) + v
+            r["step_terms"].append(dict(ninfo[k].get("terms", {})))   # the reward by term, per step
             cur_obs[i] = nobs[k]
             cur_priv[i] = privileged(ninfo[k])
             if term[k] or trunc[k]:
