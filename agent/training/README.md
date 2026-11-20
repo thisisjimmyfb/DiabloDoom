@@ -283,7 +283,7 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   reported as `collapsed_share`.
 - **Loss:** clipped ratio (`--clip` 0.2), `--epochs` 4, an entropy
   floor per state (2026-11-19; a plain bonus at 0.01 before): only states
-  with entropy under `--ent-target` 1.0 nats pay `--ent-coef` 0.1 x the
+  with entropy under `--ent-target` 2.5 nats pay `--ent-coef` 0.1 x the
   shortfall (`--ent-target 0 --ent-coef 0.01` is the old bonus), and an optional KL to a reference policy
   (`--ref`, `--beta`).
 - **Frontier starts:** a rollout stops at `--max-tics` (or at the portal
@@ -291,7 +291,8 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   map. Every group loads its start from slot 4 (the map start until there
   is progress), so all its members start from the identical state. After
   every batch, each map's highest-return rollout that ended alive,
-  exploring, short of the exit and with progress (a new sector, or a new
+  exploring, at 80% of max HP or more, with no monster in its sector after
+  the player, short of the exit and with progress (a new sector, or a new
   key) -- only
   that one -- saves the game where it stopped to slot 5 (`SAVE 5`, so the
   start in slot 4 is never overwritten mid-batch) along with its visited

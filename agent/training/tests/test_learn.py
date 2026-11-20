@@ -235,6 +235,11 @@ def test_reward_conflict(rng, make_rollout):
     assert training_health({}, args, None, {"a|b": [-1.0]}) is None, "one check: not yet"
     assert "reward conflict: a and b" in training_health({}, args, None, {"a|b": [-1.0, -0.5]})
     assert training_health({}, args, None, {"a|c": [1.0, 0.9]}) is None
+    # time and waypoint_time split one per-tic cost: checked as one term.
+    for r in gs[0]:
+        r["step_terms"] = [{"time": -1.0} if i % 2 else {"waypoint_time": -1.0} for i in range(len(r["rew"]))]
+    merged = term_advantages(gs, "process", advs, ())
+    assert set(merged) == {"time"}
 
 
 def test_entropy_floor():

@@ -920,7 +920,7 @@ cooldown; crit; special trait.
 - **Strength** — AD, knockback resistance, heavy-weapon handling.
 - **Dexterity** — hit chance, attack-speed point cost, block (with a shield), Defense (Dex / 4), and cone-spread tightening: the shotgun/chaingun spread scales by `100 / (100 + 2*Dex)`, so the spread is quartered (the sniper point) at Dex 150.
 - **Energy** — AP, charge efficiency, potion and status power.
-- **Vitality** — max health, physical resilience, recovery.
+- **Vitality** — max health, physical resilience, recovery. Max health is 100 + 5 per point (2026-11-20; 200 + 5 before); stimpacks, medikits, health bonuses and soulspheres all stop there.
 
 Level-ups are gone (see XP and levels below): the four attributes keep
 their base values and shift only through gear.

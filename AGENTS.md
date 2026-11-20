@@ -215,7 +215,9 @@ whether a switch (pressed one-shots too, 2026-11-17) or closed door (a
 locked one only with its key, a remote door's face too; 2026-11-17) is
 within USE range ahead (the env's wall_look penalty; its use_miss
 exemption until 2026-11-18), and (2026-11-17) `wall_line`, the index of the line
-`wall_dist` measures (the env's `use_wall` reward until 2026-11-18; unused since) -- reward shaping only, never
+`wall_dist` measures (the env's `use_wall` reward until 2026-11-18; unused since), and (2026-11-19)
+`hp_max` and `hunted` (a living monster in the player's sector targets the player), the
+frontier save checks -- reward shaping only, never
 a policy input, so the 2026-10-21 no-oracle ruling for the farm agent
 stands.
 Automap (2026-11-14): it also carries `automap` (the map is on screen).

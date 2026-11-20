@@ -71,13 +71,15 @@ class RewardConfig:
     # the same, so circling nets nothing. 0 turns it off.
     item_approach: float = 0.01
     # Waypoints (2026-11-19): each one reached pays waypoint, and each map
-    # unit closed toward the one set pays waypoint_approach (away costs the
-    # same, so hovering or circling nets nothing). A rollout ending early on
+    # unit closed toward the one set pays waypoint_look_approach times
+    # max(0, cos) of the angle from the facing (at the step's start) to it,
+    # away costing the same way (waypoint_approach, unscaled, and look toward
+    # it, before 2026-11-20: look paid per tic facing it, so lingering paid). A rollout ending early on
     # a goal (exit, key, portal) pays waypoint for each of its
     # EnvConfig.waypoint_count not reached, so the new sector a waypoint
     # leads into never costs the waypoints after it.
     waypoint: float = 15.0
-    waypoint_approach: float = 0.01
+    waypoint_look_approach: float = 0.01
     consult_hit: float = 5.0          # first CONSULT on an explore trigger
     # Charged tic by tic while a trigger waits unanswered, trigger_miss
     # over the whole grace window (2026-11-17: once at its end before),
@@ -647,14 +649,18 @@ class DiabloDoomEnv(gym.Env):
         # d the distance to the nearest exit line or frontier portal.
         # With a waypoint (EnvConfig.waypoints), the base rate, the term
         # "waypoint_time" (2026-11-19; d the distance to it before), and
-        # the distance closed toward it pays waypoint_approach.
+        # the distance closed toward it, facing it, pays waypoint_look_approach.
         sec = rooms(d, self._best_sectors)
         goal = goal_dist(d)
         if wp is not None and "x" in prev and "x" in d:
             add("waypoint_time", -rc.time * tics)
             closed = np.hypot(prev["x"] - wp[0], prev["y"] - wp[1]) - np.hypot(d["x"] - wp[0], d["y"] - wp[1])
             if abs(closed) <= 64:         # a jump (teleport) is not walking
-                add("waypoint_approach", rc.waypoint_approach * float(closed))
+                facing = 1.0
+                if prev.get("angle") is not None:
+                    ang = np.degrees(np.arctan2(wp[1] - prev["y"], wp[0] - prev["x"])) - prev["angle"]
+                    facing = max(0.0, float(np.cos(np.radians(ang))))
+                add("waypoint_look_approach", rc.waypoint_look_approach * float(closed) * facing)
         elif tics > 0 and rc.time:
             known = [g for g in (self._goal, goal) if g is not None]
             dist = sum(known) / len(known) if known else 0.0
@@ -668,12 +674,9 @@ class DiabloDoomEnv(gym.Env):
             add("fast", rc.fast * max(int(d.get("fast_tics", 0)), 0) * self._forward_share(prev, d, wp))
         # Looking the way on (way_rel: along the path, else toward the
         # nearest unvisited portal), by the facing at the step's end (one
-        # tic, under per-tic decisions). With waypoints: toward the
-        # waypoint, nothing without one.
-        if wp is not None and "x" in d and d.get("angle") is not None:
-            rel = float(np.degrees(np.arctan2(wp[1] - d["y"], wp[0] - d["x"]))) - d["angle"]
-        else:
-            rel = None if self.cfg.waypoints else way_rel(d)
+        # tic, under per-tic decisions). With waypoints: nothing (2026-11-20;
+        # toward the waypoint before: waypoint_look_approach has the facing).
+        rel = None if self.cfg.waypoints else way_rel(d)
         if sent and rc.look and rel is not None:
             add("look", rc.look * tics * max(0.0, float(np.cos(np.radians(rel)))))
         # Staring at a wall up close (RewardConfig.wall_look).

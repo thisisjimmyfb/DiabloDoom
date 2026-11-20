@@ -992,8 +992,8 @@ def test_fast_path():
 def test_waypoints():
     """EnvConfig.waypoints: the first step sends WAYPOINT at path_ahead with
     the action; the clock runs at its base rate (term "waypoint_time", not
-    "time"), the distance closed pays waypoint_approach, fast and look point
-    at it; reaching it pays waypoint and clears it, and the next comes
+    "time"), the distance closed facing it pays waypoint_look_approach
+    (look pays nothing), fast points at it; reaching it pays waypoint and clears it, and the next comes
     waypoint_gap tics later. Engine faked."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0,
@@ -1031,11 +1031,12 @@ def test_waypoints():
     assert sent[0] == "WAYPOINT 100 0;PRESS W"
     t = i1["terms"]
     assert "time" not in t and t["waypoint_time"] == pytest.approx(-1.0)
-    assert t["waypoint_approach"] == pytest.approx(0.01 * 10)   # distance 100 -> 90
-    assert t["fast"] == pytest.approx(1.0) and t["look"] == pytest.approx(1.0)   # all toward it
+    assert t["waypoint_look_approach"] == pytest.approx(0.01 * 10)   # distance 100 -> 90, facing it
+    assert t["fast"] == pytest.approx(1.0) and "look" not in t
     _, _, _, _, i2 = e.step(w)
     assert sent[1] == "PRESS W"                       # not due again
     assert "fast" not in i2["terms"]                   # moved north: across the way to it
+    assert i2["terms"]["waypoint_look_approach"] == pytest.approx(0.01 * (90 - np.hypot(90, 10)))   # a step away, facing it
     _, _, _, _, i3 = e.step(w)                         # reached
     assert e._wp is None and i3["waypoints"] == [1, 1] and i3["terms"]["waypoint"] == 15.0
     e.step(w)                                          # 0 and 1 tics since: the gap is 2
@@ -1095,7 +1096,7 @@ def test_waypoint_count_and_goal():
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0,
                         time=0, fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0,
-                        waypoint=2.0, waypoint_approach=0)
+                        waypoint=2.0, waypoint_look_approach=0)
 
     def run(count, portal_at, steps):
         e = make_env(rewards=only, max_tics=100000, waypoints=True, waypoint_gap=1,

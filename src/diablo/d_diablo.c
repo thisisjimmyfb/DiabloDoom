@@ -20,7 +20,7 @@
 //                   restores every equipped piece to full).
 //   life steal    : heal damage_dealt * lifesteal% (vs monsters), capped
 //                   at max health
-//   vitality      : max health = deh_max_health + 5 * vitality
+//   vitality      : max health = 100 + 5 * vitality
 //   magic find    : rarity roll shifted down by magicfind / 2 (better loot)
 //   move speed    : all movement displacement scales by
 //                   (100 + movespeed) / 100 via D_ScaleDisplacement
@@ -1327,8 +1327,9 @@ void D_DumpItem(int id, int dur, boolean disabled, const char *label)
 
 int D_MaxHealth(struct player_s *pl)
 {
-    // vitality: +5 max HP per point, on top of the dehacked max.
-    return deh_max_health + D_Stat(pl, DSTAT_VIT) * 5;
+    // vitality: +5 max HP per point, on top of 100 (2026-11-20: the
+    // dehacked max, 200, before).
+    return MAXHEALTH + D_Stat(pl, DSTAT_VIT) * 5;
 }
 
 // Phase 2 backpack grid helpers.  Each backpack entry tracks the

@@ -507,12 +507,14 @@ def add_env_args(p) -> None:
 # mid-batch; then slots 4 and 5 swap on every instance of that map.
 FRONTIER_SLOT = 4
 SAVE_SLOT = 5
+FRONTIER_HP = 0.8   # a progress save needs this share of max HP (2026-11-19)
 
 
 class Frontier:
     """Per (IWAD, map): the end state of the best rollout so far, as a
     start state. After each batch, the highest-return rollout on a map
-    that ended alive, exploring, short of the exit and with progress
+    that ended alive, exploring, at FRONTIER_HP of max HP or more, with no
+    monster in its sector after the player, short of the exit and with progress
     (a new sector: with a portal goal, through the portal; or a new key,
     which ends a training rollout) -- only the
     highest score -- saves the game to slot 5 (SAVE 5, where it stopped;
@@ -587,7 +589,8 @@ class Frontier:
                 continue
             ok = [i for i in idx if not recs[i]["death"]
                   and (recs[i]["sectors_gained"] > 0 or recs[i].get("key"))
-                  and recs[i]["end_info"].get("mode") == "EXPLORE"]
+                  and recs[i]["end_info"].get("mode") == "EXPLORE"
+                  and self._safe(recs[i]["end_info"].get("state", {}))]
             data = None
             if ok:
                 best = max(ok, key=lambda i: recs[i]["ret"])   # only the highest score is saved
@@ -616,6 +619,12 @@ class Frontier:
             vec.call(idx, "swap_slots", (FRONTIER_SLOT, SAVE_SLOT))     # ...becomes the start in 4
             saved[label] = round(recs[best]["ret"], 2)
         return saved
+
+    @staticmethod
+    def _safe(s: dict) -> bool:
+        """Healthy and not hunted (the state line's hunted: a monster in
+        the player's sector targets the player)."""
+        return not s.get("hunted") and s.get("hp", 0) >= FRONTIER_HP * (s.get("hp_max") or 100)
 
     def _clear(self, vec, label: str, idx: list[int]) -> None:
         """Back to the map start: forget the map's frontier everywhere."""

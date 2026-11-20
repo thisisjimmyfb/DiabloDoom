@@ -1231,6 +1231,26 @@ void RL_EmitState(const char *why, int tics)
                        ? "true" : "false",
                    p->diablo_bp_count);
         }
+        // hp_max and hunted (2026-11-19, the env's frontier save checks):
+        // hunted is a living monster in the player's sector whose target
+        // is the player.
+        {
+            thinker_t *th;
+            boolean hunted = false;
+            for (th = thinkercap.next; th != &thinkercap && !hunted; th = th->next)
+            {
+                mobj_t *m;
+                if (th->function.acp1 != (actionf_p1) P_MobjThinker)
+                    continue;
+                m = (mobj_t *) th;
+                hunted = m->player == NULL && m->health > 0 && m->target == mo
+                         && !(m->flags & MF_RLHIDDEN)
+                         && ((m->flags & MF_COUNTKILL) || m->type == MT_SKULL)
+                         && m->subsector->sector == mo->subsector->sector;
+            }
+            RL_PUT(",\"hp_max\":%d,\"hunted\":%s", D_MaxHealth(p),
+                   hunted ? "true" : "false");
+        }
         // automap: the map is on screen (Tab or the driver's MAP); the
         // env's forced map glances check it before sending MAP.
         RL_PUT(",\"automap\":%s,\"forced_map\":%s", automapactive ? "true" : "false",

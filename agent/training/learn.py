@@ -78,6 +78,12 @@ def _rew_now(r: dict) -> np.ndarray:
     return np.zeros(len(r["rew"])) if n is None else np.array(n, dtype=np.float64)
 
 
+# Terms the conflict check counts as one (2026-11-19): a tic pays either
+# waypoint_time (a waypoint set) or time (none), so apart their gradients
+# are opposite by construction.
+CONFLICT_MERGE = {"waypoint_time": "time"}
+
+
 def term_advantages(groups: list[list[dict]], mode: str, advs: list[np.ndarray | None],
                     immediate: tuple) -> dict[str, np.ndarray]:
     """The gradient conflict check (2026-11-19): per reward term, the
@@ -86,14 +92,15 @@ def term_advantages(groups: list[list[dict]], mode: str, advs: list[np.ndarray |
     build_batch concatenates the rollouts it keeps (advs not None);
     zeros where the term's own group collapsed."""
     recs = [m for g in groups for m in g]
-    names = sorted({t for r in recs for st in r["step_terms"] for t in st})
+    names = sorted({CONFLICT_MERGE.get(t, t) for r in recs for st in r["step_terms"] for t in st})
     out = {}
     for name in names:
         tg = []
         for g in groups:
             tg.append([])
             for m in g:
-                rew = [st.get(name, 0.0) for st in m["step_terms"]]
+                rew = [sum(v for t, v in st.items() if CONFLICT_MERGE.get(t, t) == name)
+                       for st in m["step_terms"]]
                 tg[-1].append({"rew": rew, "rew_now": rew if name in immediate else None,
                                "ret": float(sum(rew)), "len": len(rew)})
         ta, _ = group_advantages(tg, mode)
@@ -438,9 +445,9 @@ def add_learn_args(p) -> None:
                         "8192 at 160x100 ran out of 16 GB)")
     p.add_argument("--clip", type=float, default=0.2)
     p.add_argument("--ent-coef", type=float, default=0.1)   # 0.01 before 2026-11-19, as a plain bonus
-    p.add_argument("--ent-target", type=float, default=1.0,
+    p.add_argument("--ent-target", type=float, default=2.5,   # 1.0 before 2026-11-19
                    help="entropy floor per state, in nats: --ent-coef then weighs max(0, target - entropy), "
-                        "so only states below it are pushed back up (default 1.0, about 2.7 actions; "
+                        "so only states below it are pushed back up (default 2.5, about 12 actions; "
                         "0: the plain bonus on all states, which wants a smaller --ent-coef, e.g. 0.01)")
     p.add_argument("--vf-coef", type=float, default=0.5)
     p.add_argument("--max-grad-norm", type=float, default=0.5)
@@ -459,9 +466,10 @@ def add_learn_args(p) -> None:
                         "policy gradients (metrics term_cos; 0: off)")
     p.add_argument("--conflict-samples", type=int, default=4096,
                    help="batch samples the reward-term gradients are taken on")
-    p.add_argument("--conflict-window", type=int, default=5,
-                   help="checks a pair's cosine is averaged over before --stop-conflict judges it")
-    p.add_argument("--stop-conflict", type=float, default=-0.1,
+    p.add_argument("--conflict-window", type=int, default=10,   # 5, then 14, before 2026-11-20
+                   help="checks a pair's cosine is averaged over before --stop-conflict judges it "
+                        "(10 at --conflict-every 10: 100 updates)")
+    p.add_argument("--stop-conflict", type=float, default=-0.5,   # -0.1 before 2026-11-20
                    help="stop training (no save, no upload) when two reward terms' gradient cosine, "
                         "averaged over --conflict-window checks, is below this (-1: never)")
     p.add_argument("--norm-adv", action=argparse.BooleanOptionalAction, default=True,
