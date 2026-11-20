@@ -1449,7 +1449,7 @@ P_DamageMobj
     // -rlenv: the player hit (2026-11-19, the env's hit count), before
     // god mode, block, dodge, resistance or armour change the amount.
     if (player != NULL && damage > 0)
-        RL_PlayerHurt(source, damage);
+        RL_PlayerHurt(inflictor, source, damage);
     // Debug: log when the player takes damage (turn-based investigation).
     if (player != NULL && damage > 0)
     {

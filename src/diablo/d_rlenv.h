@@ -137,16 +137,20 @@ extern int rl_player_hits;
 void RL_PlayerHit(struct mobj_s *target, int dealt);
 // The player was hit (P_DamageMobj, 2026-11-19): a "hurt" event (the
 // amount before god mode, block, dodge, resistance and armour; monster:
-// a monster's attack), even when it takes no HP.
-void RL_PlayerHurt(struct mobj_s *source, int damage);
+// a monster's attack), even when it takes no HP. kind (2026-11-20):
+// proj (a missile), hitscan (a line attack: rl_hitscan, set around its
+// P_DamageMobj), melee (another monster attack) or world (no monster).
+extern boolean rl_hitscan;
+void RL_PlayerHurt(struct mobj_s *inflictor, struct mobj_s *source, int damage);
 
 // MONSTERS HIDE / SHOW (2026-11-18): every living map monster out of
 // the world or back in (MF_RLHIDDEN), for the env's no-combat rollouts.
 void RL_Monsters(boolean hide);
 
-// GIVEGUN <seed> (2026-11-18): a random normal-tier gun equipped; false
-// when there is none the player can use.
-boolean RL_GiveGun(unsigned seed);
+// GIVEGUN <seed> [KIT] (2026-11-18): a random normal-tier gun equipped
+// (KIT, 2026-11-20: with gear for it); false when there is none the
+// player can use.
+boolean RL_GiveGun(unsigned seed, boolean kit);
 // Explore detection found mo acquiring the player: if it is a practice
 // monster, remove it and return true (no combat); else false.
 struct mobj_s;

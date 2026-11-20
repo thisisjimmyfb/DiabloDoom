@@ -1761,10 +1761,15 @@ void RL_PlayerHit(mobj_t *t, int dealt)
             dealt, max, t->health <= 0 ? "true" : "false", (int) t->type, gametic);
 }
 
-void RL_PlayerHurt(mobj_t *source, int damage)
+boolean rl_hitscan = false;
+
+void RL_PlayerHurt(mobj_t *inflictor, mobj_t *source, int damage)
 {
-    RL_Emit("{\"event\":\"hurt\",\"amount\":%d,\"monster\":%s,\"gametic\":%d}", damage,
-            source && source->player == NULL ? "true" : "false", gametic);
+    boolean monster = source && source->player == NULL;
+    const char *kind = inflictor && (inflictor->flags & MF_MISSILE) ? "proj"
+                     : rl_hitscan ? "hitscan" : monster ? "melee" : "world";
+    RL_Emit("{\"event\":\"hurt\",\"amount\":%d,\"monster\":%s,\"kind\":\"%s\",\"gametic\":%d}",
+            damage, monster ? "true" : "false", kind, gametic);
 }
 
 void RL_Monsters(boolean hide)
@@ -1809,8 +1814,55 @@ void RL_Monsters(boolean hide)
 // too, the most strength first from any tier (set and unique pieces;
 // the lowest tier first before), one piece a slot (not the weapon or shield slots), until it is usable;
 // a two-handed gun takes the shield off. seed picks it, never the game's
-// RNG.
-boolean RL_GiveGun(unsigned seed)
+// RNG. kit (GIVEGUN <seed> KIT, 2026-11-20): every other slot emptied
+// first, then RL_GiveKit fills the free ones.
+// The kit's score for an item in slot s: fists take the most armour in
+// the helm, armour and shield slots and the most strength elsewhere (+1
+// fist damage per 4); an AD gun the most AD, an AP gun the most AP
+// (a flat point counted as 5%).
+static int RL_KitScore(const diablo_itemdef_t *g, int s, int mode)
+{
+    if (mode == 0)
+        return (s == ESLOT_HELM || s == ESLOT_ARMOR || s == ESLOT_SHIELD) ? g->armor : g->str;
+    return mode == 1 ? g->ad_pct + 5 * g->ad_flat : g->ap_pct + 5 * g->ap_flat;
+}
+
+static void RL_GiveKit(player_t *pl, boolean *used, int mode)
+{
+    int s, t, i;
+    for (s = 0; s < NUM_ESLOTS; s++)
+    {
+        int best = D_NOITEM, best_score = 0;
+        if (used[s])
+            continue;
+        for (t = 0; t < NUM_TIERS; t++)
+            for (i = 0; i < D_TierCount(t); i++)
+            {
+                const diablo_itemdef_t *g = D_GetItemDef(t, i);
+                int sc;
+                // Never vitality: max HP stays 100 (the frontier's 80% check).
+                if (g == NULL || g->consumable || g->vit > 0 || g->diff_tier > D_DifficultyTier()
+                    || !(g->slot == s || (s == ESLOT_RING2 && g->slot == ESLOT_RING1)))
+                    continue;
+                sc = RL_KitScore(g, s, mode);
+                if (sc > best_score)
+                {
+                    best = D_MAKEITEM(t, i);
+                    best_score = sc;
+                }
+            }
+        if (best != D_NOITEM)
+        {
+            const diablo_itemdef_t *g = D_GetItemDef(D_ITEMTIER(best), D_ITEMIDX(best));
+            used[s] = true;
+            pl->diablo_equipped[s] = best;
+            pl->diablo_equipped_dur[s] = D_ItemMaxDurability(g);
+            printf("[RL] GIVEGUN KIT: + %s\n", g->name);
+        }
+    }
+}
+
+boolean RL_GiveGun(unsigned seed, boolean kit)
 {
     player_t *pl = &players[consoleplayer];
     int ids[64], n = 0, i, t, id;
@@ -1819,6 +1871,13 @@ boolean RL_GiveGun(unsigned seed)
 
     if (pl->mo == NULL || pl->health <= 0 || gamestate != GS_LEVEL)
         return false;
+    if (kit)
+        for (i = 0; i < NUM_ESLOTS; i++)
+            if (i != ESLOT_WEAPON)
+            {
+                pl->diablo_equipped[i] = D_NOITEM;
+                pl->diablo_equipped_dur[i] = 0;
+            }
     for (i = 0; i < D_TierCount(TIER_NORMAL) && n < 64; i++)
     {
         def = D_GetItemDef(TIER_NORMAL, i);
@@ -1834,6 +1893,12 @@ boolean RL_GiveGun(unsigned seed)
     {
         pl->diablo_equipped[ESLOT_WEAPON] = D_NOITEM;
         pl->diablo_equipped_dur[ESLOT_WEAPON] = 0;
+        if (kit)
+        {
+            for (i = 0; i < NUM_ESLOTS; i++)
+                used[i] = (i == ESLOT_WEAPON);
+            RL_GiveKit(pl, used, 0);
+        }
         D_RecalcStats((struct player_s *) pl);
         printf("[RL] GIVEGUN: fists\n");
         return true;
@@ -1871,6 +1936,8 @@ boolean RL_GiveGun(unsigned seed)
             printf("[RL] GIVEGUN: + %s (STR %d)\n", g->name, g->str);
         }
     }
+    if (kit)
+        RL_GiveKit(pl, used, T_KitForWeapon(def->doomweapon)->ap_weapon ? 2 : 1);
     D_RecalcStats((struct player_s *) pl);
     printf("[RL] GIVEGUN: %s%s\n", def->name,
            D_EquippedSlotStrDisabled((struct player_s *) pl, ESLOT_WEAPON) ? " (not enough strength)" : "");

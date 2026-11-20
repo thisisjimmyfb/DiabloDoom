@@ -2602,12 +2602,12 @@ static void cmd_dispatch_one(const char *cmd)
     }
     else if (rldrive && !strncmp(cmd, "GIVEGUN ", 8))
     {
-        // GIVEGUN <seed> (-rlenv, and -rldrive for eval.py --iwad;
+        // GIVEGUN <seed> [KIT] (-rlenv, and -rldrive for eval.py --iwad;
         // 2026-11-18): a random gun equipped at each rollout's start
-        // (RL_GiveGun).
+        // (RL_GiveGun; KIT, 2026-11-20: with gear for it).
         unsigned seed;
         if (sscanf(cmd + 8, "%u", &seed) == 1)
-            RL_GiveGun(seed);
+            RL_GiveGun(seed, strstr(cmd + 8, "KIT") != NULL);
     }
     else if (!strcmp(cmd, "VERSION"))
     {

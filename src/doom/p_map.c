@@ -1055,7 +1055,11 @@ boolean PTR_ShootTraverse (intercept_t* in)
 	P_SpawnBlood (x,y,z, la_damage);
 
     if (la_damage)
+    {
+	rl_hitscan = true;	// -rlenv: the hurt event's kind (2026-11-20)
 	P_DamageMobj (th, shootthing, shootthing, la_damage);
+	rl_hitscan = false;
+    }
 
     // don't go any farther
     return false;

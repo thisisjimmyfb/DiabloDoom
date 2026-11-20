@@ -160,20 +160,25 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   save's LOAD) for the rest, so they only explore. Every rollout starts
   with a random gun equipped (`GIVEGUN`, any of the seven or fists, per group),
   plus the strength gear it needs (Immortal King's Soul Cage; for the
-  BFG also Mara's Kaleidoscope). Combat and survival
+  BFG also Mara's Kaleidoscope), and with `gun_kit` (2026-11-20) a kit
+  for it: fists the best armour and strength, an AD gun the most AD
+  (Slaying rings, amulet, gloves), an AP gun the most AP (Magus). Combat and survival
   weigh half again as much as the maze run: `damage` (11.25 per a
   monster's full HP the player took off it, from the engine's `damage`
   events) and `kill` (11.25), a kill 22.5 against a sector's 15, both
   chained; `fire_waste` (-0.1, one-off) per shot that hurt nothing at once
   (a projectile never); every hit taken (a tic with an engine
   `hurt` event, even one gear left the HP alone; per HP before
-  2026-11-19) costs `hp_loss` (-7.5) and cuts the end-of-rollout combat
-  pay by `hit_decay` (x0.8 a hit; healing pays nothing), and a death ends the rollout with
+  2026-11-19) costs `hit_unavoidable` (-1) for a hitscan hit (it can't be
+  dodged: only a pressure to kill early) or `hit_avoidable` (-15) for any
+  other (projectile, melee, nukage, crusher, barrel; both `hp_loss` -7.5
+  before 2026-11-20; healing pays nothing; `hit_decay`, x0.8 a hit on the
+  end-of-rollout combat pay, until 2026-11-20), and a death ends the rollout with
   `death` (-150, -100 before) on top. The train line shows `kills` and
   the hit rate. Pickups pay from the engine's `pickup` events: `loot` (5)
   per Diablo item or armor picked up, `health` (0.75) per HP a health
   pickup healed (a medikit 18.75, a +1 health bonus 0.75), the mirror of
-  `hp_loss`.
+  the hit penalties.
   Positive reinforcement: `exit` (100, the top reward) for triggering the
   level complete (ends the rollout), `key` (25) per key colour, `sector`
   (15) per new sector (more than a mechanism: getting somewhere new is

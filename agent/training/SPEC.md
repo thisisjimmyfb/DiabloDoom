@@ -116,7 +116,7 @@ Notation: `T` is the time penalty's base rate per tic, `--time-penalty` / 35 (de
 | `mechanism` | +10 | A USE that sets a mechanism going -- a sector starts moving (door, lift, floor, stairs) or a switch flips -- from the engine's `use` event. Once per mechanism per rollout; ones used in the warm-up count as used. |
 | `loot` | +5 per item | A Diablo item into the backpack, or armor (which grants one), from the `pickup` event. Practice items (`-rlitems`) pay the same. Something left on the ground (full backpack) pays nothing. |
 | `item` | +0.01 per unit | While a practice item lies (from its `item` event, 10 s or until picked up), each map unit closed toward it; moving away costs the same, so circling nets nothing (`item_approach`, 2026-11-17). |
-| `health` | +0.75 per HP (+0.2, then +0.5, before 2026-11-18) | The HP a health pickup actually gave (the `pickup` event's `hp`): a medikit at 75 HP pays 18.75. The mirror of `hp_loss`. |
+| `health` | +0.75 per HP (+0.2, then +0.5, before 2026-11-18) | The HP a health pickup actually gave (the `pickup` event's `hp`): a medikit at 75 HP pays 18.75. The mirror of the hit penalties. |
 
 #### Time, distance and direction
 
@@ -157,17 +157,17 @@ Triggers, while exploring (no **monster in view** trigger since 2026-11-18: the 
 
 | Term | Value | Rule |
 |---|---|---|
-| `hp_loss` | −7.5 per hit (per HP before 2026-11-19: −0.2, −0.5, then −0.75) | Each tic the engine sends a `hurt` event (a blast's pellets once), whatever the amount and even when block, armour or resistance take no HP: gear scales the amount, not being hit is the skill. Monsters in the fighting groups, and nukage, slime, crushers and barrels everywhere. Healing pays nothing. |
+| `hit_unavoidable` / `hit_avoidable` | −1 / −15 per hit (2026-11-20; one `hp_loss` −7.5 per hit before, per HP before 2026-11-19: −0.2, −0.5, then −0.75) | Each tic the engine sends a `hurt` event (a blast's pellets once), whatever the amount and even when block, armour or resistance take no HP: gear scales the amount, not being hit is the skill. The event's `kind` splits it: `hitscan` (a line attack, which can't be dodged: a small pressure to kill early) pays `hit_unavoidable`; `proj`, `melee` and `world` (nukage, slime, crushers, barrels), which can be avoided, pay `hit_avoidable`. Healing pays nothing. |
 | `death` | −150 (−100 before 2026-11-18) | Ends the rollout; 1.5× the exit, on top of the HP lost on the way. |
 
 #### Combat (2026-11-18)
 
-A share of the groups fight (`--combat`, 0.5; stage 2: all): every game launches with its map monsters (no `--eval`), and right after loading the start save the env sends `MONSTERS SHOW`, or `MONSTERS HIDE` to take every living map monster out of the world for a group that only explores (all members alike, from the group's seed). Every rollout also starts with a random gun equipped (`GIVEGUN`: any of the seven, or fists, evenly among the eight, the same for the whole group; `EnvConfig.give_gun`), else the player is on fists, with the strength gear the gun needs (strength comes only from gear: Immortal King's Soul Cage, and for the BFG Mara's Kaleidoscope too). Combat and survival weigh half again as much as the maze run: a kill's 22.5 against a new sector's 15, and `hp_loss`, `death` and `health` ×1.5.
+A share of the groups fight (`--combat`, 0.5; stage 2: all): every game launches with its map monsters (no `--eval`), and right after loading the start save the env sends `MONSTERS SHOW`, or `MONSTERS HIDE` to take every living map monster out of the world for a group that only explores (all members alike, from the group's seed). Every rollout also starts with a random gun equipped (`GIVEGUN`: any of the seven, or fists, evenly among the eight, the same for the whole group; `EnvConfig.give_gun`), else the player is on fists, with the strength gear the gun needs (strength comes only from gear: Immortal King's Soul Cage, and for the BFG Mara's Kaleidoscope too), and since 2026-11-20 (`EnvConfig.gun_kit`, `GIVEGUN <seed> KIT`) a kit for it, every other slot emptied first: fists the most armour (helm, armour, shield) and strength (elsewhere), an AD gun the most AD, an AP gun the most AP, never vitality, so a kill takes fewer hits and fighting beats running. Combat and survival weigh half again as much as the maze run: a kill's 22.5 against a new sector's 15, and the hit penalties, `death` and `health` ×1.5.
 
 | Term | Value | Rule |
 |---|---|---|
-| `damage` | +11.25 per a monster's full HP × 0.8 per hit taken | The engine's `damage` event: the HP the player took off a monster (capped at its max), over its max HP, so every kill pays the same in all. Since 2026-11-19 paid when the rollout ends, times `hit_decay` (0.8) per hit taken in the rollout (the HP left over 100 at first): nothing after a death. Chained. |
-| `kill` | +11.25 × 0.8 per hit taken | The `damage` event that killed it; paid at the end like `damage` (2026-11-19). Chained. |
+| `damage` | +11.25 per a monster's full HP | The engine's `damage` event: the HP the player took off a monster (capped at its max), over its max HP, so every kill pays the same in all. Since 2026-11-19 paid when the rollout ends: nothing after a death (times `hit_decay` 0.8 per hit taken until 2026-11-20). Chained. |
+| `kill` | +11.25 | The `damage` event that killed it; paid at the end like `damage` (2026-11-19). Chained. |
 | `fire_waste` | −0.3 per shot (−0.1 before 2026-11-19) | A shot (the engine's `shot` event) that hurt no monster at once; since 2026-11-19 a projectile's (rocket, plasma, BFG) too, its later hit paying `damage`. A fresh policy picks the CTRL actions 10% of the time in all (`model.FIRE_PRIOR`; half before). One-off. |
 
 #### How a rollout ends
@@ -233,7 +233,7 @@ screen (scene, 84×84, 4 stacked)
   Every decision in rollout i gets A_i. Fallback if learning is slow: the process variant (normalize per-step rewards across the group, sum from each step onward; the sums grow with the steps left, so `--norm-adv`, on by default since 2026-11-16, divides each batch's advantages by their standard deviation -- no mean shift -- to keep the entropy bonus and the gradient norm independent of the rollout length).
 - **Process advantage: chained and one-off rewards (2026-11-17).** Each step's reward r_t is split in two:
   - the **one-off** part n_t: the terms that judge only the action taken on that step (`RewardConfig.immediate`: `consult`, `move_flip`, `turn_waste`, `wall_look`). The env reports it per step as `info["reward_now"]`, and the rollout keeps it as `rew_now`.
-  - the **chained** part c_t = r_t − n_t: everything else (`sector`, `fast`, `look`, `time`, `item`, `loot`, `health`, `key`, `mechanism`, `exit`, `death`, `hp_loss`, `fall`), which comes from a run of decisions, so earlier steps share its credit.
+  - the **chained** part c_t = r_t − n_t: everything else (`sector`, `fast`, `look`, `time`, `item`, `loot`, `health`, `key`, `mechanism`, `exit`, `death`, `hit_unavoidable`, `hit_avoidable`, `fall`), which comes from a run of decisions, so earlier steps share its credit.
 
   The rule: a term is one-off when the step's own action fully decides it and no earlier decision set it up. It is chained when getting there took earlier steps: the way walked, the turns that lined the view up, the room entered.
 
@@ -250,7 +250,7 @@ screen (scene, 84×84, 4 stacked)
   | `mechanism` | chained | The USE step starts the door or lift, but reaching the switch and facing it took the steps before. |
   | `exit` | chained | The level exit is the end of the whole route. |
   | `death` | chained | A death follows from the walk into the hazard (or a long stay in it), not only the last step. |
-  | `hp_loss` | chained | Damage comes from where earlier steps took the player (nukage, crushers). |
+  | `hit_unavoidable`, `hit_avoidable` | chained | Damage comes from where earlier steps took the player (nukage, crushers). |
   | `fall` | chained | Charged on landing, for a drop the player walked off steps earlier. |
   | `consult` | one-off | A hit (+5) or a false CONSULT (−2.5) judges that CONSULT alone; the miss is charged on each step without a CONSULT while the trigger waits. Whether the trigger is on screen is not the policy's doing, so no earlier step earned it. |
   | `move_flip` | one-off | Forward right after back (or back after forward): it judges this step's key against the last one. |

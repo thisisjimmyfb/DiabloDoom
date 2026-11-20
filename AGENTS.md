@@ -270,7 +270,8 @@ brings them back) or puts them back, for the env's groups that only
 explore; a player hit on a monster sends a `damage` event (`amount`
 taken off, `max` HP, `kill`), a hit on the player a `hurt` event
 (2026-11-19: `amount` before god mode, block, dodge, resistance and
-armour, so sent even when no HP is lost; `monster`), each shot a `shot` event (`hit`: it hurt a
+armour, so sent even when no HP is lost; `monster`; 2026-11-20 `kind`: `proj`,
+`hitscan`, `melee` or `world`), each shot a `shot` event (`hit`: it hurt a
 monster at once; `proj`: rocket, plasma or BFG, whose hit comes later),
 and `-rlenv` never autosaves (training games have map monsters now).
 `GIVEGUN <seed>` (`-rlenv`, and `-rldrive` for `eval.py --iwad`) equips a random normal-tier gun at full
@@ -278,7 +279,12 @@ durability in place of the weapon slot's item (dropped, not stashed),
 or fists (the slot emptied), evenly among the eight (no chainsaw); strength comes only from
 gear, so when the gun needs more, the strength pieces with the most
 strength go on too, any tier, one a slot (Immortal King's Soul Cage +8,
-and for the BFG Mara's Kaleidoscope +8 as well); the env sends it at
+and for the BFG Mara's Kaleidoscope +8 as well); `GIVEGUN <seed> KIT`
+(2026-11-20) first empties every other slot, then fills each free one with
+the best piece of any tier, never one with vitality (max HP stays 100):
+fists the most armour in helm, armour and shield and the most strength
+elsewhere, an AD gun the most AD, an AP gun the most AP (a flat point
+counted as 5%); the env sends it (with KIT, `EnvConfig.gun_kit`) at
 every rollout's start. Every CONSULT shows `CMD CONSULT` (`CONSULT` before 2026-11-18) as the status message
 (under `-rlenv` too since 2026-11-17, when the env forwards every policy
 CONSULT), so a watcher sees the policy asked for the hand-off. Practice items (`-rlitems <tics>`,

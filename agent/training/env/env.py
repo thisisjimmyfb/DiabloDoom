@@ -63,7 +63,7 @@ class RewardConfig:
     # Pickups, from the engine's pickup events: each Diablo item picked
     # up (or armor, which also grants one) pays `loot`; a health pickup
     # pays `health` per HP it actually healed (a medikit 25 HP, a bonus
-    # 1), the mirror of hp_loss. A thing left on the ground pays nothing.
+    # 1), the mirror of the hit penalties. A thing left on the ground pays nothing.
     loot: float = 5.0
     health: float = 0.75              # 0.2, then 0.5, before 2026-11-18
     # Practice items (2026-11-17): while one lies on the ground, each map
@@ -195,20 +195,23 @@ class RewardConfig:
     # engine `hurt` event, whatever the amount (gear scales it) and even
     # when block, armour or resistance leave the HP alone: monsters,
     # nukage, slime, crushers, barrels. Healing never pays.
-    hp_loss: float = -7.5             # per HP: -0.2, -0.5, then -0.75 before 2026-11-19
+    # Split 2026-11-20 (hp_loss -7.5 before) by the event's kind: a
+    # hitscan hit can't be dodged, so it only presses for an early kill;
+    # the rest (projectile, melee, nukage, crusher, barrel) can be avoided.
+    hit_unavoidable: float = -1.0
+    hit_avoidable: float = -15.0
     # Combat (2026-11-18), half again as much as the maze run (a kill
-    # 22.5 against a new sector's 15; hp_loss, health and death x1.5 too):
+    # 22.5 against a new sector's 15; hits, health and death x1.5 too):
     # damage per a monster's full HP dealt (so a kill pays the same for
     # any monster), from the engine's damage events, plus kill on the
     # kill; fire_waste per shot that hurt nothing at once (a projectile's
     # hit comes later: charged too since 2026-11-19, its hit paying
     # damage), so firing at nothing costs. Since 2026-11-19 damage and kill
-    # are paid when the rollout ends, times hit_decay per hit taken
-    # (2026-11-19; the HP left over 100 before): a death pays no combat at all.
+    # are paid when the rollout ends: a death pays no combat at all (times
+    # hit_decay 0.8 per hit taken too, 2026-11-19 to 2026-11-20).
     damage: float = 11.25
     kill: float = 11.25
     fire_waste: float = -0.3          # -0.1 before 2026-11-19
-    hit_decay: float = 0.8
     # One-off terms (2026-11-17): they judge only the step's own action,
     # so the learner adds them to that step's advantage alone instead of
     # summing them into every earlier step's reward-to-go
@@ -347,6 +350,9 @@ class EnvConfig:
     # A random gun equipped at every rollout's start (2026-11-18): the
     # player starts on fists otherwise.
     give_gun: bool = True
+    # With gear for it (2026-11-20, GIVEGUN ... KIT): fists armour and
+    # strength, an AD gun the most AD, an AP gun the most AP.
+    gun_kit: bool = True
     waypoints: bool = False
     waypoint_place: str = "sector"     # or "path"
     waypoint_every: int = 0            # 0: kept until reached (175, 5 s, before 2026-11-18)
@@ -387,7 +393,6 @@ class DiabloDoomEnv(gym.Env):
         #   envs.set_attr("next_reset", [{"slot": 3, "seed": 17, "group": 0}, ...])
         self.next_reset: dict | None = None
         self._dmg_share = 0.0
-        self._hits = 0
         self._wp_on, self._wp, self._wp_tic, self._wp_stats = False, None, -10 ** 9, [0, 0]   # waypoints (reset sets them)
         self._wp_pending = False
         self._combat_on, self._combat_stats = False, [0, 0, 0, 0.0]   # combat (reset sets them)
@@ -512,10 +517,9 @@ class DiabloDoomEnv(gym.Env):
         if self.cfg.give_gun:
             # A random gun equipped (2026-11-18; the engine's GIVEGUN), the
             # same for the whole group (from its seed).
-            d, _ = self.engine.command(f"GIVEGUN {int(rng_seed) * 7 + 3}")
+            d, _ = self.engine.command(f"GIVEGUN {int(rng_seed) * 7 + 3}" + (" KIT" if self.cfg.gun_kit else ""))
         self._combat_stats = [0, 0, 0, 0.0]   # shots, hits, kills, damage dealt (HP)
         self._dmg_share = 0.0                  # monster HP shares removed (paid at the end)
-        self._hits = 0                         # steps whose HP fell (the combat pay's decay)
         # A progress save's visited list (the save doesn't store it; the
         # load reset it): VISIT in pieces that fit a command line.
         vis = self._installed_visited.get(slot)
@@ -758,10 +762,13 @@ class DiabloDoomEnv(gym.Env):
 
         # Hits: the tics the engine hurt the player on (a blast's pellets
         # once), even for no HP. The HP mark is kept for the state.
-        hits = len({e.get("gametic") for e in events if e.get("event") == "hurt"})
+        hurt = [e for e in events if e.get("event") == "hurt"]
+        scan = len({e.get("gametic") for e in hurt if e.get("kind") == "hitscan"})
+        hits = len({e.get("gametic") for e in hurt if e.get("kind") != "hitscan"})
+        if scan:
+            add("hit_unavoidable", rc.hit_unavoidable * scan)
         if hits:
-            add("hp_loss", rc.hp_loss * hits)
-            self._hits += hits
+            add("hit_avoidable", rc.hit_avoidable * hits)
         hp = max(d.get("hp", self._prev_hp), 0)
         self._prev_hp = hp
 
@@ -786,9 +793,9 @@ class DiabloDoomEnv(gym.Env):
                 truncated, end = True, "time"
             elif self._combat_steps >= self.cfg.max_combat_steps:
                 truncated, end = True, "combat"
-        # Combat, paid at the end times hit_decay per hit (RewardConfig.damage).
+        # Combat, paid at the end, nothing after a death (RewardConfig.damage).
         if terminated or truncated:
-            hpf = 0.0 if d.get("dead") else rc.hit_decay ** self._hits
+            hpf = 0.0 if d.get("dead") else 1.0
             add("damage", rc.damage * self._dmg_share * hpf)
             add("kill", rc.kill * self._combat_stats[2] * hpf)
         # Waypoints not reached, paid when a goal ends the rollout early.

@@ -165,19 +165,21 @@ def test_keys_once():
     assert e._new_keys({"keys": 4}) == 0 and e._new_keys({"keys": 5}) == 1
 
 
-def test_hp_loss_and_death():
+def test_hits_and_death():
     """A hit (a tic with a hurt event, any amount, even none taken off the
-    HP; a blast's pellets once) costs hp_loss, healing pays nothing, and a
-    death ends the rollout with the death penalty. Engine faked."""
+    HP; a blast's pellets once) costs hit_unavoidable for a hitscan hit and
+    hit_avoidable for any other kind, healing pays nothing, and a death
+    ends the rollout with the death penalty. Engine faked."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
-                        consult_false=0, key=0, time=0, hp_loss=-0.2, death=-100.0,
+                        consult_false=0, key=0, time=0, hit_unavoidable=-0.05, hit_avoidable=-0.2, death=-100.0,
                         loot=0, health=0, fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0)
     e = make_env(rewards=only, max_tics=100000)
-    hurt = lambda tic: {"event": "hurt", "amount": 10, "monster": True, "gametic": tic}
-    states = iter([({"mode": "EXPLORE", "hp": 90, "tics": 10}, [hurt(1), hurt(1), hurt(1)]),   # one blast
+    hurt = lambda tic, kind: {"event": "hurt", "amount": 10, "monster": True, "kind": kind, "gametic": tic}
+    states = iter([({"mode": "EXPLORE", "hp": 90, "tics": 10}, [hurt(1, "hitscan")] * 3),   # one blast
                    ({"mode": "EXPLORE", "hp": 100, "tics": 10}, []),                       # healed: nothing
-                   ({"mode": "EXPLORE", "hp": 100, "tics": 10}, [hurt(2), hurt(3)]),       # two hits, armour took them
-                   ({"mode": "EXPLORE", "hp": -3, "dead": True, "tics": 10}, [hurt(4)])])
+                   ({"mode": "EXPLORE", "hp": 100, "tics": 10},
+                    [hurt(2, "proj"), hurt(3, "melee")]),                                   # two hits, armour took them
+                   ({"mode": "EXPLORE", "hp": -3, "dead": True, "tics": 10}, [hurt(4, "world")])])
     e.engine.command = lambda line: next(states)
     e._frame = lambda: np.zeros((200, 320), dtype=np.uint8)
     e.state = {"mode": "EXPLORE", "hp": 100}
@@ -191,7 +193,7 @@ def test_hp_loss_and_death():
         _, r, term, trunc, _ = e.step(0)
         rewards.append(round(r, 6))
         ends.append(term)
-    assert rewards == [-0.2, 0.0, -0.4, -100.2], rewards
+    assert rewards == [-0.05, 0.0, -0.4, -100.2], rewards
     assert ends == [False, False, False, True]
 
 
@@ -201,7 +203,7 @@ def test_fast_tics():
     then every tic counts (fast_tics, -rlfast added by the env), each
     paying `fast`; running into a wall has none."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
-                        consult_false=0, key=0, time=0, hp_loss=0, death=0,
+                        consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0,
                         loot=0, health=0, fast=0.005, fast_speed=4, fast_path=False, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0)
     e = make_env(engine=EngineConfig(warp="1 1", extra_args=["--eval"]), rewards=only, max_tics=100000)
     try:
@@ -262,7 +264,7 @@ def test_turn_waste():
     a steady turn either way, holding still, a turn after the window has
     passed and a teleport cost nothing. Engine faked: one tic per step."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
-                        consult_false=0, key=0, time=0, hp_loss=0, death=0, loot=0, health=0,
+                        consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
                         fast=0, look=0, turn_waste=-45.0, turn_waste_window=8, move_flip=0,
                         fall=0, wall_look=0)     # -45 per 45 degrees: reward = -wasted degrees
     e = make_env(rewards=only, max_tics=100000)
@@ -291,7 +293,7 @@ def test_move_flip():
     move_flip; strafing back and forth (A/D) never does, and turn keys
     don't count. Engine faked: one tic per step, no game needed."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
-                        consult_false=0, key=0, time=0, hp_loss=0, death=0, loot=0, health=0,
+                        consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
                         fast=0, look=0, turn_waste=0, move_flip=-1.0, move_flip_window=4, fall=0, wall_look=0)
     e = make_env(rewards=only, max_tics=100000)
     e.engine.command = lambda line: ({"mode": "EXPLORE", "hp": 100, "tics": 1}, [])
@@ -316,7 +318,7 @@ def test_unique_trigger():
     costs trigger_miss once; any other tier is no trigger (CONSULT then
     is a false consult). Engine faked, one tic per step."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=5.0, trigger_miss=-8.0,
-                        consult_false=-1.5, unique_grace_tics=3, key=0, time=0, hp_loss=0, death=0,
+                        consult_false=-1.5, unique_grace_tics=3, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0,
                         loot=0, health=0, fast=0, look=0, turn_waste=0, move_flip=0,
                         fall=0, wall_look=0)
 
@@ -367,7 +369,7 @@ def test_item_approach():
     item_approach and each unit away costs it; nothing once it is picked
     up or its 10 s are up. Engine faked, one tic per step."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
-                        consult_false=0, key=0, time=0, hp_loss=0, death=0, loot=0, health=0,
+                        consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
                         fast=0, look=0, turn_waste=0, move_flip=0,
                         fall=0, wall_look=0, item_approach=0.01)
 
@@ -390,7 +392,7 @@ def test_door_pays_once():
     and stepping into the door doesn't reach the portal goal. Engine
     faked: no game needed."""
     only = RewardConfig(sector=15.0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
-                        consult_false=0, key=0, time=0, hp_loss=0, death=0, loot=0, health=0,
+                        consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
                         fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0)
     e = make_env(rewards=only, max_tics=100000, portal_goal=1)
     states = iter([(5, 0), (6, 1), (7, 1)])      # (sectors, door_sectors): room, door, next room
@@ -418,7 +420,7 @@ def test_fast_forward():
     Engine faked: one tic per step, one fast tic each."""
     def run(dx, dy, angle, forward=True):
         only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
-                            consult_false=0, key=0, time=0, hp_loss=0, death=0, loot=0, health=0,
+                            consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
                             fast=1.0, fast_forward=forward, look=0, turn_waste=0, move_flip=0,
                             fall=0, wall_look=0)
         e = make_env(rewards=only, max_tics=100000)
@@ -447,7 +449,7 @@ def test_fall():
     (the blazing one), stairs down,
     going up and a teleport never do. Engine faked: one tic per step."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
-                        consult_false=0, key=0, time=0, hp_loss=0, death=0, loot=0, health=0,
+                        consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
                         fast=0, look=0, turn_waste=0, move_flip=0, fall=-1.0, wall_look=0)
 
     def run(zs, xs=None):
@@ -486,7 +488,7 @@ def test_wall_look_rule():
     wall_look_dist, unless a usable wall is in reach (wall_use) or there is
     no wall ahead. Engine faked: one tic per step, no game needed."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
-                        consult_false=0, key=0, time=0, hp_loss=0, death=0, loot=0, health=0,
+                        consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
                         fast=0, look=0, turn_waste=0, move_flip=0, fall=0,
                         wall_look=-1.0, wall_look_dist=48.0)
     e = make_env(rewards=only, max_tics=100000)
@@ -511,7 +513,7 @@ def test_wall_dist():
     ahead: running into one brings it under 48 (charged), facing back into
     the room puts it beyond (or -1, nothing within 128)."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
-                        consult_false=0, key=0, time=0, hp_loss=0, death=0, loot=0, health=0,
+                        consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
                         fast=0, look=0, turn_waste=0, move_flip=0, fall=0,
                         wall_look=-1.0, wall_look_dist=48.0)
     e = make_env(engine=EngineConfig(warp="1 1", extra_args=["--eval"]), rewards=only, max_tics=100000)
@@ -538,7 +540,7 @@ def test_look_reward():
     portal of the current sector into an unvisited sector -- so full
     credit facing it and nothing facing away."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
-                        consult_false=0, key=0, time=0, hp_loss=0, death=0,
+                        consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0,
                         loot=0, health=0, fast=0, look=1.0, turn_waste=0, move_flip=0, fall=0, wall_look=0)
     e = make_env(engine=EngineConfig(warp="1 1", extra_args=["--eval"]), rewards=only, max_tics=100000)
     try:
@@ -590,7 +592,7 @@ def test_key_goal():
     "key", the key reward paid); one held from the start never does, and
     without key_goal a key only pays. Engine faked: no game needed."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
-                        consult_false=0, key=25.0, time=0, hp_loss=0, death=0,
+                        consult_false=0, key=25.0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0,
                         loot=0, health=0, fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0)
     for goal in (True, False):
         e = make_env(rewards=only, max_tics=100000, key_goal=goal)
@@ -619,7 +621,7 @@ def test_pickup_rewards():
     `health` per HP healed, keys and other things pay nothing here (keys
     pay through the state's key mask). Engine faked: no game needed."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
-                        consult_false=0, key=0, time=0, hp_loss=0, death=0,
+                        consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0,
                         loot=5.0, health=0.2)
     e = make_env(rewards=only, max_tics=100000)
     st = {"mode": "EXPLORE", "hp": 50, "tics": 5}
@@ -870,7 +872,7 @@ def test_time_distance_penalty():
     its tics * (1 + d / far_scale), d the mean of its start and end
     distances to the nearest portal of the current sector."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0,
-                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0,
+                        trigger_miss=0, consult_false=0, key=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0, fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0,
                         time=1.0, far_scale=256.0)
     e = make_env(engine=EngineConfig(warp="1 1", extra_args=["--eval"]), rewards=only,
                  max_tics=100000, consult_handler=standin_consult)
@@ -905,7 +907,7 @@ def test_portal_goal():
     list (VISITED) and reinstalled restores that visited count after the
     load (VISIT), so the next rollout's goal is a sector beyond it."""
     only = RewardConfig(sector=15.0, exit=0, mechanism=0, consult_hit=0,
-                        trigger_miss=0, consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0, fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0,
+                        trigger_miss=0, consult_false=0, key=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0, fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0,
                         time=0.01, far_scale=1e12)   # time and sector only
     e = DiabloDoomEnv(EnvConfig(engine=EngineConfig(warp="1 1", extra_args=["--eval"]), rewards=only,
                                 max_tics=100000, portal_goal=1, consult_handler=standin_consult))
@@ -964,7 +966,7 @@ def test_fast_path():
     forward but across it (a circle's side) pays nothing, at 45 degrees
     about 70%; no way known, the facing as before. Engine faked."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
-                        consult_false=0, key=0, time=0, hp_loss=0, death=0, loot=0, health=0,
+                        consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
                         fast=1.0, look=0, turn_waste=0, move_flip=0,
                         fall=0, wall_look=0)
 
@@ -996,7 +998,7 @@ def test_waypoints():
     (look pays nothing), fast points at it; reaching it pays waypoint and clears it, and the next comes
     waypoint_gap tics later. Engine faked."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
-                        consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0,
+                        consult_false=0, key=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
                         time=1.0, far_scale=100.0, fast=1.0, look=1.0, turn_waste=0, move_flip=0,
                         fall=0, wall_look=0)
     e = make_env(rewards=only, max_tics=100000, waypoints=True, waypoint_noise=0.0, waypoint_gap=2, waypoint_min=0.0,
@@ -1052,7 +1054,7 @@ def test_waypoints_sector():
     with the action and takes the point the engine picked from the state
     line; none picked (no point far enough), none set. Engine faked."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
-                        consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0,
+                        consult_false=0, key=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
                         time=1.0, fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0)
     e = make_env(rewards=only, max_tics=100000, waypoints=True, waypoint_gap=1)
     sent, picks = [], iter([None, [50, 60]])
@@ -1094,7 +1096,7 @@ def test_waypoint_count_and_goal():
     waypoint for each not reached. Engine faked: each waypoint is reached
     on the step after it is set."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
-                        consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0,
+                        consult_false=0, key=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
                         time=0, fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0,
                         waypoint=2.0, waypoint_look_approach=0)
 
@@ -1143,18 +1145,19 @@ def test_combat_rewards():
     """Combat (2026-11-18): damage pays per a monster's full HP dealt,
     kill on the kill, fire_waste per shot that hurt nothing (a projectile
     too since 2026-11-19); since 2026-11-19 damage and kill are paid when
-    the rollout ends, times hit_decay per hit taken, nothing after a death;
+    the rollout ends, in full whatever the hits taken, nothing after a death;
     info["combat"] counts them. Engine faked."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
-                        consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0,
+                        consult_false=0, key=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
                         time=0, fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0,
-                        damage=10.0, kill=4.0, fire_waste=-0.5, hit_decay=0.5)
+                        damage=10.0, kill=4.0, fire_waste=-0.5)
 
     def run(end):
         e = make_env(rewards=only, max_tics=4)
         script = iter([
             [{"event": "shot", "hit": True, "proj": False}, {"event": "damage", "amount": 30, "max": 60, "kill": False}],
-            [{"event": "shot", "hit": False, "proj": False}, {"event": "hurt", "amount": 8, "monster": True, "gametic": 2}],
+            [{"event": "shot", "hit": False, "proj": False}, {"event": "hurt", "amount": 8, "monster": True, "kind": "proj", "gametic": 2},
+             {"event": "hurt", "amount": 8, "monster": True, "kind": "hitscan", "gametic": 2}],
             [{"event": "shot", "hit": False, "proj": True}],
             [{"event": "damage", "amount": 50, "max": 60, "kill": True}],    # overkill: capped at max
         ])
@@ -1183,7 +1186,7 @@ def test_combat_rewards():
 
     rs, r4, info = run({"hp": 60})
     assert rs == [0.0, -0.5, -0.5]                     # hits pay nothing yet
-    assert r4 == pytest.approx(((30 / 60 + 50 / 60) * 10.0 + 4.0) * 0.5)   # one hit taken
+    assert r4 == pytest.approx((30 / 60 + 50 / 60) * 10.0 + 4.0)   # a hit taken: no cut
     assert info["combat"] == [1, 3, 1, 1, 80]
     rs, r4, info = run({"hp": 0, "dead": True})
     assert r4 == 0.0                                   # a death: no combat pay
