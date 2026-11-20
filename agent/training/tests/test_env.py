@@ -166,18 +166,19 @@ def test_keys_once():
 
 
 def test_hp_loss_and_death():
-    """HP lost costs hp_loss per point, healing pays nothing (it only moves
-    the mark up), and a death ends the rollout with the death penalty on
-    top of the HP it lost. Engine faked: no game needed."""
+    """A hit (a tic with a hurt event, any amount, even none taken off the
+    HP; a blast's pellets once) costs hp_loss, healing pays nothing, and a
+    death ends the rollout with the death penalty. Engine faked."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hp_loss=-0.2, death=-100.0,
                         loot=0, health=0, fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0)
     e = make_env(rewards=only, max_tics=100000)
-    states = iter([{"mode": "EXPLORE", "hp": 90, "tics": 10},     # nukage: -10 hp
-                   {"mode": "EXPLORE", "hp": 100, "tics": 10},    # healed: nothing
-                   {"mode": "EXPLORE", "hp": 95, "tics": 10},     # -5 from the new mark
-                   {"mode": "EXPLORE", "hp": -3, "dead": True, "tics": 10}])
-    e.engine.command = lambda line: (next(states), [])
+    hurt = lambda tic: {"event": "hurt", "amount": 10, "monster": True, "gametic": tic}
+    states = iter([({"mode": "EXPLORE", "hp": 90, "tics": 10}, [hurt(1), hurt(1), hurt(1)]),   # one blast
+                   ({"mode": "EXPLORE", "hp": 100, "tics": 10}, []),                       # healed: nothing
+                   ({"mode": "EXPLORE", "hp": 100, "tics": 10}, [hurt(2), hurt(3)]),       # two hits, armour took them
+                   ({"mode": "EXPLORE", "hp": -3, "dead": True, "tics": 10}, [hurt(4)])])
+    e.engine.command = lambda line: next(states)
     e._frame = lambda: np.zeros((200, 320), dtype=np.uint8)
     e.state = {"mode": "EXPLORE", "hp": 100}
     e._prev_hp, e._tics, e._combat_steps = 100, 0, 0
@@ -190,7 +191,7 @@ def test_hp_loss_and_death():
         _, r, term, trunc, _ = e.step(0)
         rewards.append(round(r, 6))
         ends.append(term)
-    assert rewards == [-2.0, 0.0, -1.0, -119.0], rewards     # 95 hp to 0: -19, plus -100
+    assert rewards == [-0.2, 0.0, -0.4, -100.2], rewards
     assert ends == [False, False, False, True]
 
 
@@ -1141,18 +1142,18 @@ def test_combat_rewards():
     """Combat (2026-11-18): damage pays per a monster's full HP dealt,
     kill on the kill, fire_waste per shot that hurt nothing (a projectile
     too since 2026-11-19); since 2026-11-19 damage and kill are paid when
-    the rollout ends, times the HP left over 100, nothing after a death;
+    the rollout ends, times hit_decay per hit taken, nothing after a death;
     info["combat"] counts them. Engine faked."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0,
                         time=0, fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0,
-                        damage=10.0, kill=4.0, fire_waste=-0.5)
+                        damage=10.0, kill=4.0, fire_waste=-0.5, hit_decay=0.5)
 
     def run(end):
         e = make_env(rewards=only, max_tics=4)
         script = iter([
             [{"event": "shot", "hit": True, "proj": False}, {"event": "damage", "amount": 30, "max": 60, "kill": False}],
-            [{"event": "shot", "hit": False, "proj": False}],
+            [{"event": "shot", "hit": False, "proj": False}, {"event": "hurt", "amount": 8, "monster": True, "gametic": 2}],
             [{"event": "shot", "hit": False, "proj": True}],
             [{"event": "damage", "amount": 50, "max": 60, "kill": True}],    # overkill: capped at max
         ])
@@ -1181,7 +1182,7 @@ def test_combat_rewards():
 
     rs, r4, info = run({"hp": 60})
     assert rs == [0.0, -0.5, -0.5]                     # hits pay nothing yet
-    assert r4 == pytest.approx(((30 / 60 + 50 / 60) * 10.0 + 4.0) * 0.6)
+    assert r4 == pytest.approx(((30 / 60 + 50 / 60) * 10.0 + 4.0) * 0.5)   # one hit taken
     assert info["combat"] == [1, 3, 1, 1, 80]
     rs, r4, info = run({"hp": 0, "dead": True})
     assert r4 == 0.0                                   # a death: no combat pay

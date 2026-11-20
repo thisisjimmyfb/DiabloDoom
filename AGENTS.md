@@ -266,7 +266,9 @@ Combat in training (2026-11-18): `MONSTERS HIDE` / `MONSTERS SHOW`
 (`MF_RLHIDDEN`: unlinked, not thinking, never a target; a loaded save
 brings them back) or puts them back, for the env's groups that only
 explore; a player hit on a monster sends a `damage` event (`amount`
-taken off, `max` HP, `kill`), each shot a `shot` event (`hit`: it hurt a
+taken off, `max` HP, `kill`), a hit on the player a `hurt` event
+(2026-11-19: `amount` before god mode, block, dodge, resistance and
+armour, so sent even when no HP is lost; `monster`), each shot a `shot` event (`hit`: it hurt a
 monster at once; `proj`: rocket, plasma or BFG, whose hit comes later),
 and `-rlenv` never autosaves (training games have map monsters now).
 `GIVEGUN <seed>` (`-rlenv`, and `-rldrive` for `eval.py --iwad`) equips a random normal-tier gun at full

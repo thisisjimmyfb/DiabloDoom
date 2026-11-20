@@ -135,6 +135,10 @@ void RL_Consult(void);
 struct mobj_s;
 extern int rl_player_hits;
 void RL_PlayerHit(struct mobj_s *target, int dealt);
+// The player was hit (P_DamageMobj, 2026-11-19): a "hurt" event (the
+// amount before god mode, block, dodge, resistance and armour; monster:
+// a monster's attack), even when it takes no HP.
+void RL_PlayerHurt(struct mobj_s *source, int damage);
 
 // MONSTERS HIDE / SHOW (2026-11-18): every living map monster out of
 // the world or back in (MF_RLHIDDEN), for the env's no-combat rollouts.

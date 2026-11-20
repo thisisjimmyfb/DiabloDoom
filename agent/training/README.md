@@ -165,8 +165,10 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   monster's full HP the player took off it, from the engine's `damage`
   events) and `kill` (11.25), a kill 22.5 against a sector's 15, both
   chained; `fire_waste` (-0.1, one-off) per shot that hurt nothing at once
-  (a projectile never); every HP lost costs `hp_loss` (-0.75; -0.5
-  before; healing pays nothing), and a death ends the rollout with
+  (a projectile never); every hit taken (a tic with an engine
+  `hurt` event, even one gear left the HP alone; per HP before
+  2026-11-19) costs `hp_loss` (-7.5) and cuts the end-of-rollout combat
+  pay by `hit_decay` (x0.8 a hit; healing pays nothing), and a death ends the rollout with
   `death` (-150, -100 before) on top. The train line shows `kills` and
   the hit rate. Pickups pay from the engine's `pickup` events: `loot` (5)
   per Diablo item or armor picked up, `health` (0.75) per HP a health

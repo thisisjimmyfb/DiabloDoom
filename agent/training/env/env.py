@@ -189,10 +189,11 @@ class RewardConfig:
     # 0 turns it off.
     wall_look: float = -1 / 3 / 35
     wall_look_dist: float = 48.0
-    # Per HP lost, whatever the cause: passive damage (nukage, slime,
-    # crushers, barrels) in stage 1. Healing never pays; a death costs
-    # the HP it lost on the way plus `death`.
-    hp_loss: float = -0.75            # -0.2, then -0.5, before 2026-11-18
+    # Per hit taken (2026-11-19; per HP lost before): each tic with an
+    # engine `hurt` event, whatever the amount (gear scales it) and even
+    # when block, armour or resistance leave the HP alone: monsters,
+    # nukage, slime, crushers, barrels. Healing never pays.
+    hp_loss: float = -7.5             # per HP: -0.2, -0.5, then -0.75 before 2026-11-19
     # Combat (2026-11-18), half again as much as the maze run (a kill
     # 22.5 against a new sector's 15; hp_loss, health and death x1.5 too):
     # damage per a monster's full HP dealt (so a kill pays the same for
@@ -200,11 +201,12 @@ class RewardConfig:
     # kill; fire_waste per shot that hurt nothing at once (a projectile's
     # hit comes later: charged too since 2026-11-19, its hit paying
     # damage), so firing at nothing costs. Since 2026-11-19 damage and kill
-    # are paid when the rollout ends, times the player's HP then over
-    # 100 (at most 1): a death pays no combat at all.
+    # are paid when the rollout ends, times hit_decay per hit taken
+    # (2026-11-19; the HP left over 100 before): a death pays no combat at all.
     damage: float = 11.25
     kill: float = 11.25
     fire_waste: float = -0.3          # -0.1 before 2026-11-19
+    hit_decay: float = 0.8
     # One-off terms (2026-11-17): they judge only the step's own action,
     # so the learner adds them to that step's advantage alone instead of
     # summing them into every earlier step's reward-to-go
@@ -383,6 +385,7 @@ class DiabloDoomEnv(gym.Env):
         #   envs.set_attr("next_reset", [{"slot": 3, "seed": 17, "group": 0}, ...])
         self.next_reset: dict | None = None
         self._dmg_share = 0.0
+        self._hits = 0
         self._wp_on, self._wp, self._wp_tic, self._wp_stats = False, None, -10 ** 9, [0, 0]   # waypoints (reset sets them)
         self._wp_pending = False
         self._combat_on, self._combat_stats = False, [0, 0, 0, 0.0]   # combat (reset sets them)
@@ -510,6 +513,7 @@ class DiabloDoomEnv(gym.Env):
             d, _ = self.engine.command(f"GIVEGUN {int(rng_seed) * 7 + 3}")
         self._combat_stats = [0, 0, 0, 0.0]   # shots, hits, kills, damage dealt (HP)
         self._dmg_share = 0.0                  # monster HP shares removed (paid at the end)
+        self._hits = 0                         # steps whose HP fell (the combat pay's decay)
         # A progress save's visited list (the save doesn't store it; the
         # load reset it): VISIT in pieces that fit a command line.
         vis = self._installed_visited.get(slot)
@@ -749,10 +753,13 @@ class DiabloDoomEnv(gym.Env):
         if self._item is not None and d.get("gametic", 0) - self._item[2] >= ITEM_LIFE_TICS:
             self._item = None             # the engine removed it
 
-        # HP lost (a death to 0 included); healing just moves the mark up.
+        # Hits: the tics the engine hurt the player on (a blast's pellets
+        # once), even for no HP. The HP mark is kept for the state.
+        hits = len({e.get("gametic") for e in events if e.get("event") == "hurt"})
+        if hits:
+            add("hp_loss", rc.hp_loss * hits)
+            self._hits += hits
         hp = max(d.get("hp", self._prev_hp), 0)
-        if hp < self._prev_hp:
-            add("hp_loss", rc.hp_loss * (self._prev_hp - hp))
         self._prev_hp = hp
 
         terminated = truncated = False
@@ -776,9 +783,9 @@ class DiabloDoomEnv(gym.Env):
                 truncated, end = True, "time"
             elif self._combat_steps >= self.cfg.max_combat_steps:
                 truncated, end = True, "combat"
-        # Combat, paid at the end times the HP left (RewardConfig.damage).
+        # Combat, paid at the end times hit_decay per hit (RewardConfig.damage).
         if terminated or truncated:
-            hpf = 0.0 if d.get("dead") else min(hp, 100) / 100.0
+            hpf = 0.0 if d.get("dead") else rc.hit_decay ** self._hits
             add("damage", rc.damage * self._dmg_share * hpf)
             add("kill", rc.kill * self._combat_stats[2] * hpf)
         # Waypoints not reached, paid when a goal ends the rollout early.

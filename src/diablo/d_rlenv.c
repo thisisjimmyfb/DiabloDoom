@@ -1741,6 +1741,12 @@ void RL_PlayerHit(mobj_t *t, int dealt)
             dealt, max, t->health <= 0 ? "true" : "false", (int) t->type, gametic);
 }
 
+void RL_PlayerHurt(mobj_t *source, int damage)
+{
+    RL_Emit("{\"event\":\"hurt\",\"amount\":%d,\"monster\":%s,\"gametic\":%d}", damage,
+            source && source->player == NULL ? "true" : "false", gametic);
+}
+
 void RL_Monsters(boolean hide)
 {
     thinker_t *th;

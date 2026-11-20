@@ -157,7 +157,7 @@ Triggers, while exploring (no **monster in view** trigger since 2026-11-18: the 
 
 | Term | Value | Rule |
 |---|---|---|
-| `hp_loss` | −0.75 per HP (−0.2, then −0.5, before 2026-11-18) | Any HP lost: monsters in the fighting groups, and nukage, slime, crushers and barrels everywhere. Healing only moves the mark up. |
+| `hp_loss` | −7.5 per hit (per HP before 2026-11-19: −0.2, −0.5, then −0.75) | Each tic the engine sends a `hurt` event (a blast's pellets once), whatever the amount and even when block, armour or resistance take no HP: gear scales the amount, not being hit is the skill. Monsters in the fighting groups, and nukage, slime, crushers and barrels everywhere. Healing pays nothing. |
 | `death` | −150 (−100 before 2026-11-18) | Ends the rollout; 1.5× the exit, on top of the HP lost on the way. |
 
 #### Combat (2026-11-18)
@@ -166,8 +166,8 @@ A share of the groups fight (`--combat`, 0.5; stage 2: all): every game launches
 
 | Term | Value | Rule |
 |---|---|---|
-| `damage` | +11.25 per a monster's full HP × HP at the end / 100 | The engine's `damage` event: the HP the player took off a monster (capped at its max), over its max HP, so every kill pays the same in all. Since 2026-11-19 paid when the rollout ends, times the player's HP then over 100 (at most 1): nothing after a death. Chained. |
-| `kill` | +11.25 × HP at the end / 100 | The `damage` event that killed it; paid at the end like `damage` (2026-11-19). Chained. |
+| `damage` | +11.25 per a monster's full HP × 0.8 per hit taken | The engine's `damage` event: the HP the player took off a monster (capped at its max), over its max HP, so every kill pays the same in all. Since 2026-11-19 paid when the rollout ends, times `hit_decay` (0.8) per hit taken in the rollout (the HP left over 100 at first): nothing after a death. Chained. |
+| `kill` | +11.25 × 0.8 per hit taken | The `damage` event that killed it; paid at the end like `damage` (2026-11-19). Chained. |
 | `fire_waste` | −0.3 per shot (−0.1 before 2026-11-19) | A shot (the engine's `shot` event) that hurt no monster at once; since 2026-11-19 a projectile's (rocket, plasma, BFG) too, its later hit paying `damage`. A fresh policy picks the CTRL actions 10% of the time in all (`model.FIRE_PRIOR`; half before). One-off. |
 
 #### How a rollout ends
