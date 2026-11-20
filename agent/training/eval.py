@@ -15,7 +15,10 @@ in the [it] line's terms (return, sectors, exit, death, steps).
 
 Watching it play (--iwad PATH). Launches a normal game on that IWAD file,
 with its map monsters (2026-11-18, the policy fights now; --no-monsters:
-none, --eval, as before), with
+none, --eval, as before), run as training runs it (--lockstep, the default
+since 2026-11-20: -rlenv, one decision a tic, paced to 35 tics a second, no
+sound, the gun and its kit as every rollout starts with; the game closes at
+the end), or with --no-lockstep under
 -rldrive (control and output only: the game runs in real time with its
 window and sound, and publishes a decision whenever it is ready for input,
 without waiting). At each decision the frame is turned into the same 4-frame
@@ -27,8 +30,8 @@ stops it too. A CONSULT while exploring is sent: it shows "CONSULT" as
 the status message and removes every practice monster, in sight or not (--on-consult skip, the default, drives on). Then a
 summary is printed (drive_summary): the level, why it stopped, decisions
 and game time, sectors gained, exit, death, health, keys, distance, and
-the policy's action use; the game is left running for you to play on or
-close, unless --quit-at-end.
+the policy's action use; with --no-lockstep the game is left running for
+you to play on or close, unless --quit-at-end.
 
 Nothing is trained, saved or uploaded. The policy: --checkpoint, else
 --hub-repo's doom-runner.pt, else the newest local runs/*/doom-runner.pt.
@@ -93,12 +96,23 @@ def parse_args():
     w.add_argument("--on-consult", choices=["skip", "stop"], default="skip",
                    help="CONSULT while exploring: keep driving (default), or stop driving; either way "
                         "it is sent, so the game shows \"CONSULT\" as the status message")
+    w.add_argument("--lockstep", action=argparse.BooleanOptionalAction, default=True,
+                   help="run the game as training does (2026-11-20): -rlenv, one decision a tic, each key "
+                        "held for that tic, the 4 frames 4 tics in a row, paced to 35 tics a second, no "
+                        "sound; --no-lockstep: -rldrive, a real-time game with sound that doesn't wait for "
+                        "the policy (keys held until the next action)")
+    w.add_argument("--fullscreen", action="store_true",
+                   help="launch the game fullscreen (default: a window with --lockstep, the game config's "
+                        "setting with --no-lockstep)")
     w.add_argument("--max-decisions", type=int, default=0, help="stop after this many decisions (0: no limit)")
     w.add_argument("--delay", type=float, default=0.0, help="seconds to wait before each action, for watching")
     w.add_argument("--quit-at-end", action="store_true", help="quit the game when the drive ends")
     w.add_argument("--give-gun", action=argparse.BooleanOptionalAction, default=True,
                    help="start with a random gun (or fists) and the strength gear it needs, as every "
                         "training rollout does (GIVEGUN)")
+    w.add_argument("--gun-kit", action=argparse.BooleanOptionalAction, default=True,
+                   help="with --give-gun, the gear kit training gives with it (GIVEGUN ... KIT, 2026-11-20); "
+                        "it empties the player's other equipment slots first")
     w.add_argument("--gun-seed", type=int, default=None,
                    help="the GIVEGUN seed (default: --seed, itself from the clock by default)")
     return p.parse_args()
@@ -251,8 +265,10 @@ def watch(args, ckpt: Path, policy: Policy, device: torch.device) -> None:
         spawns += ["-rlspawn", str(args.spawn_tics)]
     if args.item_tics > 0:
         spawns += ["-rlitems", str(args.item_tics)]
-    cfg = EngineConfig(warp=args.warp, skill=args.skill, drive=True, headless=args.headless,
-                       extra_args=([] if args.monsters else ["--eval"]) + spawns + avatar_args(),
+    window = ([] if args.headless else ["-fullscreen"] if args.fullscreen
+              else ["-window"] if args.lockstep else [])   # -rlenv: a window, as make_env does
+    cfg = EngineConfig(warp=args.warp, skill=args.skill, drive=not args.lockstep, headless=args.headless,
+                       extra_args=([] if args.monsters else ["--eval"]) + spawns + avatar_args() + window,
                        step_timeout=120.0)
     if not Path(args.iwad).is_file():
         raise SystemExit(f"--iwad {args.iwad}: no such file (it takes an IWAD path)")
@@ -284,6 +300,7 @@ def watch(args, ckpt: Path, policy: Policy, device: torch.device) -> None:
     wcfg, wp_rng, wp_tic, wp_stats = EnvConfig(), np.random.default_rng(args.seed), -10 ** 9, [0, 0]
     deaths, give_gun = 0, args.give_gun
     gun_seed = args.gun_seed if args.gun_seed is not None else args.seed
+    t_start = time.monotonic()
     try:
         while not args.max_decisions or n < args.max_decisions:
             if d.get("dead"):
@@ -333,7 +350,8 @@ def watch(args, ckpt: Path, policy: Policy, device: torch.device) -> None:
                 # A random gun, as every training rollout starts with
                 # (GIVEGUN; --gun-seed, else --seed, and a new one each
                 # respawn).
-                line = f"GIVEGUN {(gun_seed + deaths) % 2 ** 28 * 7 + 3};{line}"
+                kit = " KIT" if args.gun_kit else ""
+                line = f"GIVEGUN {(gun_seed + deaths) % 2 ** 28 * 7 + 3}{kit};{line}"
                 give_gun = False
             if args.waypoints and (d.get("waypoint") is None or wcfg.waypoint_every > 0) \
                     and tics - wp_tic >= (wcfg.waypoint_gap if d.get("waypoint") is None else wcfg.waypoint_every):
@@ -353,6 +371,8 @@ def watch(args, ckpt: Path, policy: Policy, device: torch.device) -> None:
             n += 1
             step_tics = max(int(d.get("tics") or 0), 0)
             tics += step_tics
+            if args.lockstep:      # -rlenv runs as fast as it can: hold it to game speed
+                time.sleep(max(0.0, tics / 35.0 - (time.monotonic() - t_start)))
             if wp_asked and d.get("waypoint") is not None:
                 wp_stats[0] += 1
             if any(ev.get("event") == "waypoint_reached" for ev in events):
@@ -390,7 +410,7 @@ def watch(args, ckpt: Path, policy: Policy, device: torch.device) -> None:
     print("\n".join(drive_summary(ckpt, f"{Path(cfg.iwad).stem} {args.warp}", why, n, counts, tics,
                                    dist, first, d,
                                    practice if args.spawn_tics > 0 or args.item_tics > 0 else None)))
-    if args.quit_at_end or why == "game error":
+    if args.quit_at_end or why == "game error" or args.lockstep:   # -rlenv waits for commands: no playing on
         engine.close()
     else:
         pid = engine.proc.pid if engine.proc else None

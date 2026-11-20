@@ -452,7 +452,9 @@ def add_env_args(p) -> None:
                    help="seed for the session's map choices (the --rotate-every order and --eval-maps "
                         "random); default: a fresh one each session, printed and saved in config.json")
     p.add_argument("--eval-episodes", type=int, default=2, help="rollouts per eval map")
-    p.add_argument("--skill", type=int, default=3)
+    p.add_argument("--skill", type=int, default=2,   # 3 before 2026-11-20
+                   help="Doom skill 1-5; 2 places the easy set of monsters (no skill-3 ambush closets) "
+                        "at normal damage")
     p.add_argument("--slots-dir", default=None, help="prepared save slots copied into each instance")
     p.add_argument("--slots", default="", help="start slots in --slots-dir, e.g. '3,4,5'")
     p.add_argument("--groups", type=int, default=None,

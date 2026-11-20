@@ -22,7 +22,7 @@ import gymnasium as gym
 from env import EnvConfig, EngineConfig, standin_consult  # registers DiabloDoom-v0
 
 game = gym.make("DiabloDoom-v0", config=EnvConfig(
-    engine=EngineConfig(warp="1 1", skill=3),
+    engine=EngineConfig(warp="1 1", skill=2),
     consult_handler=standin_consult,
 ))
 obs, info = game.reset(options={"slot": 5, "seed": 17, "group": 0})
