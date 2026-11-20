@@ -160,7 +160,7 @@ def test_frontier_start(monkeypatch):
     taken after the batch, copied to the group's other instance, and a
     reset from it puts the player at that rollout's end position; the map
     start is in slot 4 before, and again once the frontier is cleared."""
-    monkeypatch.setattr("model.FRONTIER_HP", 0)   # the walker gets hurt on E1M1
+    monkeypatch.setattr("model.Frontier._safe", staticmethod(lambda state: True))   # the walker gets hurt and hunted on E1M1
     from env import ACTIONS
     from env.vector import GroupVecEnv
     from model import FRONTIER_SLOT, Frontier, make_env

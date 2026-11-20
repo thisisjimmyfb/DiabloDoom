@@ -146,11 +146,14 @@ void RL_PlayerHurt(struct mobj_s *inflictor, struct mobj_s *source, int damage);
 // MONSTERS HIDE / SHOW (2026-11-18): every living map monster out of
 // the world or back in (MF_RLHIDDEN), for the env's no-combat rollouts.
 void RL_Monsters(boolean hide);
+// DRILL ON / OFF (-rlenv, 2026-11-20): the combat drill keeps one awake
+// monster ahead of the player, a new one as soon as it dies; a LOAD ends it.
+void RL_Drill(boolean on);
 
-// GIVEGUN <seed> [KIT] (2026-11-18): a random normal-tier gun equipped
-// (KIT, 2026-11-20: with gear for it); false when there is none the
-// player can use.
-boolean RL_GiveGun(unsigned seed, boolean kit);
+// GIVEGUN <seed> [KIT] [RANGED] (2026-11-18): a random normal-tier gun
+// equipped (KIT, 2026-11-20: with gear for it; RANGED, 2026-11-20: never
+// fists); false when there is none the player can use.
+boolean RL_GiveGun(unsigned seed, boolean kit, boolean ranged);
 // Explore detection found mo acquiring the player: if it is a practice
 // monster, remove it and return true (no combat); else false.
 struct mobj_s;

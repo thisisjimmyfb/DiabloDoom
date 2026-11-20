@@ -2600,14 +2600,21 @@ static void cmd_dispatch_one(const char *cmd)
         // rollouts take every living map monster out of the world.
         RL_Monsters(cmd[9] == 'H');
     }
+    else if (rlenv && (!strcmp(cmd, "DRILL ON") || !strcmp(cmd, "DRILL OFF")))
+    {
+        // DRILL ON / OFF (-rlenv, 2026-11-20): the training env's combat
+        // drill groups (RL_Drill).
+        RL_Drill(cmd[7] == 'N');
+    }
     else if (rldrive && !strncmp(cmd, "GIVEGUN ", 8))
     {
         // GIVEGUN <seed> [KIT] (-rlenv, and -rldrive for eval.py --iwad;
         // 2026-11-18): a random gun equipped at each rollout's start
-        // (RL_GiveGun; KIT, 2026-11-20: with gear for it).
+        // (RL_GiveGun; KIT, 2026-11-20: with gear for it; RANGED, 2026-11-20:
+        // never fists, for the combat drill).
         unsigned seed;
         if (sscanf(cmd + 8, "%u", &seed) == 1)
-            RL_GiveGun(seed, strstr(cmd + 8, "KIT") != NULL);
+            RL_GiveGun(seed, strstr(cmd + 8, "KIT") != NULL, strstr(cmd + 8, "RANGED") != NULL);
     }
     else if (!strcmp(cmd, "VERSION"))
     {

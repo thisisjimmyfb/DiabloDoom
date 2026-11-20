@@ -35,7 +35,14 @@ ACTIONS = [" ".join(k for k in ("PRESS", f + s + t, c) if k)
            for c in ("", "CTRL")] + ["USE", "CONSULT"]
 N_MOVE = 54                       # the PRESS actions, before USE and CONSULT
 CONSULT = ACTIONS.index("CONSULT")
+# The PRESS actions that turn (L or R; the CTRL key's letters don't count).
+TURNS = frozenset(i for i, a in enumerate(ACTIONS[:N_MOVE]) if set(a[6:].replace("CTRL", "")) & {"L", "R"})
 USE = ACTIONS.index("USE")
+# Combat drill (2026-11-20): the only actions a drill rollout samples --
+# strafe and fire (standing still included); its policy never turns.
+DRILL_ACTIONS = [ACTIONS.index(a) for a in ("PRESS", "PRESS CTRL", "PRESS A", "PRESS A CTRL",
+                                            "PRESS D", "PRESS D CTRL")]
+DRILL_MASK = np.isin(np.arange(len(ACTIONS)), DRILL_ACTIONS)
 # Each action's forward/back key: +1 W, -1 S, 0 none (strafes, A/D,
 # aren't tracked).
 MOVE_DIR = [(1 if "W" in a[6:].replace("CTRL", "") else -1 if "S" in a[6:].replace("CTRL", "") else 0)
@@ -45,6 +52,14 @@ FIRE = [a.endswith("CTRL") for a in ACTIONS]
 EXPLORE = "EXPLORE"
 COMBAT_MODES = {"PLANNING", "TARGETING", "CONFIRM", "PULSE", "REACTION", "ROUND_END"}
 ITEM_LIFE_TICS = 350    # a practice item lies 10 s (the engine's RL_ITEM_LIFE)
+
+
+# Range bands per weapon (2026-11-20; the state line's weapon, wp_*), map
+# units to the nearest monster in sight: fists and chainsaw up close
+# (melee range 64 plus a monster's radius), the rocket and BFG past their
+# 128-unit splash, the hitscan guns at medium to long range.
+RANGE_BANDS = {0: (0, 80), 1: (256, 768), 2: (128, 512), 3: (256, 768), 4: (192, 768),
+               5: (128, 640), 6: (192, 768), 7: (0, 80), 8: (64, 256)}
 
 
 @dataclass
@@ -119,7 +134,7 @@ class RewardConfig:
     # units/tic on its third tic from rest. 0 turns it off. (It replaced
     # the per-step straight-movement reward, 2026-11-15: a step is one
     # tic now, and this pays the unimpeded movement tic by tic.)
-    fast: float = 1 / 3 / 35
+    fast: float = 0.0                 # 1 / 3 / 35 before 2026-11-20
     fast_speed: int = 4
     # Forward only (2026-11-16): the fast pay is scaled by max(0, cos b),
     # b the angle between the step's movement (its x/y change) and the
@@ -159,6 +174,12 @@ class RewardConfig:
     # charge per L/R reversal, which made always turning one way the free
     # habit (the policy drifted to 81% right turns). 0 turns it off.
     turn_waste: float = -0.005
+    # Turning (2026-11-20): each tic a turn key (L or R) was held costs
+    # turn, all paid when the rollout ends; against the circling habit
+    # (a steady turn one way, which turn_waste never charges). Not while a
+    # monster is on screen at the step's start (the engine's foe_dist):
+    # turning is the only aim, so circle-strafing stays free (2026-11-20).
+    turn: float = -0.1                # -0.01 before 2026-11-20
     turn_waste_window: int = 8
     # The same for forward and back: W at most move_flip_window tics after
     # S, or S after W, costs move_flip. Strafing back and forth (A/D) is
@@ -212,6 +233,12 @@ class RewardConfig:
     damage: float = 11.25
     kill: float = 11.25
     fire_waste: float = -0.3          # -0.1 before 2026-11-19
+    # Range (2026-11-20): each map unit the nearest monster on screen,
+    # woken or not (the engine's foe_dist), moves toward the ready
+    # weapon's band in RANGE_BANDS pays range, each unit away costs it.
+    # Only the nearest, so many don't pay more; a change of distance, never a per-tic pay,
+    # so holding the band or stalling a fight earns nothing.
+    range: float = 0.01
     # One-off terms (2026-11-17): they judge only the step's own action,
     # so the learner adds them to that step's advantage alone instead of
     # summing them into every earlier step's reward-to-go
@@ -393,6 +420,8 @@ class DiabloDoomEnv(gym.Env):
         #   envs.set_attr("next_reset", [{"slot": 3, "seed": 17, "group": 0}, ...])
         self.next_reset: dict | None = None
         self._dmg_share = 0.0
+        self._turn_tics = 0
+        self._drill = False
         self._wp_on, self._wp, self._wp_tic, self._wp_stats = False, None, -10 ** 9, [0, 0]   # waypoints (reset sets them)
         self._wp_pending = False
         self._combat_on, self._combat_stats = False, [0, 0, 0, 0.0]   # combat (reset sets them)
@@ -512,14 +541,22 @@ class DiabloDoomEnv(gym.Env):
         # frame rendered from the loaded state.
         self.engine.command(f"LOAD {slot}")
         d, _ = self.engine.command(f"SEED {int(rng_seed) % 256}")
-        self._combat_on = (int(rng_seed) * 40503 + 7919) % 1000 / 1000.0 < self.cfg.combat
+        # A combat drill (options["drill"], 2026-11-20): no map monsters, the
+        # engine's DRILL keeps one awake monster ahead, no waypoints or clock.
+        self._drill = bool(opts.get("drill"))
+        self._combat_on = (int(rng_seed) * 40503 + 7919) % 1000 / 1000.0 < self.cfg.combat and not self._drill
         d, _ = self.engine.command("MONSTERS SHOW" if self._combat_on else "MONSTERS HIDE")
         if self.cfg.give_gun:
             # A random gun equipped (2026-11-18; the engine's GIVEGUN), the
             # same for the whole group (from its seed).
-            d, _ = self.engine.command(f"GIVEGUN {int(rng_seed) * 7 + 3}" + (" KIT" if self.cfg.gun_kit else ""))
+            # A drill never gets fists (RANGED, 2026-11-20): no melee there.
+            d, _ = self.engine.command(f"GIVEGUN {int(rng_seed) * 7 + 3}" + (" KIT" if self.cfg.gun_kit else "")
+                                       + (" RANGED" if opts.get("drill") else ""))
+        if self._drill:
+            d, _ = self.engine.command("DRILL ON")
         self._combat_stats = [0, 0, 0, 0.0]   # shots, hits, kills, damage dealt (HP)
         self._dmg_share = 0.0                  # monster HP shares removed (paid at the end)
+        self._turn_tics = 0                    # tics a turn key was held (RewardConfig.turn)
         # A progress save's visited list (the save doesn't store it; the
         # load reset it): VISIT in pieces that fit a command line.
         vis = self._installed_visited.get(slot)
@@ -569,7 +606,8 @@ class DiabloDoomEnv(gym.Env):
         self._update_triggers(d)
         # Waypoints (EnvConfig.waypoints): this group's on or off, from
         # its seed; the first one goes out with the first action.
-        self._wp_on = self.cfg.waypoints and (int(rng_seed) * 2654435761 % 1000) / 1000.0 >= self.cfg.waypoint_off
+        self._wp_on = (self.cfg.waypoints and not self._drill
+                       and (int(rng_seed) * 2654435761 % 1000) / 1000.0 >= self.cfg.waypoint_off)
         self._wp, self._wp_tic, self._wp_stats, self._wp_pending = None, -10 ** 9, [0, 0], False
         obs = self._stack.reset(self._frame())
         return obs, self._info(0, d)
@@ -651,13 +689,13 @@ class DiabloDoomEnv(gym.Env):
 
         # Time and distance: every tic costs time * (1 + d / far_scale),
         # d the distance to the nearest exit line or frontier portal.
-        # With a waypoint (EnvConfig.waypoints), the base rate, the term
-        # "waypoint_time" (2026-11-19; d the distance to it before), and
-        # the distance closed toward it, facing it, pays waypoint_look_approach.
+        # With a waypoint (EnvConfig.waypoints), the distance closed toward
+        # it, facing it, pays waypoint_look_approach. A group with waypoints
+        # has no clock (2026-11-20; "waypoint_time", the base rate, before):
+        # 5 fixed waypoint rewards and the rollout limit are its urgency.
         sec = rooms(d, self._best_sectors)
         goal = goal_dist(d)
         if wp is not None and "x" in prev and "x" in d:
-            add("waypoint_time", -rc.time * tics)
             closed = np.hypot(prev["x"] - wp[0], prev["y"] - wp[1]) - np.hypot(d["x"] - wp[0], d["y"] - wp[1])
             if abs(closed) <= 64:         # a jump (teleport) is not walking
                 facing = 1.0
@@ -665,7 +703,7 @@ class DiabloDoomEnv(gym.Env):
                     ang = np.degrees(np.arctan2(wp[1] - prev["y"], wp[0] - prev["x"])) - prev["angle"]
                     facing = max(0.0, float(np.cos(np.radians(ang))))
                 add("waypoint_look_approach", rc.waypoint_look_approach * float(closed) * facing)
-        elif tics > 0 and rc.time:
+        elif tics > 0 and rc.time and not self._wp_on and not self._drill:
             known = [g for g in (self._goal, goal) if g is not None]
             dist = sum(known) / len(known) if known else 0.0
             add("time", -rc.time * tics * (1.0 + dist / rc.far_scale))
@@ -723,6 +761,14 @@ class DiabloDoomEnv(gym.Env):
         # Keys: each colour pays once per rollout, when first held.
         new_keys = self._new_keys(d)
         add("key", rc.key * new_keys)
+
+        # Range (RewardConfig.range): distance moved toward the ready
+        # weapon's band from the nearest monster in sight.
+        if rc.range and prev.get("foe_dist", -1) >= 0 and d.get("foe_dist", -1) >= 0:
+            lo, hi = RANGE_BANDS.get(d.get("weapon"), (0, 10 ** 9))
+            off = lambda x: max(0, lo - x) + max(0, x - hi)
+            if abs(d["foe_dist"] - prev["foe_dist"]) <= 64:   # a jump: another monster
+                add("range", rc.range * float(off(prev["foe_dist"]) - off(d["foe_dist"])))
 
         # Practice item approach (RewardConfig.item_approach): distance
         # closed toward the item lying since the step began.
@@ -793,6 +839,11 @@ class DiabloDoomEnv(gym.Env):
                 truncated, end = True, "time"
             elif self._combat_steps >= self.cfg.max_combat_steps:
                 truncated, end = True, "combat"
+        if a in TURNS and prev.get("foe_dist", -1) < 0:   # aiming at a monster on screen is free
+            self._turn_tics += tics
+        # Turning, paid at the end (RewardConfig.turn).
+        if terminated or truncated:
+            add("turn", rc.turn * self._turn_tics)
         # Combat, paid at the end, nothing after a death (RewardConfig.damage).
         if terminated or truncated:
             hpf = 0.0 if d.get("dead") else 1.0
@@ -810,7 +861,9 @@ class DiabloDoomEnv(gym.Env):
         info["key"] = got_key             # the key goal reached (EnvConfig.key_goal)
         info["items"] = [getattr(self, "_items_spawned", 0), getattr(self, "_items_picked", 0)]
         info["consult_stats"] = list(self._consult_stats)
-        info["combat"] = [int(self._combat_on)] + list(self._combat_stats)   # on, shots, hits, kills, damage
+        # on (a drill counts: it fights), shots, hits, kills, damage
+        info["combat"] = [int(self._combat_on or self._drill)] + list(self._combat_stats)
+        info["drill"] = self._drill
         info["waypoints"] = list(self._wp_stats)   # [set, reached]
         info["terms"] = terms             # the reward by term
         info["reward_now"] = sum(v for t, v in terms.items() if t in rc.immediate)

@@ -96,8 +96,31 @@ def test_policy_update(rng, make_rollout):
     upd = policy_update(policy, torch.optim.Adam(policy.parameters(), lr=1e-3), None, batch, args, torch.device("cpu"))
     assert any(not torch.equal(a, b) for a, b in zip(before, policy.parameters()))
     assert {"pg_loss", "v_loss", "entropy", "approx_kl", "clipfrac"} <= set(upd)
+    # The split norms (value head, the rest) are each part of the clip's norm.
+    assert 0 < upd["pg_grad_norm"] <= upd["grad_norm"] + 1e-6 and 0 < upd["v_grad_norm"] <= upd["grad_norm"] + 1e-6
     m = train_metrics(back, len(gs), collapsed)
     assert m["steps"] == sum(r["len"] for r in back) and abs(m["collapsed_share"] - 1 / 3) < 1e-9
+
+
+def test_drill_update(rng, make_rollout):
+    """Combat drill rollouts (r["drill"]) are flagged per sample in the
+    batch; an update on drill samples alone (actions from DRILL_ACTIONS,
+    the rest masked to -inf) stays finite, and the entropy floor skips
+    them: their entropy is logged apart (drill_entropy, at most ln 6)."""
+    from env.env import DRILL_ACTIONS
+    gs = [[make_rollout(int(n)) for n in rng.integers(20, 40, 4)]]
+    for r in gs[0]:
+        r["drill"] = True
+        r["act"] = [DRILL_ACTIONS[int(a) % len(DRILL_ACTIONS)] for a in r["act"]]
+    advs, _ = group_advantages(gs, "outcome")
+    batch = build_batch(gs[0], advs, 0.999)
+    assert batch["drill"].all()
+    args = types.SimpleNamespace(epochs=1, minibatch=64, clip=0.2, ent_coef=0.1, ent_target=2.5,
+                                 vf_coef=0.5, beta=0.0, max_grad_norm=0.5)
+    policy = Policy()
+    upd = policy_update(policy, torch.optim.Adam(policy.parameters(), lr=1e-4), None, batch, args, torch.device("cpu"))
+    assert upd["nonfinite_steps"] == 0 and np.isfinite(upd["pg_loss"])
+    assert "entropy" not in upd and 0 < upd["drill_entropy"] <= np.log(len(DRILL_ACTIONS)) + 1e-4
 
 
 def _health_batch(rng, make_rollout):

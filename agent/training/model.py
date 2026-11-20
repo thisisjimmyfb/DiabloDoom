@@ -19,6 +19,7 @@ import torch.nn as nn
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from env import ACTIONS, CONSULT  # noqa: E402
+from env.env import DRILL_MASK  # noqa: E402
 
 # Warm-up uses movement only (no CONSULT, no fire: 2026-11-18), each action held for
 # WARMUP_HOLD tics (decisions are per tic: single random tics would
@@ -86,9 +87,10 @@ def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
         key_goal=key_goal,
         waypoints=waypoints,            # the env stands in for the VLM's WAYPOINT (EnvConfig)
         combat=1.0 if stage == 2 else combat,   # the share of groups that fight (EnvConfig)
-        # A fast tic pays back the clock's base rate (RewardConfig.fast);
-        # facing a way on pays up to half of it (RewardConfig.look).
-        rewards=RewardConfig(time=time_penalty / 35.0, fast=time_penalty / 35.0,
+        # Facing a way on pays up to half the clock (RewardConfig.look); no
+        # fast pay since 2026-11-20 (the clock's base rate before): with
+        # combat, moving for its own sake shouldn't pay.
+        rewards=RewardConfig(time=time_penalty / 35.0, fast=0.0,
                              look=time_penalty / 35.0 / 2, wall_look=-time_penalty / 35.0),
     ))
 
@@ -203,6 +205,19 @@ class Policy(nn.Module):
         logits = self.policy_head(h)
         value = self.value_head(torch.cat([h.detach(), priv], dim=1)).squeeze(1)
         return logits, value
+
+
+def drill_banned(device) -> torch.Tensor:
+    """Per action: True where a combat drill (2026-11-20) doesn't allow it."""
+    return torch.as_tensor(~DRILL_MASK, device=device)
+
+
+def mask_drill(logits: torch.Tensor, drill: torch.Tensor, banned: torch.Tensor) -> torch.Tensor:
+    """The logits with the actions a combat drill doesn't allow set to
+    -inf on the drill rows (drill: one bool per row; banned: per action)."""
+    if not bool(drill.any()):
+        return logits
+    return logits.masked_fill(drill[:, None] & banned[None, :], float("-inf"))
 
 
 def load_weights(path: str) -> dict:
@@ -462,6 +477,12 @@ def add_env_args(p) -> None:
                         "at most the logical cores minus 2; with more pairs than groups they take "
                         "turns, --rotate-every)")
     p.add_argument("--group-size", type=int, default=8)
+    p.add_argument("--drill-groups", type=int, default=2,
+                   help="of --groups, how many play the combat drill (2026-11-20): Ultimate Doom E1M1 (needs DOOM.WAD in --iwads), map monsters hidden, one awake monster ahead at a time and a new one when it dies (the engine's DRILL), strafe and fire only, no waypoints or clock; never in the map rotation or the frontier (0: none; none either when no other group would be left)")
+    p.add_argument("--drill", action="store_true",
+                   help="combat drill only (2026-11-20): every group plays the drill (see --drill-groups), no maze run, no map rotation or frontier; only the strafe and fire actions train")
+    p.add_argument("--drill-tics", type=int, default=1050,
+                   help="a combat drill rollout's limit in game tics (default 30 s)")
     p.add_argument("--max-tics", type=int, default=525,
                    help="rollout limit in game tics (35/s; default 15 s)")
     p.add_argument("--portal-goal", type=int, default=1,
@@ -494,9 +515,10 @@ def add_env_args(p) -> None:
                         "this; progress puts it back to --max-tics (cap <= --max-tics: off)")
     p.add_argument("--tics-growth", type=float, default=1.5,
                    help="factor the per-map tic budget grows by after a batch without progress")
-    p.add_argument("--warmup-max", type=int, default=40,
+    p.add_argument("--warmup-max", type=int, default=0,   # 40 before 2026-11-20
                    help="random warm-up actions per group start (0..N, each held for WARMUP_HOLD "
-                        "tics), for start-state variety")
+                        "tics), for start-state variety; off by default: with real-time combat "
+                        "the random walk got the player hurt or killed before the rollout began")
 
 
 # ---------------------------------------------------------------------------

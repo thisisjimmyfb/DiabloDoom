@@ -217,7 +217,9 @@ within USE range ahead (the env's wall_look penalty; its use_miss
 exemption until 2026-11-18), and (2026-11-17) `wall_line`, the index of the line
 `wall_dist` measures (the env's `use_wall` reward until 2026-11-18; unused since), and (2026-11-19)
 `hp_max` and `hunted` (a living monster in the player's sector targets the player), the
-frontier save checks -- reward shaping only, never
+frontier save checks, and (2026-11-20) `foe_dist`, the distance to the nearest
+living monster on screen (in sight, within the 90-degree view), woken
+or not (-1 none), the env's range reward -- reward shaping only, never
 a policy input, so the 2026-10-21 no-oracle ruling for the farm agent
 stands.
 Automap (2026-11-14): it also carries `automap` (the map is on screen).
@@ -284,8 +286,14 @@ and for the BFG Mara's Kaleidoscope +8 as well); `GIVEGUN <seed> KIT`
 the best piece of any tier, never one with vitality (max HP stays 100):
 fists the most armour in helm, armour and shield and the most strength
 elsewhere, an AD gun the most AD, an AP gun the most AP (a flat point
-counted as 5%); the env sends it (with KIT, `EnvConfig.gun_kit`) at
-every rollout's start. Every CONSULT shows `CMD CONSULT` (`CONSULT` before 2026-11-18) as the status message
+counted as 5%); `GIVEGUN <seed> ... RANGED` (2026-11-20) never picks fists (the
+combat drill's: no melee there); the env sends it (with KIT, `EnvConfig.gun_kit`) at
+every rollout's start. `DRILL ON` / `DRILL OFF` (`-rlenv`, 2026-11-20,
+`RL_Drill`): the training env's combat drill keeps one awake monster (zombieman,
+shotgun guy, imp or demon) 192-768 units ahead within 20 degrees of the facing, in
+sight, targeting the player; a new one as soon as it dies, and one off screen for 1 s
+is replaced (the drill's policy only strafes); a normal monster, not a practice one; a
+LOAD ends the drill. Every CONSULT shows `CMD CONSULT` (`CONSULT` before 2026-11-18) as the status message
 (under `-rlenv` too since 2026-11-17, when the env forwards every policy
 CONSULT), so a watcher sees the policy asked for the hand-off. Practice items (`-rlitems <tics>`,
 `-rlenv` or `-rldrive`, 2026-11-17): the same way, one random Diablo loot item at

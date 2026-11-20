@@ -116,9 +116,10 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   "path": at the state line's `path_ahead` instead, about 192 units along
   the walking path, 16-unit noise), keeps it
   until it is reached, and sets the next 1 s after one is reached; 30% of groups get
-  none. While one is set the clock's distance is the straight distance to
-  it (the term `waypoint` instead of `time`), and `fast` and `look` point
-  at it; without one `fast` pays running along the facing and `look`
+  none. A group with waypoints has no clock (2026-11-20; before, while one
+  was set, the clock ran as `waypoint_time`): its 5 fixed `waypoint`
+  rewards and the rollout limit are the urgency. While one is set `fast`
+  points at it and `look` pays nothing; without one `fast` pays running along the facing and `look`
   nothing. The rollout log and metrics count them (`waypoints` [set,
   reached]; the console's `wp` is reached / set). `eval.py` sets them
   too: its scoring run through the same env, and `--iwad` (watching) on
@@ -139,7 +140,8 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   of S, or S of W; strafing back and forth is free.
   USE earns only `mechanism` (`use_miss` and `use_wall` removed
   2026-11-18).
-  Fast movement pays back the clock only going forward (`fast_forward`,
+  Fast movement (`fast`, 0 since 2026-11-20: with combat, moving for its
+  own sake shouldn't pay) paid back the clock only going forward (`fast_forward`,
   2026-11-16): scaled by the cosine between the movement and the way on
   (`fast_path`, 2026-11-17: the path direction, else the nearest
   unvisited portal's; with neither, the facing), so running a circle or
@@ -242,7 +244,7 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   size (asking for another stops), and `eval.py` reads it from the
   checkpoint. A batch's frames take steps * 4 * W * H bytes (at 70,000
   steps: 2.9 GB at 128x80, 4.5 GB at 160x100, 18 GB at 320x200). On the GPU each `--minibatch`
-  (8192) runs in `--micro-batch` pieces (2048) whose gradients add up to
+  (4096; 8192 before 2026-11-20) runs in `--micro-batch` pieces (2048) whose gradients add up to
   the minibatch's before its one optimizer step: the same update, less
   memory (a whole 8192 minibatch at 160x100 peaks at 10.2 GB and ran out
   of the RTX 5080's 16 GB in training; 4096 peaks at 5.2 GB, 2048 at
@@ -274,10 +276,19 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   (50 batches) with 14 groups (16 logical cores). Eval runs every eval map on
   every IWAD, and metrics add `sectors_<iwad>`/`exit_rate_<iwad>`. Save
   slots are IWAD-specific, so `--slots` needs a single IWAD. All members of a
-  group start from the same slot, seed and `--warmup-max` random warm-up
-  actions (each held for 15 tics), so only action sampling separates them. Until prepared save
-  slots exist (`--slots-dir`, `--slots`), the warm-up is what varies the
-  start states.
+  group start from the same slot and seed, so only action sampling separates
+  them. The random warm-up (`--warmup-max`, up to that many random moves
+  held 15 tics each before the rollout) is off since 2026-11-20 (40 before):
+  with real-time combat it walked the player into monsters that could not
+  be fought back, and 14% of rollouts started dying on their first tic; the
+  policy's own sampling is the variety.
+- **Combat drill** (2026-11-20, `--drill-groups` 2, `--drill-tics` 1050): the last groups
+  always play Ultimate Doom E1M1 (DOOM.WAD must be in `--iwads`) with the map monsters hidden
+  and one awake monster ahead at a time (the engine's `DRILL ON`), sampling only strafe and
+  fire, no waypoints or clock; outside the rotation and the frontier, mixed into every batch.
+  Drill rollouts count in the metrics like any other, marked `"drill": true` in
+  `rollouts.jsonl`; the console's `dent` is their entropy (`ent` the other groups'); see SPEC.md §5.3. `--drill` trains the drill alone: every
+  group drills, no maze run (only the strafe and fire actions train, so mix the maze back in after).
 - **Advantage:** group-normalized return (`--advantage outcome`) or the
   process variant (`process`): per-step rewards normalized across the
   group and summed from each step on (the sums scaled to unit std over

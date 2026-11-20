@@ -386,6 +386,44 @@ def test_item_approach():
     assert got == [0, 0.1, 0], got
 
 
+def test_range():
+    """Each unit the nearest monster in sight moves toward the ready
+    weapon's band (RANGE_BANDS) pays range, each unit away costs it;
+    inside the band, with no monster, or on a jump (another monster)
+    nothing. Engine faked, one tic per step."""
+    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
+                        consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
+                        fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0, range=0.01)
+
+    def at(foe, weapon=4):                       # the rocket launcher: 192..768
+        return {"mode": "EXPLORE", "hp": 100, "tics": 1, "x": 0, "y": 0, "weapon": weapon, "foe_dist": foe}, []
+    walk = ACTIONS.index("PRESS W")
+    e = _fake_explore(only, [at(100), at(150), at(130), at(300), at(320), at(-1), at(500), at(800), at(810)])
+    got = [round(e.step(walk)[1], 6) for _ in range(9)]
+    assert got == [0, 0.5, -0.2, 0, 0, 0, 0, 0, -0.1], got
+    e = _fake_explore(only, [at(100, 0), at(60, 0), at(40, 0)])       # fists: 0..80
+    got = [round(e.step(walk)[1], 6) for _ in range(3)]
+    assert got == [0, 0.2, 0], got
+
+
+def test_turn():
+    """Each tic a turn key was held costs turn, all paid when the rollout
+    ends; CTRL alone isn't a turn, nor a turn with a monster on screen
+    (foe_dist) at the step's start. Engine faked, one tic per step."""
+    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
+                        consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
+                        fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0, range=0, turn=-1.0)
+
+    def at(foe=-1):
+        return {"mode": "EXPLORE", "hp": 100, "tics": 1, "x": 0, "y": 0, "foe_dist": foe}, []
+    # The state after step 2 has a monster on screen, so step 3's turn is free.
+    e = _fake_explore(only, [at(), at(300), at(), at(), at()])
+    e.cfg.max_tics = 5
+    acts = ["PRESS WL", "PRESS CTRL", "PRESS DL", "PRESS DR CTRL", "PRESS W"]
+    got = [e.step(ACTIONS.index(a))[1] for a in acts]
+    assert got == [0, 0, 0, 0, -2.0], got
+
+
 def test_door_pays_once():
     """A door's own sector never pays (the engine's door_sectors): walking
     through a door pays the sector reward once, for the room behind it,
@@ -908,7 +946,7 @@ def test_portal_goal():
     load (VISIT), so the next rollout's goal is a sector beyond it."""
     only = RewardConfig(sector=15.0, exit=0, mechanism=0, consult_hit=0,
                         trigger_miss=0, consult_false=0, key=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0, fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0,
-                        time=0.01, far_scale=1e12)   # time and sector only
+                        time=0.01, far_scale=1e12, range=0, turn=0)   # time and sector only
     e = DiabloDoomEnv(EnvConfig(engine=EngineConfig(warp="1 1", extra_args=["--eval"]), rewards=only,
                                 max_tics=100000, portal_goal=1, consult_handler=standin_consult))
     try:
@@ -993,8 +1031,8 @@ def test_fast_path():
 
 def test_waypoints():
     """EnvConfig.waypoints: the first step sends WAYPOINT at path_ahead with
-    the action; the clock runs at its base rate (term "waypoint_time", not
-    "time"), the distance closed facing it pays waypoint_look_approach
+    the action; no clock runs (no "time"; "waypoint_time" before
+    2026-11-20), the distance closed facing it pays waypoint_look_approach
     (look pays nothing), fast points at it; reaching it pays waypoint and clears it, and the next comes
     waypoint_gap tics later. Engine faked."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
@@ -1032,7 +1070,7 @@ def test_waypoints():
     _, _, _, _, i1 = e.step(w)
     assert sent[0] == "WAYPOINT 100 0;PRESS W"
     t = i1["terms"]
-    assert "time" not in t and t["waypoint_time"] == pytest.approx(-1.0)
+    assert "time" not in t and "waypoint_time" not in t
     assert t["waypoint_look_approach"] == pytest.approx(0.01 * 10)   # distance 100 -> 90, facing it
     assert t["fast"] == pytest.approx(1.0) and "look" not in t
     _, _, _, _, i2 = e.step(w)
@@ -1081,10 +1119,10 @@ def test_waypoints_sector():
     w = ACTIONS.index("PRESS W")
     _, _, _, _, i1 = e.step(w)
     assert sent[0].startswith("WAYPOINT RANDOM ") and sent[0].endswith(" 256;PRESS W")
-    assert e._wp is None and i1["waypoints"] == [0, 0] and "time" in i1["terms"]
+    assert e._wp is None and i1["waypoints"] == [0, 0] and "time" not in i1["terms"]
     _, _, _, _, i2 = e.step(w)                         # 1 tic later: asks again
     assert sent[1].startswith("WAYPOINT RANDOM ")
-    assert e._wp == (50, 60) and i2["waypoints"] == [1, 0] and "waypoint_time" in i2["terms"]
+    assert e._wp == (50, 60) and i2["waypoints"] == [1, 0] and "waypoint_time" not in i2["terms"]
     for _ in range(300):                               # kept until reached: never replaced
         e.step(w)
     assert not any(l.startswith("WAYPOINT") for l in sent[2:]) and e._wp == (50, 60)

@@ -1251,6 +1251,34 @@ void RL_EmitState(const char *why, int tics)
             RL_PUT(",\"hp_max\":%d,\"hunted\":%s", D_MaxHealth(p),
                    hunted ? "true" : "false");
         }
+        // foe_dist (2026-11-20, the env's range reward): map units to the
+        // nearest living monster on screen (line of sight, within the
+        // 90-degree view, as monstervis: the policy must see it), woken or
+        // not (the policy can't tell which), -1 when none.
+        {
+            thinker_t *th;
+            int best = -1;
+            for (th = thinkercap.next; th != &thinkercap; th = th->next)
+            {
+                mobj_t *m;
+                int dist, rel;
+                if (th->function.acp1 != (actionf_p1) P_MobjThinker)
+                    continue;
+                m = (mobj_t *) th;
+                if (m->player != NULL || m->health <= 0
+                    || (m->flags & (MF_RLHIDDEN | MF_RLPRACTICE))
+                    || !((m->flags & MF_COUNTKILL) || m->type == MT_SKULL))
+                    continue;
+                dist = P_AproxDistance(m->x - mo->x, m->y - mo->y) >> FRACBITS;
+                if (dist > 2048 || (best >= 0 && dist >= best))
+                    continue;
+                rel = RL_AngleDeg(R_PointToAngle2(mo->x, mo->y, m->x, m->y) - mo->angle);
+                if ((rel > 45 && rel < 315) || !P_CheckSight(mo, m))
+                    continue;
+                best = dist;
+            }
+            RL_PUT(",\"foe_dist\":%d", best);
+        }
         // automap: the map is on screen (Tab or the driver's MAP); the
         // env's forced map glances check it before sending MAP.
         RL_PUT(",\"automap\":%s,\"forced_map\":%s", automapactive ? "true" : "false",
@@ -1365,6 +1393,15 @@ static uint32_t rl_spawn_rng = 1;
 static mobj_t *rl_spawned[RL_SPAWN_MAX];
 static int rl_spawned_age[RL_SPAWN_MAX];
 static boolean rl_spawn_purge;          // level set up: remove practice monsters from a save
+static boolean rl_drill;                // DRILL ON (2026-11-20): an awake monster ahead, always
+static mobj_t *rl_drill_mo;             // the drill's live monster
+static int rl_drill_lost;               // tics it has been off screen
+#define RL_DRILL_NEAR    192
+#define RL_DRILL_FAR     768
+#define RL_DRILL_VIEW    20
+#define RL_DRILL_TRIES   24
+#define RL_DRILL_LOST    TICRATE        // off screen this long: replaced (the policy can't turn)
+static boolean RL_TryDrillSpawn(mobj_t *pmo);
 
 static uint32_t RL_SpawnRand(void)
 {
@@ -1385,6 +1422,8 @@ void RL_LevelSetup(void)
     rl_passage_dirty = true;
     rl_graph_dirty = true;
     rl_spawn_purge = true;   // a LOAD unarchives the save's mobjs after this
+    rl_drill = false;        // a LOAD ends a drill: the env sends DRILL ON again
+    rl_drill_mo = NULL;
 }
 
 // A tracked pointer is used only after finding it in the thinker list
@@ -1707,6 +1746,28 @@ void RL_SpawnTick(void)
         && RL_SpawnRand() % (uint32_t) rl_item_period == 0 && !RL_PracticeExists(false))
         RL_TrySpawnItem(pl->mo);
 
+    if (rl_drill)
+    {
+        if (rl_drill_mo != NULL && (!RL_IsLive(rl_drill_mo) || rl_drill_mo->health <= 0))
+            rl_drill_mo = NULL;
+        if (rl_drill_mo != NULL)
+        {
+            // On screen: in sight within the 90-degree view (as foe_dist).
+            mobj_t *m = rl_drill_mo, *pmo = pl->mo;
+            int rel = RL_AngleDeg(R_PointToAngle2(pmo->x, pmo->y, m->x, m->y) - pmo->angle);
+            boolean seen = (rel <= 45 || rel >= 315) && P_CheckSight(pmo, m);
+            rl_drill_lost = seen ? 0 : rl_drill_lost + 1;
+            if (rl_drill_lost >= RL_DRILL_LOST)
+            {
+                P_RemoveMobj(m);
+                rl_drill_mo = NULL;
+                T_RefreshTargets();
+            }
+        }
+        if (rl_drill_mo == NULL)
+            RL_TryDrillSpawn(pl->mo);
+    }
+
     if (rl_spawn_period == 0)
         return;
 
@@ -1733,6 +1794,56 @@ void RL_SpawnTick(void)
     }
     if (live == 0 && RL_SpawnRand() % (uint32_t) rl_spawn_period == 0 && !RL_PracticeExists(true))
         RL_TrySpawn(pl->mo);
+}
+
+// Combat drill (DRILL ON, -rlenv, 2026-11-20): one awake monster at a time,
+// RL_DRILL_NEAR..RL_DRILL_FAR units ahead within RL_DRILL_VIEW degrees of
+// the facing (the drill's policy only strafes, so it must be lined up by
+// strafing), in sight, targeting the player and running its see state; a
+// new one as soon as it dies. A normal monster, not a practice one: it
+// fights, drops loot and counts as a kill.
+
+static boolean RL_TryDrillSpawn(mobj_t *pmo)
+{
+    static const mobjtype_t types[] = { MT_POSSESSED, MT_SHOTGUY, MT_TROOP, MT_SERGEANT };
+    int attempt;
+
+    for (attempt = 0; attempt < RL_DRILL_TRIES; attempt++)
+    {
+        int dist = RL_DRILL_NEAR + (int) (RL_SpawnRand() % (RL_DRILL_FAR - RL_DRILL_NEAR + 1));
+        int deg = (int) (RL_SpawnRand() % (2 * RL_DRILL_VIEW + 1)) - RL_DRILL_VIEW;
+        angle_t an = pmo->angle + (angle_t) ((int64_t) deg * (ANG90 / 90));
+        mobjtype_t type = types[RL_SpawnRand() % (sizeof(types) / sizeof(types[0]))];
+
+        for (; dist >= RL_DRILL_NEAR; dist = dist * 3 / 4)
+        {
+            fixed_t x = pmo->x + dist * finecosine[an >> ANGLETOFINESHIFT];
+            fixed_t y = pmo->y + dist * finesine[an >> ANGLETOFINESHIFT];
+            mobj_t *mo = P_SpawnMobj(x, y, ONFLOORZ, type);
+
+            if (!P_CheckPosition(mo, x, y) || !P_CheckSight(pmo, mo)
+                || mo->subsector->sector->ceilingheight - mo->floorz < mo->height)
+            {
+                P_RemoveMobj(mo);
+                continue;
+            }
+            mo->angle = R_PointToAngle2(x, y, pmo->x, pmo->y);   // facing the player
+            mo->target = pmo;
+            P_SetMobjState(mo, mo->info->seestate);
+            rl_drill_mo = mo;
+            rl_drill_lost = 0;
+            T_RefreshTargets();
+            return true;
+        }
+    }
+    return false;
+}
+
+void RL_Drill(boolean on)
+{
+    rl_drill = on;
+    if (!on)
+        rl_drill_mo = NULL;
 }
 
 boolean RL_PracticeAcquired(mobj_t *mo)
@@ -1862,7 +1973,7 @@ static void RL_GiveKit(player_t *pl, boolean *used, int mode)
     }
 }
 
-boolean RL_GiveGun(unsigned seed, boolean kit)
+boolean RL_GiveGun(unsigned seed, boolean kit, boolean ranged)
 {
     player_t *pl = &players[consoleplayer];
     int ids[64], n = 0, i, t, id;
@@ -1887,8 +1998,10 @@ boolean RL_GiveGun(unsigned seed, boolean kit)
             ids[n++] = D_MAKEITEM(TIER_NORMAL, i);
     }
     // Fists count as one more choice (2026-11-18): the weapon slot left
-    // empty.
-    i = (int) ((seed * 2654435761u >> 8) % (unsigned) (n + 1));
+    // empty. Not with ranged (2026-11-20, the combat drill).
+    if (ranged && n == 0)
+        return false;
+    i = (int) ((seed * 2654435761u >> 8) % (unsigned) (ranged ? n : n + 1));
     if (i == n)
     {
         pl->diablo_equipped[ESLOT_WEAPON] = D_NOITEM;

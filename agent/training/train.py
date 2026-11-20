@@ -84,6 +84,12 @@ def parse_args():
     return p.parse_args()
 
 
+def labels_of(env_pairs: list, iwads: list, n_reg: int) -> list[str]:
+    """Each env's label for the logs: its IWAD and map, "DRILL" for the
+    combat drill groups' envs (from n_reg on)."""
+    return [env_label(w, m, iwads) if i < n_reg else "DRILL" for i, (w, m) in enumerate(env_pairs)]
+
+
 def format_duration(seconds: float) -> str:
     """A wall-clock duration as h:mm:ss (days added past 24 hours)."""
     s = int(round(seconds))
@@ -115,7 +121,23 @@ def main():
     G, groups = args.group_size, args.groups
     n_envs = G * groups
     check_slots(iwads, slots)
-    rotation = MapRotation(iwads, maps, groups, args.rotate_every, rng=map_rng)
+    # Combat drill groups (--drill-groups, 2026-11-20): the last groups,
+    # pinned to Ultimate Doom E1M1, outside the rotation, frontier and tic
+    # budget; the other groups rotate as before.
+    drill_iwad = next((w for w in iwads if w and iwad_label(w).upper() == "DOOM"), None)
+    if args.drill and not drill_iwad:
+        raise SystemExit("--drill needs DOOM.WAD (Ultimate Doom) in --iwads")
+    D = (groups if args.drill else args.drill_groups) if drill_iwad else 0
+    if args.drill_groups and not drill_iwad:
+        print("[train] --drill-groups: no DOOM.WAD in --iwads, so no combat drill groups")
+    if D >= groups and not args.drill:
+        print(f"[train] --drill-groups {D} would leave no other groups of --groups {groups}: "
+              f"no combat drill groups this run")
+        D = 0
+    n_reg_groups, n_reg = groups - D, G * (groups - D)
+    # --drill (every group drills): a placeholder rotation no env plays.
+    rotation = MapRotation(iwads, maps if n_reg_groups else maps[:1], max(n_reg_groups, 1),
+                           args.rotate_every if n_reg_groups else 0, rng=map_rng)
 
     # SIGTERM (the execution environment stopping) -> clean shutdown;
     # the last checkpoint is at the previous update boundary.
@@ -156,13 +178,13 @@ def main():
           f"maps {maps}, eval {eval_maps}, {n_params / 1e6:.2f}M params, "
           f"obs {args.obs_size[0]}x{args.obs_size[1]}, device {device}, map seed {args.map_seed}")
     print(f"[train] iwads {[iwad_label(w) for w in iwads]}; groups: "
-          f"{[env_label(w, m, iwads) for w, m in group_pairs]}")
+          f"{[env_label(w, m, iwads) for w, m in group_pairs] if n_reg_groups else 'every group drills (--drill)'}")
     if rotation.every:
         print(f"[train] {rotation.n_pairs} IWAD/map pairs, {groups} groups: they move on to the next "
               f"pairs every {rotation.every} batches (a full cycle is "
               f"{-(-rotation.n_pairs // groups) * rotation.every} batches)")
 
-    env_pairs = [group_pairs[i // G] for i in range(n_envs)]
+    env_pairs = [group_pairs[i // G] for i in range(n_reg)] + [(drill_iwad, "1 1")] * (n_envs - n_reg)
     replays = run_dir / "replays"
     captures = capture_dirs(env_pairs, args.capture_envs, replays)
     vec = GroupVecEnv([run_env(args, slots, w, m, captures[i]) for i, (w, m) in enumerate(env_pairs)])
@@ -173,7 +195,11 @@ def main():
     metrics_f = open(run_dir / "metrics.jsonl", "a")
     # One row per training rollout, for debugging (rollout.rollout_log_rows).
     rollouts_f = open(run_dir / "rollouts.jsonl", "a")
-    env_labels = [env_label(w, m, iwads) for w, m in env_pairs]
+    env_labels = labels_of(env_pairs, iwads, n_reg)
+    if D:
+        vec.call(list(range(n_reg, n_envs)), "set_max_tics", (args.drill_tics,))
+        print(f"[train] {D} combat drill groups on {iwad_label(drill_iwad)} E1M1, "
+              f"{args.drill_tics} tics a rollout")
 
     eval_busy = False   # an eval was interrupted: its games still have requests in flight
 
@@ -196,25 +222,29 @@ def main():
         actor.requires_grad_(False)
 
     # Frontier starts: each map's best rollout end state so far.
-    frontier = Frontier(args.frontier, env_pairs, patience=args.frontier_patience)
-    budget = TicBudget(env_pairs, args.max_tics, args.max_tics_cap, args.tics_growth)
-    print(f"[train] rollout limit {args.max_tics} tics per map, growing x{args.tics_growth} after a batch "
-          f"without progress, up to {budget.cap}")
+    frontier = Frontier(args.frontier, env_pairs[:n_reg], patience=args.frontier_patience)
+    budget = TicBudget(env_pairs[:n_reg], args.max_tics, args.max_tics_cap, args.tics_growth)
+    if n_reg:
+        print(f"[train] rollout limit {args.max_tics} tics per map, growing x{args.tics_growth} after a batch "
+              f"without progress, up to {budget.cap}")
 
     def play(it: int) -> tuple[list[dict], float]:
         """The batch for update `it`."""
         nonlocal group_pairs, env_pairs, env_labels
         t = time.time()
         new = rotation.at(it)
-        if new is not None:
-            pairs = [new[i // G] for i in range(n_envs)]
-            moved = move_groups(vec, frontier, budget, env_pairs, pairs)
-            group_pairs, env_pairs = new, pairs
-            env_labels = [env_label(w, m, iwads) for w, m in env_pairs]
+        if new is not None and n_reg:
+            pairs = [new[i // G] for i in range(n_reg)]
+            moved = move_groups(vec, frontier, budget, env_pairs[:n_reg], pairs)
+            group_pairs, env_pairs = new, pairs + env_pairs[n_reg:]
+            env_labels = labels_of(env_pairs, iwads, n_reg)
             print(f"[train] rotation {rotation.rotation}: groups now play "
                   f"{[env_label(w, m, iwads) for w, m in group_pairs]} ({len(moved)} envs restart)")
-        options = frontier.options(sample_group_options(sampler, groups, G, slots, args.warmup_max),
+        options = frontier.options(sample_group_options(sampler, n_reg_groups, G, slots, args.warmup_max),
                                    G)
+        for d in range(D):                  # combat drill groups: the map start, every time
+            seed = int(sampler.integers(256))
+            options += [{"seed": seed, "group": n_reg_groups + d, "drill": True} for _ in range(G)]
         budget.apply(vec)
         with nvtx("rollout"):
             recs = run_rollouts(vec, actor, device, options)
@@ -222,11 +252,11 @@ def main():
             r["iwad"] = iwad_label(env_pairs[i][0])
             r["frontier"] = bool(options[i].get("frontier"))
         # Before the next reset: every game is still where its rollout ended.
-        saved = frontier.update(vec, recs, hold=budget.growing())
+        saved = frontier.update(vec, recs[:n_reg], hold=budget.growing())
         recs[0]["frontier_saved"] = saved
         if rotation.every:
             recs[0]["groups"] = [env_label(w, m, iwads) for w, m in group_pairs]
-        changed = budget.update(recs, cleared={k for k, v in saved.items() if v is None})
+        changed = budget.update(recs[:n_reg], cleared={k for k, v in saved.items() if v is None})
         if changed:
             print(f"[train] rollout limit (tics): {changed}")
         write_rollout_log(rollouts_f, recs, options, env_labels, frontier, iteration=it)
@@ -306,7 +336,7 @@ def main():
             t_all = time.time() - t0
 
             batch = None    # free the batch's frames before the next one is played
-            m = train_metrics(recs, groups, collapsed)
+            m = train_metrics(recs, groups, collapsed)   # drill rollouts too (marked in rollouts.jsonl)
             total_steps += m["steps"]
             total_tics += m["tics"]
             # Rollout wall time by phase (rollout.run_rollouts): env steps (the
