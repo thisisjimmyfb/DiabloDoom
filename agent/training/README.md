@@ -279,8 +279,10 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   turn_waste, wall_look; 2026-11-17), which count on their own step only,
   since they judge just that action and later steps don't follow from it. Zero-variance groups are dropped and
   reported as `collapsed_share`.
-- **Loss:** clipped ratio (`--clip` 0.2), `--epochs` 4, entropy bonus
-  `--ent-coef` 0.01, and an optional KL to a reference policy
+- **Loss:** clipped ratio (`--clip` 0.2), `--epochs` 4, an entropy
+  floor per state (2026-11-19; a plain bonus at 0.01 before): only states
+  with entropy under `--ent-target` 1.0 nats pay `--ent-coef` 0.1 x the
+  shortfall (`--ent-target 0 --ent-coef 0.01` is the old bonus), and an optional KL to a reference policy
   (`--ref`, `--beta`).
 - **Frontier starts:** a rollout stops at `--max-tics` (or at the portal
   or key goal), so on its own training would only ever see the start of each
@@ -451,12 +453,12 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   game: a captured env plays the same as an uncaptured one. A captured
   env produces roughly 5 game-minutes of footage per real minute, so
   watch disk use on long runs.
-- **No blit (`--noblit`, train.sh's default):** the games launch with
+- **No blit (`--noblit`, the default; train.sh's before 2026-11-19):** the games launch with
   `-noblit`, which skips the SDL blit (`I_FinishUpdate`) that nobody sees
   in a headless game: about 4x more decisions per second for one env
   (measured 2026-11-14: 1208/s against 295/s). The frame the policy sees
   and the replays come from the game's 8-bit buffer, so they are
-  byte-identical. `./train.sh --no-noblit` blits as before.
+  byte-identical. `--no-noblit` blits as before.
   `--nodraw` (opt-in, benchmarks only) skips rendering as well, about 6x,
   but then the frame is never drawn, so the policy is blind, and replay
   capture is off.
@@ -577,8 +579,9 @@ fixtures (fake rollouts) in `tests/conftest.py`:
   and explore strafes.
 - `test_model.py`: IWAD/group allocation, map rotation and moving groups,
   `--maps all`, progress saves (frontier), tic budgets, checkpoints (one
-  file, corrupt stops), RNG restore, `--obs-size` and the
-  Hub pull and push (with a fake `hf`).
+  file, corrupt stops), RNG restore and `--obs-size`.
+- `test_hub.py`: the Hub pull and push, stuck uploads and `eval.py`'s
+  download (with a fake `hf`).
 - `test_rollout.py`: group starts and warm-up actions.
 - `test_learn.py`: advantages, value targets and the update.
 - `test_eval.py`: `eval.py` refuses a checkpoint from another action set;

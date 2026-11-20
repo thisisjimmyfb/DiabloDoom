@@ -6,7 +6,7 @@
 #                                    # the checkpoint is pulled from / pushed to the Hub
 #   ./train.sh --smoke               # smallest run: 1 group of 2 per IWAD, 1 iteration, no eval
 #   ./train.sh --run-dir runs/x ...  # any train.py arguments pass through
-#   ./train.sh --no-noblit           # also blit (games run with -noblit by default)
+#   ./train.sh --no-noblit           # also blit (train.py runs the games with -noblit by default)
 #   ./train.sh --capture             # record continuous replay (off by default): the first
 #                                    # training env of each IWAD -> <run-dir>/replays/
 #   ./train.sh --no-hub              # don't pull from / push to the Hugging Face repo
@@ -151,10 +151,6 @@ add_iwads() {
     fi
 }
 add_run_dir() { has_arg run-dir || pre+=(--run-dir "$RUN_DIR"); }
-# Games launch with -noblit (skip the SDL blit nobody sees headless: about
-# 4x more decisions/s, frames and replays unchanged) unless --no-noblit
-# (or --noblit) is given.
-add_noblit() { has_arg noblit || has_arg no-noblit || pre+=(--noblit); }
 # Replay capture (--continuous-capture in the games) only with --capture:
 # the first training env of each IWAD records (unless --capture-envs is
 # given).
@@ -180,10 +176,10 @@ case "$MODE" in
         # each), one update, one checkpoint. Not enough to learn anything.
         n_smoke=${#IWADS[@]}
         has_arg iwads && n_smoke=1
-        add_iwads; add_noblit
+        add_iwads
         exec "$PY" train.py --run-dir runs/smoke --groups "$n_smoke" --group-size 2 \
             --iterations 1 --max-tics 350 --eval-maps "" --capture-envs 0 "${pre[@]}" "$@" ;;
     train)
-        add_run_dir; add_iwads; add_noblit; add_capture; add_hub
+        add_run_dir; add_iwads; add_capture; add_hub
         exec "$PY" train.py "${pre[@]}" "$@" ;;
 esac

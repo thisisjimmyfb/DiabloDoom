@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 import torch
 
-from learn import GRAD_WARMUP, build_batch, group_advantages, train_metrics, training_health, update, value_targets
+from learn import GRAD_WARMUP, build_batch, entropy_loss, group_advantages, train_metrics, training_health, policy_update, value_targets
 from model import DEFAULT_OBS_SIZE, Policy
 
 @pytest.fixture
@@ -76,7 +76,7 @@ def test_value_targets():
     assert np.allclose(value_targets(rew, tics, 1.0), [3.0, 2.0, 2.0])
 
 
-def test_update(rng, make_rollout):
+def test_policy_update(rng, make_rollout):
     """build_batch keeps only rollouts with an advantage; one update
     changes the weights."""
     G = 4
@@ -93,7 +93,7 @@ def test_update(rng, make_rollout):
                                  beta=0.0, max_grad_norm=0.5)
     policy = Policy()
     before = [p.detach().clone() for p in policy.parameters()]
-    upd = update(policy, torch.optim.Adam(policy.parameters(), lr=1e-3), None, batch, args, torch.device("cpu"))
+    upd = policy_update(policy, torch.optim.Adam(policy.parameters(), lr=1e-3), None, batch, args, torch.device("cpu"))
     assert any(not torch.equal(a, b) for a, b in zip(before, policy.parameters()))
     assert {"pg_loss", "v_loss", "entropy", "approx_kl", "clipfrac"} <= set(upd)
     m = train_metrics(back, len(gs), collapsed)
@@ -119,13 +119,13 @@ def test_relu_collapse(rng, make_rollout):
     batch = _health_batch(rng, make_rollout)
     args = types.SimpleNamespace(**HEALTH_ARGS)
     fresh = Policy()
-    upd = update(fresh, torch.optim.Adam(fresh.parameters(), lr=1e-4), None, batch, args, torch.device("cpu"))
+    upd = policy_update(fresh, torch.optim.Adam(fresh.parameters(), lr=1e-4), None, batch, args, torch.device("cpu"))
     assert upd["dead_units"] < 0.5 and training_health(upd, args) is None, upd["dead_units"]
 
     dead = Policy()
     with torch.no_grad():
         dead.trunk[7].bias.fill_(-1e3)                 # every pre-activation negative
-    upd = update(dead, torch.optim.Adam(dead.parameters(), lr=1e-4), None, batch, args, torch.device("cpu"))
+    upd = policy_update(dead, torch.optim.Adam(dead.parameters(), lr=1e-4), None, batch, args, torch.device("cpu"))
     assert upd["dead_units"] == 1.0
     assert "ReLU collapse" in training_health(upd, args)
     assert training_health(upd, types.SimpleNamespace(**{**HEALTH_ARGS, "stop_dead_units": 0})) is None, \
@@ -141,13 +141,13 @@ def test_exploding_gradient(rng, make_rollout):
     policy = Policy()
     before = [p.detach().clone() for p in policy.parameters()]
     bad = {**batch, "adv": np.full_like(batch["adv"], np.inf)}
-    upd = update(policy, torch.optim.Adam(policy.parameters(), lr=1e-3), None, bad, args, torch.device("cpu"))
+    upd = policy_update(policy, torch.optim.Adam(policy.parameters(), lr=1e-3), None, bad, args, torch.device("cpu"))
     assert upd["nonfinite_steps"] > 0
     assert all(torch.equal(a, b) for a, b in zip(before, policy.parameters())), "weights untouched"
     off = types.SimpleNamespace(**{**HEALTH_ARGS, "stop_grad_norm": 0, "stop_dead_units": 0})
     assert "exploding gradient" in training_health(upd, off), "non-finite: even with the checks off"
 
-    upd = update(policy, torch.optim.Adam(policy.parameters(), lr=1e-4), None, batch, args, torch.device("cpu"))
+    upd = policy_update(policy, torch.optim.Adam(policy.parameters(), lr=1e-4), None, batch, args, torch.device("cpu"))
     assert upd["nonfinite_steps"] == 0 and upd["grad_norm_max"] >= upd["grad_norm"] > 0
     assert training_health(upd, args) is None
     tight = types.SimpleNamespace(**{**HEALTH_ARGS, "stop_grad_norm": upd["grad_norm_max"] / 2})
@@ -183,7 +183,7 @@ def test_norm_adv(rng, make_rollout):
         policy = Policy()
         torch.manual_seed(1)
         args = types.SimpleNamespace(**{**HEALTH_ARGS, "norm_adv": norm})
-        upd = update(policy, torch.optim.Adam(policy.parameters(), lr=1e-3), None, b, args, torch.device("cpu"))
+        upd = policy_update(policy, torch.optim.Adam(policy.parameters(), lr=1e-3), None, b, args, torch.device("cpu"))
         return [p.detach() for p in policy.parameters()], upd
 
     small_w, small_u = after(batch, True)
@@ -206,7 +206,7 @@ def test_micro_batch(rng, make_rollout):
         policy = Policy()
         torch.manual_seed(1)
         args = types.SimpleNamespace(**{**HEALTH_ARGS, "micro_batch": micro})
-        upd = update(policy, torch.optim.Adam(policy.parameters(), lr=1e-3), None, batch, args, torch.device("cpu"))
+        upd = policy_update(policy, torch.optim.Adam(policy.parameters(), lr=1e-3), None, batch, args, torch.device("cpu"))
         return [p.detach() for p in policy.parameters()], upd
 
     whole_w, whole = after(0)
@@ -235,3 +235,16 @@ def test_reward_conflict(rng, make_rollout):
     assert training_health({}, args, None, {"a|b": [-1.0]}) is None, "one check: not yet"
     assert "reward conflict: a and b" in training_health({}, args, None, {"a|b": [-1.0, -0.5]})
     assert training_health({}, args, None, {"a|c": [1.0, 0.9]}) is None
+
+
+def test_entropy_floor():
+    """--ent-target: no term (and no gradient) above the floor, the floor's
+    shortfall below it; 0 keeps the plain bonus."""
+    args = types.SimpleNamespace(ent_coef=0.01, ent_target=1.0)
+    ent = torch.tensor([3.3, 1.5], requires_grad=True)
+    loss = entropy_loss(ent, args)
+    loss.backward()
+    assert loss.item() == 0.0 and ent.grad.abs().sum().item() == 0.0
+    assert entropy_loss(torch.tensor([0.6, 3.0]), args).item() == pytest.approx(0.01 * 0.4 / 2)
+    args.ent_target = 0.0
+    assert entropy_loss(torch.tensor([2.0, 4.0]), args).item() == pytest.approx(-0.03)

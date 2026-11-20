@@ -50,7 +50,8 @@ import numpy as np
 import torch
 
 from model import (Policy, add_env_args, avatar_args, check_slots, checkpoint_obs_size, default_groups, env_label,
-                   hub_fetch_checkpoint, load_weights, privileged, resolve_iwads, resolve_maps, run_env)
+                   load_weights, get_privileged_info, resolve_iwads, resolve_maps, run_env)
+from hub import add_hub_args, hub_fetch_checkpoint
 from env import ACTIONS, CONSULT, Engine, EngineConfig, EngineError, RewardConfig, cleanup_stale  # noqa: E402
 from env.env import EXPLORE, EnvConfig  # noqa: E402
 from env.obs import FrameStack, Preprocessor  # noqa: E402
@@ -64,6 +65,7 @@ MAX_DROPPED = 20      # policy steps in combat without CONSULT before giving up 
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     add_env_args(p)
+    add_hub_args(p)
     p.add_argument("--checkpoint", default=None, help="policy checkpoint (default: --hub-repo's, else the "
                                                       "newest local runs/*/doom-runner.pt)")
     p.add_argument("--seed", type=int, default=None,
@@ -159,7 +161,8 @@ def pair_line(label: str, recs: list[dict], width: int) -> str:
 def rollouts(args, ckpt: Path, policy: Policy, device: torch.device) -> None:
     t0 = time.time()
     if not args.headless and (args.noblit or args.nodraw):
-        print("[eval] windows: --noblit / --nodraw ignored (they would leave the windows black)")
+        if args.nodraw:   # --noblit is the default, so only --nodraw is worth a line
+            print("[eval] windows: --noblit / --nodraw ignored (they would leave the windows black)")
         args.noblit = args.nodraw = False
     if args.stage != 1:
         print(f"[eval] --stage {args.stage} ignored: eval runs stage 1 (--combat of the groups fight)")
@@ -300,7 +303,7 @@ def watch(args, ckpt: Path, policy: Policy, device: torch.device) -> None:
                 continue
             with torch.no_grad():
                 logits, _ = policy(torch.as_tensor(obs[None], device=device),
-                                   torch.as_tensor([privileged({"state": d})], device=device))
+                                   torch.as_tensor([get_privileged_info({"state": d})], device=device))
                 logits = logits[0]
                 a = int(pick_actions(logits[None], args.temperature)[0])
             if a == CONSULT:

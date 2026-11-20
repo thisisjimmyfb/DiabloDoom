@@ -44,24 +44,26 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from model import (Frontier, HubUploader, MapRotation, TicBudget, add_env_args, capture_dirs, check_slots,
-                   FREE_CORES, available_cores, default_groups, env_label, hub_pull, move_groups,
+from model import (Frontier, MapRotation, TicBudget, add_env_args, capture_dirs, check_slots,
+                   FREE_CORES, available_cores, default_groups, env_label, move_groups,
                    pick_eval_maps, resolve_maps,
                    iwad_label, run_env, resolve_iwads, rng_state,
                    save_checkpoint, CKPT_NAME)
+from hub import HubUploader, add_hub_args, hub_pull
 from env import cleanup_stale  # noqa: E402  (model.py put env on sys.path)
 from env.vector import GroupVecEnv  # noqa: E402
 from rollout import (heldout_eval, make_heldout_vec, nvtx, print_eval, print_eval_delta, run_rollouts, sample_group_options,
                   write_rollout_log)
 from env.env import RewardConfig  # noqa: E402
 from learn import (GRAD_WINDOW, add_learn_args, build_batch, group_advantages, print_train, setup_learner,
-                   term_advantages, train_metrics, training_health, update)
+                   term_advantages, train_metrics, training_health, policy_update)
 
 
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--run-dir", default="runs/grpo")
     add_env_args(p)
+    add_hub_args(p)
     add_learn_args(p)
     p.set_defaults(iterations=None)
     p.add_argument("--more", type=int, default=100,
@@ -250,7 +252,7 @@ def main():
         """One update, its wall time in upd["update_s"] (NVTX "update")."""
         t = time.perf_counter()
         with nvtx("update"):
-            upd = update(policy, optimizer, ref, batch, args, device) if batch is not None else {}
+            upd = policy_update(policy, optimizer, ref, batch, args, device) if batch is not None else {}
         return {**upd, "update_s": time.perf_counter() - t}
 
     try:

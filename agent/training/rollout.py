@@ -15,7 +15,7 @@ import numpy as np
 import torch
 from torch.distributions import Categorical
 
-from model import WARMUP_ACTIONS, WARMUP_HOLD, Policy, env_label, privileged, run_env
+from model import WARMUP_ACTIONS, WARMUP_HOLD, Policy, env_label, get_privileged_info, run_env
 from env import ACTIONS, goal_dist  # noqa: E402  (model.py put env on sys.path)
 from env.env import N_MOVE  # noqa: E402
 from env.vector import GroupVecEnv  # noqa: E402
@@ -68,7 +68,7 @@ def run_rollouts(vec: GroupVecEnv, policy: Policy, device: torch.device,
     timing = {"reset_s": time.perf_counter() - t0, "env_s": 0.0, "policy_s": 0.0, "record_s": 0.0}
     t_start = time.time()
     cur_obs = obs.copy()
-    cur_priv = np.array([privileged(i) for i in infos], dtype=np.float32)
+    cur_priv = np.array([get_privileged_info(i) for i in infos], dtype=np.float32)
     recs = [{"obs": [], "priv": [], "act": [], "logp": [], "rew": [], "rew_now": [], "tics": [],
              "start_sectors": infos[k]["state"].get("sectors", 0), "end_info": None,
              "start_state": infos[k]["state"], "wall_start": t_start, "terms": {},
@@ -104,7 +104,7 @@ def run_rollouts(vec: GroupVecEnv, policy: Policy, device: torch.device,
                 r["terms"][t] = r["terms"].get(t, 0.0) + v
             r["step_terms"].append(dict(ninfo[k].get("terms", {})))   # the reward by term, per step
             cur_obs[i] = nobs[k]
-            cur_priv[i] = privileged(ninfo[k])
+            cur_priv[i] = get_privileged_info(ninfo[k])
             if term[k] or trunc[k]:
                 r["end_info"] = ninfo[k]
                 r["terminated"] = bool(term[k])

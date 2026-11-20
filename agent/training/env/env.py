@@ -198,10 +198,13 @@ class RewardConfig:
     # damage per a monster's full HP dealt (so a kill pays the same for
     # any monster), from the engine's damage events, plus kill on the
     # kill; fire_waste per shot that hurt nothing at once (a projectile's
-    # hit comes later: never charged), so firing at nothing costs.
+    # hit comes later: charged too since 2026-11-19, its hit paying
+    # damage), so firing at nothing costs. Since 2026-11-19 damage and kill
+    # are paid when the rollout ends, times the player's HP then over
+    # 100 (at most 1): a death pays no combat at all.
     damage: float = 11.25
     kill: float = 11.25
-    fire_waste: float = -0.1
+    fire_waste: float = -0.3          # -0.1 before 2026-11-19
     # One-off terms (2026-11-17): they judge only the step's own action,
     # so the learner adds them to that step's advantage alone instead of
     # summing them into every earlier step's reward-to-go
@@ -379,6 +382,7 @@ class DiabloDoomEnv(gym.Env):
         # Per-env reset request for vector envs:
         #   envs.set_attr("next_reset", [{"slot": 3, "seed": 17, "group": 0}, ...])
         self.next_reset: dict | None = None
+        self._dmg_share = 0.0
         self._wp_on, self._wp, self._wp_tic, self._wp_stats = False, None, -10 ** 9, [0, 0]   # waypoints (reset sets them)
         self._wp_pending = False
         self._combat_on, self._combat_stats = False, [0, 0, 0, 0.0]   # combat (reset sets them)
@@ -505,6 +509,7 @@ class DiabloDoomEnv(gym.Env):
             # same for the whole group (from its seed).
             d, _ = self.engine.command(f"GIVEGUN {int(rng_seed) * 7 + 3}")
         self._combat_stats = [0, 0, 0, 0.0]   # shots, hits, kills, damage dealt (HP)
+        self._dmg_share = 0.0                  # monster HP shares removed (paid at the end)
         # A progress save's visited list (the save doesn't store it; the
         # load reset it): VISIT in pieces that fit a command line.
         vis = self._installed_visited.get(slot)
@@ -726,15 +731,14 @@ class DiabloDoomEnv(gym.Env):
                 self._items_picked += 1
                 self._item = None
             if e.get("event") == "damage" and e.get("max"):
-                add("damage", rc.damage * min(int(e.get("amount", 0)), int(e["max"])) / int(e["max"]))
+                self._dmg_share += min(int(e.get("amount", 0)), int(e["max"])) / int(e["max"])
                 self._combat_stats[3] += int(e.get("amount", 0))
                 if e.get("kill"):
-                    add("kill", rc.kill)
                     self._combat_stats[2] += 1
             if e.get("event") == "shot":
                 self._combat_stats[0] += 1
                 self._combat_stats[1] += bool(e.get("hit"))
-                if not e.get("hit") and not e.get("proj"):
+                if not e.get("hit"):
                     add("fire_waste", rc.fire_waste)
             if e.get("event") == "pickup":
                 if e.get("kind") in ("loot", "armor"):
@@ -772,6 +776,11 @@ class DiabloDoomEnv(gym.Env):
                 truncated, end = True, "time"
             elif self._combat_steps >= self.cfg.max_combat_steps:
                 truncated, end = True, "combat"
+        # Combat, paid at the end times the HP left (RewardConfig.damage).
+        if terminated or truncated:
+            hpf = 0.0 if d.get("dead") else min(hp, 100) / 100.0
+            add("damage", rc.damage * self._dmg_share * hpf)
+            add("kill", rc.kill * self._combat_stats[2] * hpf)
         # Waypoints not reached, paid when a goal ends the rollout early.
         if end in ("exit", "key", "portal") and self._wp_on and self.cfg.waypoint_count > 0:
             add("waypoint", rc.waypoint * max(self.cfg.waypoint_count - self._wp_stats[1], 0))

@@ -1140,36 +1140,61 @@ def test_waypoint_count_and_goal():
 def test_combat_rewards():
     """Combat (2026-11-18): damage pays per a monster's full HP dealt,
     kill on the kill, fire_waste per shot that hurt nothing (a projectile
-    never); info["combat"] counts them. Engine faked."""
+    too since 2026-11-19); since 2026-11-19 damage and kill are paid when
+    the rollout ends, times the HP left over 100, nothing after a death;
+    info["combat"] counts them. Engine faked."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, hp_loss=0, death=0, loot=0, health=0,
                         time=0, fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0,
                         damage=10.0, kill=4.0, fire_waste=-0.5)
-    e = make_env(rewards=only, max_tics=100000)
-    script = iter([
-        [{"event": "shot", "hit": True, "proj": False}, {"event": "damage", "amount": 30, "max": 60, "kill": False}],
-        [{"event": "shot", "hit": False, "proj": False}],
-        [{"event": "shot", "hit": False, "proj": True}],
-        [{"event": "damage", "amount": 50, "max": 60, "kill": True}],    # overkill: capped at max
-    ])
 
-    def command(line):
-        return {"mode": "EXPLORE", "hp": 100, "tics": 1, "x": 0, "y": 0, "angle": 0}, next(script)
-    e.engine.command = command
-    e._frame = lambda: np.zeros((200, 320), dtype=np.uint8)
-    e.state = {"mode": "EXPLORE", "hp": 100, "x": 0, "y": 0, "angle": 0}
-    e._prev_hp, e._tics, e._combat_steps = 100, 0, 0
-    e._best_sectors = e._start_sectors = 0
-    e._keys, e._goal, e._group, e._slot, e._seed, e._used = 0, None, 0, None, 0, set()
-    e._trig = {k: e._new_trigger() for k in ("unique", "combat")}
-    e._combat_on = True
-    e._stack.reset(e._frame())
-    fire = ACTIONS.index("PRESS CTRL")
-    rs = [e.step(fire)[1] for _ in range(3)]
-    _, r4, _, _, info = e.step(ACTIONS.index("PRESS"))
-    assert rs == [5.0, -0.5, 0.0] and abs(r4 - (50 / 60 * 10.0 + 4.0)) < 1e-9, (rs, r4)
+    def run(end):
+        e = make_env(rewards=only, max_tics=4)
+        script = iter([
+            [{"event": "shot", "hit": True, "proj": False}, {"event": "damage", "amount": 30, "max": 60, "kill": False}],
+            [{"event": "shot", "hit": False, "proj": False}],
+            [{"event": "shot", "hit": False, "proj": True}],
+            [{"event": "damage", "amount": 50, "max": 60, "kill": True}],    # overkill: capped at max
+        ])
+        n = [0]
+
+        def command(line):
+            n[0] += 1
+            st = {"mode": "EXPLORE", "hp": 100, "tics": 1, "x": 0, "y": 0, "angle": 0}
+            if n[0] == 4:
+                st.update(end)
+            return st, next(script)
+        e.engine.command = command
+        e._frame = lambda: np.zeros((200, 320), dtype=np.uint8)
+        e.state = {"mode": "EXPLORE", "hp": 100, "x": 0, "y": 0, "angle": 0}
+        e._prev_hp, e._tics, e._combat_steps = 100, 0, 0
+        e._best_sectors = e._start_sectors = 0
+        e._keys, e._goal, e._group, e._slot, e._seed, e._used = 0, None, 0, None, 0, set()
+        e._trig = {k: e._new_trigger() for k in ("unique", "combat")}
+        e._combat_on = True
+        e._stack.reset(e._frame())
+        fire = ACTIONS.index("PRESS CTRL")
+        rs = [e.step(fire)[1] for _ in range(3)]
+        _, r4, term, trunc, info = e.step(ACTIONS.index("PRESS"))
+        assert term or trunc
+        return rs, r4, info
+
+    rs, r4, info = run({"hp": 60})
+    assert rs == [0.0, -0.5, -0.5]                     # hits pay nothing yet
+    assert r4 == pytest.approx(((30 / 60 + 50 / 60) * 10.0 + 4.0) * 0.6)
     assert info["combat"] == [1, 3, 1, 1, 80]
+    rs, r4, info = run({"hp": 0, "dead": True})
+    assert r4 == 0.0                                   # a death: no combat pay
     assert "fire_waste" in RewardConfig().immediate and "damage" not in RewardConfig().immediate
+
+
+def test_fire_prior():
+    """A fresh policy (2026-11-19) picks a CTRL action FIRE_PRIOR of the
+    time, not half."""
+    import torch
+    from model import FIRE_PRIOR, Policy
+    p = torch.softmax(Policy().policy_head.bias, 0)
+    assert float(p[[a.endswith("CTRL") for a in ACTIONS]].sum()) == pytest.approx(FIRE_PRIOR, abs=1e-6)
 
 
 @pytest.mark.game

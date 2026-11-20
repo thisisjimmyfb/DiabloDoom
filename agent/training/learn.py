@@ -183,7 +183,7 @@ def build_batch(recs: list[dict], advs: list[np.ndarray | None], gamma_tic: floa
                                    for r, _ in keep])}
 
 
-def update(policy: Policy, optimizer: torch.optim.Optimizer, ref: Policy | None,
+def policy_update(policy: Policy, optimizer: torch.optim.Optimizer, ref: Policy | None,
            batch: dict, args, device: torch.device) -> dict:
     policy.train()
     n = len(batch["act"])
@@ -216,7 +216,7 @@ def update(policy: Policy, optimizer: torch.optim.Optimizer, ref: Policy | None,
         alive = fired if alive is None else alive | fired
     hook = policy.trunk.register_forward_hook(watch)
     try:
-        nonfinite = _update_epochs(policy, optimizer, ref, args, device, n, obs, priv, act,
+        nonfinite = _policy_epochs(policy, optimizer, ref, args, device, n, obs, priv, act,
                                    old_lp, adv, ret, stats)
     finally:
         hook.remove()
@@ -232,9 +232,18 @@ def update(policy: Policy, optimizer: torch.optim.Optimizer, ref: Policy | None,
     return out
 
 
-def _update_epochs(policy, optimizer, ref, args, device, n, obs, priv, act, old_lp, adv, ret,
+def entropy_loss(ent_s: torch.Tensor, args) -> torch.Tensor:
+    """The loss's entropy term from each sample's entropy: with --ent-target,
+    a floor (only states below it pay); else the plain bonus."""
+    target = getattr(args, "ent_target", 0.0)
+    if target > 0:
+        return args.ent_coef * torch.relu(target - ent_s).mean()
+    return -args.ent_coef * ent_s.mean()
+
+
+def _policy_epochs(policy, optimizer, ref, args, device, n, obs, priv, act, old_lp, adv, ret,
                    stats) -> int:
-    """The PPO epochs of update(); returns the optimizer steps skipped for
+    """The epochs of policy_update(); returns the optimizer steps skipped for
     a non-finite loss or gradient norm (so a blow-up never reaches the
     weights)."""
     nonfinite = 0
@@ -261,9 +270,10 @@ def _update_epochs(policy, optimizer, ref, args, device, n, obs, priv, act, old_
                 # Token-level mean over the minibatch: the 1/sum|o_i| of
                 # SPEC.md §7.1, estimated per minibatch.
                 pg = -torch.min(ratio * a, ratio.clamp(1 - args.clip, 1 + args.clip) * a).mean()
-                ent = dist.entropy().mean()
+                ent_s = dist.entropy()
+                ent = ent_s.mean()
                 v_loss = 0.5 * (value - ret[sub_idx]).pow(2).mean()
-                loss = pg - args.ent_coef * ent + args.vf_coef * v_loss
+                loss = pg + entropy_loss(ent_s, args) + args.vf_coef * v_loss
                 if ref is not None and args.beta > 0:
                     with torch.no_grad():
                         ref_logits, _ = ref(mb_obs, mb_priv)
@@ -399,17 +409,17 @@ def train_metrics(recs: list[dict], n_groups: int, collapsed: int) -> dict:
 
 
 def print_train(it: int, m: dict, upd: dict, extra: str = "") -> None:
-    print(f"[it {it:5d}] ret {m['return']:7.2f} sectors {m['sectors']:5.2f} "
-          f"exit {m['exit_rate']:.2f} collapsed {m['collapsed_share']:.2f} steps {m['steps']} "
-          f"ent {upd.get('entropy', float('nan')):.3f} kl {upd.get('approx_kl', float('nan')):.4f}"
+    print(f"[it {it:5d}] ret {m['return']:7.2f} sectors {m['sectors']:5.2f} exit {m['exit_rate']:.2f}"
           + (f" front {m['frontier_share']:.2f}" if "frontier_share" in m else "")
-          + (f" dead {upd['dead_units']:.2f}" if "dead_units" in upd else "")
-          + (f" items {m['items_picked'] / m['items_spawned']:.2f}" if m.get("items_spawned") else "")
           + (f" wp {m['waypoints_reached'] / m['waypoints_set']:.2f}" if m.get("waypoints_set") else "")
-          + (f" kills {m['kills']} hit {m['hits'] / m['shots']:.2f}" if m.get("shots") else "")
           + (f" consult {m.get('consult_trig', 0):.3f}/{m['consult_idle']:.3f}" if "consult_idle" in m else "")
+          + (f" items {m['items_picked'] / m['items_spawned']:.2f}" if m.get("items_spawned") else "")
+          + (f" kills {m['kills']} hit {m['hits'] / m['shots']:.2f}" if m.get("shots") else "")
+          + (f" dead {upd['dead_units']:.2f}" if "dead_units" in upd else "")
           + (" cos min {} {:.3f}".format(*min(upd["term_cos"].items(), key=lambda kv: kv[1]))
              if upd.get("term_cos") else "")
+          + (f" collapsed {m['collapsed_share']:.2f} steps {m['steps']}")
+          + (f" ent {upd.get('entropy', float('nan')):.3f} kl {upd.get('approx_kl', float('nan')):.4f}")
           + extra)
 
 
@@ -427,7 +437,11 @@ def add_learn_args(p) -> None:
                         "update is the same, only the memory changes (0: the whole minibatch at once; "
                         "8192 at 160x100 ran out of 16 GB)")
     p.add_argument("--clip", type=float, default=0.2)
-    p.add_argument("--ent-coef", type=float, default=0.01)
+    p.add_argument("--ent-coef", type=float, default=0.1)   # 0.01 before 2026-11-19, as a plain bonus
+    p.add_argument("--ent-target", type=float, default=1.0,
+                   help="entropy floor per state, in nats: --ent-coef then weighs max(0, target - entropy), "
+                        "so only states below it are pushed back up (default 1.0, about 2.7 actions; "
+                        "0: the plain bonus on all states, which wants a smaller --ent-coef, e.g. 0.01)")
     p.add_argument("--vf-coef", type=float, default=0.5)
     p.add_argument("--max-grad-norm", type=float, default=0.5)
     p.add_argument("--stop-dead-units", type=float, default=0.5,
