@@ -290,10 +290,13 @@ counted as 5%); `GIVEGUN <seed> ... RANGED` (2026-11-20) never picks fists (the
 combat drill's: no melee there); the env sends it (with KIT, `EnvConfig.gun_kit`) at
 every rollout's start. `DRILL ON` / `DRILL OFF` (`-rlenv`, 2026-11-20,
 `RL_Drill`): the training env's combat drill keeps one awake monster (zombieman,
-shotgun guy, imp or demon) 192-768 units ahead within 20 degrees of the facing, in
-sight, targeting the player; a new one as soon as it dies, and one off screen for 1 s
-is replaced (the drill's policy only strafes); a normal monster, not a practice one; a
-LOAD ends the drill. Every CONSULT shows `CMD CONSULT` (`CONSULT` before 2026-11-18) as the status message
+shotgun guy, imp or demon) 192-512 units ahead (768 at first) within 20 degrees of the
+facing, in sight, targeting the player; a new one as soon as it dies, and one off screen
+for 3 s (1 s at first) is replaced; a normal monster, not a practice one; a
+LOAD ends the drill. `ITEMS <period> [unique %]` (`-rlenv`, 2026-11-20, `RL_Items`):
+practice items for this rollout in place of `-rlitems` (mean tics between them, 0 none;
+uniques that share, the other tiers splitting the rest), placed on the way to the waypoint
+when it is on screen (else to a portal, as before); a LOAD ends it. Every CONSULT shows `CMD CONSULT` (`CONSULT` before 2026-11-18) as the status message
 (under `-rlenv` too since 2026-11-17, when the env forwards every policy
 CONSULT), so a watcher sees the policy asked for the hand-off. Practice items (`-rlitems <tics>`,
 `-rlenv` or `-rldrive`, 2026-11-17): the same way, one random Diablo loot item at

@@ -2600,6 +2600,14 @@ static void cmd_dispatch_one(const char *cmd)
         // rollouts take every living map monster out of the world.
         RL_Monsters(cmd[9] == 'H');
     }
+    else if (rlenv && !strncmp(cmd, "ITEMS ", 6))
+    {
+        // ITEMS <period> [unique %] (-rlenv, 2026-11-20): the waypoint
+        // drill's practice items (RL_Items).
+        int period, unique = -1;
+        if (sscanf(cmd + 6, "%d %d", &period, &unique) >= 1)
+            RL_Items(period, unique);
+    }
     else if (rlenv && (!strcmp(cmd, "DRILL ON") || !strcmp(cmd, "DRILL OFF")))
     {
         // DRILL ON / OFF (-rlenv, 2026-11-20): the training env's combat

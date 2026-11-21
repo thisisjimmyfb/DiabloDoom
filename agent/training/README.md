@@ -282,13 +282,18 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   with real-time combat it walked the player into monsters that could not
   be fought back, and 14% of rollouts started dying on their first tic; the
   policy's own sampling is the variety.
-- **Combat drill** (2026-11-20, `--drill-groups` 2, `--drill-tics` 1050): the last groups
-  always play Ultimate Doom E1M1 (DOOM.WAD must be in `--iwads`) with the map monsters hidden
-  and one awake monster ahead at a time (the engine's `DRILL ON`), sampling only strafe and
-  fire, no waypoints or clock; outside the rotation and the frontier, mixed into every batch.
-  Drill rollouts count in the metrics like any other, marked `"drill": true` in
-  `rollouts.jsonl`; the console's `dent` is their entropy (`ent` the other groups'); see SPEC.md §5.3. `--drill` trains the drill alone: every
-  group drills, no maze run (only the strafe and fire actions train, so mix the maze back in after).
+- **Rollout types** (2026-11-20, `--mix`: groups per type,
+  adding up to `--groups`): `combat`, the combat drill (the drill maps, one awake monster
+  ahead at a time, never fists, every sector visited from the start so only fighting pays);
+  `waypoint`, the waypoint drill (the drill maps,
+  endless waypoints, frequent practice items, half uniques); `maze` (rotating maps, monsters
+  hidden, no waypoints); `mixed` (rotating maps, monsters and waypoints). Every type has the
+  same reward function; the drills rotate over the drill maps (`model.DRILL_MAPS`: Ultimate
+  Doom E3M2 and E1M2, Freedoom E1M8 and E4M3, those of the `--iwads` in use) every
+  `--rotate-every` batches, start at the map start and end only
+  on death, the exit or `--drill-tics` (1050), outside the rotation and frontier. Each
+  `rollouts.jsonl` row carries its `type`. Default `--mix combat=3,waypoint=2,maze=1,mixed=2`;
+  `--mix combat=8` trains the combat drill alone. See SPEC.md §5.3.
 - **Advantage:** group-normalized return (`--advantage outcome`) or the
   process variant (`process`): per-step rewards normalized across the
   group and summed from each step on (the sums scaled to unit std over
@@ -299,8 +304,10 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   reported as `collapsed_share`.
 - **Loss:** clipped ratio (`--clip` 0.2), `--epochs` 4, an entropy
   floor per state (2026-11-19; a plain bonus at 0.01 before): only states
-  with entropy under `--ent-target` 2.5 nats pay `--ent-coef` 0.1 x the
-  shortfall (`--ent-target 0 --ent-coef 0.01` is the old bonus), and an optional KL to a reference policy
+  with entropy under `--ent-target` (0.62) x their highest possible entropy
+  (ln of the 56 actions: 2.5 nats; a share since 2026-11-20, an absolute
+  2.5 nats before) pay `--ent-coef` 0.1 x the shortfall (`--ent-target 0
+  --ent-coef 0.01` is the old bonus), and an optional KL to a reference policy
   (`--ref`, `--beta`).
 - **Frontier starts:** a rollout stops at `--max-tics` (or at the portal
   or key goal), so on its own training would only ever see the start of each
@@ -460,8 +467,9 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
 - **Replays:** off by default. `./train.sh --capture` turns them on:
   the first `--capture-envs` training envs of each IWAD (train.sh sets 1;
   `train.py`'s own default is 0) launch with `--continuous-capture` and
-  record continuous replay into `runs/<name>/replays/env<i>_<IWAD>/`
-  (e.g. `env00_FREEDOOM1/`, `env08_DOOM/`), and
+  record continuous replay into `runs/<name>/replays/<IWAD>_<map>/`
+  (e.g. `FREEDOOM1_E1M1/`, `DOOM_E1M2/`; an env moving to another map records into that map's
+  folder; `env<i>_<IWAD>/` before 2026-11-20, which kept a moved env's later maps there too), and
   `train.py --capture-eval` records the held-out eval envs into
   `replays/eval<i>/`. Each
   file is 15 s of game time at 35 fps (525 tics, about 2-3 MB), named

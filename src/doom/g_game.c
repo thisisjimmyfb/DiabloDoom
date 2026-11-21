@@ -1900,6 +1900,16 @@ void G_DoLoadGame (void)
     P_UnArchiveWorld (); 
     P_UnArchiveThinkers (); 
     P_UnArchiveSpecials (); 
+
+    // -rlenv (2026-11-20): a loaded save starts still -- the momentum it
+    // stored (a rollout saved mid-run) would slide the player on after
+    // the load, so a progress save's start wasn't where it was taken.
+    if (rlenv && players[consoleplayer].mo != NULL)
+    {
+        players[consoleplayer].mo->momx = 0;
+        players[consoleplayer].mo->momy = 0;
+        players[consoleplayer].mo->momz = 0;
+    }
  
     // Diablo equipment (mod): old saves have no Diablo section; the EOF
     // marker is consumed by P_UnArchiveDiablo in that case.

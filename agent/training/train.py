@@ -44,7 +44,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from model import (Frontier, MapRotation, TicBudget, add_env_args, capture_dirs, check_slots,
+from model import (Frontier, MapRotation, TicBudget, add_env_args, capture_dirs, check_slots, drill_pairs, parse_mix,
                    FREE_CORES, available_cores, default_groups, env_label, move_groups,
                    pick_eval_maps, resolve_maps,
                    iwad_label, run_env, resolve_iwads, rng_state,
@@ -85,9 +85,9 @@ def parse_args():
 
 
 def labels_of(env_pairs: list, iwads: list, n_reg: int) -> list[str]:
-    """Each env's label for the logs: its IWAD and map, "DRILL" for the
-    combat drill groups' envs (from n_reg on)."""
-    return [env_label(w, m, iwads) if i < n_reg else "DRILL" for i, (w, m) in enumerate(env_pairs)]
+    """Each env's label for the logs: its IWAD and map, with "DRILL:" in
+    front for the drill groups' envs (from n_reg on)."""
+    return [("" if i < n_reg else "DRILL:") + env_label(w, m, iwads) for i, (w, m) in enumerate(env_pairs)]
 
 
 def format_duration(seconds: float) -> str:
@@ -114,28 +114,26 @@ def main():
     map_rng = np.random.default_rng(args.map_seed)
     eval_maps = pick_eval_maps(args.eval_maps, args.eval_count, args.maps, iwads, args.stage, map_rng)
     maps = resolve_maps(args.maps, iwads, args.stage, eval_maps)
-    if args.groups is None:                 # one group per IWAD/map pair, at most cores - 2
-        args.groups = default_groups(iwads, maps)
-        print(f"[train] {args.groups} groups: one per IWAD/map pair, at most the "
-              f"{available_cores()} logical cores minus {FREE_CORES}")
+    # Rollout types (--mix, 2026-11-20): the rotating groups (maze, mixed)
+    # first, then the drills (combat, waypoint), rotating over the drill maps
+    # outside the rotation, frontier and tic budget.
+    mix = parse_mix(args.mix)
+    if args.groups is None:
+        args.groups = sum(mix.values())
+    elif args.groups != sum(mix.values()):
+        raise SystemExit(f"--mix {args.mix} adds up to {sum(mix.values())} groups, not --groups {args.groups}")
     G, groups = args.group_size, args.groups
     n_envs = G * groups
     check_slots(iwads, slots)
-    # Combat drill groups (--drill-groups, 2026-11-20): the last groups,
-    # pinned to Ultimate Doom E1M1, outside the rotation, frontier and tic
-    # budget; the other groups rotate as before.
-    drill_iwad = next((w for w in iwads if w and iwad_label(w).upper() == "DOOM"), None)
-    if args.drill and not drill_iwad:
-        raise SystemExit("--drill needs DOOM.WAD (Ultimate Doom) in --iwads")
-    D = (groups if args.drill else args.drill_groups) if drill_iwad else 0
-    if args.drill_groups and not drill_iwad:
-        print("[train] --drill-groups: no DOOM.WAD in --iwads, so no combat drill groups")
-    if D >= groups and not args.drill:
-        print(f"[train] --drill-groups {D} would leave no other groups of --groups {groups}: "
-              f"no combat drill groups this run")
-        D = 0
+    rot_types = [t for t in ("maze", "mixed") for _ in range(mix[t])]
+    drill_types = [t for t in ("combat", "waypoint") for _ in range(mix[t])]
+    group_types = rot_types + drill_types
+    dpairs = drill_pairs(iwads)            # the drill maps (model.DRILL_MAPS)
+    if drill_types and not dpairs:
+        raise SystemExit(f"--mix {args.mix}: the drills need an IWAD with drill maps in --iwads (model.DRILL_MAPS: DOOM, FREEDOOM1)")
+    D = len(drill_types)
     n_reg_groups, n_reg = groups - D, G * (groups - D)
-    # --drill (every group drills): a placeholder rotation no env plays.
+    # Drills only (no maze or mixed group): a placeholder rotation no env plays.
     rotation = MapRotation(iwads, maps if n_reg_groups else maps[:1], max(n_reg_groups, 1),
                            args.rotate_every if n_reg_groups else 0, rng=map_rng)
 
@@ -178,13 +176,19 @@ def main():
           f"maps {maps}, eval {eval_maps}, {n_params / 1e6:.2f}M params, "
           f"obs {args.obs_size[0]}x{args.obs_size[1]}, device {device}, map seed {args.map_seed}")
     print(f"[train] iwads {[iwad_label(w) for w in iwads]}; groups: "
-          f"{[env_label(w, m, iwads) for w, m in group_pairs] if n_reg_groups else 'every group drills (--drill)'}")
+          f"{[env_label(w, m, iwads) for w, m in group_pairs] if n_reg_groups else 'drills only'}")
     if rotation.every:
         print(f"[train] {rotation.n_pairs} IWAD/map pairs, {groups} groups: they move on to the next "
               f"pairs every {rotation.every} batches (a full cycle is "
               f"{-(-rotation.n_pairs // groups) * rotation.every} batches)")
 
-    env_pairs = [group_pairs[i // G] for i in range(n_reg)] + [(drill_iwad, "1 1")] * (n_envs - n_reg)
+    def drill_at(it: int) -> list:
+        """Each drill group's (iwad, warp) at batch `it`: the drill maps in
+        turn, moving on one every --rotate-every batches."""
+        r = it // args.rotate_every if args.rotate_every else 0
+        return [dpairs[(d + r) % len(dpairs)] for d in range(D)] if D else []
+    drill_now = drill_at(start_it)
+    env_pairs = [group_pairs[i // G] for i in range(n_reg)] + [drill_now[i // G] for i in range(n_envs - n_reg)]
     replays = run_dir / "replays"
     captures = capture_dirs(env_pairs, args.capture_envs, replays)
     vec = GroupVecEnv([run_env(args, slots, w, m, captures[i]) for i, (w, m) in enumerate(env_pairs)])
@@ -198,8 +202,8 @@ def main():
     env_labels = labels_of(env_pairs, iwads, n_reg)
     if D:
         vec.call(list(range(n_reg, n_envs)), "set_max_tics", (args.drill_tics,))
-        print(f"[train] {D} combat drill groups on {iwad_label(drill_iwad)} E1M1, "
-              f"{args.drill_tics} tics a rollout")
+    print(f"[train] groups by type: {mix}" + (f"; the drills rotate over "
+          f"{[env_label(w, m, iwads) for w, m in dpairs]}, {args.drill_tics} tics a rollout" if D else ""))
 
     eval_busy = False   # an eval was interrupted: its games still have requests in flight
 
@@ -230,8 +234,18 @@ def main():
 
     def play(it: int) -> tuple[list[dict], float]:
         """The batch for update `it`."""
-        nonlocal group_pairs, env_pairs, env_labels
+        nonlocal group_pairs, env_pairs, env_labels, drill_now
         t = time.time()
+        new_drill = drill_at(it)
+        if new_drill != drill_now:          # the drill groups move on to the next drill maps
+            for d, (w, m) in enumerate(new_drill):
+                idx = list(range(n_reg + d * G, n_reg + (d + 1) * G))
+                if (w, m) != drill_now[d]:
+                    vec.call(idx, "set_map", (w, m))
+            drill_now = new_drill
+            env_pairs = env_pairs[:n_reg] + [drill_now[i // G] for i in range(n_envs - n_reg)]
+            env_labels = labels_of(env_pairs, iwads, n_reg)
+            print(f"[train] drills now on {[env_label(w, m, iwads) for w, m in drill_now]}")
         new = rotation.at(it)
         if new is not None and n_reg:
             pairs = [new[i // G] for i in range(n_reg)]
@@ -242,9 +256,11 @@ def main():
                   f"{[env_label(w, m, iwads) for w, m in group_pairs]} ({len(moved)} envs restart)")
         options = frontier.options(sample_group_options(sampler, n_reg_groups, G, slots, args.warmup_max),
                                    G)
-        for d in range(D):                  # combat drill groups: the map start, every time
+        for d in range(D):                  # the drills: the map start, every time
             seed = int(sampler.integers(256))
-            options += [{"seed": seed, "group": n_reg_groups + d, "drill": True} for _ in range(G)]
+            options += [{"seed": seed, "group": n_reg_groups + d} for _ in range(G)]
+        for i, o in enumerate(options):
+            o["type"] = group_types[i // G]
         budget.apply(vec)
         with nvtx("rollout"):
             recs = run_rollouts(vec, actor, device, options)

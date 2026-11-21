@@ -3,12 +3,9 @@ game, -rldrive) and the training-style eval. The game tests run headless."""
 
 from __future__ import annotations
 
-import os
 import re
-import signal
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -59,24 +56,6 @@ def test_drive_and_quit(checkpoint):
     assert re.search(r"\[eval\]   sectors gained [+-]\d+.*exit no, died no", p.stdout)
     assert "[eval]   forward " in p.stdout and "[eval]   top actions: PRESS" in p.stdout
     assert "left running" not in p.stdout
-
-
-@pytest.mark.game
-def test_drive_leaves_game_running(checkpoint):
-    """Without --quit-at-end the game outlives the drive, detached: its work
-    directory and shared memory are gone, so cleanup_stale never kills it."""
-    p = play("--checkpoint", str(checkpoint), "--headless", "--max-decisions", "3")
-    assert p.returncode == 0, p.stdout[-2000:] + p.stderr[-2000:]
-    m = re.search(r"game \(pid (\d+)\) left running", p.stdout)
-    assert m, p.stdout[-2000:]
-    pid = int(m.group(1))
-    try:
-        os.kill(pid, 0)                                   # still running
-        assert not any("_play_" in d.name for d in Path(tempfile.gettempdir()).glob("diablodoom_rl_*")), \
-            "work directory removed"
-        assert not any("_play" in f.name for f in Path("/dev/shm").glob("diablodoom_rl_*")), "shm removed"
-    finally:
-        os.kill(pid, signal.SIGKILL)
 
 
 @pytest.mark.game

@@ -177,7 +177,7 @@ case "$MODE" in
         n_smoke=${#IWADS[@]}
         has_arg iwads && n_smoke=1
         add_iwads
-        exec "$PY" train.py --run-dir runs/smoke --groups "$n_smoke" --group-size 2 \
+        exec "$PY" train.py --run-dir runs/smoke --groups "$n_smoke" --mix "mixed=$n_smoke" --group-size 2 \
             --iterations 1 --max-tics 350 --eval-maps "" --capture-envs 0 "${pre[@]}" "$@" ;;
     train)
         add_run_dir; add_iwads; add_capture; add_hub

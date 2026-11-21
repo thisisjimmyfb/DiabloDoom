@@ -1039,7 +1039,7 @@ def test_waypoints():
                         consult_false=0, key=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
                         time=1.0, far_scale=100.0, fast=1.0, look=1.0, turn_waste=0, move_flip=0,
                         fall=0, wall_look=0)
-    e = make_env(rewards=only, max_tics=100000, waypoints=True, waypoint_noise=0.0, waypoint_gap=2, waypoint_min=0.0,
+    e = make_env(rewards=only, max_tics=100000, waypoints=True, waypoint_reach=0, waypoint_noise=0.0, waypoint_gap=2, waypoint_min=0.0,
                  waypoint_place="path")
     sent = []
     script = iter([
@@ -1094,7 +1094,7 @@ def test_waypoints_sector():
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
                         time=1.0, fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0)
-    e = make_env(rewards=only, max_tics=100000, waypoints=True, waypoint_gap=1)
+    e = make_env(rewards=only, max_tics=100000, waypoints=True, waypoint_reach=0, waypoint_gap=1)
     sent, picks = [], iter([None, [50, 60]])
 
     def command(line):
@@ -1128,6 +1128,41 @@ def test_waypoints_sector():
     assert not any(l.startswith("WAYPOINT") for l in sent[2:]) and e._wp == (50, 60)
 
 
+def test_waypoint_reach():
+    """Within waypoint_reach (96) of the player a waypoint is reached (every
+    type, 2026-11-20): waypoint pays, and the next action clears the
+    engine's marker (WAYPOINT); with the waypoint drill's endless waypoints
+    (no limit, no gap) the next one goes out in the same line. Engine faked."""
+    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
+                        consult_false=0, key=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
+                        time=0, fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0,
+                        waypoint=2.0, waypoint_look_approach=0, range=0, turn=0)
+    e = make_env(rewards=only, max_tics=100000, waypoints=True)
+    sent, xs = [], iter([0, 50, 110, 100, 100, 100])
+
+    def command(line):
+        sent.append(line)
+        st = {"mode": "EXPLORE", "hp": 100, "tics": 1, "x": next(xs), "y": 0, "angle": 0, "sectors": 0}
+        if "WAYPOINT RANDOM" in line:
+            st["waypoint"] = [200, 0] if len(sent) == 1 else [500, 0]
+        elif e._wp is not None:
+            st["waypoint"] = list(e._wp)
+        return st, []
+    e.engine.command = command
+    e._frame = lambda: np.zeros((200, 320), dtype=np.uint8)
+    e.state = {"mode": "EXPLORE", "hp": 100, "x": 0, "y": 0, "angle": 0, "sectors": 0}
+    e._prev_hp, e._tics, e._combat_steps = 100, 0, 0
+    e._best_sectors = e._start_sectors = 0
+    e._keys, e._goal, e._group, e._slot, e._seed, e._used = 0, None, 0, None, 0, set()
+    e._trig = {k: e._new_trigger() for k in ("unique", "combat")}
+    e._wp_on, e._wp_count, e._wp_gap = True, 0, 0      # the waypoint drill's
+    e._stack.reset(e._frame())
+    paid = [e.step(ACTIONS.index("PRESS W"))[4]["terms"].get("waypoint", 0.0) for _ in range(4)]
+    assert paid == [0.0, 0.0, 2.0, 0.0], paid          # 200 - 110 = 90: within 96 on step 3
+    assert sent[3].startswith("WAYPOINT;WAYPOINT RANDOM ") and sent[3].endswith(";PRESS W"), sent[3]
+    assert e._wp == (500, 0) and e._wp_stats == [2, 1]
+
+
 def test_waypoint_count_and_goal():
     """waypoint_count (2026-11-19): no more are set once that many have
     been; a goal ending the rollout early (here the portal) pays
@@ -1139,7 +1174,7 @@ def test_waypoint_count_and_goal():
                         waypoint=2.0, waypoint_look_approach=0)
 
     def run(count, portal_at, steps):
-        e = make_env(rewards=only, max_tics=100000, waypoints=True, waypoint_gap=1,
+        e = make_env(rewards=only, max_tics=100000, waypoints=True, waypoint_reach=0, waypoint_gap=1,
                      waypoint_count=count, portal_goal=1)
         sent = []
 

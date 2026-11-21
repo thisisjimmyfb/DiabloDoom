@@ -21,8 +21,8 @@ import torch
 import torch.nn as nn
 from torch.distributions import Categorical
 
-from model import (ACTIONS, DEFAULT_OBS_SIZE, Policy, checkpoint_obs_size, drill_banned, load_latest_checkpoint,
-                   load_weights, mask_drill, restore_rng)
+from model import (ACTIONS, DEFAULT_OBS_SIZE, Policy, checkpoint_obs_size, load_latest_checkpoint,
+                   load_weights, restore_rng)
 
 
 # ---------------------------------------------------------------------------
@@ -125,13 +125,10 @@ def term_grad_cosines(policy: Policy, batch: dict, args, device: torch.device) -
     grads = {t: torch.zeros(sum(p.numel() for p in params), device=device) for t in names}
     obs, priv = torch.as_tensor(batch["obs"]), torch.as_tensor(batch["priv"])
     act = torch.as_tensor(batch["act"])
-    drill = torch.as_tensor(batch.get("drill", np.zeros(n, dtype=bool)))
-    banned = drill_banned(device)
     micro = getattr(args, "micro_batch", 0) or k
     for m0 in range(0, k, micro):
         sub = idx[m0:m0 + micro]
         logits, _ = policy(obs[sub].to(device), priv[sub].to(device))
-        logits = mask_drill(logits, drill[sub].to(device), banned)
         lp = Categorical(logits=logits).log_prob(act[sub].to(device))
         for j, t in enumerate(names):
             a = torch.as_tensor(batch["term_adv"][t][sub.numpy()], device=device)
@@ -188,8 +185,6 @@ def build_batch(recs: list[dict], advs: list[np.ndarray | None], gamma_tic: floa
             "act": np.concatenate([np.asarray(r["act"], dtype=np.int64) for r, _ in keep]),
             "logp": np.concatenate([np.asarray(r["logp"], dtype=np.float32) for r, _ in keep]),
             "adv": np.concatenate([a for _, a in keep]).astype(np.float32),
-            # combat drill samples (2026-11-20): sampled under the drill mask
-            "drill": np.concatenate([np.full(len(r["act"]), bool(r.get("drill"))) for r, _ in keep]),
             # chained rewards only: one-off ones are credited on their own step
             "ret": np.concatenate([value_targets(np.array(r["rew"]) - _rew_now(r), r["tics"], gamma_tic)
                                    for r, _ in keep])}
@@ -205,7 +200,6 @@ def policy_update(policy: Policy, optimizer: torch.optim.Optimizer, ref: Policy 
     old_lp = torch.as_tensor(batch["logp"], device=device)
     adv = torch.as_tensor(batch["adv"], device=device)
     ret = torch.as_tensor(batch["ret"], device=device)
-    drill = torch.as_tensor(batch.get("drill", np.zeros(n, dtype=bool)), device=device)
     # --norm-adv: scale the batch's advantages to a standard deviation of 1
     # (no mean shift, so no sign changes and the proportions stay). Process
     # advantages sum every later step's score, so their size follows the
@@ -215,7 +209,7 @@ def policy_update(policy: Policy, optimizer: torch.optim.Optimizer, ref: Policy 
     if getattr(args, "norm_adv", False) and adv_std > 1e-8:
         adv = adv / adv_std
     stats = {k: [] for k in ("pg_loss", "v_loss", "entropy", "approx_kl", "clipfrac", "ref_kl",
-                             "grad_norm", "pg_grad_norm", "v_grad_norm", "drill_entropy")}
+                             "grad_norm", "pg_grad_norm", "v_grad_norm")}
     # Health (training_health): which units of the trunk's last layer (the
     # ReLU features both heads read) fire on any sample of the batch, and
     # the optimizer steps skipped for a non-finite loss or gradient.
@@ -230,7 +224,7 @@ def policy_update(policy: Policy, optimizer: torch.optim.Optimizer, ref: Policy 
     hook = policy.trunk.register_forward_hook(watch)
     try:
         nonfinite = _policy_epochs(policy, optimizer, ref, args, device, n, obs, priv, act,
-                                   old_lp, adv, ret, stats, drill)
+                                   old_lp, adv, ret, stats)
     finally:
         hook.remove()
     out = {k: float(np.mean(v)) for k, v in stats.items() if v}
@@ -245,26 +239,29 @@ def policy_update(policy: Policy, optimizer: torch.optim.Optimizer, ref: Policy 
     return out
 
 
-def entropy_loss(ent_s: torch.Tensor, args) -> torch.Tensor:
+def entropy_loss(ent_s: torch.Tensor, args, max_ent: torch.Tensor | None = None) -> torch.Tensor:
     """The loss's entropy term from each sample's entropy: with --ent-target,
-    a floor (only states below it pay); else the plain bonus."""
-    if ent_s.numel() == 0:                      # only drill samples (2026-11-20)
+    a floor (only states below it pay); else the plain bonus. The floor is
+    --ent-target times the sample's highest possible entropy, max_ent = ln
+    of the actions it could take (2026-11-20; default every action): one
+    rule for every sample (an absolute floor before, 2.5 nats; the combat
+    drill's action mask, 2026-11-20, had 6 actions, so ln 6)."""
+    if ent_s.numel() == 0:
         return torch.zeros((), device=ent_s.device)
     target = getattr(args, "ent_target", 0.0)
     if target > 0:
-        return args.ent_coef * torch.relu(target - ent_s).mean()
+        if max_ent is None:
+            max_ent = torch.full_like(ent_s, float(np.log(len(ACTIONS))))
+        return args.ent_coef * torch.relu(target * max_ent - ent_s).mean()
     return -args.ent_coef * ent_s.mean()
 
 
 def _policy_epochs(policy, optimizer, ref, args, device, n, obs, priv, act, old_lp, adv, ret,
-                   stats, drill=None) -> int:
+                   stats) -> int:
     """The epochs of policy_update(); returns the optimizer steps skipped for
     a non-finite loss or gradient norm (so a blow-up never reaches the
     weights)."""
     nonfinite = 0
-    if drill is None:
-        drill = torch.zeros(n, dtype=torch.bool, device=device)
-    banned = drill_banned(device)
     for _ in range(args.epochs):
         perm = torch.randperm(n)
         for start in range(0, n, args.minibatch):
@@ -274,15 +271,13 @@ def _policy_epochs(policy, optimizer, ref, args, device, n, obs, priv, act, old_
             # are weighted by its share, so the sum is the minibatch's.
             optimizer.zero_grad(set_to_none=True)
             micro = getattr(args, "micro_batch", 0) or len(idx)
-            sums = dict.fromkeys(("pg", "v", "ent", "ent_w", "kl", "clip", "ref_kl", "loss"), 0.0)
+            sums = dict.fromkeys(("pg", "v", "ent", "kl", "clip", "ref_kl", "loss"), 0.0)
             for m0 in range(0, len(idx), micro):
                 sub_idx = idx[m0:m0 + micro]
                 w = len(sub_idx) / len(idx)
                 mb_obs = obs[sub_idx].to(device, non_blocking=True)
                 mb_priv = priv[sub_idx].to(device, non_blocking=True)
                 logits, value = policy(mb_obs, mb_priv)
-                mb_drill = drill[sub_idx]
-                logits = mask_drill(logits, mb_drill, banned)   # as the drill sampled them
                 dist = Categorical(logits=logits)
                 lp = dist.log_prob(act[sub_idx])
                 ratio = (lp - old_lp[sub_idx]).exp()
@@ -290,13 +285,8 @@ def _policy_epochs(policy, optimizer, ref, args, device, n, obs, priv, act, old_
                 # Token-level mean over the minibatch: the 1/sum|o_i| of
                 # SPEC.md §7.1, estimated per minibatch.
                 pg = -torch.min(ratio * a, ratio.clamp(1 - args.clip, 1 + args.clip) * a).mean()
-                # Drill samples (6 actions, at most ln 6 = 1.79) stay out of
-                # the entropy floor and the logged entropy (2026-11-20).
-                ent_all = dist.entropy()
-                ent_s = ent_all[~mb_drill]
-                if bool(mb_drill.any()):
-                    stats["drill_entropy"].append(ent_all[mb_drill].mean().item())
-                ent = ent_s.mean() if len(ent_s) else torch.zeros((), device=device)
+                ent_s = dist.entropy()
+                ent = ent_s.mean()
                 v_loss = 0.5 * (value - ret[sub_idx]).pow(2).mean()
                 loss = pg + entropy_loss(ent_s, args) + args.vf_coef * v_loss
                 if ref is not None and args.beta > 0:
@@ -313,10 +303,7 @@ def _policy_epochs(policy, optimizer, ref, args, device, n, obs, priv, act, old_
                     sums["clip"] += w * ((ratio - 1).abs() > args.clip).float().mean().item()
                 sums["pg"] += w * pg.item()
                 sums["v"] += w * v_loss.item()
-                if len(ent_s):                  # non-drill samples only
-                    w_ent = w * len(ent_s) / len(sub_idx)
-                    sums["ent"] += w_ent * ent.item()
-                    sums["ent_w"] += w_ent
+                sums["ent"] += w * ent.item()
                 sums["loss"] += w * loss.item()
             # Clipped apart (2026-11-20; one clip over every parameter
             # before): the value head (its loss is unnormalized returns,
@@ -344,8 +331,7 @@ def _policy_epochs(policy, optimizer, ref, args, device, n, obs, priv, act, old_
             stats["clipfrac"].append(sums["clip"])
             stats["pg_loss"].append(sums["pg"])
             stats["v_loss"].append(sums["v"])
-            if sums["ent_w"]:
-                stats["entropy"].append(sums["ent"] / sums["ent_w"])
+            stats["entropy"].append(sums["ent"])
             if ref is not None and args.beta > 0:
                 stats["ref_kl"].append(sums["ref_kl"])
     return nonfinite
@@ -462,10 +448,18 @@ def print_train(it: int, m: dict, upd: dict, extra: str = "") -> None:
           + (" cos min {} {:.3f}".format(*min(upd["term_cos"].items(), key=lambda kv: kv[1]))
              if upd.get("term_cos") else "")
           + (f" collapsed {m['collapsed_share']:.2f} steps {m['steps']}")
-          + (f" dent {upd['drill_entropy']:.3f}" if "drill_entropy" in upd else "")
-          + (f" ent {upd['entropy']:.3f}" if "entropy" in upd else "")
-          + (f" kl {upd.get('approx_kl', float('nan')):.4f}")
+          + (f" ent {upd.get('entropy', float('nan')):.3f} kl {upd.get('approx_kl', float('nan')):.4f}")
           + extra)
+
+
+def _share(text: str) -> float:
+    """--ent-target: a share of the highest possible entropy, 0..1 (an
+    absolute floor in nats before 2026-11-20: 2.5 is now 0.62)."""
+    v = float(text)
+    if not 0.0 <= v <= 1.0:
+        raise argparse.ArgumentTypeError(f"{v:g} is not a share in 0..1 (since 2026-11-20 --ent-target is a share "
+                                         f"of the highest possible entropy; the old 2.5 nats is 0.62)")
+    return v
 
 
 def add_learn_args(p) -> None:
@@ -483,10 +477,13 @@ def add_learn_args(p) -> None:
                         "8192 at 160x100 ran out of 16 GB)")
     p.add_argument("--clip", type=float, default=0.2)
     p.add_argument("--ent-coef", type=float, default=0.1)   # 0.01 before 2026-11-19, as a plain bonus
-    p.add_argument("--ent-target", type=float, default=2.5,   # 1.0 before 2026-11-19
-                   help="entropy floor per state, in nats: --ent-coef then weighs max(0, target - entropy), "
-                        "so only states below it are pushed back up (default 2.5, about 12 actions; "
-                        "0: the plain bonus on all states, which wants a smaller --ent-coef, e.g. 0.01)")
+    p.add_argument("--ent-target", type=_share, default=0.62,   # 2.5 nats (absolute) before 2026-11-20; 1.0 before 2026-11-19
+                   help="entropy floor per state, as a share of its highest possible entropy (ln of the actions "
+                        "it could take: all 56): --ent-coef then weighs "
+                        "max(0, target * ln(actions) - entropy), so only states below it are pushed back up "
+                        "(default 0.62: 2.5 nats with every action, as the absolute floor before 2026-11-20; "
+                        "0: the plain bonus on all states, which wants a smaller "
+                        "--ent-coef, e.g. 0.01)")
     p.add_argument("--vf-coef", type=float, default=0.5)
     p.add_argument("--max-grad-norm", type=float, default=0.5,
                    help="gradient norm limit per optimizer step, applied to the value head and to the rest (trunk and policy head) apart since 2026-11-20 (one limit over both before)")

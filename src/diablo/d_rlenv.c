@@ -1397,11 +1397,13 @@ static boolean rl_drill;                // DRILL ON (2026-11-20): an awake monst
 static mobj_t *rl_drill_mo;             // the drill's live monster
 static int rl_drill_lost;               // tics it has been off screen
 #define RL_DRILL_NEAR    192
-#define RL_DRILL_FAR     768
+#define RL_DRILL_FAR     512            // 768 before 2026-11-20 (closer: more pressure)
 #define RL_DRILL_VIEW    20
 #define RL_DRILL_TRIES   24
-#define RL_DRILL_LOST    TICRATE        // off screen this long: replaced (the policy can't turn)
+#define RL_DRILL_LOST    (3 * TICRATE)  // off screen this long: replaced (1 s before 2026-11-20, when the policy couldn't turn)
 static boolean RL_TryDrillSpawn(mobj_t *pmo);
+static int rl_items_cmd = -1;           // ITEMS <period> (2026-11-20): -1 the launch flag's
+static int rl_items_unique = -1;        // ITEMS' unique share, percent; -1 the default (25)
 
 static uint32_t RL_SpawnRand(void)
 {
@@ -1423,6 +1425,8 @@ void RL_LevelSetup(void)
     rl_graph_dirty = true;
     rl_spawn_purge = true;   // a LOAD unarchives the save's mobjs after this
     rl_drill = false;        // a LOAD ends a drill: the env sends DRILL ON again
+    rl_items_cmd = -1;       // and ITEMS: back to the launch flag's
+    rl_items_unique = -1;
     rl_drill_mo = NULL;
 }
 
@@ -1515,8 +1519,16 @@ static boolean RL_TrySpawn(mobj_t *pmo)
 // up often enough to learn from.
 static int RL_PracticeItemId(void)
 {
-    static const int weight[NUM_TIERS] = { 30, 25, 10, 10, 25 };
+    static const int base[NUM_TIERS] = { 30, 25, 10, 10, 25 };
+    int weight[NUM_TIERS];
     int tier, i, n, pick, roll = (int) (RL_SpawnRand() % 100);
+
+    // ITEMS' unique share (2026-11-20): uniques that percent, the other
+    // tiers sharing the rest in their usual proportions.
+    for (tier = 0; tier < NUM_TIERS; tier++)
+        weight[tier] = rl_items_unique < 0 ? base[tier]
+                     : tier == NUM_TIERS - 1 ? rl_items_unique
+                     : base[tier] * (100 - rl_items_unique) / (100 - base[NUM_TIERS - 1]);
 
     for (tier = 0; tier < NUM_TIERS - 1 && roll >= weight[tier]; tier++)
         roll -= weight[tier];
@@ -1643,8 +1655,29 @@ static void RL_TrySpawnItem(mobj_t *pmo)
             pts[j] = pts[j - 1];
             pts[j - 1] = tmp;
         }
-    if (n == 0 || (id = RL_PracticeItemId()) < 0)
+    if ((id = RL_PracticeItemId()) < 0)
         return;
+    // On the way to the waypoint first (2026-11-20, the waypoint drill),
+    // when it is on screen and far enough for an item short of it.
+    {
+        int wx, wy;
+        if (D_WaypointGet(&wx, &wy))
+        {
+            rl_portal_t w;
+            double rel = atan2(wy - py, wx - px) * 180.0 / M_PI - RL_AngleDeg(pmo->angle);
+            while (rel > 180.0)
+                rel -= 360.0;
+            while (rel <= -180.0)
+                rel += 360.0;
+            w.x = wx;
+            w.y = wy;
+            w.d = sqrt((wx - px) * (wx - px) + (wy - py) * (wy - py));
+            w.rank = 0;
+            if (rel >= -RL_ITEM_VIEW && rel <= RL_ITEM_VIEW && w.d >= RL_ITEM_NEAR + 16
+                && RL_PlaceItem(pmo, &w, id))
+                return;
+        }
+    }
     for (i = 0; i < n; i++)
         if (RL_PlaceItem(pmo, &pts[i], id))
             return;
@@ -1742,9 +1775,12 @@ void RL_SpawnTick(void)
         P_RemoveMobj(rl_item);
         rl_item = NULL;
     }
-    if (rl_item_period > 0 && rl_item == NULL && !D_BackpackFull(pl)
-        && RL_SpawnRand() % (uint32_t) rl_item_period == 0 && !RL_PracticeExists(false))
-        RL_TrySpawnItem(pl->mo);
+    {
+        int period = rl_items_cmd >= 0 ? rl_items_cmd : rl_item_period;
+        if (period > 0 && rl_item == NULL && !D_BackpackFull(pl)
+            && RL_SpawnRand() % (uint32_t) period == 0 && !RL_PracticeExists(false))
+            RL_TrySpawnItem(pl->mo);
+    }
 
     if (rl_drill)
     {
@@ -1798,8 +1834,7 @@ void RL_SpawnTick(void)
 
 // Combat drill (DRILL ON, -rlenv, 2026-11-20): one awake monster at a time,
 // RL_DRILL_NEAR..RL_DRILL_FAR units ahead within RL_DRILL_VIEW degrees of
-// the facing (the drill's policy only strafes, so it must be lined up by
-// strafing), in sight, targeting the player and running its see state; a
+// the facing (on screen from the start), in sight, targeting the player and running its see state; a
 // new one as soon as it dies. A normal monster, not a practice one: it
 // fights, drops loot and counts as a kill.
 
@@ -1837,6 +1872,12 @@ static boolean RL_TryDrillSpawn(mobj_t *pmo)
         }
     }
     return false;
+}
+
+void RL_Items(int period, int unique)
+{
+    rl_items_cmd = period < 0 ? 0 : period;
+    rl_items_unique = unique < 0 ? -1 : unique > 100 ? 100 : unique;
 }
 
 void RL_Drill(boolean on)

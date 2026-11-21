@@ -15,7 +15,7 @@ import numpy as np
 import torch
 from torch.distributions import Categorical
 
-from model import WARMUP_ACTIONS, WARMUP_HOLD, Policy, drill_banned, env_label, get_privileged_info, mask_drill, run_env
+from model import WARMUP_ACTIONS, WARMUP_HOLD, Policy, env_label, get_privileged_info, run_env
 from env import ACTIONS, goal_dist  # noqa: E402  (model.py put env on sys.path)
 from env.env import N_MOVE  # noqa: E402
 from env.vector import GroupVecEnv  # noqa: E402
@@ -74,10 +74,6 @@ def run_rollouts(vec: GroupVecEnv, policy: Policy, device: torch.device,
              "start_state": infos[k]["state"], "wall_start": t_start, "terms": {},
              "step_terms": []}
             for k in range(n)]
-    # Combat drill rollouts (options["drill"]) sample only DRILL_MASK's
-    # actions; the logp recorded is under that mask, as the update uses it.
-    drill = torch.as_tensor([bool(o.get("drill")) for o in options], device=device)
-    banned = drill_banned(device)
     active = list(range(n))
     policy.eval()
     while active:
@@ -86,7 +82,6 @@ def run_rollouts(vec: GroupVecEnv, policy: Policy, device: torch.device,
             o = torch.as_tensor(cur_obs[active], device=device)
             p = torch.as_tensor(cur_priv[active], device=device)
             logits, _ = policy(o, p)
-            logits = mask_drill(logits, drill[active], banned)
             dist = Categorical(logits=logits)
             a = dist.sample() if temperature == 1.0 else pick_actions(logits, temperature)
             lp = dist.log_prob(a)
@@ -134,7 +129,8 @@ def run_rollouts(vec: GroupVecEnv, policy: Policy, device: torch.device,
         r["items"] = list(r["end_info"].get("items", [0, 0]))   # practice items [spawned, picked up]
         r["waypoints"] = list(r["end_info"].get("waypoints", [0, 0]))   # [set, reached]
         r["combat"] = list(r["end_info"].get("combat", [0, 0, 0, 0, 0]))   # [on, shots, hits, kills, damage]
-        r["drill"] = bool(r["end_info"].get("drill"))
+        r["drill"] = bool(r["end_info"].get("drill"))     # the combat drill: the action mask
+        r["type"] = r["end_info"].get("type")              # env.TYPES, None untyped
         r["consult_stats"] = list(r["end_info"].get("consult_stats", [0, 0, 0, 0]))
     return recs
 
@@ -168,7 +164,7 @@ def rollout_log_rows(recs: list[dict], options: list[dict], labels: list[str], *
             "goal_dist": [goal_dist(s0), goal_dist(s1)],
             "mode": s1.get("mode"), "keys": s1.get("keys"), "items": r.get("items"),
             "waypoints": r.get("waypoints"),
-            "combat": r.get("combat"), "drill": bool(r.get("drill")),
+            "combat": r.get("combat"), "type": r.get("type"),
             "actions": dict(zip(ACTIONS, acts.tolist())),
             "wall_start": _clock(r["wall_start"]) if "wall_start" in r else None,
             "wall_end": _clock(r["wall_end"]) if "wall_end" in r else None,
@@ -231,7 +227,9 @@ def heldout_eval(vec: GroupVecEnv, labels: list[str], policy: Policy, device: to
     # games. The RNG is forked, so training's own RNG stream is untouched.
     with torch.random.fork_rng(devices=[device] if device.type == "cuda" else []):
         torch.manual_seed(0)
-        recs = run_rollouts(vec, policy, device, [{"seed": 0, "group": -1, "warmup": []} for _ in labels])
+        # type maze (2026-11-20; untyped seed 0 drew the same: monsters hidden, no waypoints)
+        recs = run_rollouts(vec, policy, device, [{"seed": 0, "group": -1, "warmup": [], "type": "maze"}
+                                                 for _ in labels])
     per_map: dict[str, list[dict]] = {}
     for m, r in zip(labels, recs):
         per_map.setdefault(m, []).append(r)

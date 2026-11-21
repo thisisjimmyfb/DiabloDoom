@@ -18,7 +18,7 @@ HERE = Path(__file__).resolve().parents[1]
 WAD = HERE.parents[1] / "wad"
 PY = sys.executable
 # Small and fast: one group of two short rollouts, one held-out map.
-TINY = ["--groups", "1", "--group-size", "2", "--max-tics", "300",
+TINY = ["--groups", "1", "--mix", "mixed=1", "--group-size", "2", "--max-tics", "300",
         "--eval-maps", "1 5", "--eval-episodes", "1"]
 
 
@@ -122,7 +122,7 @@ def test_iwads(tmp_path):
     if not all(w.exists() for w in iwads):
         pytest.skip("needs wad/FreedoomPhase1/FREEDOOM1.WAD and wad/UltimateDoom/DOOM.WAD")
     run_dir = tmp_path / "run"
-    o = train(run_dir, "--iwads", *map(str, iwads), "--groups", "2", "--maps", "1 1",
+    o = train(run_dir, "--iwads", *map(str, iwads), "--groups", "2", "--mix", "maze=1,mixed=1", "--maps", "1 1",
               "--iterations", "1", "--eval-every", "1", "--capture-envs", "0")
     assert "FREEDOOM1:1 1" in o and "DOOM:1 1" in o, "each IWAD gets a group"
     (m,) = metrics(run_dir, "train")
@@ -132,12 +132,12 @@ def test_iwads(tmp_path):
 
 
 def test_capture(tmp_path):
-    """--capture-envs 1 records timestamped replay segments into replays/env00_<IWAD>/."""
+    """--capture-envs 1 records timestamped replay segments into replays/<IWAD>_<map>/."""
     run_dir = tmp_path / "run"
     train(run_dir, "--iterations", "1", "--eval-every", "0", "--capture-envs", "1", "--max-tics", "1200")
     files = sorted((run_dir / "replays").rglob("*"))
     segs = [f for f in files if f.is_file()]
-    assert segs and all(f.parent.name.startswith("env00_") for f in segs), [str(f) for f in files]
+    assert segs and all(re.fullmatch(r"\w+_E\dM\d", f.parent.name) for f in segs), [str(f) for f in files]
     assert all(re.fullmatch(r"diablodoom_\d{8}_\d{6}_\d{3}(_\d\d)?\.mp4", f.name) for f in segs)
     assert all(f.stat().st_size > 0 for f in segs)
 

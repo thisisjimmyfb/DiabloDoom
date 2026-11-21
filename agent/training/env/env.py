@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 import collections
+from pathlib import Path
 
 import gymnasium as gym
 import numpy as np
@@ -38,11 +39,28 @@ CONSULT = ACTIONS.index("CONSULT")
 # The PRESS actions that turn (L or R; the CTRL key's letters don't count).
 TURNS = frozenset(i for i, a in enumerate(ACTIONS[:N_MOVE]) if set(a[6:].replace("CTRL", "")) & {"L", "R"})
 USE = ACTIONS.index("USE")
-# Combat drill (2026-11-20): the only actions a drill rollout samples --
-# strafe and fire (standing still included); its policy never turns.
-DRILL_ACTIONS = [ACTIONS.index(a) for a in ("PRESS", "PRESS CTRL", "PRESS A", "PRESS A CTRL",
-                                            "PRESS D", "PRESS D CTRL")]
-DRILL_MASK = np.isin(np.arange(len(ACTIONS)), DRILL_ACTIONS)
+# Rollout types (2026-11-20; reset's options["type"]): what the world holds,
+# never how it is scored -- every type has the same reward function.
+#   combat:   the combat drill: map monsters hidden, DRILL ON (one awake
+#             monster ahead), never fists, no waypoints or practice items,
+#             every sector visited from the start (no room can pay)
+#   waypoint: the waypoint drill: map monsters hidden, endless waypoints
+#             (a new one as soon as one is reached), frequent practice items
+#             on the way to it, about half uniques (ITEMS)
+#   maze:     map monsters hidden, no waypoints
+#   mixed:    map monsters shown, waypoints
+# Drills (combat, waypoint) end only on death, the exit or time: no portal
+# or key goal. No type: the older random split (EnvConfig.combat, waypoint_off).
+TYPES = ("combat", "waypoint", "maze", "mixed")
+DRILLS = ("combat", "waypoint")
+
+
+def replay_dir_name(iwad: str | None, warp: str) -> str:
+    """A replay folder's name (2026-11-20): IWAD and map, e.g. DOOM_E1M2
+    (a Doom II -warp 7: MAP07); its videos are that map's only."""
+    parts = warp.split()
+    tag = f"E{parts[0]}M{parts[1]}" if len(parts) == 2 else f"MAP{int(parts[0]):02d}"
+    return f"{Path(iwad).stem if iwad else 'default'}_{tag}"
 # Each action's forward/back key: +1 W, -1 S, 0 none (strafes, A/D,
 # aren't tracked).
 MOVE_DIR = [(1 if "W" in a[6:].replace("CTRL", "") else -1 if "S" in a[6:].replace("CTRL", "") else 0)
@@ -391,7 +409,14 @@ class EnvConfig:
     # clear before the player is in the room; the clock without one leads
     # the last stretch.
     waypoint_min: float = 256.0      # 128 before 2026-11-18
-    waypoint_count: int = 5            # per rollout (2026-11-19); 0: no limit
+    waypoint_count: int = 5            # per rollout (2026-11-19); 0: no limit (the waypoint drill's)
+    # Reached within this many map units of the player (2026-11-20, every
+    # type; before, only the engine's touch, as a pickup): the env clears it.
+    waypoint_reach: float = 96.0
+    # The waypoint drill's practice items (ITEMS): mean tics between them
+    # and the unique share, percent.
+    drill_item_tics: int = 175
+    drill_item_unique: int = 50
 
 
 class DiabloDoomEnv(gym.Env):
@@ -421,8 +446,10 @@ class DiabloDoomEnv(gym.Env):
         self.next_reset: dict | None = None
         self._dmg_share = 0.0
         self._turn_tics = 0
-        self._drill = False
+        self._type, self._drill = None, False
+        self._wp_clear = False
         self._wp_on, self._wp, self._wp_tic, self._wp_stats = False, None, -10 ** 9, [0, 0]   # waypoints (reset sets them)
+        self._wp_count, self._wp_gap = self.cfg.waypoint_count, self.cfg.waypoint_gap
         self._wp_pending = False
         self._combat_on, self._combat_stats = False, [0, 0, 0, 0.0]   # combat (reset sets them)
         self._installed: dict[int, bytes | None] = {}   # install_state slots
@@ -541,19 +568,34 @@ class DiabloDoomEnv(gym.Env):
         # frame rendered from the loaded state.
         self.engine.command(f"LOAD {slot}")
         d, _ = self.engine.command(f"SEED {int(rng_seed) % 256}")
-        # A combat drill (options["drill"], 2026-11-20): no map monsters, the
-        # engine's DRILL keeps one awake monster ahead, no waypoints or clock.
-        self._drill = bool(opts.get("drill"))
-        self._combat_on = (int(rng_seed) * 40503 + 7919) % 1000 / 1000.0 < self.cfg.combat and not self._drill
+        # The rollout type (TYPES, 2026-11-20); "drill" is the combat drill's
+        # older name. self._drill: the combat drill.
+        self._type = opts.get("type") or ("combat" if opts.get("drill") else None)
+        if self._type is not None and self._type not in TYPES:
+            raise ValueError(f"unknown rollout type {self._type!r}")
+        self._drill = self._type == "combat"
+        if self._type is None:
+            self._combat_on = (int(rng_seed) * 40503 + 7919) % 1000 / 1000.0 < self.cfg.combat
+        else:
+            self._combat_on = self._type == "mixed"
         d, _ = self.engine.command("MONSTERS SHOW" if self._combat_on else "MONSTERS HIDE")
         if self.cfg.give_gun:
             # A random gun equipped (2026-11-18; the engine's GIVEGUN), the
             # same for the whole group (from its seed).
             # A drill never gets fists (RANGED, 2026-11-20): no melee there.
             d, _ = self.engine.command(f"GIVEGUN {int(rng_seed) * 7 + 3}" + (" KIT" if self.cfg.gun_kit else "")
-                                       + (" RANGED" if opts.get("drill") else ""))
+                                       + (" RANGED" if self._drill else ""))
         if self._drill:
             d, _ = self.engine.command("DRILL ON")
+            d, _ = self.engine.command("ITEMS 0")
+            # Every sector visited from the start (2026-11-20): a new room
+            # can't pay here, so fighting is the drill's only payoff.
+            vis = self.visited()
+            if vis:
+                for off in range(0, len(vis), 200):
+                    d, _ = self.engine.command(f"VISIT {off} {'f' * len(vis[off:off + 200])}")
+        elif self._type == "waypoint":
+            d, _ = self.engine.command(f"ITEMS {self.cfg.drill_item_tics} {self.cfg.drill_item_unique}")
         self._combat_stats = [0, 0, 0, 0.0]   # shots, hits, kills, damage dealt (HP)
         self._dmg_share = 0.0                  # monster HP shares removed (paid at the end)
         self._turn_tics = 0                    # tics a turn key was held (RewardConfig.turn)
@@ -606,9 +648,16 @@ class DiabloDoomEnv(gym.Env):
         self._update_triggers(d)
         # Waypoints (EnvConfig.waypoints): this group's on or off, from
         # its seed; the first one goes out with the first action.
-        self._wp_on = (self.cfg.waypoints and not self._drill
-                       and (int(rng_seed) * 2654435761 % 1000) / 1000.0 >= self.cfg.waypoint_off)
+        if self._type is None:
+            self._wp_on = self.cfg.waypoints and (int(rng_seed) * 2654435761 % 1000) / 1000.0 >= self.cfg.waypoint_off
+        else:
+            self._wp_on = self.cfg.waypoints and self._type in ("waypoint", "mixed")
+        # The waypoint drill: no limit, the next one at once.
+        endless = self._type == "waypoint"
+        self._wp_count = 0 if endless else self.cfg.waypoint_count
+        self._wp_gap = 0 if endless else self.cfg.waypoint_gap
         self._wp, self._wp_tic, self._wp_stats, self._wp_pending = None, -10 ** 9, [0, 0], False
+        self._wp_clear = False
         obs = self._stack.reset(self._frame())
         return obs, self._info(0, d)
 
@@ -661,6 +710,9 @@ class DiabloDoomEnv(gym.Env):
             wl = self._waypoint_due(prev)
             if wl:
                 line = f"{wl};{line}"     # the same tic as the action
+            if self._wp_clear:            # reached within waypoint_reach last step: off the screen
+                line = f"WAYPOINT;{line}"
+                self._wp_clear = False
             d, events = self.engine.command(line)
             tics = max(d.get("tics", 0), 0)
             sent = True
@@ -680,6 +732,13 @@ class DiabloDoomEnv(gym.Env):
                 self._wp_stats[1] += 1
                 add("waypoint", rc.waypoint)
             self._wp, self._wp_tic = None, self._tics
+        elif (wp is not None and "x" in d and self.cfg.waypoint_reach > 0
+              and np.hypot(d["x"] - wp[0], d["y"] - wp[1]) <= self.cfg.waypoint_reach):
+            # Within waypoint_reach (2026-11-20): reached, the engine's marker
+            # cleared with the next action.
+            self._wp_stats[1] += 1
+            add("waypoint", rc.waypoint)
+            self._wp, self._wp_tic, self._wp_clear = None, self._tics, True
 
         # Steps in combat (capped: the world is frozen until CONSULT).
         if d.get("mode") in COMBAT_MODES:
@@ -703,7 +762,7 @@ class DiabloDoomEnv(gym.Env):
                     ang = np.degrees(np.arctan2(wp[1] - prev["y"], wp[0] - prev["x"])) - prev["angle"]
                     facing = max(0.0, float(np.cos(np.radians(ang))))
                 add("waypoint_look_approach", rc.waypoint_look_approach * float(closed) * facing)
-        elif tics > 0 and rc.time and not self._wp_on and not self._drill:
+        elif tics > 0 and rc.time and not self._wp_on:
             known = [g for g in (self._goal, goal) if g is not None]
             dist = sum(known) / len(known) if known else 0.0
             add("time", -rc.time * tics * (1.0 + dist / rc.far_scale))
@@ -828,10 +887,11 @@ class DiabloDoomEnv(gym.Env):
         elif d.get("dead"):
             add("death", rc.death)
             terminated, end = True, "death"
-        elif self.cfg.key_goal and new_keys:
+        elif self.cfg.key_goal and new_keys and self._type not in DRILLS:
             terminated = got_key = True
             end = "key"
-        elif self.cfg.portal_goal > 0 and self._best_sectors - self._start_sectors >= self.cfg.portal_goal:
+        elif (self.cfg.portal_goal > 0 and self._type not in DRILLS
+              and self._best_sectors - self._start_sectors >= self.cfg.portal_goal):
             terminated = portal = True
             end = "portal"
         if not terminated:
@@ -850,8 +910,8 @@ class DiabloDoomEnv(gym.Env):
             add("damage", rc.damage * self._dmg_share * hpf)
             add("kill", rc.kill * self._combat_stats[2] * hpf)
         # Waypoints not reached, paid when a goal ends the rollout early.
-        if end in ("exit", "key", "portal") and self._wp_on and self.cfg.waypoint_count > 0:
-            add("waypoint", rc.waypoint * max(self.cfg.waypoint_count - self._wp_stats[1], 0))
+        if end in ("exit", "key", "portal") and self._wp_on and self._wp_count > 0:
+            add("waypoint", rc.waypoint * max(self._wp_count - self._wp_stats[1], 0))
         reward = sum(terms.values())
 
         obs = self._stack.push(self._frame()) if sent else self._stack.get()
@@ -863,6 +923,7 @@ class DiabloDoomEnv(gym.Env):
         info["consult_stats"] = list(self._consult_stats)
         # on (a drill counts: it fights), shots, hits, kills, damage
         info["combat"] = [int(self._combat_on or self._drill)] + list(self._combat_stats)
+        info["type"] = self._type
         info["drill"] = self._drill
         info["waypoints"] = list(self._wp_stats)   # [set, reached]
         info["terms"] = terms             # the reward by term
@@ -882,6 +943,9 @@ class DiabloDoomEnv(gym.Env):
         self.cfg.engine.warp = warp
         if iwad:
             self.cfg.engine.iwad = iwad
+        if self.cfg.engine.capture_dir:   # replays follow the map (2026-11-20)
+            self.cfg.engine.capture_dir = str(Path(self.cfg.engine.capture_dir).parent
+                                              / replay_dir_name(self.cfg.engine.iwad, warp))
         self._installed.clear()
         self._installed_visited.clear()
         self._map_start = None
@@ -961,12 +1025,12 @@ class DiabloDoomEnv(gym.Env):
         cfg = self.cfg
         ahead = d.get("path_ahead")
         if not self._wp_on or d.get("mode") != EXPLORE or (
-                cfg.waypoint_count > 0 and self._wp is None and self._wp_stats[0] >= cfg.waypoint_count):
+                self._wp_count > 0 and self._wp is None and self._wp_stats[0] >= self._wp_count):
             return None
         age = self._tics - self._wp_tic
         if self._wp is not None and cfg.waypoint_every <= 0:
             return None
-        if age < (cfg.waypoint_gap if self._wp is None else cfg.waypoint_every):
+        if age < (self._wp_gap if self._wp is None else cfg.waypoint_every):
             return None
         if cfg.waypoint_place == "sector":
             # The engine picks the point; the step reads it back.

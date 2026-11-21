@@ -19,7 +19,6 @@ import torch.nn as nn
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from env import ACTIONS, CONSULT  # noqa: E402
-from env.env import DRILL_MASK  # noqa: E402
 
 # Warm-up uses movement only (no CONSULT, no fire: 2026-11-18), each action held for
 # WARMUP_HOLD tics (decisions are per tic: single random tics would
@@ -207,17 +206,20 @@ class Policy(nn.Module):
         return logits, value
 
 
-def drill_banned(device) -> torch.Tensor:
-    """Per action: True where a combat drill (2026-11-20) doesn't allow it."""
-    return torch.as_tensor(~DRILL_MASK, device=device)
-
-
-def mask_drill(logits: torch.Tensor, drill: torch.Tensor, banned: torch.Tensor) -> torch.Tensor:
-    """The logits with the actions a combat drill doesn't allow set to
-    -inf on the drill rows (drill: one bool per row; banned: per action)."""
-    if not bool(drill.any()):
-        return logits
-    return logits.masked_fill(drill[:, None] & banned[None, :], float("-inf"))
+def parse_mix(text: str) -> dict[str, int]:
+    """--mix "combat=2,waypoint=2,maze=2,mixed=2" -> {type: groups}, every
+    type of env.TYPES present (0 when left out)."""
+    from env.env import TYPES
+    out = dict.fromkeys(TYPES, 0)
+    for part in (p.strip() for p in text.split(",") if p.strip()):
+        name, _, n = part.partition("=")
+        name = name.strip()
+        if name not in out or not n.strip().isdigit():
+            raise SystemExit(f"--mix: bad entry {part!r} (types: {', '.join(TYPES)}; e.g. combat=2)")
+        out[name] = int(n)
+    if sum(out.values()) == 0:
+        raise SystemExit("--mix: no groups")
+    return out
 
 
 def load_weights(path: str) -> dict:
@@ -247,14 +249,18 @@ def env_label(w: str | None, m: str, iwads: list[str | None]) -> str:
 
 def capture_dirs(env_pairs: list, n: int, root: Path) -> list[str | None]:
     """Replay directories for --capture-envs n: the first n envs of each
-    IWAD record, into root/env<i>_<IWAD>/ (groups take the IWADs in
-    rotation, so "the first n envs" alone would all be the first IWAD)."""
+    IWAD record (groups take the IWADs in rotation, so "the first n envs"
+    alone would all be the first IWAD), into root/<IWAD>_<map>/ (2026-11-20;
+    root/env<i>_<IWAD>/ before, which kept a moved env's later maps there
+    too): an env that moves to another map (set_map) records into that
+    map's folder."""
+    from env.env import replay_dir_name
     seen: dict = {}
     out = []
-    for i, (w, _) in enumerate(env_pairs):
+    for i, (w, m) in enumerate(env_pairs):
         k = seen.get(w, 0)
         seen[w] = k + 1
-        out.append(str(root / f"env{i:02d}_{iwad_label(w)}") if k < n else None)
+        out.append(str(root / replay_dir_name(w, m)) if k < n else None)
     return out
 
 
@@ -288,6 +294,20 @@ def allocate_groups(iwads: list[str | None], maps: list[str], groups: int,
 # end the level when the boss dies; Doom II's MAP07 and MAP30): with
 # stage 1's --eval (no monsters) they can't be finished, so --maps all skips them.
 BOSS_MAPS = {"1 8", "2 8", "3 8", "4 6", "4 8", "7", "30"}
+# The drill maps (2026-11-20; E1M1 of Ultimate Doom alone before): the combat
+# and waypoint drills rotate over these, per IWAD label. Picked from a survey
+# of every E1-E4 map: the most open area connected to the player start (wide
+# openings, floors within a step), no damaging floor there, and at least
+# ~400 units of sightline ahead and 20 degrees to each side (the combat
+# drill spawns 192-768 units ahead within 20 degrees).
+DRILL_MAPS = {"DOOM": ["3 2", "1 2"], "FREEDOOM1": ["1 8", "4 3"]}
+
+
+def drill_pairs(iwads: list) -> list[tuple]:
+    """The (iwad, warp) pairs the drills rotate over, for the IWADs in use."""
+    return [(w, m) for w in iwads if w for m in DRILL_MAPS.get(iwad_label(w).upper(), [])]
+
+
 # --groups default: one group per IWAD/map pair, at most this many (the
 # rest take turns, --rotate-every).
 FREE_CORES = 2   # logical cores the default group count leaves unused
@@ -430,10 +450,11 @@ def add_env_args(p) -> None:
                         "with: resuming with another size stops. eval.py takes it from the checkpoint")
     p.add_argument("--stage", type=int, choices=[1, 2], default=1,
                    help="1: --combat of the groups fight the map monsters, the rest have them hidden "
-                        "(no map monsters at all before 2026-11-18); 2: every group fights")
+                        "(no map monsters at all before 2026-11-18); 2: every group fights. train.py: only untyped resets (eval.py); --mix sets the training groups since 2026-11-20")
     p.add_argument("--combat", type=float, default=0.5,
                    help="stage 1: the share of groups that fight (the rest explore with the map "
-                        "monsters hidden; per group, from its seed)")
+                        "monsters hidden; per group, from its seed). train.py: only untyped resets; "
+                        "--mix sets the training groups since 2026-11-20")
     p.add_argument("--spawn-tics", type=int, default=0,   # 350 before 2026-11-18: the policy fights now
                    help="mean game tics between practice monsters spawned on screen while exploring "
                         "(-rlspawn: frozen practice monsters, no longer a CONSULT trigger since 2026-11-18; "
@@ -477,12 +498,10 @@ def add_env_args(p) -> None:
                         "at most the logical cores minus 2; with more pairs than groups they take "
                         "turns, --rotate-every)")
     p.add_argument("--group-size", type=int, default=8)
-    p.add_argument("--drill-groups", type=int, default=2,
-                   help="of --groups, how many play the combat drill (2026-11-20): Ultimate Doom E1M1 (needs DOOM.WAD in --iwads), map monsters hidden, one awake monster ahead at a time and a new one when it dies (the engine's DRILL), strafe and fire only, no waypoints or clock; never in the map rotation or the frontier (0: none; none either when no other group would be left)")
-    p.add_argument("--drill", action="store_true",
-                   help="combat drill only (2026-11-20): every group plays the drill (see --drill-groups), no maze run, no map rotation or frontier; only the strafe and fire actions train")
+    p.add_argument("--mix", default="combat=3,waypoint=2,maze=1,mixed=2",   # combat=2,waypoint=2,maze=2,mixed=2 before 2026-11-20
+                   help="groups per rollout type (2026-11-20; env.TYPES), adding up to --groups (whose default becomes their sum): combat (the combat drill: the drill maps (DRILL_MAPS), one awake monster ahead at a time, every sector visited from the start), waypoint (the waypoint drill: the drill maps, endless waypoints, frequent practice items), maze (the rotating maps, monsters hidden, no waypoints), mixed (the rotating maps, monsters and waypoints). The drills rotate over the drill maps of the --iwads every --rotate-every batches, always start at the map start and end only on death, the exit or --drill-tics; maze and mixed rotate over the maps with the frontier and tic budget. Every type has the same reward function. E.g. combat=8: the combat drill alone")
     p.add_argument("--drill-tics", type=int, default=1050,
-                   help="a combat drill rollout's limit in game tics (default 30 s)")
+                   help="a drill rollout's limit in game tics (combat and waypoint; default 30 s)")
     p.add_argument("--max-tics", type=int, default=525,
                    help="rollout limit in game tics (35/s; default 15 s)")
     p.add_argument("--portal-goal", type=int, default=1,

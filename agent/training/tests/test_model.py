@@ -349,15 +349,20 @@ def test_resolve_maps_all():
 def test_capture_dirs():
     """--capture-envs n records the first n envs of each IWAD (groups take
     the IWADs in rotation, so env 0..7 are all the first IWAD); both are
-    on the first map."""
+    on the first map, into <IWAD>_<map>/; set_map moves an env's folder
+    with it."""
     groups = allocate_groups(TWO_IWADS, MAPS, 4)
     pairs = [groups[i // 8] for i in range(32)]
     dirs = capture_dirs(pairs, 1, Path("/r"))
-    assert {i: d for i, d in enumerate(dirs) if d} == {0: "/r/env00_FREEDOOM1", 8: "/r/env08_DOOM"}
+    m = "E" + MAPS[0].replace(" ", "M")
+    assert {i: d for i, d in enumerate(dirs) if d} == {0: f"/r/FREEDOOM1_{m}", 8: f"/r/DOOM_{m}"}
     assert pairs[0][1] == pairs[8][1] == MAPS[0]
     assert sum(d is not None for d in capture_dirs(pairs, 2, Path("/r"))) == 4
     assert capture_dirs(pairs, 0, Path("/r")) == [None] * 32
-    assert capture_dirs([(None, "1 1")] * 2, 1, Path("/r")) == ["/r/env00_default", None]
+    assert capture_dirs([(None, "1 1")] * 2, 1, Path("/r")) == ["/r/default_E1M1", None]
+    from env import DiabloDoomEnv, EnvConfig, EngineConfig
+    e = DiabloDoomEnv(EnvConfig(engine=EngineConfig(warp="1 1", capture_dir="/r/DOOM_E1M1")))
+    assert e.set_map("/w/FREEDOOM1.WAD", "4 3") and e.cfg.engine.capture_dir == "/r/FREEDOOM1_E4M3"
 
 
 def test_default_groups_leave_two_cores():
@@ -412,3 +417,14 @@ def test_obs_size(tmp_path):
     (tmp_path / "fresh").mkdir()
     setup_learner(a, tmp_path / "fresh", torch.device("cpu"))
     assert a.obs_size == DEFAULT_OBS_SIZE
+
+
+def test_parse_mix():
+    """--mix: groups per rollout type, every type present (0 when left
+    out); an unknown type or a bad count stops."""
+    from model import parse_mix
+    assert parse_mix("combat=2,waypoint=2,maze=2,mixed=2") == {"combat": 2, "waypoint": 2, "maze": 2, "mixed": 2}
+    assert parse_mix("combat=8") == {"combat": 8, "waypoint": 0, "maze": 0, "mixed": 0}
+    for bad in ("combat=x", "drill=2", "combat=0"):
+        with pytest.raises(SystemExit):
+            parse_mix(bad)

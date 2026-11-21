@@ -102,27 +102,6 @@ def test_policy_update(rng, make_rollout):
     assert m["steps"] == sum(r["len"] for r in back) and abs(m["collapsed_share"] - 1 / 3) < 1e-9
 
 
-def test_drill_update(rng, make_rollout):
-    """Combat drill rollouts (r["drill"]) are flagged per sample in the
-    batch; an update on drill samples alone (actions from DRILL_ACTIONS,
-    the rest masked to -inf) stays finite, and the entropy floor skips
-    them: their entropy is logged apart (drill_entropy, at most ln 6)."""
-    from env.env import DRILL_ACTIONS
-    gs = [[make_rollout(int(n)) for n in rng.integers(20, 40, 4)]]
-    for r in gs[0]:
-        r["drill"] = True
-        r["act"] = [DRILL_ACTIONS[int(a) % len(DRILL_ACTIONS)] for a in r["act"]]
-    advs, _ = group_advantages(gs, "outcome")
-    batch = build_batch(gs[0], advs, 0.999)
-    assert batch["drill"].all()
-    args = types.SimpleNamespace(epochs=1, minibatch=64, clip=0.2, ent_coef=0.1, ent_target=2.5,
-                                 vf_coef=0.5, beta=0.0, max_grad_norm=0.5)
-    policy = Policy()
-    upd = policy_update(policy, torch.optim.Adam(policy.parameters(), lr=1e-4), None, batch, args, torch.device("cpu"))
-    assert upd["nonfinite_steps"] == 0 and np.isfinite(upd["pg_loss"])
-    assert "entropy" not in upd and 0 < upd["drill_entropy"] <= np.log(len(DRILL_ACTIONS)) + 1e-4
-
-
 def _health_batch(rng, make_rollout):
     gs = [[make_rollout(int(n)) for n in rng.integers(20, 40, 4)]]
     advs, _ = group_advantages(gs, "outcome")
@@ -266,13 +245,21 @@ def test_reward_conflict(rng, make_rollout):
 
 
 def test_entropy_floor():
-    """--ent-target: no term (and no gradient) above the floor, the floor's
-    shortfall below it; 0 keeps the plain bonus."""
-    args = types.SimpleNamespace(ent_coef=0.01, ent_target=1.0)
+    """--ent-target: a share of each sample's highest possible entropy
+    (max_ent); no term (and no gradient) above the floor, the floor's
+    shortfall below it, a drill sample's (ln 6) as anyone's; 0 keeps the
+    plain bonus."""
+    args = types.SimpleNamespace(ent_coef=0.01, ent_target=0.5)
+    two = torch.tensor([2.0, 2.0])                    # floor 0.5 * 2.0 = 1.0
     ent = torch.tensor([3.3, 1.5], requires_grad=True)
-    loss = entropy_loss(ent, args)
+    loss = entropy_loss(ent, args, two)
     loss.backward()
     assert loss.item() == 0.0 and ent.grad.abs().sum().item() == 0.0
-    assert entropy_loss(torch.tensor([0.6, 3.0]), args).item() == pytest.approx(0.01 * 0.4 / 2)
+    assert entropy_loss(torch.tensor([0.6, 3.0]), args, two).item() == pytest.approx(0.01 * 0.4 / 2)
+    import math
+    from env import ACTIONS
+    assert entropy_loss(torch.tensor([0.0]), args).item() == pytest.approx(0.01 * 0.5 * math.log(len(ACTIONS)))
+    assert entropy_loss(torch.tensor([0.5]), args, torch.tensor([math.log(6)])).item() == \
+        pytest.approx(0.01 * (0.5 * math.log(6) - 0.5))
     args.ent_target = 0.0
     assert entropy_loss(torch.tensor([2.0, 4.0]), args).item() == pytest.approx(-0.03)
