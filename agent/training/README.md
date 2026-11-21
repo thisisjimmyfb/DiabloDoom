@@ -180,7 +180,10 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   before 2026-11-20; healing pays nothing; `hit_decay`, x0.8 a hit on the
   end-of-rollout combat pay, until 2026-11-20), and a death ends the rollout with
   `death` (-200 since 2026-11-20, -150 before, -100 before 2026-11-18) on top. The train line shows `kills` and
-  the hit rate. Pickups pay from the engine's `pickup` events: `loot` (5)
+  the hit rate, and (2026-11-21) `fire <seen>/<blind>`: the share of steps
+  pressing fire with a monster on screen (the engine's `monstervis`) and
+  with none (blind firing); metrics `fire_seen` / `fire_blind`, and each
+  `rollouts.jsonl` row's `fire` [steps seen, fire; unseen, fire]. Pickups pay from the engine's `pickup` events: `loot` (5)
   per Diablo item or armor picked up, `health` (0.75) per HP a health
   pickup healed (a medikit 18.75, a +1 health bonus 0.75), the mirror of
   the hit penalties.

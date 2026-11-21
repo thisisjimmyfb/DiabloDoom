@@ -36,6 +36,8 @@ ACTIONS = [" ".join(k for k in ("PRESS", f + s + t, c) if k)
            for c in ("", "CTRL")] + ["USE", "CONSULT"]
 N_MOVE = 54                       # the PRESS actions, before USE and CONSULT
 CONSULT = ACTIONS.index("CONSULT")
+# The PRESS actions that fire (the CTRL key).
+FIRES = frozenset(i for i, a in enumerate(ACTIONS[:N_MOVE]) if a.endswith("CTRL"))
 # The PRESS actions that turn (L or R; the CTRL key's letters don't count).
 TURNS = frozenset(i for i, a in enumerate(ACTIONS[:N_MOVE]) if set(a[6:].replace("CTRL", "")) & {"L", "R"})
 USE = ACTIONS.index("USE")
@@ -462,6 +464,7 @@ class DiabloDoomEnv(gym.Env):
         self._dmg_share = 0.0
         self._view_share = 0.0
         self._turn_tics = 0
+        self._fire_stats = [0, 0, 0, 0]
         self._type, self._drill = None, False
         self._wp_clear = False
         self._wp_on, self._wp, self._wp_tic, self._wp_stats = False, None, -10 ** 9, [0, 0]   # waypoints (reset sets them)
@@ -656,6 +659,10 @@ class DiabloDoomEnv(gym.Env):
         self._keys = d.get("keys", 0)     # keys held at the start (or from the warm-up) never pay
         self._items_spawned, self._items_picked = warm_item, 0   # -rlitems practice items this rollout
         self._consult_stats = [0, 0, 0, 0]   # explore steps with a unique trigger pending, CONSULTs on them; without, CONSULTs
+        # Fire presses (2026-11-21, a diagnostic): steps with a monster on
+        # screen at the step's start (the engine's monstervis), fire presses on
+        # them; steps without, fire presses on them.
+        self._fire_stats = [0, 0, 0, 0]
         self._prev_hp = d.get("hp", 0)
         self._combat_steps = 0
         self._turn_hist = collections.deque(maxlen=self.cfg.rewards.turn_waste_window)
@@ -924,6 +931,9 @@ class DiabloDoomEnv(gym.Env):
             elif self._combat_steps >= self.cfg.max_combat_steps:
                 truncated, end = True, "combat"
         age = prev.get("attack_age", -1)
+        seen = bool(prev.get("monstervis"))
+        self._fire_stats[0 if seen else 2] += 1
+        self._fire_stats[1 if seen else 3] += a in FIRES
         if a in TURNS and not 0 <= age <= rc.turn_combat_tics:   # in combat, turning is free
             self._turn_tics += tics
         # Turning, paid at the end (RewardConfig.turn).
@@ -941,6 +951,7 @@ class DiabloDoomEnv(gym.Env):
         info["key"] = got_key             # the key goal reached (EnvConfig.key_goal)
         info["items"] = [getattr(self, "_items_spawned", 0), getattr(self, "_items_picked", 0)]
         info["consult_stats"] = list(self._consult_stats)
+        info["fire_stats"] = list(self._fire_stats)
         # on (a drill counts: it fights), shots, hits, kills, damage
         info["combat"] = [int(self._combat_on or self._drill)] + list(self._combat_stats)
         info["type"] = self._type

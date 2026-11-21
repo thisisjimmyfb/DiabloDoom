@@ -296,7 +296,8 @@ every rollout's start. `DRILL ON` / `DRILL OFF` (`-rlenv`, 2026-11-20,
 `RL_Drill`): the training env's combat drill keeps one awake monster (zombieman,
 shotgun guy, imp or demon) 320-768 units ahead (192-768 at first, then 192-512) within
 20 degrees of the facing, in sight, targeting the player; the next one 0-70 tics after
-a kill (at once at first), and one off screen for 3 s (1 s at first) is replaced at once; a normal monster, not a practice one; a
+a kill (at once at first), and one with no line of sight to the player for 10 s (stuck) is
+replaced at once (2026-11-21; off screen for 1 s, then 3 s, before: turning away made it vanish); a normal monster, not a practice one; a
 LOAD ends the drill. `ITEMS <period> [unique %]` (`-rlenv`, 2026-11-20, `RL_Items`):
 practice items for this rollout in place of `-rlitems` (mean tics between them, 0 none;
 uniques that share, the other tiers splitting the rest), placed on the way to the waypoint

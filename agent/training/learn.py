@@ -94,6 +94,9 @@ def _rew_now(r: dict) -> np.ndarray:
 # waypoint_time (a waypoint set) or time (none), so apart their gradients
 # are opposite by construction. waypoint_time is gone since 2026-11-20.
 CONFLICT_MERGE = {"waypoint_time": "time"}
+# Pairs the conflict check never reports (2026-11-21): a hit is one kind or
+# the other, so these two always trade off within a fight -- not a conflict.
+CONFLICT_SKIP = {frozenset(("hit_avoidable", "hit_unavoidable"))}
 
 
 def term_advantages(groups: list[list[dict]], mode: str, advs: list[np.ndarray | None],
@@ -151,6 +154,8 @@ def term_grad_cosines(policy: Policy, batch: dict, args, device: torch.device) -
     out = {}
     for i, a in enumerate(names):
         for b in names[i + 1:]:
+            if frozenset((a, b)) in CONFLICT_SKIP:
+                continue
             na, nb = grads[a].norm(), grads[b].norm()
             if na > 0 and nb > 0:
                 out[f"{a}|{b}"] = float((grads[a] @ grads[b]) / (na * nb))
@@ -446,6 +451,11 @@ def train_metrics(recs: list[dict], n_groups: int, collapsed: int) -> dict:
         m["consult_trig"] = float(cs[1] / cs[0])    # P(CONSULT | a unique trigger pending)
     if cs[2]:
         m["consult_idle"] = float(cs[3] / cs[2])    # P(CONSULT | none pending): should fall toward 0
+    fs = np.sum([r.get("fire_stats", [0, 0, 0, 0]) for r in recs], axis=0)
+    if fs[0]:
+        m["fire_seen"] = float(fs[1] / fs[0])      # P(fire | a monster on screen)
+    if fs[2]:
+        m["fire_blind"] = float(fs[3] / fs[2])     # P(fire | none on screen): blind firing
     if any("frontier" in r for r in recs):
         m["frontier_share"] = float(np.mean([bool(r.get("frontier")) for r in recs]))
     if recs and recs[0].get("frontier_saved"):
@@ -468,6 +478,7 @@ def print_train(it: int, m: dict, upd: dict, extra: str = "") -> None:
           + (f" consult {m.get('consult_trig', 0):.3f}/{m['consult_idle']:.3f}" if "consult_idle" in m else "")
           + (f" items {m['items_picked'] / m['items_spawned']:.2f}" if m.get("items_spawned") else "")
           + (f" kills {m['kills']} hit {m['hits'] / m['shots']:.2f}" if m.get("shots") else "")
+          + (f" fire {m.get('fire_seen', 0):.2f}/{m.get('fire_blind', 0):.2f}" if "fire_seen" in m or "fire_blind" in m else "")
           + (f" dead {upd['dead_units']:.2f}" if "dead_units" in upd else "")
           + (" cos min {} {:.3f}".format(*min(upd["term_cos"].items(), key=lambda kv: kv[1]))
              if upd.get("term_cos") else "")

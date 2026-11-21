@@ -1401,7 +1401,7 @@ static int rl_spawned_age[RL_SPAWN_MAX];
 static boolean rl_spawn_purge;          // level set up: remove practice monsters from a save
 static boolean rl_drill;                // DRILL ON (2026-11-20): an awake monster ahead, always
 static mobj_t *rl_drill_mo;             // the drill's live monster
-static int rl_drill_lost;               // tics it has been off screen
+static int rl_drill_lost;               // tics it has had no line of sight to the player
 static int rl_drill_wait;               // tics left of the pause after a kill
 #define RL_DRILL_NEAR    320            // 192 before 2026-11-20 (further: more time to line up)
 #define RL_DRILL_FAR     768            // 512 before (closer: more pressure), 768 at first
@@ -1409,7 +1409,8 @@ static int rl_drill_wait;               // tics left of the pause after a kill
 #define RL_DRILL_PAUSE_X 71             // 35..105 at first), so the drill also shows an empty screen
 #define RL_DRILL_VIEW    20
 #define RL_DRILL_TRIES   24
-#define RL_DRILL_LOST    (3 * TICRATE)  // off screen this long: replaced (1 s before 2026-11-20, when the policy couldn't turn)
+#define RL_DRILL_LOST    (10 * TICRATE) // no line of sight this long (stuck): replaced (2026-11-21; off screen
+                                        // for 1 s, then 3 s, before -- turning away made it vanish)
 static boolean RL_TryDrillSpawn(mobj_t *pmo);
 static int rl_items_cmd = -1;           // ITEMS <period> (2026-11-20): -1 the launch flag's
 static int rl_items_unique = -1;        // ITEMS' unique share, percent; -1 the default (25)
@@ -1801,10 +1802,10 @@ void RL_SpawnTick(void)
         }
         if (rl_drill_mo != NULL)
         {
-            // On screen: in sight within the 90-degree view (as foe_dist).
+            // Replaced only when stuck: no line of sight to the player for
+            // RL_DRILL_LOST (facing away never removes it: 2026-11-21).
             mobj_t *m = rl_drill_mo, *pmo = pl->mo;
-            int rel = RL_AngleDeg(R_PointToAngle2(pmo->x, pmo->y, m->x, m->y) - pmo->angle);
-            boolean seen = (rel <= 45 || rel >= 315) && P_CheckSight(pmo, m);
+            boolean seen = P_CheckSight(pmo, m);
             rl_drill_lost = seen ? 0 : rl_drill_lost + 1;
             if (rl_drill_lost >= RL_DRILL_LOST)
             {
