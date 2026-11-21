@@ -318,16 +318,20 @@ def _policy_epochs(policy, optimizer, ref, args, device, n, obs, priv, act, old_
                     sums["ent"] += w_ent * ent.item()
                     sums["ent_w"] += w_ent
                 sums["loss"] += w * loss.item()
-            # The norm before clipping: what the gradient would have been.
-            # Split for the logs (2026-11-20): the value head's part and the
-            # rest (trunk and policy head), before the shared clip.
-            with torch.no_grad():
-                vids = {id(q) for q in policy.value_head.parameters()}
-                sq = [0.0, 0.0]
-                for q in policy.parameters():
-                    if q.grad is not None:
-                        sq[id(q) in vids] += q.grad.detach().pow(2).sum().item()
-            gn = nn.utils.clip_grad_norm_(policy.parameters(), args.max_grad_norm).item()
+            # Clipped apart (2026-11-20; one clip over every parameter
+            # before): the value head (its loss is unnormalized returns,
+            # thousands) and the rest (trunk and policy head), each to
+            # --max-grad-norm, so the value error no longer scales the
+            # policy's step down (its norm was ~38 against the policy's
+            # ~0.13: the policy moved ~250x less than the clip allows).
+            # The norms are before clipping; grad_norm is the whole
+            # gradient's, as before (the health checks judge it).
+            vids = {id(q) for q in policy.value_head.parameters()}
+            pgn = nn.utils.clip_grad_norm_([q for q in policy.parameters() if id(q) not in vids],
+                                           args.max_grad_norm).item()
+            vgn = nn.utils.clip_grad_norm_(list(policy.value_head.parameters()), args.max_grad_norm).item()
+            gn = (pgn ** 2 + vgn ** 2) ** 0.5
+            sq = [pgn ** 2, vgn ** 2]
             if not (np.isfinite(gn) and np.isfinite(sums["loss"])):
                 nonfinite += 1
                 optimizer.zero_grad(set_to_none=True)
@@ -484,7 +488,8 @@ def add_learn_args(p) -> None:
                         "so only states below it are pushed back up (default 2.5, about 12 actions; "
                         "0: the plain bonus on all states, which wants a smaller --ent-coef, e.g. 0.01)")
     p.add_argument("--vf-coef", type=float, default=0.5)
-    p.add_argument("--max-grad-norm", type=float, default=0.5)
+    p.add_argument("--max-grad-norm", type=float, default=0.5,
+                   help="gradient norm limit per optimizer step, applied to the value head and to the rest (trunk and policy head) apart since 2026-11-20 (one limit over both before)")
     p.add_argument("--stop-dead-units", type=float, default=0.5,
                    help="stop training (no save, no upload) when this share of the trunk's last-layer "
                         "units never fire on a batch: ReLU collapse (0: off)")
