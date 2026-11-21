@@ -35,6 +35,7 @@
 #include "d_waypoint.h"
 
 boolean rlenv = false;
+static int rl_attack_tic = -1;          // the last tic a monster began an attack on the player
 boolean rldrive = false;
 
 static const char *rl_cmdpipe = "/tmp/doom_cmd.txt";
@@ -1279,6 +1280,12 @@ void RL_EmitState(const char *why, int tics)
             }
             RL_PUT(",\"foe_dist\":%d", best);
         }
+        // attack_age (2026-11-20, the env's combat test for its turn
+        // penalty): tics since a monster last began an attack on the
+        // player (RL_MonsterAttack), -1 when none has on this level.
+        {
+            RL_PUT(",\"attack_age\":%d", rl_attack_tic < 0 ? -1 : gametic - rl_attack_tic);
+        }
         // automap: the map is on screen (Tab or the driver's MAP); the
         // env's forced map glances check it before sending MAP.
         RL_PUT(",\"automap\":%s,\"forced_map\":%s", automapactive ? "true" : "false",
@@ -1428,6 +1435,7 @@ void RL_LevelSetup(void)
     rl_items_cmd = -1;       // and ITEMS: back to the launch flag's
     rl_items_unique = -1;
     rl_drill_mo = NULL;
+    rl_attack_tic = -1;      // no attack yet on this level (or loaded save)
 }
 
 // A tracked pointer is used only after finding it in the thinker list
@@ -1872,6 +1880,13 @@ static boolean RL_TryDrillSpawn(mobj_t *pmo)
         }
     }
     return false;
+}
+
+void RL_MonsterAttack(mobj_t *actor)
+{
+    if (rldrive && actor->player == NULL && actor->target != NULL && actor->target->player != NULL
+        && !(actor->flags & (MF_RLPRACTICE | MF_RLHIDDEN)))
+        rl_attack_tic = gametic;
 }
 
 void RL_Items(int period, int unique)

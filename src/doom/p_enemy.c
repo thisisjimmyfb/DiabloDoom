@@ -37,6 +37,7 @@
 
 // Data.
 #include "sounds.h"
+#include "d_rlenv.h"
 
 
 
@@ -775,6 +776,7 @@ void A_FaceTarget (mobj_t* actor)
 {	
     if (!actor->target)
 	return;
+    RL_MonsterAttack(actor);   // -rlenv (2026-11-20): an attack begun, for attack_age
     
     actor->flags &= ~MF_AMBUSH;
 	

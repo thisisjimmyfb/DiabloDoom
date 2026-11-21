@@ -219,7 +219,10 @@ exemption until 2026-11-18), and (2026-11-17) `wall_line`, the index of the line
 `hp_max` and `hunted` (a living monster in the player's sector targets the player), the
 frontier save checks, and (2026-11-20) `foe_dist`, the distance to the nearest
 living monster on screen (in sight, within the 90-degree view), woken
-or not (-1 none), the env's range reward -- reward shaping only, never
+or not (-1 none), the env's range reward, and (2026-11-20) `attack_age`, tics since
+a monster last began an attack on the player (`A_FaceTarget`, the first action of every
+attack state; practice and hidden monsters don't count; -1 none since the level or save
+loaded), the env's combat test for its turn penalty -- reward shaping only, never
 a policy input, so the 2026-10-21 no-oracle ruling for the farm agent
 stands.
 Automap (2026-11-14): it also carries `automap` (the map is on screen).

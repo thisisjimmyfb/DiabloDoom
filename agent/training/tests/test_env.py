@@ -408,16 +408,18 @@ def test_range():
 
 def test_turn():
     """Each tic a turn key was held costs turn, all paid when the rollout
-    ends; CTRL alone isn't a turn, nor a turn with a monster on screen
-    (foe_dist) at the step's start. Engine faked, one tic per step."""
+    ends; CTRL alone isn't a turn, nor a turn in combat (a monster began
+    an attack within turn_combat_tics before the step, attack_age). Engine
+    faked, one tic per step."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
                         fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0, range=0, turn=-1.0)
 
-    def at(foe=-1):
-        return {"mode": "EXPLORE", "hp": 100, "tics": 1, "x": 0, "y": 0, "foe_dist": foe}, []
-    # The state after step 2 has a monster on screen, so step 3's turn is free.
-    e = _fake_explore(only, [at(), at(300), at(), at(), at()])
+    def at(age=-1):
+        return {"mode": "EXPLORE", "hp": 100, "tics": 1, "x": 0, "y": 0, "attack_age": age}, []
+    # The state after step 2 is in combat (a monster began an attack 50 tics
+    # ago), so step 3's turn is free; 200 tics ago is past the window.
+    e = _fake_explore(only, [at(), at(50), at(200), at(), at()])
     e.cfg.max_tics = 5
     acts = ["PRESS WL", "PRESS CTRL", "PRESS DL", "PRESS DR CTRL", "PRESS W"]
     got = [e.step(ACTIONS.index(a))[1] for a in acts]

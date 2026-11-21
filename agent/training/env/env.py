@@ -194,10 +194,14 @@ class RewardConfig:
     turn_waste: float = -0.005
     # Turning (2026-11-20): each tic a turn key (L or R) was held costs
     # turn, all paid when the rollout ends; against the circling habit
-    # (a steady turn one way, which turn_waste never charges). Not while a
-    # monster is on screen at the step's start (the engine's foe_dist):
-    # turning is the only aim, so circle-strafing stays free (2026-11-20).
+    # (a steady turn one way, which turn_waste never charges). Not in
+    # combat (2026-11-20): a monster began an attack on the player within
+    # turn_combat_tics before the step (the engine's attack_age) -- turning
+    # is the only aim, and finding an attacker off screen is turning too
+    # (a monster on screen, foe_dist, was the exemption until then; damage
+    # and turn then conflicted: re-acquiring an attacker cost).
     turn: float = -0.1                # -0.01 before 2026-11-20
+    turn_combat_tics: int = 105       # 3 s
     turn_waste_window: int = 8
     # The same for forward and back: W at most move_flip_window tics after
     # S, or S after W, costs move_flip. Strafing back and forth (A/D) is
@@ -899,7 +903,8 @@ class DiabloDoomEnv(gym.Env):
                 truncated, end = True, "time"
             elif self._combat_steps >= self.cfg.max_combat_steps:
                 truncated, end = True, "combat"
-        if a in TURNS and prev.get("foe_dist", -1) < 0:   # aiming at a monster on screen is free
+        age = prev.get("attack_age", -1)
+        if a in TURNS and not 0 <= age <= rc.turn_combat_tics:   # in combat, turning is free
             self._turn_tics += tics
         # Turning, paid at the end (RewardConfig.turn).
         if terminated or truncated:

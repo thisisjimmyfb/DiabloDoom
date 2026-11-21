@@ -149,6 +149,10 @@ void RL_Monsters(boolean hide);
 // DRILL ON / OFF (-rlenv, 2026-11-20): the combat drill keeps one awake
 // monster ahead of the player, a new one as soon as it dies; a LOAD ends it.
 void RL_Drill(boolean on);
+// A monster begins an attack (A_FaceTarget, the first action of every
+// attack state; 2026-11-20): on the player, the tic is kept for the state
+// line's attack_age (practice and hidden monsters don't count).
+void RL_MonsterAttack(struct mobj_s *actor);
 // ITEMS <period> [unique %] (-rlenv, 2026-11-20): practice items for this
 // rollout (mean tics between them, 0 none; uniques that share), in place of
 // -rlitems; on the way to the waypoint when one is on screen; a LOAD ends it.
