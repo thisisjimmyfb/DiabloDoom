@@ -56,15 +56,17 @@ def test_process_advantages(groups):
 
 def test_process_one_off_rewards():
     """A one-off reward (rew_now) counts on its own step only, on the
-    group's scale: it never reaches earlier steps, and the value targets
-    leave it out."""
+    one-off rewards' own scale (their std over the group, 2026-11-21; every
+    reward's before), capped at ONE_OFF_CLIP stds: it never reaches earlier
+    steps, and the value targets leave it out."""
     rew = [0.0, 0.0, 5.0, 0.0, -1.0]
     a = {"rew": rew, "rew_now": [0.0, 0.0, 5.0, 0.0, 0.0], "len": 5, "tics": [1] * 5}
     b = {"rew": [0.0, 0.0, 0.0, 0.0, -1.0], "rew_now": [0.0] * 5, "len": 5, "tics": [1] * 5}
     (adv_a, adv_b), collapsed = group_advantages([[a, b]], "process")
     assert collapsed == 0
-    std = np.concatenate([a["rew"], b["rew"]]).std()
-    assert np.allclose(adv_a - adv_b, [0, 0, 5 / std, 0, 0], atol=1e-5), adv_a - adv_b
+    nstd = np.concatenate([a["rew_now"], b["rew_now"]]).std()
+    from learn import ONE_OFF_CLIP
+    assert np.allclose(adv_a - adv_b, [0, 0, min(5 / nstd, ONE_OFF_CLIP), 0, 0], atol=1e-5), adv_a - adv_b
     assert np.allclose(value_targets(np.array(rew) - a["rew_now"], a["tics"], 1.0), [-1] * 5)
 
 
@@ -263,3 +265,15 @@ def test_entropy_floor():
         pytest.approx(0.01 * (0.5 * math.log(6) - 0.5))
     args.ent_target = 0.0
     assert entropy_loss(torch.tensor([2.0, 4.0]), args).item() == pytest.approx(-0.03)
+
+
+def test_redundant_pairs():
+    """A pair whose gradient cosine averages --redundant-cos or more over the
+    last --redundant-window checks is named (a warning); a shorter history,
+    a lower mean, or a window of 0 names nothing."""
+    from learn import redundant_pairs
+    args = types.SimpleNamespace(redundant_cos=0.9, redundant_window=3)
+    hist = {"damage|kill": [0.2, 0.95, 0.92, 0.93], "turn|turn_waste": [0.9, 0.9, 0.3], "a|b": [0.99, 0.99]}
+    assert redundant_pairs(hist, args) == {"damage|kill": pytest.approx((0.95 + 0.92 + 0.93) / 3)}
+    args.redundant_window = 0
+    assert redundant_pairs(hist, args) == {}

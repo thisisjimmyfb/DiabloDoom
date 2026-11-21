@@ -133,7 +133,7 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   sector never pays the sector reward (`door_sectors` on the state
   line), so a door crossing pays once, for the room behind it, and
   stepping into a doorway doesn't reach the portal goal.
-  Turning that gets undone costs `turn_waste` (-0.005 per 45 degrees,
+  Turning that gets undone cost `turn_waste` (0 since 2026-11-20, `turn` covers it; -0.005 per 45 degrees,
   2026-11-16): over the last 8 tics, the facing's total turning minus its
   net turning; a steady turn either way, or holding still, costs nothing.
   Reversing forward and back costs `move_flip` (-0.015): W within 4 tics
@@ -167,8 +167,11 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   (Slaying rings, amulet, gloves), an AP gun the most AP (Magus). Combat and survival
   weigh half again as much as the maze run: `damage` (11.25 per a
   monster's full HP the player took off it, from the engine's `damage`
-  events) and `kill` (11.25), a kill 22.5 against a sector's 15, both
-  chained; `fire_waste` (-0.1, one-off) per shot that hurt nothing at once
+  events) and `kill` (0 since 2026-11-20, 11.25 before: `damage` alone
+  pays), a monster's worth 11.25 against a sector's 15, both chained;
+  `view` (2026-11-20: 2.5 x each hit's share of a monster's HP x the
+  monsters in the view cone then, line of sight or not); both paid on the
+  hit's step since 2026-11-20 (at the rollout's end before, nothing after a death); `fire_waste` (-0.8 since 2026-11-20, -0.3 before, -0.1 before 2026-11-19; one-off) per shot that hurt nothing at once
   (a projectile never); every hit taken (a tic with an engine
   `hurt` event, even one gear left the HP alone; per HP before
   2026-11-19) costs `hit_unavoidable` (-1) for a hitscan hit (it can't be
@@ -176,7 +179,7 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   other (projectile, melee, nukage, crusher, barrel; both `hp_loss` -7.5
   before 2026-11-20; healing pays nothing; `hit_decay`, x0.8 a hit on the
   end-of-rollout combat pay, until 2026-11-20), and a death ends the rollout with
-  `death` (-150, -100 before) on top. The train line shows `kills` and
+  `death` (-200 since 2026-11-20, -150 before, -100 before 2026-11-18) on top. The train line shows `kills` and
   the hit rate. Pickups pay from the engine's `pickup` events: `loot` (5)
   per Diablo item or armor picked up, `health` (0.75) per HP a health
   pickup healed (a medikit 18.75, a +1 health bonus 0.75), the mirror of
@@ -297,7 +300,8 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
 - **Advantage:** group-normalized return (`--advantage outcome`) or the
   process variant (`process`): per-step rewards normalized across the
   group and summed from each step on (the sums scaled to unit std over
-  the group, 2026-11-18), except the one-off terms
+  the group, 2026-11-18), except the one-off terms (scaled by their own
+  std over the group, capped at 5 of those, since 2026-11-21)
   (`RewardConfig.immediate`: consult, move_flip,
   turn_waste, wall_look; 2026-11-17), which count on their own step only,
   since they judge just that action and later steps don't follow from it. Zero-variance groups are dropped and

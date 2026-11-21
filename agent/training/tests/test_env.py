@@ -426,6 +426,27 @@ def test_turn():
     assert got == [0, 0, 0, 0, -2.0], got
 
 
+def test_view():
+    """Each hit pays view x its share of the monster's max HP x the monsters
+    in the view cone then (the damage event's inview), on the hit's step
+    like damage, kept after a death. Engine faked, one tic per step."""
+    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
+                        consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
+                        fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0, range=0, turn=0,
+                        damage=0, kill=0, fire_waste=0, view=2.0)
+
+    def at(events=(), dead=False):
+        return {"mode": "EXPLORE", "hp": 0 if dead else 100, "dead": dead, "tics": 1, "x": 0, "y": 0}, list(events)
+    hit = lambda amount, inview: {"event": "damage", "amount": amount, "max": 100, "kill": False, "inview": inview}
+    walk = ACTIONS.index("PRESS W")
+    e = _fake_explore(only, [at([hit(50, 3)]), at([hit(25, 1)]), at()])
+    e.cfg.max_tics = 3
+    got = [e.step(walk)[1] for _ in range(3)]
+    assert got == [pytest.approx(2.0 * 0.5 * 3), pytest.approx(2.0 * 0.25 * 1), 0], got
+    e = _fake_explore(only, [at([hit(50, 3)]), at(dead=True)])
+    assert [e.step(walk)[1] for _ in range(2)] == [pytest.approx(3.0), 0], "kept after a death"
+
+
 def test_door_pays_once():
     """A door's own sector never pays (the engine's door_sectors): walking
     through a door pays the sector reward once, for the room behind it,
@@ -1219,9 +1240,10 @@ def test_waypoint_count_and_goal():
 def test_combat_rewards():
     """Combat (2026-11-18): damage pays per a monster's full HP dealt,
     kill on the kill, fire_waste per shot that hurt nothing (a projectile
-    too since 2026-11-19); since 2026-11-19 damage and kill are paid when
-    the rollout ends, in full whatever the hits taken, nothing after a death;
-    info["combat"] counts them. Engine faked."""
+    too since 2026-11-19); since 2026-11-20 damage and kill are paid on the
+    hit's step, kept whatever comes after (a death included; at the
+    rollout's end before, nothing after a death); info["combat"] counts
+    them. Engine faked."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
                         time=0, fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0,
@@ -1260,11 +1282,11 @@ def test_combat_rewards():
         return rs, r4, info
 
     rs, r4, info = run({"hp": 60})
-    assert rs == [0.0, -0.5, -0.5]                     # hits pay nothing yet
-    assert r4 == pytest.approx((30 / 60 + 50 / 60) * 10.0 + 4.0)   # a hit taken: no cut
+    assert rs == [pytest.approx(30 / 60 * 10.0), -0.5, -0.5]   # the hit pays on its step
+    assert r4 == pytest.approx(50 / 60 * 10.0 + 4.0)   # capped at max, plus the kill
     assert info["combat"] == [1, 3, 1, 1, 80]
     rs, r4, info = run({"hp": 0, "dead": True})
-    assert r4 == 0.0                                   # a death: no combat pay
+    assert rs[0] == pytest.approx(5.0) and r4 == pytest.approx(50 / 60 * 10.0 + 4.0), "kept after a death"
     assert "fire_waste" in RewardConfig().immediate and "damage" not in RewardConfig().immediate
 
 

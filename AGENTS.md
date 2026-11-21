@@ -218,8 +218,8 @@ exemption until 2026-11-18), and (2026-11-17) `wall_line`, the index of the line
 `wall_dist` measures (the env's `use_wall` reward until 2026-11-18; unused since), and (2026-11-19)
 `hp_max` and `hunted` (a living monster in the player's sector targets the player), the
 frontier save checks, and (2026-11-20) `foe_dist`, the distance to the nearest
-living monster on screen (in sight, within the 90-degree view), woken
-or not (-1 none), the env's range reward, and (2026-11-20) `attack_age`, tics since
+living monster in line of sight, any direction (within the 90-degree view at
+first), woken or not (-1 none), the env's range reward, and (2026-11-20) `attack_age`, tics since
 a monster last began an attack on the player (`A_FaceTarget`, the first action of every
 attack state; practice and hidden monsters don't count; -1 none since the level or save
 loaded), the env's combat test for its turn penalty -- reward shaping only, never
@@ -273,7 +273,8 @@ Combat in training (2026-11-18): `MONSTERS HIDE` / `MONSTERS SHOW`
 (`MF_RLHIDDEN`: unlinked, not thinking, never a target; a loaded save
 brings them back) or puts them back, for the env's groups that only
 explore; a player hit on a monster sends a `damage` event (`amount`
-taken off, `max` HP, `kill`), a hit on the player a `hurt` event
+taken off, `max` HP, `kill`; 2026-11-20 `inview`, the living monsters inside the
+90-degree view cone then, any distance, line of sight or not -- the env's view reward), a hit on the player a `hurt` event
 (2026-11-19: `amount` before god mode, block, dodge, resistance and
 armour, so sent even when no HP is lost; `monster`; 2026-11-20 `kind`: `proj`,
 `hitscan`, `melee` or `world`), each shot a `shot` event (`hit`: it hurt a
@@ -293,9 +294,9 @@ counted as 5%); `GIVEGUN <seed> ... RANGED` (2026-11-20) never picks fists (the
 combat drill's: no melee there); the env sends it (with KIT, `EnvConfig.gun_kit`) at
 every rollout's start. `DRILL ON` / `DRILL OFF` (`-rlenv`, 2026-11-20,
 `RL_Drill`): the training env's combat drill keeps one awake monster (zombieman,
-shotgun guy, imp or demon) 192-512 units ahead (768 at first) within 20 degrees of the
-facing, in sight, targeting the player; a new one as soon as it dies, and one off screen
-for 3 s (1 s at first) is replaced; a normal monster, not a practice one; a
+shotgun guy, imp or demon) 320-768 units ahead (192-768 at first, then 192-512) within
+20 degrees of the facing, in sight, targeting the player; the next one 0-70 tics after
+a kill (at once at first), and one off screen for 3 s (1 s at first) is replaced at once; a normal monster, not a practice one; a
 LOAD ends the drill. `ITEMS <period> [unique %]` (`-rlenv`, 2026-11-20, `RL_Items`):
 practice items for this rollout in place of `-rlitems` (mean tics between them, 0 none;
 uniques that share, the other tiers splitting the rest), placed on the way to the waypoint

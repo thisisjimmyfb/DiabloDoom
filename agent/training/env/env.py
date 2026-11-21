@@ -90,7 +90,7 @@ class RewardConfig:
     # crossing pays once, for the room behind it.
     sector: float = 15.0
     exit: float = 100.0               # level complete triggered (ends the rollout): the top reward
-    death: float = -150.0             # the player died (ends the rollout): 1.5x the exit (-100 before 2026-11-18)
+    death: float = -200.0             # the player died (ends the rollout): 2x the exit (-150 before 2026-11-20, when a death also forfeited the combat pay; -100 before 2026-11-18)
     mechanism: float = 10.0           # USE that sets a new mechanism going (once per mechanism)
     key: float = 25.0                 # per key colour newly held (blue, yellow, red; once each)
     # Pickups, from the engine's pickup events: each Diablo item picked
@@ -191,7 +191,7 @@ class RewardConfig:
     # correction after a long sweep costs little. It replaced a fixed
     # charge per L/R reversal, which made always turning one way the free
     # habit (the policy drifted to 81% right turns). 0 turns it off.
-    turn_waste: float = -0.005
+    turn_waste: float = 0.0           # -0.005 before 2026-11-20: turn covers it (less turning, less jitter), and it charged tracking corrections in combat
     # Turning (2026-11-20): each tic a turn key (L or R) was held costs
     # turn, all paid when the rollout ends; against the circling habit
     # (a steady turn one way, which turn_waste never charges). Not in
@@ -249,18 +249,29 @@ class RewardConfig:
     # any monster), from the engine's damage events, plus kill on the
     # kill; fire_waste per shot that hurt nothing at once (a projectile's
     # hit comes later: charged too since 2026-11-19, its hit paying
-    # damage), so firing at nothing costs. Since 2026-11-19 damage and kill
-    # are paid when the rollout ends: a death pays no combat at all (times
-    # hit_decay 0.8 per hit taken too, 2026-11-19 to 2026-11-20).
+    # damage), so firing at nothing costs. Paid on the step of the hit
+    # (chained: the aiming before it shares the credit) since 2026-11-20 --
+    # from 2026-11-19 they were paid when the rollout ended and a death paid
+    # no combat at all (times hit_decay 0.8 per hit taken until 2026-11-20),
+    # which credited a hit to the whole rollout while a miss's fire_waste
+    # landed on its shot: firing rose. Being hit is the hit penalties' alone.
     damage: float = 11.25
-    kill: float = 11.25
-    fire_waste: float = -0.3          # -0.1 before 2026-11-19
-    # Range (2026-11-20): each map unit the nearest monster on screen,
-    # woken or not (the engine's foe_dist), moves toward the ready
+    kill: float = 0.0                 # 11.25 before 2026-11-20: damage alone pays for fighting
+    # View (2026-11-20): each hit also pays view x its share of the monster's
+    # max HP (as damage) x the monsters inside the 90-degree view cone then
+    # (the engine's damage event inview: any distance, line of sight or not),
+    # paid at the end like damage -- keeping the fight in view (round a corner
+    # too) makes every hit worth more; no hit, no pay.
+    view: float = 2.5
+    fire_waste: float = -0.8          # -0.3 before 2026-11-20 (as much a combat drill rollout as damage pays), -0.1 before 2026-11-19
+    # Range (2026-11-20): each map unit the nearest monster in line of sight,
+    # in any direction (behind the player too: on screen only at first, which
+    # let turning away stop the losses), woken or not (the engine's foe_dist),
+    # moves toward the ready
     # weapon's band in RANGE_BANDS pays range, each unit away costs it.
     # Only the nearest, so many don't pay more; a change of distance, never a per-tic pay,
     # so holding the band or stalling a fight earns nothing.
-    range: float = 0.01
+    range: float = 0.015              # 0.01 before 2026-11-20
     # One-off terms (2026-11-17): they judge only the step's own action,
     # so the learner adds them to that step's advantage alone instead of
     # summing them into every earlier step's reward-to-go
@@ -449,6 +460,7 @@ class DiabloDoomEnv(gym.Env):
         #   envs.set_attr("next_reset", [{"slot": 3, "seed": 17, "group": 0}, ...])
         self.next_reset: dict | None = None
         self._dmg_share = 0.0
+        self._view_share = 0.0
         self._turn_tics = 0
         self._type, self._drill = None, False
         self._wp_clear = False
@@ -602,6 +614,7 @@ class DiabloDoomEnv(gym.Env):
             d, _ = self.engine.command(f"ITEMS {self.cfg.drill_item_tics} {self.cfg.drill_item_unique}")
         self._combat_stats = [0, 0, 0, 0.0]   # shots, hits, kills, damage dealt (HP)
         self._dmg_share = 0.0                  # monster HP shares removed (paid at the end)
+        self._view_share = 0.0                 # the same, times the monsters in view at each hit
         self._turn_tics = 0                    # tics a turn key was held (RewardConfig.turn)
         # A progress save's visited list (the save doesn't store it; the
         # load reset it): VISIT in pieces that fit a command line.
@@ -851,7 +864,14 @@ class DiabloDoomEnv(gym.Env):
                 self._items_picked += 1
                 self._item = None
             if e.get("event") == "damage" and e.get("max"):
-                self._dmg_share += min(int(e.get("amount", 0)), int(e["max"])) / int(e["max"])
+                share = min(int(e.get("amount", 0)), int(e["max"])) / int(e["max"])
+                self._dmg_share += share
+                self._view_share += share * int(e.get("inview", 0))
+                # Paid on the hit's step (RewardConfig.damage, 2026-11-20).
+                add("damage", rc.damage * share)
+                add("view", rc.view * share * int(e.get("inview", 0)))
+                if e.get("kill"):
+                    add("kill", rc.kill)
                 self._combat_stats[3] += int(e.get("amount", 0))
                 if e.get("kill"):
                     self._combat_stats[2] += 1
@@ -909,11 +929,6 @@ class DiabloDoomEnv(gym.Env):
         # Turning, paid at the end (RewardConfig.turn).
         if terminated or truncated:
             add("turn", rc.turn * self._turn_tics)
-        # Combat, paid at the end, nothing after a death (RewardConfig.damage).
-        if terminated or truncated:
-            hpf = 0.0 if d.get("dead") else 1.0
-            add("damage", rc.damage * self._dmg_share * hpf)
-            add("kill", rc.kill * self._combat_stats[2] * hpf)
         # Waypoints not reached, paid when a goal ends the rollout early.
         if end in ("exit", "key", "portal") and self._wp_on and self._wp_count > 0:
             add("waypoint", rc.waypoint * max(self._wp_count - self._wp_stats[1], 0))

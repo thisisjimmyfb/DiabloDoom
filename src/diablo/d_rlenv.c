@@ -1253,16 +1253,16 @@ void RL_EmitState(const char *why, int tics)
                    hunted ? "true" : "false");
         }
         // foe_dist (2026-11-20, the env's range reward): map units to the
-        // nearest living monster on screen (line of sight, within the
-        // 90-degree view, as monstervis: the policy must see it), woken or
-        // not (the policy can't tell which), -1 when none.
+        // nearest living monster in line of sight, in any direction (behind
+        // the player too: turning away no longer ends the range accounting;
+        // within the 90-degree view before), woken or not, -1 when none.
         {
             thinker_t *th;
             int best = -1;
             for (th = thinkercap.next; th != &thinkercap; th = th->next)
             {
                 mobj_t *m;
-                int dist, rel;
+                int dist;
                 if (th->function.acp1 != (actionf_p1) P_MobjThinker)
                     continue;
                 m = (mobj_t *) th;
@@ -1273,8 +1273,7 @@ void RL_EmitState(const char *why, int tics)
                 dist = P_AproxDistance(m->x - mo->x, m->y - mo->y) >> FRACBITS;
                 if (dist > 2048 || (best >= 0 && dist >= best))
                     continue;
-                rel = RL_AngleDeg(R_PointToAngle2(mo->x, mo->y, m->x, m->y) - mo->angle);
-                if ((rel > 45 && rel < 315) || !P_CheckSight(mo, m))
+                if (!P_CheckSight(mo, m))
                     continue;
                 best = dist;
             }
@@ -1403,8 +1402,11 @@ static boolean rl_spawn_purge;          // level set up: remove practice monster
 static boolean rl_drill;                // DRILL ON (2026-11-20): an awake monster ahead, always
 static mobj_t *rl_drill_mo;             // the drill's live monster
 static int rl_drill_lost;               // tics it has been off screen
-#define RL_DRILL_NEAR    192
-#define RL_DRILL_FAR     512            // 768 before 2026-11-20 (closer: more pressure)
+static int rl_drill_wait;               // tics left of the pause after a kill
+#define RL_DRILL_NEAR    320            // 192 before 2026-11-20 (further: more time to line up)
+#define RL_DRILL_FAR     768            // 512 before (closer: more pressure), 768 at first
+#define RL_DRILL_PAUSE   0              // after a kill: no monster for 0..70 tics, 0-2 s (2026-11-20;
+#define RL_DRILL_PAUSE_X 71             // 35..105 at first), so the drill also shows an empty screen
 #define RL_DRILL_VIEW    20
 #define RL_DRILL_TRIES   24
 #define RL_DRILL_LOST    (3 * TICRATE)  // off screen this long: replaced (1 s before 2026-11-20, when the policy couldn't turn)
@@ -1793,7 +1795,10 @@ void RL_SpawnTick(void)
     if (rl_drill)
     {
         if (rl_drill_mo != NULL && (!RL_IsLive(rl_drill_mo) || rl_drill_mo->health <= 0))
-            rl_drill_mo = NULL;
+        {
+            rl_drill_mo = NULL;              // killed: a short pause before the next
+            rl_drill_wait = RL_DRILL_PAUSE + (int) (RL_SpawnRand() % RL_DRILL_PAUSE_X);
+        }
         if (rl_drill_mo != NULL)
         {
             // On screen: in sight within the 90-degree view (as foe_dist).
@@ -1808,7 +1813,9 @@ void RL_SpawnTick(void)
                 T_RefreshTargets();
             }
         }
-        if (rl_drill_mo == NULL)
+        if (rl_drill_mo == NULL && rl_drill_wait > 0)
+            rl_drill_wait--;
+        else if (rl_drill_mo == NULL)
             RL_TryDrillSpawn(pl->mo);
     }
 
@@ -1898,6 +1905,7 @@ void RL_Items(int period, int unique)
 void RL_Drill(boolean on)
 {
     rl_drill = on;
+    rl_drill_wait = 0;       // the first monster at once
     if (!on)
         rl_drill_mo = NULL;
 }
@@ -1918,14 +1926,41 @@ boolean RL_PracticeAcquired(mobj_t *mo)
 
 int rl_player_hits = 0;
 
+// inview (2026-11-20, the env's view reward): the living monsters inside
+// the player's 90-degree view cone, any distance, line of sight or not (one
+// behind a pillar or around a corner counts); the one hit included.
+static int RL_InView(void)
+{
+    mobj_t *pmo = players[consoleplayer].mo;
+    thinker_t *th;
+    int n = 0;
+    if (pmo == NULL)
+        return 0;
+    for (th = thinkercap.next; th != &thinkercap; th = th->next)
+    {
+        mobj_t *m;
+        int rel;
+        if (th->function.acp1 != (actionf_p1) P_MobjThinker)
+            continue;
+        m = (mobj_t *) th;
+        if (m->player != NULL || m->health <= 0 || (m->flags & (MF_RLHIDDEN | MF_RLPRACTICE))
+            || !((m->flags & MF_COUNTKILL) || m->type == MT_SKULL))
+            continue;
+        rel = RL_AngleDeg(R_PointToAngle2(pmo->x, pmo->y, m->x, m->y) - pmo->angle);
+        if (rel <= 45 || rel >= 315)
+            n++;
+    }
+    return n;
+}
+
 void RL_PlayerHit(mobj_t *t, int dealt)
 {
     int max = t->info->spawnhealth;
     if (t->flags & MF_COUNTKILL)
         max = max * D_LoopHpMult() / 100;     // as P_SpawnMobj gave it
     rl_player_hits++;
-    RL_Emit("{\"event\":\"damage\",\"amount\":%d,\"max\":%d,\"kill\":%s,\"type\":%d,\"gametic\":%d}",
-            dealt, max, t->health <= 0 ? "true" : "false", (int) t->type, gametic);
+    RL_Emit("{\"event\":\"damage\",\"amount\":%d,\"max\":%d,\"kill\":%s,\"type\":%d,\"inview\":%d,\"gametic\":%d}",
+            dealt, max, t->health <= 0 ? "true" : "false", (int) t->type, RL_InView(), gametic);
 }
 
 boolean rl_hitscan = false;

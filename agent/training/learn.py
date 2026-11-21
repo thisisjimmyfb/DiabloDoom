@@ -29,6 +29,10 @@ from model import (ACTIONS, DEFAULT_OBS_SIZE, Policy, checkpoint_obs_size, load_
 # Advantages, targets, batch (shared with train.py)
 # ---------------------------------------------------------------------------
 
+# The one-off stream's cap, in its own stds (2026-11-21, group_advantages).
+ONE_OFF_CLIP = 5.0
+
+
 def group_advantages(groups: list[list[dict]], mode: str,
                      eps: float = 1e-8) -> tuple[list[np.ndarray | None], int]:
     """Per-rollout advantage arrays (one value per decision), in the order
@@ -67,8 +71,16 @@ def group_advantages(groups: list[list[dict]], mode: str,
             # length and drowns the one-off stream (a CONSULT hit was
             # 0.3 of its std).
             cstd = np.concatenate(togo).std()
+            # 2026-11-21: the one-off stream is scaled by its own std over the
+            # group (std, of every per-step reward, before): deaths and hits
+            # dominated that std, so a miss's fire_waste was a small fraction
+            # of it and shrank as they grew. No one-off rewards: nothing. The
+            # stream is sparse (most steps have none), so a rare large one (a
+            # CONSULT's +5) would be many stds: clipped at ONE_OFF_CLIP.
+            nstd = np.concatenate(now).std()
             for t, n in zip(togo, now):
-                advs.append((t / (cstd + eps) + n / (std + eps)).astype(np.float32))
+                one = np.clip(n / nstd, -ONE_OFF_CLIP, ONE_OFF_CLIP) if nstd > 1e-6 else 0.0 * n
+                advs.append((t / (cstd + eps) + one).astype(np.float32))
     return advs, collapsed
 
 
@@ -345,6 +357,18 @@ GRAD_WINDOW = 50
 GRAD_WARMUP = 20
 
 
+def redundant_pairs(cos_hist: dict[str, list[float]], args) -> dict[str, float]:
+    """Reward-term pairs whose gradient cosine (term_grad_cosines) averages
+    --redundant-cos or more over the last --redundant-window checks
+    (2026-11-20): candidates for merging, pair -> mean. A warning only:
+    terms with different purposes can point the same way for a while."""
+    win, thr = getattr(args, "redundant_window", 0), getattr(args, "redundant_cos", 2.0)
+    if win <= 0:
+        return {}
+    return {pair: float(np.mean(cs[-win:])) for pair, cs in (cos_hist or {}).items()
+            if len(cs) >= win and np.mean(cs[-win:]) >= thr}
+
+
 def training_health(upd: dict, args, recent: list[float] | None = None,
                     cos_hist: dict[str, list[float]] | None = None) -> str | None:
     """Why training must stop after this update, or None if it's healthy:
@@ -508,6 +532,12 @@ def add_learn_args(p) -> None:
     p.add_argument("--stop-conflict", type=float, default=-0.5,   # -0.1 before 2026-11-20
                    help="stop training (no save, no upload) when two reward terms' gradient cosine, "
                         "averaged over --conflict-window checks, is below this (-1: never)")
+    p.add_argument("--redundant-cos", type=float, default=0.9,
+                   help="warn (never stop) when two reward terms' gradient cosine averages this or more over "
+                        "--redundant-window checks: likely redundant, candidates to merge (2026-11-20)")
+    p.add_argument("--redundant-window", type=int, default=30,
+                   help="checks the redundancy warning averages over (30 at --conflict-every 10: 300 "
+                        "updates; 0: off)")
     p.add_argument("--norm-adv", action=argparse.BooleanOptionalAction, default=True,
                    help="scale each batch's advantages to a standard deviation of 1 (no mean shift), "
                         "so their size doesn't follow the rollout length")

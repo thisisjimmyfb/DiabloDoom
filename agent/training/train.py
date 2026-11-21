@@ -56,7 +56,7 @@ from rollout import (heldout_eval, make_heldout_vec, nvtx, print_eval, print_eva
                   write_rollout_log)
 from env.env import RewardConfig  # noqa: E402
 from learn import (GRAD_WINDOW, add_learn_args, build_batch, group_advantages, print_train, setup_learner,
-                   term_advantages, train_metrics, training_health, policy_update)
+                   term_advantages, train_metrics, training_health, policy_update, redundant_pairs)
 
 
 def parse_args():
@@ -285,6 +285,7 @@ def main():
     unhealthy = None    # why training stopped (learn.training_health): no save, no upload
     grad_recent: list[float] = []   # healthy updates' grad_norm_max (the relative check)
     cos_hist: dict[str, list[float]] = {}   # reward-term pair -> gradient cosines (the conflict check)
+    flagged: set[str] = set()               # pairs the redundancy warning named at the last check
 
     def end_of_run_eval(last: dict, done_it: int) -> dict:
         """The eval after done_it updates (unless one just ran) and the
@@ -363,8 +364,17 @@ def main():
                  "sps": m["steps"] / t_roll, "rollout_s": t_roll, "iter_s": t_all, "lag": lag,
                  **timing, **upd}
             for pair, c in upd.get("term_cos", {}).items():
-                cos_hist[pair] = (cos_hist.get(pair, []) + [c])[-max(args.conflict_window, 1):]
+                cos_hist[pair] = (cos_hist.get(pair, []) + [c])[-max(args.conflict_window, args.redundant_window, 1):]
             unhealthy = training_health(upd, args, grad_recent, cos_hist)
+            if upd.get("term_cos"):           # a check this update: redundant pairs (a warning)
+                red = redundant_pairs(cos_hist, args)
+                if red:
+                    m["redundant"] = red
+                for pair in sorted(set(red) - flagged):
+                    print(f"[train] redundant? {pair.replace('|', ' and ')}: gradient cosine {red[pair]:+.2f} "
+                          f"averaged over the last {args.redundant_window} checks (--redundant-cos "
+                          f"{args.redundant_cos:g}); consider merging them")
+                flagged = set(red)
             if unhealthy:
                 m["stopped"] = unhealthy
             elif upd.get("grad_norm_max") is not None:
