@@ -57,3 +57,34 @@ def test_eval_delta():
     # An eval row from before per-map exit rates and returns were logged.
     del first["eval_per_map_exit"], first["eval_per_map_return"]
     assert "exit 0.00 -> 0.50" in eval_delta_lines(first, last)[1]
+
+
+def test_reward_back():
+    """info["reward_back"] (2026-11-22): a one-off reward for an earlier step
+    (a projectile's result, for the step that pulled the trigger) is added to
+    that step's rew, rew_now and step_terms and to the term totals; the
+    rollout still ends where the env says. Fake vector env, no game."""
+    import torch
+    from model import DEFAULT_OBS_SIZE, Policy
+    from rollout import run_rollouts
+    w, h = DEFAULT_OBS_SIZE
+
+    class Vec:
+        n = 0
+
+        def reset(self, idx, options):
+            self.n = 0
+            return np.zeros((1, 4, h, w), dtype=np.uint8), [{"state": {"hp": 100}}]
+
+        def step(self, active, actions):
+            self.n += 1
+            done = self.n == 4
+            info = {"state": {"hp": 100}, "tics": 1, "terms": {}, "reward_now": 0.0, "rollout_tics": self.n,
+                    "reward_back": [[2, "proj", 6.0]] if self.n == 3 else []}
+            return (np.zeros((1, 4, h, w), dtype=np.uint8), np.array([1.0]), np.array([False]),
+                    np.array([done]), [info])
+
+    (r,) = run_rollouts(Vec(), Policy(), torch.device("cpu"), [{}])
+    assert r["len"] == 4 and r["rew"] == [7.0, 1.0, 1.0, 1.0], r["rew"]
+    assert r["rew_now"] == [6.0, 0.0, 0.0, 0.0] and r["step_terms"][0] == {"proj": 6.0}
+    assert r["terms"] == {"proj": 6.0} and r["ret"] == 10.0

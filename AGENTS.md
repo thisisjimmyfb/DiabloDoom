@@ -282,6 +282,7 @@ armour, so sent even when no HP is lost; `monster`; 2026-11-20 `kind`: `proj`,
 `hitscan`, `melee` or `world`), each shot a `shot` event (`hit`: it hurt a
 monster at once; `proj`: rocket, plasma or BFG, whose hit comes later), a `proj_end` event when a projectile the player
 fired is removed (2026-11-21: `hits`, the monsters it damaged, direct or splash, each once; `type`;
+2026-11-22 `fired`, the gametic it was spawned on, its `shot` event's;
 the env's proj reward),
 and `-rlenv` never autosaves (training games have map monsters now).
 `GIVEGUN <seed>` (`-rlenv`, and `-rldrive` for `eval.py --iwad`) equips a random normal-tier gun at full

@@ -1456,6 +1456,7 @@ static struct
 {
     mobj_t *mo;
     int n;
+    int fired;                       // gametic it was spawned on (proj_end's fired)
     mobj_t *vict[RL_PROJVICT];
 } rl_proj[RL_MAXPROJ];
 
@@ -2006,6 +2007,7 @@ void RL_ProjSpawn(mobj_t *mo)
         {
             rl_proj[i].mo = mo;
             rl_proj[i].n = 0;
+            rl_proj[i].fired = gametic;
             return;
         }
 }
@@ -2033,8 +2035,8 @@ void RL_ProjEnd(mobj_t *mo)
     for (i = 0; i < RL_MAXPROJ; i++)
         if (rl_proj[i].mo == mo)
         {
-            RL_Emit("{\"event\":\"proj_end\",\"hits\":%d,\"type\":%d,\"gametic\":%d}",
-                    rl_proj[i].n, (int) mo->type, gametic);
+            RL_Emit("{\"event\":\"proj_end\",\"hits\":%d,\"type\":%d,\"fired\":%d,\"gametic\":%d}",
+                    rl_proj[i].n, (int) mo->type, rl_proj[i].fired, gametic);
             rl_proj[i].mo = NULL;
             return;
         }

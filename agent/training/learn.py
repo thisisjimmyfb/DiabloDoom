@@ -31,10 +31,11 @@ from model import (ACTIONS, DEFAULT_OBS_SIZE, Policy, checkpoint_obs_size, load_
 
 
 def group_advantages(groups: list[list[dict]], mode: str,
-                     eps: float = 1e-8) -> tuple[list[np.ndarray | None], int]:
+                     eps: float = 1e-8, scales: list | None = None) -> tuple[list[np.ndarray | None], int]:
     """Per-rollout advantage arrays (one value per decision), in the order
     of the flattened groups; None for rollouts in collapsed (zero-variance)
-    groups. Groups may differ in size. Returns (advs, collapsed)."""
+    groups. Groups may differ in size. Returns (advs, collapsed); process
+    mode appends each kept group's scale (points) to `scales` if given."""
     advs: list[np.ndarray | None] = []
     collapsed = 0
     if mode == "outcome":
@@ -47,34 +48,33 @@ def group_advantages(groups: list[list[dict]], mode: str,
                 continue
             advs += [np.full(m["len"], (rets[j] - rets.mean()) / (std + eps), dtype=np.float32)
                      for j, m in enumerate(members)]
-    else:  # process: normalize per-step rewards across the group
+    else:  # process: rewards in points, one baseline and one scale per group
         # Two streams (2026-11-17): chained rewards (rew - rew_now) are
-        # summed from each step onward; one-off rewards (rew_now, the
-        # env's RewardConfig.immediate terms) count on their own step only,
-        # on the same scale (no mean shift: most steps have none).
+        # summed from each step onward, less the group's mean chained step
+        # reward (the baseline); one-off rewards (rew_now, the env's
+        # RewardConfig.immediate terms) count on their own step only, no
+        # mean shift (most steps have none). Both stay in points, so every
+        # term weighs by its points (2026-11-21); the group's advantages are
+        # then divided by one number, their std over the group, which only
+        # balances groups of different lengths and swings against each other.
+        # (Before: per-step rewards divided by their std over the group, the
+        # summed chained stream scaled to unit std on its own (2026-11-18),
+        # and the one-off stream added in std units.)
         for members in groups:
             allr = np.concatenate([np.array(m["rew"], dtype=np.float64) for m in members])
-            std = allr.std()
-            if std < 1e-6:
+            if allr.std() < 1e-6:
                 collapsed += 1
                 advs += [None] * len(members)
                 continue
             now = [_rew_now(m) for m in members]
             chain = [np.array(m["rew"], dtype=np.float64) - n for m, n in zip(members, now)]
             mean = np.concatenate(chain).mean()
-            togo = [np.cumsum(((c - mean) / (std + eps))[::-1])[::-1] for c in chain]
-            # 2026-11-18: the summed chained stream is scaled to unit std
-            # over the group, so its spread no longer grows with rollout
-            # length and drowns the one-off stream (a CONSULT hit was
-            # 0.3 of its std).
-            cstd = np.concatenate(togo).std()
-            # The one-off stream is added as it is (2026-11-21): its values
-            # are standard deviations of advantage, the chained part's unit --
-            # RewardConfig.immediate's values are set on that scale. (Earlier
-            # on 2026-11-21: scaled by its own std over the group, capped at
-            # +-5; before: by the std of every per-step reward.)
-            for t, n in zip(togo, now):
-                advs.append((t / (cstd + eps) + n).astype(np.float32))
+            raw = [np.cumsum((c - mean)[::-1])[::-1] + n for c, n in zip(chain, now)]
+            scale = np.concatenate(raw).std()
+            if scales is not None:
+                scales.append(float(scale))
+            for x in raw:
+                advs.append((x / (scale + eps)).astype(np.float32))
     return advs, collapsed
 
 
@@ -450,6 +450,14 @@ def train_metrics(recs: list[dict], n_groups: int, collapsed: int) -> dict:
         m["fire_seen"] = float(fs[1] / fs[0])      # P(fire | a monster on screen)
     if fs[2]:
         m["fire_blind"] = float(fs[3] / fs[2])     # P(fire | none on screen): blind firing
+    # Hitscan gun, a monster in line of sight (2026-11-22): the press rate with
+    # the crosshair on a monster and off one -- aim learned widens the gap;
+    # both falling is fire suppressed.
+    ast = np.sum([r.get("aim_stats", [0, 0, 0, 0]) for r in recs], axis=0)
+    if ast[0]:
+        m["fire_on"] = float(ast[1] / ast[0])      # P(fire | crosshair on a monster)
+    if ast[2]:
+        m["fire_off"] = float(ast[3] / ast[2])     # P(fire | crosshair off)
     if any("frontier" in r for r in recs):
         m["frontier_share"] = float(np.mean([bool(r.get("frontier")) for r in recs]))
     if recs and recs[0].get("frontier_saved"):
@@ -472,7 +480,7 @@ def print_train(it: int, m: dict, upd: dict, extra: str = "") -> None:
           + (f" consult {m.get('consult_trig', 0):.3f}/{m['consult_idle']:.3f}" if "consult_idle" in m else "")
           + (f" items {m['items_picked'] / m['items_spawned']:.2f}" if m.get("items_spawned") else "")
           + (f" kills {m['kills']} hit {m['hits'] / m['shots']:.2f}" if m.get("shots") else "")
-          + (f" fire {m.get('fire_seen', 0):.2f}/{m.get('fire_blind', 0):.2f}" if "fire_seen" in m or "fire_blind" in m else "")
+          + (f" aim {m.get('fire_on', 0):.2f}/{m.get('fire_off', 0):.2f}" if "fire_on" in m or "fire_off" in m else "")
           + (f" dead {upd['dead_units']:.2f}" if "dead_units" in upd else "")
           + (" cos min {} {:.3f}".format(*min(upd["term_cos"].items(), key=lambda kv: kv[1]))
              if upd.get("term_cos") else "")

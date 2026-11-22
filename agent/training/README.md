@@ -79,7 +79,7 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   nearest portal of the player's current sector (2026-11-16: a passable
   two-sided line into any other sector, visited or not; doors and lifts
   count by their special; before, the nearer of the exit line and the
-  nearest frontier portal). `time` is `--time-penalty` (1/3 per game
+  nearest frontier portal). `time` is off since 2026-11-21 (`make_env` passes 0); it was `--time-penalty` (1/3 per game
   second) and `far_scale` 256, so the clock runs at 1/3 point per second
   beside a way out of the room and twice that 256 units away: being far
   costs more the longer it lasts, and the faster crossing wins its group.
@@ -136,7 +136,7 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   Turning that gets undone cost `turn_waste` (0 since 2026-11-20, `turn` covers it; -0.005 per 45 degrees,
   2026-11-16): over the last 8 tics, the facing's total turning minus its
   net turning; a steady turn either way, or holding still, costs nothing.
-  Reversing forward and back costs `move_flip` (-0.015): W within 4 tics
+  Reversing forward and back costs `move_flip` (-3 since late 2026-11-21, -0.1 std earlier that day, -0.015 before): W within 4 tics
   of S, or S of W; strafing back and forth is free.
   USE earns only `mechanism` (`use_miss` and `use_wall` removed
   2026-11-18).
@@ -184,12 +184,15 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   pressing fire with a monster on screen (the engine's `monstervis`) and
   with none (blind firing); metrics `fire_seen` / `fire_blind`, and each
   `rollouts.jsonl` row's `fire` [steps seen, fire; unseen, fire].
-  `blind_fire` (2026-11-21, -0.35 std, one-off; -0.5 and -1 std, -10 and -20 points earlier that day) charges each step that presses fire
-  with no monster on screen in the state it acted on, shot or not. `aim` (2026-11-21, +-0.5 points a fire press,
-  chained; +-0.05 and +-0.02 a tic, fire or not, earlier that day) judges each fire press made while a monster
+  `blind_fire` (2026-11-21, 0: off; -0.35, -0.5 and -1 std, -10 and -20 points earlier that day; one-off) charges each step that presses fire
+  with no monster on screen in the state it acted on, shot or not. `aim` (2026-11-22, +-7 a fire press,
+  one-off; +-10 one-off before; chained at +-10, +-5, +-2, then +-0.5, before; +-0.35 std one-off, and +-0.05 and +-0.02 a tic, fire or not, earlier that day) judges each fire press made while a monster
   is in line of sight in the state it acted on: + with the crosshair on a monster (the engine's
-  `aim_on`, Doom's autoaim probes), - without; hitscan guns only (a projectile has to lead). `proj` (2026-11-21,
-  chained): when a player projectile is gone (the engine's `proj_end`), +6.25 per monster it damaged
+  `aim_on`, Doom's autoaim probes), - without; hitscan guns only (a projectile has to lead);
+  metrics `fire_on` / `fire_off`, the press rate in those states on and off target, and each
+  `rollouts.jsonl` row's `aim` [steps on, fire; off, fire] (2026-11-22). `proj` (2026-11-21,
+  one-off since 2026-11-22, credited back to the step that pulled the trigger via
+  `info["reward_back"]`; chained before): when a player projectile is gone (the engine's `proj_end`), +6.25 per monster it damaged
   (splash too, each once), -2.5 when none (+2.5 / -1 earlier that day). Pickups pay from the engine's `pickup` events: `loot` (5)
   per Diablo item or armor picked up, `health` (0.75) per HP a health
   pickup healed (a medikit 18.75, a +1 health bonus 0.75), the mirror of
@@ -308,14 +311,17 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   `rollouts.jsonl` row carries its `type`. Default `--mix combat=3,waypoint=2,maze=1,mixed=2`;
   `--mix combat=8` trains the combat drill alone. See SPEC.md §5.3.
 - **Advantage:** group-normalized return (`--advantage outcome`) or the
-  process variant (`process`): per-step rewards normalized across the
-  group and summed from each step on (the sums scaled to unit std over
-  the group, 2026-11-18), except the one-off terms, added as they are: their
-  values are standard deviations of advantage since 2026-11-21 (blind_fire -0.35,
-  consult +1 / -0.5, move_flip -0.1; wall_look chained since 2026-11-21, -0.05 a tic)
-  (`RewardConfig.immediate`: consult, move_flip,
-  turn_waste, blind_fire; wall_look until 2026-11-21; 2026-11-17), which count on their own step only,
-  since they judge just that action and later steps don't follow from it. Zero-variance groups are dropped and
+  process variant (`process`): per-step rewards in points, less the group's
+  mean step reward, summed from each step on, except the one-off terms, also in
+  points (consult +30 / -15, move_flip -3; converted from std units at about 30
+  points a std, late 2026-11-21) (`RewardConfig.immediate`: consult, move_flip,
+  turn_waste, blind_fire, aim and proj (2026-11-22); wall_look until 2026-11-21;
+  2026-11-17), which count on their own step only, since they judge just that
+  action and later steps don't follow from it; then each group's advantages are
+  divided by one number, their std over the group (metrics `adv_scale`), which
+  only balances groups of different lengths (before late 2026-11-21: per-step
+  rewards divided by their std over the group, the sums scaled to unit std,
+  2026-11-18, and the one-off terms added in std units). Zero-variance groups are dropped and
   reported as `collapsed_share`.
 - **Loss:** clipped ratio (`--clip` 0.2), `--epochs` 4, an entropy
   floor per state (2026-11-19; a plain bonus at 0.01 before): only states

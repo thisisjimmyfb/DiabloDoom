@@ -315,8 +315,9 @@ def main():
                 ahead = None
 
             with nvtx("batch"):
+                scales: list = []
                 advs, collapsed = group_advantages([recs[g * G:(g + 1) * G] for g in range(groups)],
-                                                   args.advantage)
+                                                   args.advantage, scales=scales)
                 term_adv = (term_advantages([recs[g * G:(g + 1) * G] for g in range(groups)],
                                             args.advantage, advs, RewardConfig().immediate)
                             if args.conflict_every > 0 and it % args.conflict_every == 0 else None)
@@ -354,6 +355,8 @@ def main():
 
             batch = None    # free the batch's frames before the next one is played
             m = train_metrics(recs, groups, collapsed)   # drill rollouts too (marked in rollouts.jsonl)
+            if scales:
+                m["adv_scale"] = float(np.mean(scales))   # points per unit of advantage (2026-11-21)
             total_steps += m["steps"]
             total_tics += m["tics"]
             # Rollout wall time by phase (rollout.run_rollouts): env steps (the

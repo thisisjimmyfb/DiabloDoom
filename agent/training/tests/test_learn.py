@@ -40,30 +40,33 @@ def test_outcome_advantages(groups):
 
 
 def test_process_advantages(groups):
-    """Per-step rewards normalized across the group, summed from each step
-    on, the sums scaled to unit std over the group."""
-    advs, collapsed = group_advantages(groups, "process")
+    """Per-step rewards in points less the group's mean step reward, summed
+    from each step on, then divided by one scale per group: the sums' std
+    over the group (2026-11-21), reported in `scales`."""
+    scales = []
+    advs, collapsed = group_advantages(groups, "process", scales=scales)
     assert collapsed == 0, "differing per-step rewards never collapse"
     i = 0
-    for g in groups:
+    for g, sc in zip(groups, scales):
         allr = np.concatenate([r["rew"] for r in g])
-        togo = [np.cumsum(((np.array(r["rew"]) - allr.mean()) / (allr.std() + 1e-8))[::-1])[::-1] for r in g]
-        cstd = np.concatenate(togo).std()
+        togo = [np.cumsum((np.array(r["rew"]) - allr.mean())[::-1])[::-1] for r in g]
+        assert sc == pytest.approx(np.concatenate(togo).std())
         for t in togo:
-            assert np.allclose(advs[i], t / cstd, atol=1e-5)
+            assert np.allclose(advs[i], t / sc, atol=1e-5)
             i += 1
 
 
 def test_process_one_off_rewards():
-    """A one-off reward (rew_now) counts on its own step only, as it is: its
-    value is standard deviations of advantage (2026-11-21); it never reaches
-    earlier steps, and the value targets leave it out."""
+    """A one-off reward (rew_now) counts on its own step only, in points
+    like the chained ones, under the group's one scale (2026-11-21); it
+    never reaches earlier steps, and the value targets leave it out."""
     rew = [0.0, 0.0, 5.0, 0.0, -1.0]
     a = {"rew": rew, "rew_now": [0.0, 0.0, 5.0, 0.0, 0.0], "len": 5, "tics": [1] * 5}
     b = {"rew": [0.0, 0.0, 0.0, 0.0, -1.0], "rew_now": [0.0] * 5, "len": 5, "tics": [1] * 5}
-    (adv_a, adv_b), collapsed = group_advantages([[a, b]], "process")
+    scales = []
+    (adv_a, adv_b), collapsed = group_advantages([[a, b]], "process", scales=scales)
     assert collapsed == 0
-    assert np.allclose(adv_a - adv_b, [0, 0, 5.0, 0, 0], atol=1e-5), adv_a - adv_b
+    assert np.allclose((adv_a - adv_b) * scales[0], [0, 0, 5.0, 0, 0], atol=1e-5), adv_a - adv_b
     assert np.allclose(value_targets(np.array(rew) - a["rew_now"], a["tics"], 1.0), [-1] * 5)
 
 

@@ -292,7 +292,7 @@ def test_move_flip():
     """W at most move_flip_window (4) tics after S, or S after W, costs
     move_flip; strafing back and forth (A/D) never does, and turn keys
     don't count. Engine faked: one tic per step, no game needed."""
-    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
+    only = RewardConfig(turn=0, sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
                         fast=0, look=0, turn_waste=0, move_flip=-1.0, move_flip_window=4, fall=0, wall_look=0)
     e = make_env(rewards=only, max_tics=100000)
@@ -407,8 +407,8 @@ def test_range():
 
 
 def test_turn():
-    """Each tic a turn key was held costs turn, all paid when the rollout
-    ends; CTRL alone isn't a turn, nor a turn in combat (a monster began
+    """Each tic a turn key was held costs turn, on its step (2026-11-21; all
+    paid when the rollout ended before); CTRL alone isn't a turn, nor a turn in combat (a monster began
     an attack within turn_combat_tics before the step, attack_age). Engine
     faked, one tic per step."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
@@ -424,7 +424,7 @@ def test_turn():
     e.cfg.max_tics = 5
     acts = ["PRESS WL", "PRESS CTRL", "PRESS DL", "PRESS DR CTRL", "PRESS W"]
     got = [e.step(ACTIONS.index(a))[1] for a in acts]
-    assert got == [0, 0, 0, 0, -2.0], got
+    assert got == [-1.0, 0, 0, -1.0, 0], got
 
 
 def test_view():
@@ -574,7 +574,7 @@ def test_wall_dist():
     """E1M1: the state line's wall_dist is the distance to the wall straight
     ahead: running into one brings it under 48 (charged), facing back into
     the room puts it beyond (or -1, nothing within 128)."""
-    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
+    only = RewardConfig(turn=0, sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
                         fast=0, look=0, turn_waste=0, move_flip=0, fall=0,
                         wall_look=-1.0, wall_look_dist=48.0)
@@ -601,7 +601,7 @@ def test_look_reward():
     max(0, cos(portal_rel)) -- portal_rel, the angle to the nearest
     portal of the current sector into an unvisited sector -- so full
     credit facing it and nothing facing away."""
-    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
+    only = RewardConfig(turn=0, sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0,
                         loot=0, health=0, fast=0, look=1.0, turn_waste=0, move_flip=0, fall=0, wall_look=0)
     e = make_env(engine=EngineConfig(warp="1 1", extra_args=["--eval"]), rewards=only, max_tics=100000)
@@ -933,7 +933,7 @@ def test_time_distance_penalty():
     portal_dist, and with every other reward off each step costs time *
     its tics * (1 + d / far_scale), d the mean of its start and end
     distances to the nearest portal of the current sector."""
-    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0,
+    only = RewardConfig(turn=0, sector=0, exit=0, mechanism=0, consult_hit=0,
                         trigger_miss=0, consult_false=0, key=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0, fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0,
                         time=1.0, far_scale=256.0)
     e = make_env(engine=EngineConfig(warp="1 1", extra_args=["--eval"]), rewards=only,
@@ -1346,8 +1346,8 @@ def test_aim():
     """aim (2026-11-21): a fire press while a monster is in line of sight
     (foe_dist) in the state it acted on: +aim with the crosshair on a monster
     (aim_on), -aim without; no fire, no monster in sight, an engine without
-    aim_on, or no hitscan gun ready (a rocket launcher: 4), nothing. Chained.
-    Engine faked."""
+    aim_on, or no hitscan gun ready (a rocket launcher: 4), nothing. One-off
+    (2026-11-22). Engine faked."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
                         fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0, range=0, turn=0,
@@ -1365,16 +1365,25 @@ def test_aim():
                              at(300, True, weapon=4), at(300, False, weapon=8), at(300, True)])
     acts = ["PRESS CTRL", "PRESS CTRL", "PRESS CTRL", "PRESS L", "PRESS CTRL", "PRESS CTRL",
             "PRESS CTRL", "PRESS W CTRL"]
-    got = [e.step(ACTIONS.index(x))[1] for x in acts]
+    got, info = [], None
+    for x in acts:
+        _, r, _, _, info = e.step(ACTIONS.index(x))
+        got.append(r)
     assert got == [0.0, 0.5, -0.5, 0.0, 0.0, 0.0, 0.0, -0.5], got
-    assert "aim" not in RewardConfig().immediate
+    # aim_stats (2026-11-22): hitscan states with a monster in sight, [on
+    # target, fire; off, fire] -- steps 2, 4 (no fire) on; 3, 8 off.
+    assert info["aim_stats"] == [2, 1, 2, 2], info["aim_stats"]
+    assert "aim" in RewardConfig().immediate
 
 
 def test_proj():
     """proj (2026-11-21): a player projectile's proj_end event pays proj_hit
     per monster it damaged (a rocket into 3 pays 3x) and costs proj_miss when
-    it damaged none; a hit counts in the combat stats' hits. Chained. Engine
-    faked."""
+    it damaged none; a hit counts in the combat stats' hits. One-off since
+    2026-11-22, credited back to the step that pulled the trigger (the step
+    before its shot event: the press acts a tic late) through
+    info["reward_back"]; a proj_end with no known shot pays on its own step.
+    Engine faked."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
                         fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0, range=0, turn=0,
@@ -1382,9 +1391,17 @@ def test_proj():
 
     def at(events):
         return {"mode": "EXPLORE", "hp": 100, "tics": 1, "x": 0, "y": 0, "monstervis": True}, events
-    end = lambda n: {"event": "proj_end", "hits": n, "type": 33}
-    e = _fake_explore(only, [at([end(3)]), at([end(0)]), at([]), at([end(1), end(0)])])
-    got = [e.step(ACTIONS.index("PRESS L"))[1] for _ in range(4)]
-    assert got == [6.0, -1.0, 0.0, 1.0], got
+    shot = lambda g: {"event": "shot", "hit": False, "proj": True, "gametic": g}
+    end = lambda n, g=None: {"event": "proj_end", "hits": n, "type": 33, **({} if g is None else {"fired": g})}
+    # Step 1's shot was pulled by step 0, step 2's by step 1. They end on steps
+    # 3 (3 monsters) and 4 (none); an unknown one ends on step 4 too.
+    e = _fake_explore(only, [at([]), at([shot(10)]), at([shot(11)]), at([end(3, 10)]), at([end(0, 11), end(1)])])
+    got, backs = [], []
+    for _ in range(5):
+        _, r, _, _, info = e.step(ACTIONS.index("PRESS L"))
+        got.append(r)
+        backs.append(info["reward_back"])
+    assert got == [0.0, 0.0, 0.0, 0.0, 2.0], got
+    assert backs == [[], [], [], [[3, "proj", 6.0]], [[3, "proj", -1.0]]], backs
     assert e._combat_stats[1] == 2
-    assert "proj" not in RewardConfig().immediate
+    assert "proj" in RewardConfig().immediate and "aim" in RewardConfig().immediate

@@ -118,14 +118,15 @@ class RewardConfig:
     # leads into never costs the waypoints after it.
     waypoint: float = 15.0
     waypoint_look_approach: float = 0.01
-    # The one-off terms (immediate, below) are in standard deviations of
-    # advantage since 2026-11-21 (the learner adds them as they are): -1 is
-    # one typical swing of the chained signal. Points before.
-    consult_hit: float = 1.0          # first CONSULT on an explore trigger (5 points before 2026-11-21)
+    # Every term is in points, the one-off terms (immediate, below) too (late
+    # 2026-11-21: the learner keeps rewards in points, one scale per group;
+    # earlier that day the one-off values were standard deviations of
+    # advantage, converted at about 30 points a std).
+    consult_hit: float = 30.0         # first CONSULT on an explore trigger (1 std earlier 2026-11-21; 5 points before)
     # Charged tic by tic while a trigger waits unanswered, trigger_miss
     # over the whole grace window (2026-11-17: once at its end before),
     # so each frame the policy didn't CONSULT on gets its share.
-    trigger_miss: float = -0.5        # std (-2.5 points before 2026-11-21; -8, then -12, before 2026-11-18)
+    trigger_miss: float = -15.0       # (-0.5 std earlier 2026-11-21; -2.5 points before; -8, then -12, before 2026-11-18)
     # A unique picked up (2026-11-17; the engine's pickup event, tier 4)
     # is a trigger for unique_grace_tics game tics (3 s, as a monster;
     # the engine's gold border around the avatar, the cue, lasts 3.5 s,
@@ -134,7 +135,7 @@ class RewardConfig:
     # message text.
     unique_grace_tics: int = 105
     grace_decisions: int = 5          # combat (frozen, no tics pass): steps to CONSULT
-    consult_false: float = -0.5       # std; CONSULT with no live, unanswered trigger (-2.5 points before 2026-11-21; -1.5 before 2026-11-17, -0.3 then -0.5 before 2026-11-18)
+    consult_false: float = -15.0      # CONSULT with no live, unanswered trigger (-0.5 std earlier 2026-11-21; -2.5 points before; -1.5 before 2026-11-17, -0.3 then -0.5 before 2026-11-18)
     # Time and distance, one penalty: every game tic costs
     #   time * (1 + d / far_scale)
     # where d is the distance (map units) to the nearest portal of the
@@ -208,13 +209,15 @@ class RewardConfig:
     # is the only aim, and finding an attacker off screen is turning too
     # (a monster on screen, foe_dist, was the exemption until then; damage
     # and turn then conflicted: re-acquiring an attacker cost).
+    # Charged on each turning step, chained (2026-11-21; summed and paid at
+    # the rollout's end before, so every step carried the same cost).
     turn: float = -0.1                # -0.01 before 2026-11-20
     turn_combat_tics: int = 105       # 3 s
     turn_waste_window: int = 8
     # The same for forward and back: W at most move_flip_window tics after
     # S, or S after W, costs move_flip. Strafing back and forth (A/D) is
     # free.
-    move_flip: float = -0.1           # std (-0.015 points before 2026-11-21)
+    move_flip: float = -3.0           # (-0.1 std earlier 2026-11-21; -0.015 points before)
     move_flip_window: int = 4
     # Falls (2026-11-16): a quick large drop usually means the player left
     # the path the map intends. A fall is an unbroken run of tics going
@@ -275,7 +278,7 @@ class RewardConfig:
     # costs blind_fire, one-off, on that step -- judged from the input, so
     # it needs no hit or miss to come back, and charged whether or not the
     # gun was ready to fire.
-    blind_fire: float = -0.35         # std (-0.5, then -1 std before, 2026-11-21: still gun-shy; -10, then -20, points earlier that day)
+    blind_fire: float = 0.0           # (-0.35 std before, 2026-11-21: off to see if aim and proj suffice; -0.5, then -1 std; -10, then -20, points earlier that day)
     # Range (2026-11-20): each map unit the nearest monster in line of sight,
     # in any direction (behind the player too: on screen only at first, which
     # let turning away stop the losses), woken or not (the engine's foe_dist),
@@ -289,12 +292,16 @@ class RewardConfig:
     # the state it acted on: +aim when a hitscan shot would be aimed at a
     # monster (the engine's aim_on: P_BulletSlope's autoaim probes), -aim when
     # not; only with a hitscan gun ready (HITSCAN: a projectile has to lead).
-    # Chained, points. Every tic, fire or not, at 0.05 then 0.02 before.
-    aim: float = 0.5
+    # One-off, points (2026-11-22: chained, its own later presses drowned each
+    # press's credit; one-off at 0.35 std for part of 2026-11-21, chained
+    # before that, then every tic, fire or not, at 0.05 and 0.02 points).
+    aim: float = 7.0                  # 10.0 before (2026-11-22, one-off: firing fell to 3%, on and off target); chained at 10, 5, 2, 0.5 before
     # Projectiles (2026-11-21): when a rocket, plasma bolt or BFG ball the
     # player fired is gone (the engine's proj_end), proj_hit for each monster
     # it damaged (direct or splash, once each: a rocket into 5 monsters pays
-    # 5x), proj_miss when it damaged none. Chained, points, logged as "proj".
+    # 5x), proj_miss when it damaged none. One-off, points, logged as "proj",
+    # credited to the step that pulled the trigger (2026-11-22; chained, on
+    # the step it ended, before).
     proj_hit: float = 6.25            # 2.5 before (2026-11-21)
     proj_miss: float = -2.5           # -1.0 before (2026-11-21)
     # One-off terms (2026-11-17): they judge only the step's own action,
@@ -303,7 +310,10 @@ class RewardConfig:
     # (info["reward_now"], learn.group_advantages).
     # wall_look chained since 2026-11-21: facing a wall up close follows from
     # the steps that walked there, not just the last one.
-    immediate: tuple = ("consult", "move_flip", "turn_waste", "blind_fire")
+    # aim one-off since 2026-11-22 (one-off for part of 2026-11-21, chained in
+    # between); proj one-off since 2026-11-22, credited back to the step that
+    # pulled the trigger.
+    immediate: tuple = ("consult", "move_flip", "turn_waste", "blind_fire", "aim", "proj")
 
 
 # A CONSULT handler answers a CONSULT: it may drive the engine with any
@@ -488,8 +498,9 @@ class DiabloDoomEnv(gym.Env):
         self.next_reset: dict | None = None
         self._dmg_share = 0.0
         self._view_share = 0.0
-        self._turn_tics = 0
         self._fire_stats = [0, 0, 0, 0]
+        self._aim_stats = [0, 0, 0, 0]       # hitscan, monster in sight: [on target, fire; off, fire]
+        self._nstep, self._proj_step = 0, {}
         self._type, self._drill = None, False
         self._wp_clear = False
         self._wp_on, self._wp, self._wp_tic, self._wp_stats = False, None, -10 ** 9, [0, 0]   # waypoints (reset sets them)
@@ -643,7 +654,6 @@ class DiabloDoomEnv(gym.Env):
         self._combat_stats = [0, 0, 0, 0.0]   # shots, hits, kills, damage dealt (HP)
         self._dmg_share = 0.0                  # monster HP shares removed (paid at the end)
         self._view_share = 0.0                 # the same, times the monsters in view at each hit
-        self._turn_tics = 0                    # tics a turn key was held (RewardConfig.turn)
         # A progress save's visited list (the save doesn't store it; the
         # load reset it): VISIT in pieces that fit a command line.
         vis = self._installed_visited.get(slot)
@@ -688,6 +698,8 @@ class DiabloDoomEnv(gym.Env):
         # screen at the step's start (the engine's monstervis), fire presses on
         # them; steps without, fire presses on them.
         self._fire_stats = [0, 0, 0, 0]
+        self._aim_stats = [0, 0, 0, 0]       # hitscan, monster in sight: [on target, fire; off, fire]
+        self._nstep, self._proj_step = 0, {}  # steps so far; a projectile's fired gametic -> the step that fired it
         self._prev_hp = d.get("hp", 0)
         self._combat_steps = 0
         self._turn_hist = collections.deque(maxlen=self.cfg.rewards.turn_waste_window)
@@ -720,6 +732,9 @@ class DiabloDoomEnv(gym.Env):
         def add(term: str, value: float) -> None:
             if value:
                 terms[term] = terms.get(term, 0.0) + value
+        step_i = self._nstep              # this step's index in the rollout
+        self._nstep += 1
+        back: list = []                   # [steps back, term, value]: one-off rewards for an earlier step
         prev = self.state
         in_combat = prev.get("mode") in COMBAT_MODES
         self._handler_tics = 0
@@ -910,11 +925,21 @@ class DiabloDoomEnv(gym.Env):
             if e.get("event") == "shot":
                 self._combat_stats[0] += 1
                 self._combat_stats[1] += bool(e.get("hit"))
+                if e.get("proj"):         # pulled by the step before (the press acts a tic late)
+                    self._proj_step[int(e.get("gametic", -1))] = max(step_i - 1, 0)
             if e.get("event") == "proj_end":
-                # RewardConfig.proj_hit / proj_miss: once the projectile is gone.
+                # RewardConfig.proj_hit / proj_miss: once the projectile is gone,
+                # credited back to the step that pulled the trigger
+                # (info["reward_back"], 2026-11-22); one with no known shot (an
+                # engine without fired) on this step.
                 n = int(e.get("hits", 0))
                 self._combat_stats[1] += n > 0
-                add("proj", rc.proj_hit * n if n else rc.proj_miss)
+                v = rc.proj_hit * n if n else rc.proj_miss
+                j = self._proj_step.pop(e.get("fired"), None)
+                if j is None:
+                    add("proj", v)
+                elif v:
+                    back.append([step_i - j, "proj", v])
             if e.get("event") == "pickup":
                 if e.get("kind") in ("loot", "armor"):
                     add("loot", rc.loot)
@@ -965,15 +990,17 @@ class DiabloDoomEnv(gym.Env):
         if a in FIRES and not seen and prev.get("mode") == EXPLORE:
             add("blind_fire", rc.blind_fire)
         # Aim (RewardConfig.aim): a fire press, by the crosshair in the state
-        # it acted on, while a monster is in line of sight.
-        if (a in FIRES and rc.aim and prev.get("foe_dist", -1) >= 0 and "aim_on" in prev
-                and prev.get("weapon") in HITSCAN):
-            add("aim", rc.aim if prev["aim_on"] else -rc.aim)
-        if a in TURNS and not 0 <= age <= rc.turn_combat_tics:   # in combat, turning is free
-            self._turn_tics += tics
-        # Turning, paid at the end (RewardConfig.turn).
-        if terminated or truncated:
-            add("turn", rc.turn * self._turn_tics)
+        # it acted on, while a monster is in line of sight. aim_stats (the
+        # metric, 2026-11-22): those states' steps and presses, on and off target.
+        if prev.get("foe_dist", -1) >= 0 and "aim_on" in prev and prev.get("weapon") in HITSCAN:
+            on = bool(prev["aim_on"])
+            self._aim_stats[0 if on else 2] += 1
+            self._aim_stats[1 if on else 3] += a in FIRES
+            if a in FIRES and rc.aim:
+                add("aim", rc.aim if on else -rc.aim)
+        # Turning (RewardConfig.turn), on its step; in combat, turning is free.
+        if a in TURNS and not 0 <= age <= rc.turn_combat_tics:
+            add("turn", rc.turn * tics)
         # Waypoints not reached, paid when a goal ends the rollout early.
         if end in ("exit", "key", "portal") and self._wp_on and self._wp_count > 0:
             add("waypoint", rc.waypoint * max(self._wp_count - self._wp_stats[1], 0))
@@ -987,6 +1014,7 @@ class DiabloDoomEnv(gym.Env):
         info["items"] = [getattr(self, "_items_spawned", 0), getattr(self, "_items_picked", 0)]
         info["consult_stats"] = list(self._consult_stats)
         info["fire_stats"] = list(self._fire_stats)
+        info["aim_stats"] = list(self._aim_stats)
         # on (a drill counts: it fights), shots, hits, kills, damage
         info["combat"] = [int(self._combat_on or self._drill)] + list(self._combat_stats)
         info["type"] = self._type
@@ -994,6 +1022,7 @@ class DiabloDoomEnv(gym.Env):
         info["waypoints"] = list(self._wp_stats)   # [set, reached]
         info["terms"] = terms             # the reward by term
         info["reward_now"] = sum(v for t, v in terms.items() if t in rc.immediate)
+        info["reward_back"] = back        # [steps back, term, value]: one-off, for an earlier step (rollout.py)
         info["end"] = end                 # why the rollout ended: exit, death, key, portal, time, combat
         info["max_tics"] = self.cfg.max_tics
         return obs, float(reward), terminated, truncated, info

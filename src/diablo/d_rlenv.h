@@ -145,7 +145,8 @@ void RL_PlayerHurt(struct mobj_s *inflictor, struct mobj_s *source, int damage);
 // Player projectiles (2026-11-21, the env's proj reward): RL_ProjSpawn
 // tracks a rocket, plasma bolt or BFG ball the player fired; RL_ProjHit
 // notes each monster it damages (direct or splash, once each); when it is
-// removed RL_ProjEnd sends a "proj_end" event with that count (hits).
+// removed RL_ProjEnd sends a "proj_end" event with that count (hits) and
+// the gametic it was fired on (fired, 2026-11-22: the shot event's).
 void RL_ProjSpawn(struct mobj_s *mo);
 void RL_ProjHit(struct mobj_s *inflictor, struct mobj_s *target);
 void RL_ProjEnd(struct mobj_s *mo);

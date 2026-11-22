@@ -103,6 +103,15 @@ def run_rollouts(vec: GroupVecEnv, policy: Policy, device: torch.device,
             for t, v in ninfo[k].get("terms", {}).items():
                 r["terms"][t] = r["terms"].get(t, 0.0) + v
             r["step_terms"].append(dict(ninfo[k].get("terms", {})))   # the reward by term, per step
+            # One-off rewards for an earlier step (2026-11-22: a projectile's
+            # result, credited to the step that pulled the trigger).
+            for back, name, v in ninfo[k].get("reward_back", []):
+                j = len(r["rew"]) - 1 - int(back)
+                if j >= 0:
+                    r["rew"][j] += v
+                    r["rew_now"][j] += v
+                    r["step_terms"][j][name] = r["step_terms"][j].get(name, 0.0) + v
+                    r["terms"][name] = r["terms"].get(name, 0.0) + v
             cur_obs[i] = nobs[k]
             cur_priv[i] = get_privileged_info(ninfo[k])
             if term[k] or trunc[k]:
@@ -133,6 +142,7 @@ def run_rollouts(vec: GroupVecEnv, policy: Policy, device: torch.device,
         r["type"] = r["end_info"].get("type")              # env.TYPES, None untyped
         r["consult_stats"] = list(r["end_info"].get("consult_stats", [0, 0, 0, 0]))
         r["fire_stats"] = list(r["end_info"].get("fire_stats", [0, 0, 0, 0]))   # [steps seen, fire; unseen, fire]
+        r["aim_stats"] = list(r["end_info"].get("aim_stats", [0, 0, 0, 0]))     # [steps on target, fire; off, fire]
     return recs
 
 
@@ -165,7 +175,7 @@ def rollout_log_rows(recs: list[dict], options: list[dict], labels: list[str], *
             "goal_dist": [goal_dist(s0), goal_dist(s1)],
             "mode": s1.get("mode"), "keys": s1.get("keys"), "items": r.get("items"),
             "waypoints": r.get("waypoints"),
-            "combat": r.get("combat"), "type": r.get("type"), "fire": r.get("fire_stats"),
+            "combat": r.get("combat"), "type": r.get("type"), "fire": r.get("fire_stats"), "aim": r.get("aim_stats"),
             "actions": dict(zip(ACTIONS, acts.tolist())),
             "wall_start": _clock(r["wall_start"]) if "wall_start" in r else None,
             "wall_end": _clock(r["wall_end"]) if "wall_end" in r else None,

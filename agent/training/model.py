@@ -89,7 +89,7 @@ def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
         # Facing a way on pays up to half the clock (RewardConfig.look); no
         # fast pay since 2026-11-20 (the clock's base rate before): with
         # combat, moving for its own sake shouldn't pay.
-        rewards=RewardConfig(time=time_penalty / 35.0, fast=0.0,
+        rewards=RewardConfig(time=0.0, fast=0.0,   # time=time_penalty / 35.0 before 2026-11-21 (off for now)
                              look=time_penalty / 35.0 / 2),   # wall_look=-time_penalty / 35 before 2026-11-21 (std now: RewardConfig)
     ))
 
