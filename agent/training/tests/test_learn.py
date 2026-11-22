@@ -89,7 +89,7 @@ def test_policy_update(rng, make_rollout):
     advs, collapsed = group_advantages(gs, "outcome")
     batch = build_batch(back, advs, 0.999)
     w, h = DEFAULT_OBS_SIZE
-    assert collapsed == 1 and batch["obs"].shape == (sum(r["len"] for r in back[:2 * G]), 4, h, w)
+    assert collapsed == 1 and batch["obs"].shape == (sum(r["len"] for r in back[:2 * G]), 8, h, w)
     assert build_batch(back[2 * G:], advs[2 * G:], 0.999) is None, "nothing to train on"
     args = types.SimpleNamespace(epochs=1, minibatch=64, clip=0.2, ent_coef=0.01, vf_coef=0.5,
                                  beta=0.0, max_grad_norm=0.5)

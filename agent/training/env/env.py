@@ -1,10 +1,11 @@
 """DiabloDoomEnv: the Gymnasium environment (SPEC.md §5).
 
-The policy sees pixels only: frame_stack x height x width grayscale
-(4 x 80 x 128), the last frame_stack decisions' frames. Engine
-state from the STATE line drives rewards, episode ends and CONSULT
-routing, and is exposed in `info["state"]` for logging and the critic,
-never in the observation.
+The policy sees the rendered view only: per frame grayscale and
+(2026-11-22, EnvConfig.depth) the engine's depth buffer, 2 x height x
+width, over the last frame_stack decisions (8 x 80 x 128; 4 x 80 x 128
+grayscale before). Engine state from the STATE line drives rewards,
+episode ends and CONSULT routing, and is exposed in `info["state"]` for
+logging and the critic, never in the observation.
 """
 
 from __future__ import annotations
@@ -51,7 +52,8 @@ USE = ACTIONS.index("USE")
 #             on the way to it, about half uniques (ITEMS)
 #   maze:     map monsters hidden, no waypoints
 #   mixed:    map monsters shown, waypoints
-# Drills (combat, waypoint) end only on death, the exit or time: no portal
+# Drills (combat, waypoint) end only on the exit or time (death too before 2026-11-22: they
+# respawn at once now, at the map start, with the same gun): no portal
 # or key goal. No type: the older random split (EnvConfig.combat, waypoint_off).
 TYPES = ("combat", "waypoint", "maze", "mixed")
 DRILLS = ("combat", "waypoint")
@@ -217,7 +219,7 @@ class RewardConfig:
     # The same for forward and back: W at most move_flip_window tics after
     # S, or S after W, costs move_flip. Strafing back and forth (A/D) is
     # free.
-    move_flip: float = -3.0           # (-0.1 std earlier 2026-11-21; -0.015 points before)
+    move_flip: float = -2.0           # (-3.0 late 2026-11-21; -0.1 std earlier that day; -0.015 points before)
     move_flip_window: int = 4
     # Falls (2026-11-16): a quick large drop usually means the player left
     # the path the map intends. A fall is an unbroken run of tics going
@@ -273,12 +275,6 @@ class RewardConfig:
     # paid at the end like damage -- keeping the fight in view (round a corner
     # too) makes every hit worth more; no hit, no pay.
     view: float = 2.5
-    # Blind fire (2026-11-21): a step whose action presses fire with no
-    # monster on screen in the state it acted on (the engine's monstervis)
-    # costs blind_fire, one-off, on that step -- judged from the input, so
-    # it needs no hit or miss to come back, and charged whether or not the
-    # gun was ready to fire.
-    blind_fire: float = 0.0           # (-0.35 std before, 2026-11-21: off to see if aim and proj suffice; -0.5, then -1 std; -10, then -20, points earlier that day)
     # Range (2026-11-20): each map unit the nearest monster in line of sight,
     # in any direction (behind the player too: on screen only at first, which
     # let turning away stop the losses), woken or not (the engine's foe_dist),
@@ -295,7 +291,18 @@ class RewardConfig:
     # One-off, points (2026-11-22: chained, its own later presses drowned each
     # press's credit; one-off at 0.35 std for part of 2026-11-21, chained
     # before that, then every tic, fire or not, at 0.05 and 0.02 points).
-    aim: float = 7.0                  # 10.0 before (2026-11-22, one-off: firing fell to 3%, on and off target); chained at 10, 5, 2, 0.5 before
+    aim: float = 10.0                 # 7.0 earlier 2026-11-22; 10.0 before that (one-off: firing fell to 3%, on and off target); chained at 10, 5, 2, 0.5 before
+    # Off target: symmetric again (late 2026-11-22), breaking even at 1/2 on
+    # target; asymmetric earlier that day (-3, -2, -1: at -1, 1/8, firing spammed) (a fresh policy's ~9% made symmetric +-7 cost about -5.7 a press).
+    aim_off: float = -10.0            # -3.0, -2.0, then -1.0, earlier 2026-11-22 (at -1 firing spammed, on and off target alike); -aim (-7.0) before
+    # Tracking (2026-11-22): an on-target press (as aim pays) also pays track
+    # to each step before it that kept the crosshair on that same monster
+    # (the engine's aim_streak: a wall or another monster in the way, or a
+    # skipped tic, restarts it), credited back to those steps; at most
+    # track_tics of them, and each step once (a press after a press credits
+    # only the steps since). One-off.
+    track: float = 2.0                # 1.0 earlier 2026-11-22
+    track_tics: int = 10              # at most 20 a press; 6 earlier 2026-11-22
     # Projectiles (2026-11-21): when a rocket, plasma bolt or BFG ball the
     # player fired is gone (the engine's proj_end), proj_hit for each monster
     # it damaged (direct or splash, once each: a rocket into 5 monsters pays
@@ -313,7 +320,7 @@ class RewardConfig:
     # aim one-off since 2026-11-22 (one-off for part of 2026-11-21, chained in
     # between); proj one-off since 2026-11-22, credited back to the step that
     # pulled the trigger.
-    immediate: tuple = ("consult", "move_flip", "turn_waste", "blind_fire", "aim", "proj")
+    immediate: tuple = ("consult", "move_flip", "turn_waste", "aim", "proj", "track")    # no track before 2026-11-22; blind_fire until 2026-11-22 (deleted)
 
 
 # A CONSULT handler answers a CONSULT: it may drive the engine with any
@@ -405,6 +412,7 @@ class EnvConfig:
     rewards: RewardConfig = field(default_factory=RewardConfig)
     max_tics: int = 2100              # rollout length in game tics (60 s)
     frame_stack: int = 4
+    depth: bool = True                # a depth channel per frame (2026-11-22; grayscale only before)
     width: int = 128                   # observation size (--obs-size WxH)
     height: int = 80
     # Reset start states: save slots (3-5 manual, 0-2 auto) in the
@@ -488,7 +496,7 @@ class DiabloDoomEnv(gym.Env):
             cfg.engine.extra_args = [*cfg.engine.extra_args, "-rlfast", str(cfg.rewards.fast_speed)]
         DiabloDoomEnv._instances += 1
         self.engine = Engine(cfg.engine, tag=str(DiabloDoomEnv._instances))
-        self.observation_space = spaces.Box(0, 255, (cfg.frame_stack, cfg.height, cfg.width), np.uint8)
+        self.observation_space = spaces.Box(0, 255, (cfg.frame_stack * (2 if cfg.depth else 1), cfg.height, cfg.width), np.uint8)
         self.action_space = spaces.Discrete(len(ACTIONS))
         self._pre: Preprocessor | None = None
         self._stack = FrameStack(cfg.frame_stack, cfg.height, cfg.width)
@@ -501,6 +509,8 @@ class DiabloDoomEnv(gym.Env):
         self._fire_stats = [0, 0, 0, 0]
         self._aim_stats = [0, 0, 0, 0]       # hitscan, monster in sight: [on target, fire; off, fire]
         self._nstep, self._proj_step = 0, {}
+        self._track_paid = -1             # the last step track credited (or passed over)
+        self._deaths, self._gun_line = 0, None
         self._type, self._drill = None, False
         self._wp_clear = False
         self._wp_on, self._wp, self._wp_tic, self._wp_stats = False, None, -10 ** 9, [0, 0]   # waypoints (reset sets them)
@@ -608,7 +618,8 @@ class DiabloDoomEnv(gym.Env):
             self._map_start = boot.read_bytes() if boot.exists() else None
             for slot in self._installed:
                 self._write_installed(slot)
-            self._pre = Preprocessor(self.engine.width, self.engine.height, self.cfg.width, self.cfg.height)
+            self._pre = Preprocessor(self.engine.width, self.engine.height, self.cfg.width, self.cfg.height,
+                                     depth=self.cfg.depth)
 
         slot = opts.get("slot")
         if slot is None and self.cfg.start_slots:
@@ -638,8 +649,11 @@ class DiabloDoomEnv(gym.Env):
             # A random gun equipped (2026-11-18; the engine's GIVEGUN), the
             # same for the whole group (from its seed).
             # A drill never gets fists (RANGED, 2026-11-20): no melee there.
-            d, _ = self.engine.command(f"GIVEGUN {int(rng_seed) * 7 + 3}" + (" KIT" if self.cfg.gun_kit else "")
-                                       + (" RANGED" if self._drill else ""))
+            self._gun_line = (f"GIVEGUN {int(rng_seed) * 7 + 3}" + (" KIT" if self.cfg.gun_kit else "")
+                              + (" RANGED" if self._drill else ""))
+            d, _ = self.engine.command(self._gun_line)
+        else:
+            self._gun_line = None
         if self._drill:
             d, _ = self.engine.command("DRILL ON")
             d, _ = self.engine.command("ITEMS 0")
@@ -699,6 +713,8 @@ class DiabloDoomEnv(gym.Env):
         # them; steps without, fire presses on them.
         self._fire_stats = [0, 0, 0, 0]
         self._aim_stats = [0, 0, 0, 0]       # hitscan, monster in sight: [on target, fire; off, fire]
+        self._track_paid = -1
+        self._deaths = 0
         self._nstep, self._proj_step = 0, {}  # steps so far; a projectile's fired gametic -> the step that fired it
         self._prev_hp = d.get("hp", 0)
         self._combat_steps = 0
@@ -968,6 +984,18 @@ class DiabloDoomEnv(gym.Env):
         if exited:
             add("exit", rc.exit)
             terminated, end = True, "exit"
+        elif d.get("dead") and self._type in DRILLS:
+            # A drill plays on (2026-11-22): RESPAWN at the map start at once
+            # (the engine's corpse respawn: no level reload, so the drill and
+            # its monster stay), the same gun again (respawning empties the
+            # slots). It ended the rollout before.
+            add("death", rc.death)
+            self._deaths += 1
+            d, _ = self.engine.command("RESPAWN")
+            if self._gun_line:
+                d, _ = self.engine.command(self._gun_line)
+            self.state = d
+            self._prev_hp = max(d.get("hp", 0), 0)
         elif d.get("dead"):
             add("death", rc.death)
             terminated, end = True, "death"
@@ -987,8 +1015,6 @@ class DiabloDoomEnv(gym.Env):
         seen = bool(prev.get("monstervis"))
         self._fire_stats[0 if seen else 2] += 1
         self._fire_stats[1 if seen else 3] += a in FIRES
-        if a in FIRES and not seen and prev.get("mode") == EXPLORE:
-            add("blind_fire", rc.blind_fire)
         # Aim (RewardConfig.aim): a fire press, by the crosshair in the state
         # it acted on, while a monster is in line of sight. aim_stats (the
         # metric, 2026-11-22): those states' steps and presses, on and off target.
@@ -997,7 +1023,13 @@ class DiabloDoomEnv(gym.Env):
             self._aim_stats[0 if on else 2] += 1
             self._aim_stats[1 if on else 3] += a in FIRES
             if a in FIRES and rc.aim:
-                add("aim", rc.aim if on else -rc.aim)
+                add("aim", rc.aim if on else rc.aim_off)    # -rc.aim before
+            # Track (RewardConfig.track): the steps that held this target.
+            if a in FIRES and on and rc.track:
+                n = min(int(prev.get("aim_streak", 0)), step_i - 1 - self._track_paid, rc.track_tics)
+                back.extend([k, "track", rc.track] for k in range(1, n + 1))
+        if a in FIRES:
+            self._track_paid = step_i - 1     # steps up to the press's are spent
         # Turning (RewardConfig.turn), on its step; in combat, turning is free.
         if a in TURNS and not 0 <= age <= rc.turn_combat_tics:
             add("turn", rc.turn * tics)
@@ -1023,6 +1055,7 @@ class DiabloDoomEnv(gym.Env):
         info["terms"] = terms             # the reward by term
         info["reward_now"] = sum(v for t, v in terms.items() if t in rc.immediate)
         info["reward_back"] = back        # [steps back, term, value]: one-off, for an earlier step (rollout.py)
+        info["deaths"] = self._deaths     # deaths a drill respawned from (2026-11-22)
         info["end"] = end                 # why the rollout ended: exit, death, key, portal, time, combat
         info["max_tics"] = self.cfg.max_tics
         return obs, float(reward), terminated, truncated, info
@@ -1179,7 +1212,7 @@ class DiabloDoomEnv(gym.Env):
 
     def _frame(self) -> np.ndarray:
         pix, pal, _ = self.engine.frame()
-        return self._pre(pix, pal)
+        return self._pre(pix, pal, self.engine.depth() if self.cfg.depth else None)
 
     # Absolute counters that keep running across resets; left out of
     # info["state"] so identical rollouts give identical infos (they

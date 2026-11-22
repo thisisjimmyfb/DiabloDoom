@@ -32,6 +32,7 @@
 #include "w_wad.h"
 
 #include "r_local.h"
+#include "d_rlenv.h"
 
 #include "doomstat.h"
 
@@ -369,6 +370,7 @@ void R_DrawMaskedColumn (column_t* column)
 	    dc_texturemid = basetexturemid - (column->topdelta<<FRACBITS);
 	    // dc_source = (byte *)column + 3 - column->topdelta;
 
+	    RL_DepthCol (dc_x, dc_yl, dc_yh, spryscale);
 	    // Drawn by either R_DrawColumn
 	    //  or (SHADOW) R_DrawFuzzColumn.
 	    colfunc ();	
@@ -758,6 +760,7 @@ void R_DrawPlayerSprites (void)
     mceilingclip = negonearray;
     
     // add all active psprites
+    rl_depth_psprite = true;
     for (i=0, psp=viewplayer->psprites;
 	 i<NUMPSPRITES;
 	 i++,psp++)
@@ -765,6 +768,7 @@ void R_DrawPlayerSprites (void)
 	if (psp->state)
 	    R_DrawPSprite (psp);
     }
+    rl_depth_psprite = false;
 }
 
 

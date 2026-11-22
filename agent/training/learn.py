@@ -21,7 +21,8 @@ import torch
 import torch.nn as nn
 from torch.distributions import Categorical
 
-from model import (ACTIONS, DEFAULT_OBS_SIZE, Policy, checkpoint_obs_size, load_latest_checkpoint,
+from model import (ACTIONS, DEFAULT_OBS_DEPTH, DEFAULT_OBS_SIZE, Policy, checkpoint_obs_depth, checkpoint_obs_size,
+                   load_latest_checkpoint,
                    load_weights, restore_rng)
 
 
@@ -563,11 +564,16 @@ def add_learn_args(p) -> None:
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
 
 
-def require_obs_size(path: str, size: tuple[int, int], what: str) -> None:
-    """Stop unless the checkpoint at path was trained at this --obs-size."""
-    own = checkpoint_obs_size(torch.load(path, map_location="cpu", weights_only=False))
+def require_obs_size(path: str, size: tuple[int, int], what: str, depth: bool = DEFAULT_OBS_DEPTH) -> None:
+    """Stop unless the checkpoint at path was trained at this --obs-size, and
+    with depth or without it as this run is."""
+    ckpt = torch.load(path, map_location="cpu", weights_only=False)
+    own = checkpoint_obs_size(ckpt)
     if own != tuple(size):
         raise SystemExit(f"{what} {path} was trained at {own[0]}x{own[1]}, this run is {size[0]}x{size[1]}")
+    if checkpoint_obs_depth(ckpt) != depth:
+        raise SystemExit(f"{what} {path} was trained {'with' if not depth else 'without'} depth, "
+                         f"this run is {'with' if depth else 'without'} it")
 
 
 def setup_learner(args, run_dir: Path, device: torch.device, sampler: np.random.Generator | None = None):
@@ -584,9 +590,15 @@ def setup_learner(args, run_dir: Path, device: torch.device, sampler: np.random.
             raise SystemExit(f"--obs-size {asked[0]}x{asked[1]}: {run_dir} was trained at {own[0]}x{own[1]}; "
                              f"start a new --run-dir for another size")
         args.obs_size = own
+        # Depth too (2026-11-22): a resumed run keeps its own.
+        args.obs_depth = checkpoint_obs_depth(ckpt)
+        if args.obs_depth != DEFAULT_OBS_DEPTH:
+            print(f"[ckpt] {run_dir} was trained {'with' if args.obs_depth else 'without'} depth: it keeps that "
+                  f"(new runs: {'with' if DEFAULT_OBS_DEPTH else 'without'}; start a new --run-dir for those)")
     else:
         args.obs_size = tuple(asked) if asked is not None else DEFAULT_OBS_SIZE
-    policy = Policy(obs_size=args.obs_size).to(device)
+        args.obs_depth = DEFAULT_OBS_DEPTH
+    policy = Policy(obs_size=args.obs_size, depth=args.obs_depth).to(device)
     optimizer = torch.optim.Adam(policy.parameters(), lr=args.lr, eps=1e-5)
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -603,13 +615,13 @@ def setup_learner(args, run_dir: Path, device: torch.device, sampler: np.random.
         if ckpt.get("ref") != args.ref:
             print(f"[ckpt] warning: reference policy changed ({ckpt.get('ref')} -> {args.ref})")
     elif args.init:
-        require_obs_size(args.init, args.obs_size, "--init")
+        require_obs_size(args.init, args.obs_size, "--init", args.obs_depth)
         policy.load_state_dict(load_weights(args.init))
         print(f"[init] weights from {args.init}")
     ref = None
     if args.ref:
-        require_obs_size(args.ref, args.obs_size, "--ref")
-        ref = Policy(obs_size=args.obs_size).to(device)
+        require_obs_size(args.ref, args.obs_size, "--ref", args.obs_depth)
+        ref = Policy(obs_size=args.obs_size, depth=args.obs_depth).to(device)
         ref.load_state_dict(load_weights(args.ref))
         ref.eval()
         for prm in ref.parameters():

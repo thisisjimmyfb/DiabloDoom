@@ -52,7 +52,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from model import (Policy, add_env_args, avatar_args, check_slots, checkpoint_obs_size, default_groups, env_label,
+from model import (Policy, add_env_args, avatar_args, check_slots, checkpoint_obs_depth, checkpoint_obs_size, default_groups, env_label,
                    load_weights, get_privileged_info, resolve_iwads, resolve_maps, run_env)
 from hub import add_hub_args, hub_fetch_checkpoint
 from env import ACTIONS, CONSULT, Engine, EngineConfig, EngineError, RewardConfig, cleanup_stale  # noqa: E402
@@ -136,8 +136,8 @@ def load_policy(path: Path, device: torch.device) -> Policy:
     if n != len(ACTIONS):
         raise SystemExit(f"{path}: the policy has {n} actions, this game has {len(ACTIONS)} "
                          f"({', '.join(ACTIONS)}); it was trained on a different action set")
-    size = checkpoint_obs_size(torch.load(str(path), map_location="cpu", weights_only=False))
-    policy = Policy(obs_size=size).to(device)
+    ckpt = torch.load(str(path), map_location="cpu", weights_only=False)
+    policy = Policy(obs_size=checkpoint_obs_size(ckpt), depth=checkpoint_obs_depth(ckpt)).to(device)
     policy.load_state_dict(weights)
     policy.eval()
     return policy
@@ -279,12 +279,12 @@ def watch(args, ckpt: Path, policy: Policy, device: torch.device) -> None:
           f"actions at temperature {args.temperature:g}")
     d = engine.start()
     w, h = policy.obs_size
-    pre = Preprocessor(engine.width, engine.height, w, h)
+    pre = Preprocessor(engine.width, engine.height, w, h, depth=policy.obs_depth)
     stack = FrameStack(4, h, w)
 
     def screen() -> np.ndarray:
         pix, pal, _ = engine.frame()
-        return pre(pix, pal)
+        return pre(pix, pal, engine.depth() if policy.obs_depth else None)
 
     obs = stack.reset(screen())
     n, dropped, why = 0, 0, "max decisions"
@@ -430,6 +430,7 @@ def main():
     if args.obs_size is not None and tuple(args.obs_size) != policy.obs_size:
         print(f"[eval] --obs-size ignored: {ckpt} was trained at {policy.obs_size[0]}x{policy.obs_size[1]}")
     args.obs_size = policy.obs_size          # the env frames match the checkpoint
+    args.obs_depth = policy.obs_depth
     if args.iwad:
         watch(args, ckpt, policy, device)
     else:

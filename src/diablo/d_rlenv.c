@@ -36,6 +36,8 @@
 
 boolean rlenv = false;
 static int rl_attack_tic = -1;          // the last tic a monster began an attack on the player
+static mobj_t *rl_track_mo = NULL;      // aim_streak: the monster the aim probes found last tic
+static int rl_track_n = 0, rl_track_tic = -1;
 boolean rldrive = false;
 
 static const char *rl_cmdpipe = "/tmp/doom_cmd.txt";
@@ -51,10 +53,16 @@ static int rl_statefd = -1;     // -1 = stdout with "[RL] " prefix
 //  24..63 reserved
 //  64  pixels, width*height palette indices, row-major
 //  64+w*h  palette, 256 RGB triples (768 bytes), as displayed
+//  64+w*h+768  depth, width*height uint16 (version 2, 2026-11-22;
+//      header word 24 holds this offset): RL_DepthBegin
 #define RL_SHM_HDR   64
 #define RL_SHM_PIX   (SCREENWIDTH * SCREENHEIGHT)
-#define RL_SHM_SIZE  (RL_SHM_HDR + RL_SHM_PIX + 768)
+#define RL_SHM_DEPTH_OFS (RL_SHM_HDR + RL_SHM_PIX + 768)
+#define RL_SHM_SIZE  (RL_SHM_DEPTH_OFS + RL_SHM_PIX * 2)    // RL_SHM_HDR + RL_SHM_PIX + 768 before (version 1)
 static byte *rl_shm = NULL;
+static uint16_t rl_depth[SCREENWIDTH * SCREENHEIGHT];
+boolean rl_depth_on = false;
+boolean rl_depth_psprite = false;
 static uint32_t rl_frame_seq = 0;
 
 void RL_Init(void)
@@ -119,9 +127,11 @@ void RL_Init(void)
                 rl_shm = (byte *) m;
                 memset(rl_shm, 0, RL_SHM_HDR);
                 h[0] = 0x42464444;      // 'DDFB'
-                h[1] = 1;
+                h[1] = 2;               // 1 before 2026-11-22 (no depth)
                 h[2] = SCREENWIDTH;
                 h[3] = SCREENHEIGHT;
+                h[6] = RL_SHM_DEPTH_OFS;
+                rl_depth_on = true;
             }
         }
         if (fd >= 0)
@@ -212,9 +222,62 @@ void RL_PublishFrame(void)
     __sync_synchronize();
     memcpy(rl_shm + RL_SHM_HDR, I_VideoBuffer, RL_SHM_PIX);
     I_GetPaletteRGB(rl_shm + RL_SHM_HDR + RL_SHM_PIX);
+    memcpy(rl_shm + RL_SHM_DEPTH_OFS, rl_depth, sizeof(rl_depth));
     h[5] = (uint32_t) gametic;
     __sync_synchronize();
     h[4] = ++rl_frame_seq;              // even: complete
+}
+
+void RL_DepthBegin(void)
+{
+    int y;
+
+    if (!rl_depth_on)
+        return;
+    memset(rl_depth, 0, sizeof(rl_depth));
+    for (y = 0; y < viewheight; y++)
+    {
+        uint16_t *row = rl_depth + (viewwindowy + y) * SCREENWIDTH + viewwindowx;
+        int x;
+
+        for (x = 0; x < scaledviewwidth; x++)
+            row[x] = 0xffff;
+    }
+}
+
+static uint16_t RL_DepthUnits(fixed_t z)
+{
+    z >>= FRACBITS;
+    return z < 1 ? 1 : z > 0xfffe ? 0xfffe : (uint16_t) z;
+}
+
+void RL_DepthCol(int x, int yl, int yh, int scale)
+{
+    uint16_t d, *p;
+    int w = 1 << detailshift, y, i;
+
+    if (!rl_depth_on || yl > yh || yl < 0 || yh >= viewheight)
+        return;
+    // A column's scale is projection / distance (R_ScaleFromGlobalAngle).
+    d = rl_depth_psprite ? 0 : scale <= 0 ? 0xfffe : RL_DepthUnits(FixedDiv(projection, scale));
+    p = rl_depth + (viewwindowy + yl) * SCREENWIDTH + viewwindowx + (x << detailshift);
+    for (y = yl; y <= yh; y++, p += SCREENWIDTH)
+        for (i = 0; i < w; i++)
+            p[i] = d;
+}
+
+void RL_DepthSpan(int y, int x1, int x2, int dist)
+{
+    uint16_t d, *p;
+    int x, n;
+
+    if (!rl_depth_on || x1 > x2 || y < 0 || y >= viewheight)
+        return;
+    d = RL_DepthUnits(dist);
+    p = rl_depth + (viewwindowy + y) * SCREENWIDTH + viewwindowx + (x1 << detailshift);
+    n = (x2 - x1 + 1) << detailshift;
+    for (x = 0; x < n; x++)
+        p[x] = d;
 }
 
 static const char *RL_ModeName(void)
@@ -1302,8 +1365,22 @@ void RL_EmitState(const char *why, int tics)
                 && !(linetarget->flags & (MF_RLHIDDEN | MF_RLPRACTICE))
                 && ((linetarget->flags & MF_COUNTKILL) || linetarget->type == MT_SKULL))
                 on = true;
+            // aim_streak (2026-11-22, the env's track reward): consecutive tics
+            // the probes found this same monster; anything else in the way (a
+            // wall, another monster) or a skipped tic restarts it. The pointer
+            // is only compared, never dereferenced.
+            if (gametic != rl_track_tic)
+            {
+                if (on && linetarget == rl_track_mo && gametic == rl_track_tic + 1)
+                    rl_track_n++;
+                else
+                    rl_track_n = on ? 1 : 0;
+                rl_track_mo = on ? linetarget : NULL;
+                rl_track_tic = gametic;
+            }
             linetarget = saved;
             RL_PUT(",\"aim_on\":%s", on ? "true" : "false");
+            RL_PUT(",\"aim_streak\":%d", rl_track_n);
         }
         // automap: the map is on screen (Tab or the driver's MAP); the
         // env's forced map glances check it before sending MAP.
@@ -1472,6 +1549,9 @@ void RL_LevelSetup(void)
     rl_items_unique = -1;
     rl_drill_mo = NULL;
     rl_attack_tic = -1;      // no attack yet on this level (or loaded save)
+    rl_track_mo = NULL;      // its mobjs are freed
+    rl_track_n = 0;
+    rl_track_tic = -1;
     memset(rl_proj, 0, sizeof(rl_proj));   // projectiles in flight: freed with the level
 }
 

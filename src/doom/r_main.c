@@ -34,6 +34,7 @@
 
 #include "r_local.h"
 #include "r_sky.h"
+#include "d_rlenv.h"
 
 
 
@@ -872,6 +873,7 @@ void R_SetupFrame (player_t* player)
 void R_RenderPlayerView (player_t* player)
 {	
     R_SetupFrame (player);
+    RL_DepthBegin ();           // -rlenv depth buffer (2026-11-22)
 
     // Clear buffers.
     R_ClearClipSegs ();

@@ -393,9 +393,15 @@ def test_obs_size(tmp_path):
             parse_obs_size(bad)
     for size in ((84, 84), (160, 100), (320, 200)):
         p = Policy(obs_size=size)
-        logits, value = p(torch.zeros(2, 4, size[1], size[0], dtype=torch.uint8), torch.zeros(2, 2))
+        logits, value = p(torch.zeros(2, 8, size[1], size[0], dtype=torch.uint8), torch.zeros(2, 2))
         assert logits.shape == (2, len(ACTIONS)) and value.shape == (2,)
     assert Policy().obs_size == DEFAULT_OBS_SIZE
+    # Depth (2026-11-22): 8 channels, [gray, depth] a frame; a checkpoint
+    # without obs_depth saw grayscale only (4 channels).
+    from model import checkpoint_obs_depth
+    gray = Policy(depth=False)
+    assert gray(torch.zeros(1, 4, 80, 128, dtype=torch.uint8), torch.zeros(1, 2))[0].shape == (1, len(ACTIONS))
+    assert not checkpoint_obs_depth({}) and checkpoint_obs_depth({"obs_depth": True})
 
     def args(size=None):
         return types.SimpleNamespace(lr=1e-4, seed=1, ref=None, init=None, obs_size=size)
@@ -407,10 +413,21 @@ def test_obs_size(tmp_path):
     save_checkpoint(run / CKPT_NAME, {"policy": policy.state_dict(), "optimizer": opt.state_dict(),
                                       "iteration": 0, "total_steps": 0, "total_tics": 0,
                                       "rng": rng_state(), "run_id": "x", "ref": None,
-                                      "obs_size": [160, 100]})
+                                      "obs_size": [160, 100], "obs_depth": True})
     a = args()
     policy, *_ = setup_learner(a, run, torch.device("cpu"))
     assert a.obs_size == (160, 100) and policy.obs_size == (160, 100), "a resumed run keeps its size"
+    assert a.obs_depth and policy.obs_depth
+    # A checkpoint from before 2026-11-22 (no obs_depth): grayscale only, kept.
+    old = tmp_path / "old"
+    old.mkdir()
+    save_checkpoint(old / CKPT_NAME, {"policy": gray.state_dict(),
+                                      "optimizer": torch.optim.Adam(gray.parameters()).state_dict(),
+                                      "iteration": 0, "total_steps": 0, "total_tics": 0,
+                                      "rng": rng_state(), "run_id": "y", "ref": None, "obs_size": [128, 80]})
+    a = args()
+    policy, *_ = setup_learner(a, old, torch.device("cpu"))
+    assert not a.obs_depth and not policy.obs_depth, "an old run stays grayscale"
     with pytest.raises(SystemExit, match="trained at 160x100"):
         setup_learner(args((84, 84)), run, torch.device("cpu"))
     a = args()

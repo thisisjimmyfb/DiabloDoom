@@ -133,7 +133,8 @@ def run_rollouts(vec: GroupVecEnv, policy: Policy, device: torch.device,
         r["rollout_tics"] = int(r["end_info"]["rollout_tics"])
         r["sectors_gained"] = int(s.get("sectors", 0)) - int(r["start_sectors"])
         r["exit"] = bool(r["end_info"].get("exit"))
-        r["death"] = bool(s.get("dead"))
+        r["death"] = bool(s.get("dead")) or r["end_info"].get("deaths", 0) > 0   # a drill respawns (2026-11-22)
+        r["deaths"] = int(r["end_info"].get("deaths", 0)) + bool(s.get("dead"))
         r["key"] = bool(r["end_info"].get("key"))
         r["items"] = list(r["end_info"].get("items", [0, 0]))   # practice items [spawned, picked up]
         r["waypoints"] = list(r["end_info"].get("waypoints", [0, 0]))   # [set, reached]

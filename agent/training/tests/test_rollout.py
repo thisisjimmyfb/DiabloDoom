@@ -74,14 +74,14 @@ def test_reward_back():
 
         def reset(self, idx, options):
             self.n = 0
-            return np.zeros((1, 4, h, w), dtype=np.uint8), [{"state": {"hp": 100}}]
+            return np.zeros((1, 8, h, w), dtype=np.uint8), [{"state": {"hp": 100}}]
 
         def step(self, active, actions):
             self.n += 1
             done = self.n == 4
             info = {"state": {"hp": 100}, "tics": 1, "terms": {}, "reward_now": 0.0, "rollout_tics": self.n,
                     "reward_back": [[2, "proj", 6.0]] if self.n == 3 else []}
-            return (np.zeros((1, 4, h, w), dtype=np.uint8), np.array([1.0]), np.array([False]),
+            return (np.zeros((1, 8, h, w), dtype=np.uint8), np.array([1.0]), np.array([False]),
                     np.array([done]), [info])
 
     (r,) = run_rollouts(Vec(), Policy(), torch.device("cpu"), [{}])

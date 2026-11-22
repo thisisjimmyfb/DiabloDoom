@@ -224,9 +224,16 @@ a monster last began an attack on the player (`A_FaceTarget`, the first action o
 attack state; practice and hidden monsters don't count; -1 none since the level or save
 loaded), the env's combat test for its turn penalty, and (2026-11-21) `aim_on`, a hitscan shot
 now would be aimed at a living monster (`P_BulletSlope`'s three autoaim probes, 1024 units;
-practice and hidden monsters don't count), the env's aim reward -- reward shaping only, never
+practice and hidden monsters don't count), the env's aim reward, and (2026-11-22) `aim_streak`, the consecutive tics
+those probes found the same living monster (anything else in the way, a skipped tic or a level load restarts it; 0 off
+target), the env's track reward -- reward shaping only, never
 a policy input, so the 2026-10-21 no-oracle ruling for the farm agent
-stands.
+stands. One exception (2026-11-22, the user's call): the depth buffer (`-shm` segment
+version 2: 320x200 uint16 map units along the view direction after the palette, 65535
+sky, 0 status bar and the player's weapon; `RL_DepthBegin` / `RL_DepthCol` /
+`RL_DepthSpan`, filled by the renderer's wall, plane and sprite drawing while `-shm` is on)
+is a policy input beside the grayscale frame, for vision: rendered with the frame, it
+shows what is on screen, not hidden state.
 Automap (2026-11-14): it also carries `automap` (the map is on screen).
 Training's forced map glances, which used it and the engine's
 `FORCEMAP`, were removed 2026-11-16 (the policy's 4 frames of memory

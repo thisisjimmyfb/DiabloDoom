@@ -31,6 +31,7 @@
 
 #include "r_local.h"
 #include "r_sky.h"
+#include "d_rlenv.h"
 
 
 
@@ -166,6 +167,7 @@ R_MapPlane
     ds_x1 = x1;
     ds_x2 = x2;
 
+    RL_DepthSpan (y, x1, x2, distance);
     // high or low detail
     spanfunc ();	
 }

@@ -10,7 +10,7 @@ import pytest
 
 from env import ACTIONS, cleanup_stale
 from env.obs import FrameStack
-from model import DEFAULT_OBS_SIZE, N_PRIV
+from model import DEFAULT_OBS_DEPTH, DEFAULT_OBS_SIZE, N_PRIV
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -32,12 +32,13 @@ def make_rollout(rng):
     def make(n_steps: int, iwad: str = "FREEDOOM1") -> dict:
         w, h = DEFAULT_OBS_SIZE                          # the size a bare Policy() takes
         st = FrameStack(4, h, w)
-        obs = [st.reset(rng.integers(0, 256, (h, w), dtype=np.uint8))]
+        shape = (2, h, w) if DEFAULT_OBS_DEPTH else (h, w)       # [gray, depth] a frame (2026-11-22)
+        obs = [st.reset(rng.integers(0, 256, shape, dtype=np.uint8))]
         for _ in range(n_steps - 1):
             if rng.random() < 0.2:
                 obs.append(st.get())                     # action dropped: same stack
             else:
-                obs.append(st.push(rng.integers(0, 256, (h, w), dtype=np.uint8)))
+                obs.append(st.push(rng.integers(0, 256, shape, dtype=np.uint8)))
         rew = rng.normal(size=n_steps).tolist()
         return {"obs": obs, "priv": [rng.random(N_PRIV).astype(np.float32) for _ in range(n_steps)],
                 "act": rng.integers(0, len(ACTIONS), n_steps).tolist(),

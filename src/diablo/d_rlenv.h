@@ -63,9 +63,24 @@ void RL_EmitState(const char *why, int tics);
 // sector (the part it can walk to within it), min_dist or more away.
 boolean RL_SectorPoint(unsigned seed, int min_dist, int *x, int *y);
 
-// Copy the current screen (I_VideoBuffer, 320x200 8-bit) and the
-// palette into the -shm segment. No-op without -shm.
+// Copy the current screen (I_VideoBuffer, 320x200 8-bit), the
+// palette and the depth buffer into the -shm segment. No-op without -shm.
 void RL_PublishFrame(void);
+
+// Depth (2026-11-22): each pixel of the 3D view's distance from the
+// viewer along the view direction, in map units (1..65534), published
+// after the palette; 65535 where nothing was drawn (sky), 0 outside the
+// view (status bar) and on the player's own weapon. Filled while -shm is
+// on: RL_DepthBegin at the start of R_RenderPlayerView, then each wall
+// column (RL_DepthCol, from its scale), floor/ceiling span (RL_DepthSpan,
+// from its distance) and sprite post as it is drawn -- the renderer draws
+// sprites far to near over what they hide, so the last write is the
+// visible one, and only a sprite's opaque pixels are written.
+extern boolean rl_depth_on;
+extern boolean rl_depth_psprite;    // R_DrawPlayerSprites: the weapon, depth 0
+void RL_DepthBegin(void);
+void RL_DepthCol(int x, int yl, int yh, int scale);
+void RL_DepthSpan(int y, int x1, int x2, int dist);
 
 // A pickup failed because the backpack is full (D_BackpackFullMsg,
 // called every tic the player stands on the item, before its message

@@ -29,8 +29,13 @@ obs, info = game.reset(options={"slot": 5, "seed": 17, "group": 0})
 obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward for one tic
 ```
 
-- **Observation:** `uint8 (4, 84, 84)`, the last 4 decision frames in
-  grayscale, area-resampled from the 320x200 screen (status bar kept).
+- **Observation:** `uint8 (8, 80, 128)`, the last 4 decision frames, each
+  [grayscale, depth] (2026-11-22; `(4, 80, 128)` grayscale before):
+  grayscale area-resampled from the 320x200 screen (status bar kept), depth
+  the engine's depth buffer, the nearest of each output pixel's area,
+  log-coded near-bright (`env.obs.depth_code`). Needs an engine from
+  2026-11-22 (`-shm` version 2); a checkpoint records it (`obs_depth`), and
+  a resumed run keeps its own.
 - **Actions:** `Discrete(56)` (29 before 2026-11-18), one decision every game tic (2026-11-15),
   see `env.ACTIONS`: `PRESS <keys>`, the keys held for the next tic, in
   every combination of one key or none from each pair (W/S run
@@ -136,7 +141,7 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   Turning that gets undone cost `turn_waste` (0 since 2026-11-20, `turn` covers it; -0.005 per 45 degrees,
   2026-11-16): over the last 8 tics, the facing's total turning minus its
   net turning; a steady turn either way, or holding still, costs nothing.
-  Reversing forward and back costs `move_flip` (-3 since late 2026-11-21, -0.1 std earlier that day, -0.015 before): W within 4 tics
+  Reversing forward and back costs `move_flip` (-2 since 2026-11-22, -3 from late 2026-11-21, -0.1 std earlier that day, -0.015 before): W within 4 tics
   of S, or S of W; strafing back and forth is free.
   USE earns only `mechanism` (`use_miss` and `use_wall` removed
   2026-11-18).
@@ -184,13 +189,16 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   pressing fire with a monster on screen (the engine's `monstervis`) and
   with none (blind firing); metrics `fire_seen` / `fire_blind`, and each
   `rollouts.jsonl` row's `fire` [steps seen, fire; unseen, fire].
-  `blind_fire` (2026-11-21, 0: off; -0.35, -0.5 and -1 std, -10 and -20 points earlier that day; one-off) charges each step that presses fire
-  with no monster on screen in the state it acted on, shot or not. `aim` (2026-11-22, +-7 a fire press,
-  one-off; +-10 one-off before; chained at +-10, +-5, +-2, then +-0.5, before; +-0.35 std one-off, and +-0.05 and +-0.02 a tic, fire or not, earlier that day) judges each fire press made while a monster
+  `blind_fire` (a press with no monster on screen) was deleted 2026-11-22 (-1 earlier that day; 0 from 2026-11-21;
+  -0.35, -0.5 and -1 std, -10 and -20 points before): `aim_off` alone charges a press off target. `aim` (late 2026-11-22, +-10 a fire press, symmetric again
+  (`aim_off` -10); asymmetric earlier that day: +7 on target, -3, -2, then -1 off; +-7 before), one-off; +-10 one-off before; chained at +-10, +-5, +-2, then +-0.5, before; +-0.35 std one-off, and +-0.05 and +-0.02 a tic, fire or not, earlier that day) judges each fire press made while a monster
   is in line of sight in the state it acted on: + with the crosshair on a monster (the engine's
   `aim_on`, Doom's autoaim probes), - without; hitscan guns only (a projectile has to lead);
   metrics `fire_on` / `fire_off`, the press rate in those states on and off target, and each
-  `rollouts.jsonl` row's `aim` [steps on, fire; off, fire] (2026-11-22). `proj` (2026-11-21,
+  `rollouts.jsonl` row's `aim` [steps on, fire; off, fire] (2026-11-22). `track` (2026-11-22, +2 a step, +1 at first that day;
+  one-off) pays each step before an on-target press that kept the crosshair on that same monster
+  (the engine's `aim_streak`; a wall or another monster in the way restarts it), at most 10 (20 a press; 6 at first), each
+  step once, credited back to those steps. `proj` (2026-11-21,
   one-off since 2026-11-22, credited back to the step that pulled the trigger via
   `info["reward_back"]`; chained before): when a player projectile is gone (the engine's `proj_end`), +6.25 per monster it damaged
   (splash too, each once), -2.5 when none (+2.5 / -1 earlier that day). Pickups pay from the engine's `pickup` events: `loot` (5)
@@ -244,10 +252,10 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   total: it stops at update N, and does nothing if the run already has N.
 
 - **Policy:** the step-1 feedforward network: Nature CNN on the
-  4 x H x W stack (4 x 80 x 128), A action logits (A = 29, sampled), and a value head on detached
+  8 x H x W stack (8 x 80 x 128: [gray, depth] for 4 frames; 4 x 80 x 128 before 2026-11-22), A action logits (A = 29, sampled), and a value head on detached
   features plus HP and exit distance (straight-line distance to the exit
   line; 0 on a level without one). Parameters:
-  79,011 + 513 * A + 32,768 * conv_out(W) * conv_out(H) (2,453,184), where
+  87,203 + 513 * A + 32,768 * conv_out(W) * conv_out(H) (2,475,227 at A = 56; 79,011 + ... without depth), where
   conv_out(n) = ((n - 8) // 4 + 1 - 4) // 2 + 1 - 2 (`model.conv_out`;
   conv_out(128) = 12, conv_out(80) = 6). The value head trains from the start
   but never shapes the policy during GRPO.
@@ -313,9 +321,9 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
 - **Advantage:** group-normalized return (`--advantage outcome`) or the
   process variant (`process`): per-step rewards in points, less the group's
   mean step reward, summed from each step on, except the one-off terms, also in
-  points (consult +30 / -15, move_flip -3; converted from std units at about 30
+  points (consult +30 / -15, move_flip -3, -2 since 2026-11-22; converted from std units at about 30
   points a std, late 2026-11-21) (`RewardConfig.immediate`: consult, move_flip,
-  turn_waste, blind_fire, aim and proj (2026-11-22); wall_look until 2026-11-21;
+  turn_waste, aim and proj (2026-11-22), track (2026-11-22); blind_fire until 2026-11-22; wall_look until 2026-11-21;
   2026-11-17), which count on their own step only, since they judge just that
   action and later steps don't follow from it; then each group's advantages are
   divided by one number, their std over the group (metrics `adv_scale`), which

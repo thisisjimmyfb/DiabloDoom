@@ -265,9 +265,12 @@ class Engine:
         finally:
             os.close(fd)
         magic, ver, w, h = struct.unpack_from("<4I", self._shm, 0)
-        if magic != SHM_MAGIC or ver != 1:
+        if magic != SHM_MAGIC or ver not in (1, 2):
             raise EngineError(f"bad shm header {magic:#x} v{ver}")
         self.width, self.height = w, h
+        # Version 2 (2026-11-22): a depth buffer after the palette, at the
+        # offset in header word 24; version 1 has none.
+        self.depth_ofs = struct.unpack_from("<I", self._shm, 24)[0] if ver >= 2 else 0
 
     def frame(self) -> tuple[np.ndarray, np.ndarray, int]:
         """(indices HxW uint8, palette 256x3 uint8, gametic). Safe to call
@@ -280,6 +283,15 @@ class Engine:
         pix = np.frombuffer(m, dtype=np.uint8, count=w * h, offset=SHM_HDR).reshape(h, w).copy()
         pal = np.frombuffer(m, dtype=np.uint8, count=768, offset=SHM_HDR + w * h).reshape(256, 3).copy()
         return pix, pal, tic
+
+    def depth(self) -> np.ndarray | None:
+        """The frame's depth, HxW uint16 map units along the view direction
+        (65535: nothing drawn, the sky; 0: outside the 3D view and the
+        player's weapon), or None from an engine without it (shm v1)."""
+        if not self.depth_ofs:
+            return None
+        w, h = self.width, self.height
+        return np.frombuffer(self._shm, dtype=np.uint16, count=w * h, offset=self.depth_ofs).reshape(h, w).copy()
 
     def frame_rgb(self) -> np.ndarray:
         pix, pal, _ = self.frame()

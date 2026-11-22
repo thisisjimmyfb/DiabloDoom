@@ -413,8 +413,7 @@ def test_turn():
     faked, one tic per step."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
-                        fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0, range=0, turn=-1.0,
-                        blind_fire=0)
+                        fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0, range=0, turn=-1.0)
 
     def at(age=-1):
         return {"mode": "EXPLORE", "hp": 100, "tics": 1, "x": 0, "y": 0, "attack_age": age}, []
@@ -1247,7 +1246,7 @@ def test_combat_rewards():
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
                         time=0, fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0,
-                        damage=10.0, kill=4.0, blind_fire=0)
+                        damage=10.0, kill=4.0)
 
     def run(end):
         e = make_env(rewards=only, max_tics=4)
@@ -1321,37 +1320,16 @@ def test_monsters_hide_show():
         e.close()
 
 
-def test_blind_fire():
-    """blind_fire (2026-11-21): a step whose action presses fire with no
-    monster on screen in the state it acted on (monstervis) costs blind_fire
-    on that step, one-off, shot or not; with a monster on screen, or without
-    fire, nothing. Engine faked."""
-    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
-                        consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
-                        fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0, range=0, turn=0,
-                        damage=0, kill=0, view=0, blind_fire=-20.0)
-
-    def at(vis):
-        return {"mode": "EXPLORE", "hp": 100, "tics": 1, "x": 0, "y": 0, "monstervis": vis}, []
-    # Each step acts on the state the one before returned: the first on the
-    # initial state (no monster on screen).
-    e = _fake_explore(only, [at(True), at(False), at(False), at(True)])
-    acts = ["PRESS W CTRL", "PRESS CTRL", "PRESS W", "PRESS DL CTRL"]
-    got = [e.step(ACTIONS.index(x))[1] for x in acts]
-    assert got == [-20.0, 0.0, 0.0, -20.0], got
-    assert "blind_fire" in RewardConfig().immediate
-
-
 def test_aim():
     """aim (2026-11-21): a fire press while a monster is in line of sight
     (foe_dist) in the state it acted on: +aim with the crosshair on a monster
-    (aim_on), -aim without; no fire, no monster in sight, an engine without
+    (aim_on), aim_off without; no fire, no monster in sight, an engine without
     aim_on, or no hitscan gun ready (a rocket launcher: 4), nothing. One-off
     (2026-11-22). Engine faked."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
                         fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0, range=0, turn=0,
-                        damage=0, kill=0, view=0, blind_fire=0, aim=0.5, proj_hit=0, proj_miss=0)
+                        damage=0, kill=0, view=0, aim=0.5, aim_off=-0.25, proj_hit=0, proj_miss=0)
 
     def at(foe, on=None, weapon=1):
         d = {"mode": "EXPLORE", "hp": 100, "tics": 1, "x": 0, "y": 0, "foe_dist": foe, "weapon": weapon,
@@ -1369,11 +1347,42 @@ def test_aim():
     for x in acts:
         _, r, _, _, info = e.step(ACTIONS.index(x))
         got.append(r)
-    assert got == [0.0, 0.5, -0.5, 0.0, 0.0, 0.0, 0.0, -0.5], got
+    assert got == [0.0, 0.5, -0.25, 0.0, 0.0, 0.0, 0.0, -0.25], got
     # aim_stats (2026-11-22): hitscan states with a monster in sight, [on
     # target, fire; off, fire] -- steps 2, 4 (no fire) on; 3, 8 off.
     assert info["aim_stats"] == [2, 1, 2, 2], info["aim_stats"]
     assert "aim" in RewardConfig().immediate
+
+
+def test_track():
+    """track (2026-11-22): an on-target press pays track back to each step
+    that held the target (the engine's aim_streak), at most track_tics, each
+    step once; an off-target press pays none but spends its steps."""
+    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
+                        consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
+                        fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0, range=0, turn=0,
+                        damage=0, kill=0, view=0, aim=0, proj_hit=0, proj_miss=0,
+                        track=0.5, track_tics=6)
+
+    def at(streak, on=True):
+        return {"mode": "EXPLORE", "hp": 100, "tics": 1, "x": 0, "y": 0, "foe_dist": 300, "weapon": 1,
+                "monstervis": True, "aim_on": on, "aim_streak": streak}, []
+    # Step i acts on the state step i-1 returned.
+    states = [at(1), at(2), at(3), at(4), at(0, False), at(1), at(1)] + [at(2 + k) for k in range(8)]
+    acts = (["PRESS L"] * 3 + ["PRESS CTRL", "PRESS CTRL", "PRESS CTRL", "PRESS CTRL"]
+            + ["PRESS L"] * 7 + ["PRESS CTRL"])
+    e = _fake_explore(only, states)
+    backs = []
+    for x in acts:
+        _, r, _, _, info = e.step(ACTIONS.index(x))
+        assert r == 0.0, r
+        backs.append([k for k, name, v in info["reward_back"] if name == "track" and v == 0.5])
+    assert backs[3] == [1, 2, 3], backs           # a streak of 3: the 3 steps that held it
+    assert backs[4] == [1], backs                 # right after a press: only the press step
+    assert backs[5] == [], backs                  # off target: nothing
+    assert backs[6] == [1], backs                 # a new streak of 1
+    assert backs[14] == [1, 2, 3, 4, 5, 6], backs   # 8 steps since, a streak of 8: capped at 6
+    assert "track" in RewardConfig().immediate
 
 
 def test_proj():
@@ -1387,7 +1396,7 @@ def test_proj():
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
                         fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0, range=0, turn=0,
-                        damage=0, kill=0, view=0, blind_fire=0, aim=0, proj_hit=2.0, proj_miss=-1.0)
+                        damage=0, kill=0, view=0, aim=0, proj_hit=2.0, proj_miss=-1.0)
 
     def at(events):
         return {"mode": "EXPLORE", "hp": 100, "tics": 1, "x": 0, "y": 0, "monstervis": True}, events
@@ -1405,3 +1414,27 @@ def test_proj():
     assert backs == [[], [], [], [[3, "proj", 6.0]], [[3, "proj", -1.0]]], backs
     assert e._combat_stats[1] == 2
     assert "proj" in RewardConfig().immediate and "aim" in RewardConfig().immediate
+
+
+def test_depth_preprocess():
+    """Depth (2026-11-22): [gray, depth code] a frame; the depth is the
+    nearest of each output pixel's area, so a thin near object survives
+    the 2.5x shrink over a far wall; the code is near-bright log2 (255 the
+    status bar and weapon, 0 the sky). Four frames stack to 8 channels."""
+    from env.obs import FrameStack, Preprocessor, depth_code
+    assert list(depth_code(np.array([0, 16, 128, 512, 4096, 65535], np.uint16))) == [255, 254, 159, 96, 1, 0]
+    pre = Preprocessor(320, 200, 128, 80, depth=True)
+    pix = np.zeros((200, 320), np.uint8)
+    pal = np.zeros((256, 3), np.uint8)
+    d = np.full((200, 320), 1000, np.uint16)
+    d[50:60, 101] = 100                                   # one source column, near
+    out = pre(pix, pal, d)
+    assert out.shape == (2, 80, 128) and out.dtype == np.uint8
+    assert out[1, 22, 40] == depth_code(np.array([100], np.uint16))[0] > out[1, 22, 50]
+    rng = np.random.default_rng(0)
+    r = rng.integers(0, 65536, (200, 320), dtype=np.uint16)
+    assert (pre.nearest(r) == r[pre._sy].min(axis=1)[:, pre._sx].min(axis=2)).all(), "fast path = general"
+    with pytest.raises(ValueError, match="depth buffer"):
+        pre(pix, pal)
+    st = FrameStack(4, 80, 128)
+    assert st.reset(out).shape == (8, 80, 128) and (st.push(out)[6:] == out).all()

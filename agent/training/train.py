@@ -174,7 +174,8 @@ def main():
     n_params = sum(p.numel() for p in policy.parameters())
     print(f"[train] run {run_id}: {n_envs} envs ({groups} groups x {G}), stage {args.stage}, "
           f"maps {maps}, eval {eval_maps}, {n_params / 1e6:.2f}M params, "
-          f"obs {args.obs_size[0]}x{args.obs_size[1]}, device {device}, map seed {args.map_seed}")
+          f"obs {args.obs_size[0]}x{args.obs_size[1]} {'gray + depth' if args.obs_depth else 'gray'}, "
+          f"device {device}, map seed {args.map_seed}")
     print(f"[train] iwads {[iwad_label(w) for w in iwads]}; groups: "
           f"{[env_label(w, m, iwads) for w, m in group_pairs] if n_reg_groups else 'drills only'}")
     if rotation.every:
@@ -401,7 +402,7 @@ def main():
                 "policy": policy.state_dict(), "optimizer": optimizer.state_dict(),
                 "iteration": it, "total_steps": total_steps, "total_tics": total_tics,
                 "rng": rng, "run_id": run_id, "ref": args.ref, "args": vars(args),
-                "obs_size": list(args.obs_size),
+                "obs_size": list(args.obs_size), "obs_depth": args.obs_depth,
             })
             saved_it = it
             if hub is not None and args.hub_every > 0 and (it + 1) % args.hub_every == 0:

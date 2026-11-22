@@ -31,6 +31,7 @@
 
 #include "r_local.h"
 #include "r_sky.h"
+#include "d_rlenv.h"
 
 
 // OPTIMIZE: closed two sided lines as single sided
@@ -281,6 +282,7 @@ void R_RenderSegLoop (void)
 	    dc_yh = yh;
 	    dc_texturemid = rw_midtexturemid;
 	    dc_source = R_GetColumn(midtexture,texturecolumn);
+	    RL_DepthCol (rw_x, dc_yl, dc_yh, rw_scale);
 	    colfunc ();
 	    ceilingclip[rw_x] = viewheight;
 	    floorclip[rw_x] = -1;
@@ -303,6 +305,7 @@ void R_RenderSegLoop (void)
 		    dc_yh = mid;
 		    dc_texturemid = rw_toptexturemid;
 		    dc_source = R_GetColumn(toptexture,texturecolumn);
+		    RL_DepthCol (rw_x, dc_yl, dc_yh, rw_scale);
 		    colfunc ();
 		    ceilingclip[rw_x] = mid;
 		}
@@ -333,6 +336,7 @@ void R_RenderSegLoop (void)
 		    dc_texturemid = rw_bottomtexturemid;
 		    dc_source = R_GetColumn(bottomtexture,
 					    texturecolumn);
+		    RL_DepthCol (rw_x, dc_yl, dc_yh, rw_scale);
 		    colfunc ();
 		    floorclip[rw_x] = mid;
 		}

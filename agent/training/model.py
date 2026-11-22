@@ -33,13 +33,17 @@ N_PRIV = 2  # privileged critic inputs: HP/100, exit path distance (SPEC.md §6)
 # ---------------------------------------------------------------------------
 
 DEFAULT_OBS_SIZE = (128, 80)     # (W, H): width, height of each observation frame (--obs-size)
+# A depth channel beside each grayscale frame (2026-11-22, EnvConfig.depth):
+# 8 input channels for 4 frames. A checkpoint keeps its own (checkpoint_obs_depth).
+DEFAULT_OBS_DEPTH = True
 
 def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
              slots_dir: str | None, slots: list[int], capture_dir: str | None = None,
              spawn_tics: int = 0, item_tics: int = 0, nodraw: bool = False, noblit: bool = False,
              portal_goal: int = 0, time_penalty: float = 0.0, key_goal: bool = False,
              waypoints: bool = False, combat: float = 0.5,
-             headless: bool = True, obs_size: tuple[int, int] = DEFAULT_OBS_SIZE):
+             headless: bool = True, obs_size: tuple[int, int] = DEFAULT_OBS_SIZE,
+             obs_depth: bool = DEFAULT_OBS_DEPTH):
     """time_penalty: reward per game second (negative pays, e.g. 1/3
     costs a point every 3 s), with portal_goal n > 0 ending a rollout
     once it reaches n new sectors, and key_goal ending it on a new key."""
@@ -78,7 +82,7 @@ def make_env(iwad: str | None, warp: str, stage: int, skill: int, max_tics: int,
         engine.iwad = iwad
     return DiabloDoomEnv(EnvConfig(
         engine=engine,
-        width=obs_size[0], height=obs_size[1],
+        width=obs_size[0], height=obs_size[1], depth=obs_depth,
         max_tics=max_tics,
         start_slots=list(slots),
         consult_handler=standin_consult,
@@ -122,7 +126,8 @@ def run_env(args, slots: list[int], iwad: str | None, warp: str, capture_dir: st
                              waypoints=getattr(args, "waypoints", False),
                              combat=getattr(args, "combat", 0.5),
                              headless=getattr(args, "headless", True),
-                             obs_size=getattr(args, "obs_size", None) or DEFAULT_OBS_SIZE, **rules)
+                             obs_size=getattr(args, "obs_size", None) or DEFAULT_OBS_SIZE,
+                             obs_depth=getattr(args, "obs_depth", DEFAULT_OBS_DEPTH), **rules)
 
 
 def get_privileged_info(info: dict) -> list[float]:
@@ -168,6 +173,12 @@ def checkpoint_obs_size(ckpt: dict) -> tuple[int, int]:
     return tuple(ckpt["obs_size"])
 
 
+def checkpoint_obs_depth(ckpt: dict) -> bool:
+    """Whether a checkpoint's policy sees depth; one from before 2026-11-22
+    (no obs_depth) saw grayscale only."""
+    return bool(ckpt.get("obs_depth", False))
+
+
 FIRE_PRIOR = 0.1
 
 
@@ -176,15 +187,17 @@ class Policy(nn.Module):
     detached features plus privileged inputs (critic, training only)."""
 
     def __init__(self, n_actions: int = len(ACTIONS), frames: int = 4,
-                 obs_size: tuple[int, int] = DEFAULT_OBS_SIZE):
+                 obs_size: tuple[int, int] = DEFAULT_OBS_SIZE, depth: bool = DEFAULT_OBS_DEPTH):
         super().__init__()
         self.obs_size = tuple(obs_size)          # (W, H) of each frame
+        self.obs_depth = depth
+        channels = frames * (2 if depth else 1)  # [gray, depth] a frame (2026-11-22)
         w, h = self.obs_size
         conv_w, conv_h = conv_out(w), conv_out(h)
         if conv_w < 1 or conv_h < 1:
             raise ValueError(f"observation size {w}x{h} is too small for the CNN (at least 36x36)")
         self.trunk = nn.Sequential(
-            layer_init(nn.Conv2d(frames, 32, 8, stride=4)), nn.ReLU(),
+            layer_init(nn.Conv2d(channels, 32, 8, stride=4)), nn.ReLU(),
             layer_init(nn.Conv2d(32, 64, 4, stride=2)), nn.ReLU(),
             layer_init(nn.Conv2d(64, 64, 3, stride=1)), nn.ReLU(),
             nn.Flatten(),
@@ -499,7 +512,7 @@ def add_env_args(p) -> None:
                         "turns, --rotate-every)")
     p.add_argument("--group-size", type=int, default=8)
     p.add_argument("--mix", default="combat=3,waypoint=2,maze=1,mixed=2",   # combat=2,waypoint=2,maze=2,mixed=2 before 2026-11-20
-                   help="groups per rollout type (2026-11-20; env.TYPES), adding up to --groups (whose default becomes their sum): combat (the combat drill: the drill maps (DRILL_MAPS), one awake monster ahead at a time, every sector visited from the start), waypoint (the waypoint drill: the drill maps, endless waypoints, frequent practice items), maze (the rotating maps, monsters hidden, no waypoints), mixed (the rotating maps, monsters and waypoints). The drills rotate over the drill maps of the --iwads every --rotate-every batches, always start at the map start and end only on death, the exit or --drill-tics; maze and mixed rotate over the maps with the frontier and tic budget. Every type has the same reward function. E.g. combat=8: the combat drill alone")
+                   help="groups per rollout type (2026-11-20; env.TYPES), adding up to --groups (whose default becomes their sum): combat (the combat drill: the drill maps (DRILL_MAPS), one awake monster ahead at a time, every sector visited from the start), waypoint (the waypoint drill: the drill maps, endless waypoints, frequent practice items), maze (the rotating maps, monsters hidden, no waypoints), mixed (the rotating maps, monsters and waypoints). The drills rotate over the drill maps of the --iwads every --rotate-every batches, always start at the map start and end only on the exit or --drill-tics (a death respawns at once at the map start with the same gun, 2026-11-22; it ended them before); maze and mixed rotate over the maps with the frontier and tic budget. Every type has the same reward function. E.g. combat=8: the combat drill alone")
     p.add_argument("--drill-tics", type=int, default=1050,
                    help="a drill rollout's limit in game tics (combat and waypoint; default 30 s)")
     p.add_argument("--max-tics", type=int, default=525,
