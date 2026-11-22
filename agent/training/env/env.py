@@ -78,6 +78,9 @@ ITEM_LIFE_TICS = 350    # a practice item lies 10 s (the engine's RL_ITEM_LIFE)
 # units to the nearest monster in sight: fists and chainsaw up close
 # (melee range 64 plus a monster's radius), the rocket and BFG past their
 # 128-unit splash, the hitscan guns at medium to long range.
+# The hitscan guns (weapontype_t: pistol, shotgun, chaingun, super shotgun),
+# the aim reward's: a projectile has to lead its target, a fist reaches 64 units.
+HITSCAN = (1, 2, 3, 8)
 RANGE_BANDS = {0: (0, 80), 1: (256, 768), 2: (128, 512), 3: (256, 768), 4: (192, 768),
                5: (128, 640), 6: (192, 768), 7: (0, 80), 8: (64, 256)}
 
@@ -115,11 +118,14 @@ class RewardConfig:
     # leads into never costs the waypoints after it.
     waypoint: float = 15.0
     waypoint_look_approach: float = 0.01
-    consult_hit: float = 5.0          # first CONSULT on an explore trigger
+    # The one-off terms (immediate, below) are in standard deviations of
+    # advantage since 2026-11-21 (the learner adds them as they are): -1 is
+    # one typical swing of the chained signal. Points before.
+    consult_hit: float = 1.0          # first CONSULT on an explore trigger (5 points before 2026-11-21)
     # Charged tic by tic while a trigger waits unanswered, trigger_miss
     # over the whole grace window (2026-11-17: once at its end before),
     # so each frame the policy didn't CONSULT on gets its share.
-    trigger_miss: float = -2.5        # -8, then -12, before 2026-11-18
+    trigger_miss: float = -0.5        # std (-2.5 points before 2026-11-21; -8, then -12, before 2026-11-18)
     # A unique picked up (2026-11-17; the engine's pickup event, tier 4)
     # is a trigger for unique_grace_tics game tics (3 s, as a monster;
     # the engine's gold border around the avatar, the cue, lasts 3.5 s,
@@ -128,7 +134,7 @@ class RewardConfig:
     # message text.
     unique_grace_tics: int = 105
     grace_decisions: int = 5          # combat (frozen, no tics pass): steps to CONSULT
-    consult_false: float = -2.5       # CONSULT with no live, unanswered trigger (-1.5 before 2026-11-17, -0.3 then -0.5 before 2026-11-18)
+    consult_false: float = -0.5       # std; CONSULT with no live, unanswered trigger (-2.5 points before 2026-11-21; -1.5 before 2026-11-17, -0.3 then -0.5 before 2026-11-18)
     # Time and distance, one penalty: every game tic costs
     #   time * (1 + d / far_scale)
     # where d is the distance (map units) to the nearest portal of the
@@ -208,7 +214,7 @@ class RewardConfig:
     # The same for forward and back: W at most move_flip_window tics after
     # S, or S after W, costs move_flip. Strafing back and forth (A/D) is
     # free.
-    move_flip: float = -0.015
+    move_flip: float = -0.1           # std (-0.015 points before 2026-11-21)
     move_flip_window: int = 4
     # Falls (2026-11-16): a quick large drop usually means the player left
     # the path the map intends. A fall is an unbroken run of tics going
@@ -234,7 +240,7 @@ class RewardConfig:
     # door is free. The default equals the clock's base rate (model.make_env
     # ties it to --time-penalty): staring at a wall costs the clock twice.
     # 0 turns it off.
-    wall_look: float = -1 / 3 / 35
+    wall_look: float = -0.05          # points a tic, chained (2026-11-21: half of turn's -0.1; -0.02 std, one-off, earlier that day; -1/105 points, one-off, before)
     wall_look_dist: float = 48.0
     # Per hit taken (2026-11-19; per HP lost before): each tic with an
     # engine `hurt` event, whatever the amount (gear scales it) and even
@@ -249,13 +255,12 @@ class RewardConfig:
     # 22.5 against a new sector's 15; hits, health and death x1.5 too):
     # damage per a monster's full HP dealt (so a kill pays the same for
     # any monster), from the engine's damage events, plus kill on the
-    # kill; fire_waste per shot that hurt nothing at once (a projectile's
-    # hit comes later: charged too since 2026-11-19, its hit paying
-    # damage), so firing at nothing costs. Paid on the step of the hit
+    # kill (a miss's damage_miss, fire_waste before, was removed 2026-11-21:
+    # aim judges hitscan presses, proj projectiles). Paid on the step of the hit
     # (chained: the aiming before it shares the credit) since 2026-11-20 --
     # from 2026-11-19 they were paid when the rollout ended and a death paid
     # no combat at all (times hit_decay 0.8 per hit taken until 2026-11-20),
-    # which credited a hit to the whole rollout while a miss's fire_waste
+    # which credited a hit to the whole rollout while a miss's damage_miss
     # landed on its shot: firing rose. Being hit is the hit penalties' alone.
     damage: float = 11.25
     kill: float = 0.0                 # 11.25 before 2026-11-20: damage alone pays for fighting
@@ -265,7 +270,12 @@ class RewardConfig:
     # paid at the end like damage -- keeping the fight in view (round a corner
     # too) makes every hit worth more; no hit, no pay.
     view: float = 2.5
-    fire_waste: float = -0.8          # -0.3 before 2026-11-20 (as much a combat drill rollout as damage pays), -0.1 before 2026-11-19
+    # Blind fire (2026-11-21): a step whose action presses fire with no
+    # monster on screen in the state it acted on (the engine's monstervis)
+    # costs blind_fire, one-off, on that step -- judged from the input, so
+    # it needs no hit or miss to come back, and charged whether or not the
+    # gun was ready to fire.
+    blind_fire: float = -0.35         # std (-0.5, then -1 std before, 2026-11-21: still gun-shy; -10, then -20, points earlier that day)
     # Range (2026-11-20): each map unit the nearest monster in line of sight,
     # in any direction (behind the player too: on screen only at first, which
     # let turning away stop the losses), woken or not (the engine's foe_dist),
@@ -274,11 +284,26 @@ class RewardConfig:
     # Only the nearest, so many don't pay more; a change of distance, never a per-tic pay,
     # so holding the band or stalling a fight earns nothing.
     range: float = 0.015              # 0.01 before 2026-11-20
+    # Aim (2026-11-21): each step whose action presses fire while a living
+    # monster is in line of sight (the engine's foe_dist, any direction) in
+    # the state it acted on: +aim when a hitscan shot would be aimed at a
+    # monster (the engine's aim_on: P_BulletSlope's autoaim probes), -aim when
+    # not; only with a hitscan gun ready (HITSCAN: a projectile has to lead).
+    # Chained, points. Every tic, fire or not, at 0.05 then 0.02 before.
+    aim: float = 0.5
+    # Projectiles (2026-11-21): when a rocket, plasma bolt or BFG ball the
+    # player fired is gone (the engine's proj_end), proj_hit for each monster
+    # it damaged (direct or splash, once each: a rocket into 5 monsters pays
+    # 5x), proj_miss when it damaged none. Chained, points, logged as "proj".
+    proj_hit: float = 6.25            # 2.5 before (2026-11-21)
+    proj_miss: float = -2.5           # -1.0 before (2026-11-21)
     # One-off terms (2026-11-17): they judge only the step's own action,
     # so the learner adds them to that step's advantage alone instead of
     # summing them into every earlier step's reward-to-go
     # (info["reward_now"], learn.group_advantages).
-    immediate: tuple = ("consult", "move_flip", "turn_waste", "wall_look", "fire_waste")
+    # wall_look chained since 2026-11-21: facing a wall up close follows from
+    # the steps that walked there, not just the last one.
+    immediate: tuple = ("consult", "move_flip", "turn_waste", "blind_fire")
 
 
 # A CONSULT handler answers a CONSULT: it may drive the engine with any
@@ -885,8 +910,11 @@ class DiabloDoomEnv(gym.Env):
             if e.get("event") == "shot":
                 self._combat_stats[0] += 1
                 self._combat_stats[1] += bool(e.get("hit"))
-                if not e.get("hit"):
-                    add("fire_waste", rc.fire_waste)
+            if e.get("event") == "proj_end":
+                # RewardConfig.proj_hit / proj_miss: once the projectile is gone.
+                n = int(e.get("hits", 0))
+                self._combat_stats[1] += n > 0
+                add("proj", rc.proj_hit * n if n else rc.proj_miss)
             if e.get("event") == "pickup":
                 if e.get("kind") in ("loot", "armor"):
                     add("loot", rc.loot)
@@ -934,6 +962,13 @@ class DiabloDoomEnv(gym.Env):
         seen = bool(prev.get("monstervis"))
         self._fire_stats[0 if seen else 2] += 1
         self._fire_stats[1 if seen else 3] += a in FIRES
+        if a in FIRES and not seen and prev.get("mode") == EXPLORE:
+            add("blind_fire", rc.blind_fire)
+        # Aim (RewardConfig.aim): a fire press, by the crosshair in the state
+        # it acted on, while a monster is in line of sight.
+        if (a in FIRES and rc.aim and prev.get("foe_dist", -1) >= 0 and "aim_on" in prev
+                and prev.get("weapon") in HITSCAN):
+            add("aim", rc.aim if prev["aim_on"] else -rc.aim)
         if a in TURNS and not 0 <= age <= rc.turn_combat_tics:   # in combat, turning is free
             self._turn_tics += tics
         # Turning, paid at the end (RewardConfig.turn).

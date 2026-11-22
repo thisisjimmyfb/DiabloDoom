@@ -142,6 +142,13 @@ void RL_PlayerHit(struct mobj_s *target, int dealt);
 // P_DamageMobj), melee (another monster attack) or world (no monster).
 extern boolean rl_hitscan;
 void RL_PlayerHurt(struct mobj_s *inflictor, struct mobj_s *source, int damage);
+// Player projectiles (2026-11-21, the env's proj reward): RL_ProjSpawn
+// tracks a rocket, plasma bolt or BFG ball the player fired; RL_ProjHit
+// notes each monster it damages (direct or splash, once each); when it is
+// removed RL_ProjEnd sends a "proj_end" event with that count (hits).
+void RL_ProjSpawn(struct mobj_s *mo);
+void RL_ProjHit(struct mobj_s *inflictor, struct mobj_s *target);
+void RL_ProjEnd(struct mobj_s *mo);
 
 // MONSTERS HIDE / SHOW (2026-11-18): every living map monster out of
 // the world or back in (MF_RLHIDDEN), for the env's no-combat rollouts.

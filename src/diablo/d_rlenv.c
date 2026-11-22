@@ -1285,6 +1285,26 @@ void RL_EmitState(const char *why, int tics)
         {
             RL_PUT(",\"attack_age\":%d", rl_attack_tic < 0 ? -1 : gametic - rl_attack_tic);
         }
+        // aim_on (2026-11-21, the env's aim reward): a hitscan shot now would
+        // be aimed at a living monster -- P_BulletSlope's three autoaim probes
+        // (the facing, then 1<<26 either side, 1024 units), the first thing
+        // they find being a monster (a barrel or wall in front: false).
+        {
+            mobj_t *saved = linetarget;
+            boolean on = false;
+            angle_t an = mo->angle;
+            P_AimLineAttack(mo, an, 16*64*FRACUNIT);
+            if (!linetarget)
+                P_AimLineAttack(mo, an + (1<<26), 16*64*FRACUNIT);
+            if (!linetarget)
+                P_AimLineAttack(mo, an - (1<<26), 16*64*FRACUNIT);
+            if (linetarget && linetarget->player == NULL && linetarget->health > 0
+                && !(linetarget->flags & (MF_RLHIDDEN | MF_RLPRACTICE))
+                && ((linetarget->flags & MF_COUNTKILL) || linetarget->type == MT_SKULL))
+                on = true;
+            linetarget = saved;
+            RL_PUT(",\"aim_on\":%s", on ? "true" : "false");
+        }
         // automap: the map is on screen (Tab or the driver's MAP); the
         // env's forced map glances check it before sending MAP.
         RL_PUT(",\"automap\":%s,\"forced_map\":%s", automapactive ? "true" : "false",
@@ -1427,6 +1447,18 @@ void RL_SpawnSeed(int n)
     RL_SpawnRand();
 }
 
+// Player projectiles in flight (RL_ProjSpawn), each with the monsters it
+// has damaged; cleared at every level setup (a LOAD sets the level up too),
+// so a freed mobj's address never matches.
+#define RL_MAXPROJ 32
+#define RL_PROJVICT 16
+static struct
+{
+    mobj_t *mo;
+    int n;
+    mobj_t *vict[RL_PROJVICT];
+} rl_proj[RL_MAXPROJ];
+
 void RL_LevelSetup(void)
 {
     memset(rl_spawned, 0, sizeof(rl_spawned));
@@ -1439,6 +1471,7 @@ void RL_LevelSetup(void)
     rl_items_unique = -1;
     rl_drill_mo = NULL;
     rl_attack_tic = -1;      // no attack yet on this level (or loaded save)
+    memset(rl_proj, 0, sizeof(rl_proj));   // projectiles in flight: freed with the level
 }
 
 // A tracked pointer is used only after finding it in the thinker list
@@ -1962,6 +1995,49 @@ void RL_PlayerHit(mobj_t *t, int dealt)
     rl_player_hits++;
     RL_Emit("{\"event\":\"damage\",\"amount\":%d,\"max\":%d,\"kill\":%s,\"type\":%d,\"inview\":%d,\"gametic\":%d}",
             dealt, max, t->health <= 0 ? "true" : "false", (int) t->type, RL_InView(), gametic);
+}
+
+
+void RL_ProjSpawn(mobj_t *mo)
+{
+    int i;
+    for (i = 0; i < RL_MAXPROJ; i++)
+        if (rl_proj[i].mo == NULL)
+        {
+            rl_proj[i].mo = mo;
+            rl_proj[i].n = 0;
+            return;
+        }
+}
+
+void RL_ProjHit(mobj_t *inflictor, mobj_t *target)
+{
+    int i, j;
+    if (inflictor == NULL)
+        return;
+    for (i = 0; i < RL_MAXPROJ; i++)
+        if (rl_proj[i].mo == inflictor)
+        {
+            for (j = 0; j < rl_proj[i].n; j++)
+                if (rl_proj[i].vict[j] == target)
+                    return;
+            if (rl_proj[i].n < RL_PROJVICT)
+                rl_proj[i].vict[rl_proj[i].n++] = target;
+            return;
+        }
+}
+
+void RL_ProjEnd(mobj_t *mo)
+{
+    int i;
+    for (i = 0; i < RL_MAXPROJ; i++)
+        if (rl_proj[i].mo == mo)
+        {
+            RL_Emit("{\"event\":\"proj_end\",\"hits\":%d,\"type\":%d,\"gametic\":%d}",
+                    rl_proj[i].n, (int) mo->type, gametic);
+            rl_proj[i].mo = NULL;
+            return;
+        }
 }
 
 boolean rl_hitscan = false;

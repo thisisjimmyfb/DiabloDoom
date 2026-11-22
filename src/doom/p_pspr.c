@@ -473,7 +473,7 @@ P_FireDiabloWeapon
     if (own_hitscan)
         d_diablo_hitscan_weapon = -1;
     // -rlenv: the shot, whether it hurt a monster now (a projectile's
-    // hit comes later, so it is never a miss; the env's fire_waste).
+    // hit comes later, so it is never a miss; the env's combat stats).
     {
         weapontype_t w = player->readyweapon;
         RL_Emit("{\"event\":\"shot\",\"hit\":%s,\"proj\":%s,\"gametic\":%d}",

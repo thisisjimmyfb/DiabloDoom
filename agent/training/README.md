@@ -171,8 +171,8 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   pays), a monster's worth 11.25 against a sector's 15, both chained;
   `view` (2026-11-20: 2.5 x each hit's share of a monster's HP x the
   monsters in the view cone then, line of sight or not); both paid on the
-  hit's step since 2026-11-20 (at the rollout's end before, nothing after a death); `fire_waste` (-0.8 since 2026-11-20, -0.3 before, -0.1 before 2026-11-19; one-off) per shot that hurt nothing at once
-  (a projectile never); every hit taken (a tic with an engine
+  hit's step since 2026-11-20 (at the rollout's end before, nothing after a death); `damage_miss` (`fire_waste` before) removed 2026-11-21 (`aim` and `proj`
+  judge misses now); every hit taken (a tic with an engine
   `hurt` event, even one gear left the HP alone; per HP before
   2026-11-19) costs `hit_unavoidable` (-1) for a hitscan hit (it can't be
   dodged: only a pressure to kill early) or `hit_avoidable` (-15) for any
@@ -183,7 +183,14 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   the hit rate, and (2026-11-21) `fire <seen>/<blind>`: the share of steps
   pressing fire with a monster on screen (the engine's `monstervis`) and
   with none (blind firing); metrics `fire_seen` / `fire_blind`, and each
-  `rollouts.jsonl` row's `fire` [steps seen, fire; unseen, fire]. Pickups pay from the engine's `pickup` events: `loot` (5)
+  `rollouts.jsonl` row's `fire` [steps seen, fire; unseen, fire].
+  `blind_fire` (2026-11-21, -0.35 std, one-off; -0.5 and -1 std, -10 and -20 points earlier that day) charges each step that presses fire
+  with no monster on screen in the state it acted on, shot or not. `aim` (2026-11-21, +-0.5 points a fire press,
+  chained; +-0.05 and +-0.02 a tic, fire or not, earlier that day) judges each fire press made while a monster
+  is in line of sight in the state it acted on: + with the crosshair on a monster (the engine's
+  `aim_on`, Doom's autoaim probes), - without; hitscan guns only (a projectile has to lead). `proj` (2026-11-21,
+  chained): when a player projectile is gone (the engine's `proj_end`), +6.25 per monster it damaged
+  (splash too, each once), -2.5 when none (+2.5 / -1 earlier that day). Pickups pay from the engine's `pickup` events: `loot` (5)
   per Diablo item or armor picked up, `health` (0.75) per HP a health
   pickup healed (a medikit 18.75, a +1 health bonus 0.75), the mirror of
   the hit penalties.
@@ -303,10 +310,11 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
 - **Advantage:** group-normalized return (`--advantage outcome`) or the
   process variant (`process`): per-step rewards normalized across the
   group and summed from each step on (the sums scaled to unit std over
-  the group, 2026-11-18), except the one-off terms (scaled by their own
-  std over the group, capped at 5 of those, since 2026-11-21)
+  the group, 2026-11-18), except the one-off terms, added as they are: their
+  values are standard deviations of advantage since 2026-11-21 (blind_fire -0.35,
+  consult +1 / -0.5, move_flip -0.1; wall_look chained since 2026-11-21, -0.05 a tic)
   (`RewardConfig.immediate`: consult, move_flip,
-  turn_waste, wall_look; 2026-11-17), which count on their own step only,
+  turn_waste, blind_fire; wall_look until 2026-11-21; 2026-11-17), which count on their own step only,
   since they judge just that action and later steps don't follow from it. Zero-variance groups are dropped and
   reported as `collapsed_share`.
 - **Loss:** clipped ratio (`--clip` 0.2), `--epochs` 4, an entropy

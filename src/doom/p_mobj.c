@@ -26,6 +26,7 @@
 #include "t_turn.h"
 #include "t_combat.h"
 #include "p_local.h"
+#include "d_rlenv.h"
 #include "p_inter.h"
 #include "d_diablo.h"
 #include "sounds.h"
@@ -628,6 +629,7 @@ void P_RemoveMobj (mobj_t* mobj)
     {
         T_InvalidateTarget(mobj);
     }
+    RL_ProjEnd(mobj);   // -rlenv: a player projectile's proj_end (2026-11-21)
     if ((mobj->flags & MF_SPECIAL)
 	&& !(mobj->flags & MF_DROPPED)
 	&& (mobj->type != MT_INV)
@@ -1159,6 +1161,8 @@ P_SpawnPlayerMissile
         // (d_diablo_hitscan_weapon is for hitscan only.)
         th->diablo_weapon = source->player->readyweapon;
     }
+    if (source && source->player)
+        RL_ProjSpawn(th);   // -rlenv: its hits for the proj_end event (2026-11-21)
 
     P_CheckMissileSpawn (th);
 }

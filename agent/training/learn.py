@@ -29,9 +29,6 @@ from model import (ACTIONS, DEFAULT_OBS_SIZE, Policy, checkpoint_obs_size, load_
 # Advantages, targets, batch (shared with train.py)
 # ---------------------------------------------------------------------------
 
-# The one-off stream's cap, in its own stds (2026-11-21, group_advantages).
-ONE_OFF_CLIP = 5.0
-
 
 def group_advantages(groups: list[list[dict]], mode: str,
                      eps: float = 1e-8) -> tuple[list[np.ndarray | None], int]:
@@ -71,16 +68,13 @@ def group_advantages(groups: list[list[dict]], mode: str,
             # length and drowns the one-off stream (a CONSULT hit was
             # 0.3 of its std).
             cstd = np.concatenate(togo).std()
-            # 2026-11-21: the one-off stream is scaled by its own std over the
-            # group (std, of every per-step reward, before): deaths and hits
-            # dominated that std, so a miss's fire_waste was a small fraction
-            # of it and shrank as they grew. No one-off rewards: nothing. The
-            # stream is sparse (most steps have none), so a rare large one (a
-            # CONSULT's +5) would be many stds: clipped at ONE_OFF_CLIP.
-            nstd = np.concatenate(now).std()
+            # The one-off stream is added as it is (2026-11-21): its values
+            # are standard deviations of advantage, the chained part's unit --
+            # RewardConfig.immediate's values are set on that scale. (Earlier
+            # on 2026-11-21: scaled by its own std over the group, capped at
+            # +-5; before: by the std of every per-step reward.)
             for t, n in zip(togo, now):
-                one = np.clip(n / nstd, -ONE_OFF_CLIP, ONE_OFF_CLIP) if nstd > 1e-6 else 0.0 * n
-                advs.append((t / (cstd + eps) + one).astype(np.float32))
+                advs.append((t / (cstd + eps) + n).astype(np.float32))
     return advs, collapsed
 
 

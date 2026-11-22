@@ -413,7 +413,8 @@ def test_turn():
     faked, one tic per step."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
-                        fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0, range=0, turn=-1.0)
+                        fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0, range=0, turn=-1.0,
+                        blind_fire=0)
 
     def at(age=-1):
         return {"mode": "EXPLORE", "hp": 100, "tics": 1, "x": 0, "y": 0, "attack_age": age}, []
@@ -433,7 +434,7 @@ def test_view():
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
                         fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0, range=0, turn=0,
-                        damage=0, kill=0, fire_waste=0, view=2.0)
+                        damage=0, kill=0, view=2.0)
 
     def at(events=(), dead=False):
         return {"mode": "EXPLORE", "hp": 0 if dead else 100, "dead": dead, "tics": 1, "x": 0, "y": 0}, list(events)
@@ -1239,15 +1240,14 @@ def test_waypoint_count_and_goal():
 
 def test_combat_rewards():
     """Combat (2026-11-18): damage pays per a monster's full HP dealt,
-    kill on the kill, fire_waste per shot that hurt nothing (a projectile
-    too since 2026-11-19); since 2026-11-20 damage and kill are paid on the
+    kill on the kill, a miss nothing (damage_miss removed 2026-11-21); since 2026-11-20 damage and kill are paid on the
     hit's step, kept whatever comes after (a death included; at the
     rollout's end before, nothing after a death); info["combat"] counts
     them. Engine faked."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
                         time=0, fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0,
-                        damage=10.0, kill=4.0, fire_waste=-0.5)
+                        damage=10.0, kill=4.0, blind_fire=0)
 
     def run(end):
         e = make_env(rewards=only, max_tics=4)
@@ -1282,12 +1282,12 @@ def test_combat_rewards():
         return rs, r4, info
 
     rs, r4, info = run({"hp": 60})
-    assert rs == [pytest.approx(30 / 60 * 10.0), -0.5, -0.5]   # the hit pays on its step
+    assert rs == [pytest.approx(30 / 60 * 10.0), 0.0, 0.0]   # the hit pays on its step
     assert r4 == pytest.approx(50 / 60 * 10.0 + 4.0)   # capped at max, plus the kill
     assert info["combat"] == [1, 3, 1, 1, 80]
     rs, r4, info = run({"hp": 0, "dead": True})
     assert rs[0] == pytest.approx(5.0) and r4 == pytest.approx(50 / 60 * 10.0 + 4.0), "kept after a death"
-    assert "fire_waste" in RewardConfig().immediate and "damage" not in RewardConfig().immediate
+    assert "damage" not in RewardConfig().immediate
 
 
 def test_fire_prior():
@@ -1319,3 +1319,72 @@ def test_monsters_hide_show():
         assert shots and all("hit" in s and "proj" in s for s in shots)
     finally:
         e.close()
+
+
+def test_blind_fire():
+    """blind_fire (2026-11-21): a step whose action presses fire with no
+    monster on screen in the state it acted on (monstervis) costs blind_fire
+    on that step, one-off, shot or not; with a monster on screen, or without
+    fire, nothing. Engine faked."""
+    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
+                        consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
+                        fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0, range=0, turn=0,
+                        damage=0, kill=0, view=0, blind_fire=-20.0)
+
+    def at(vis):
+        return {"mode": "EXPLORE", "hp": 100, "tics": 1, "x": 0, "y": 0, "monstervis": vis}, []
+    # Each step acts on the state the one before returned: the first on the
+    # initial state (no monster on screen).
+    e = _fake_explore(only, [at(True), at(False), at(False), at(True)])
+    acts = ["PRESS W CTRL", "PRESS CTRL", "PRESS W", "PRESS DL CTRL"]
+    got = [e.step(ACTIONS.index(x))[1] for x in acts]
+    assert got == [-20.0, 0.0, 0.0, -20.0], got
+    assert "blind_fire" in RewardConfig().immediate
+
+
+def test_aim():
+    """aim (2026-11-21): a fire press while a monster is in line of sight
+    (foe_dist) in the state it acted on: +aim with the crosshair on a monster
+    (aim_on), -aim without; no fire, no monster in sight, an engine without
+    aim_on, or no hitscan gun ready (a rocket launcher: 4), nothing. Chained.
+    Engine faked."""
+    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
+                        consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
+                        fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0, range=0, turn=0,
+                        damage=0, kill=0, view=0, blind_fire=0, aim=0.5, proj_hit=0, proj_miss=0)
+
+    def at(foe, on=None, weapon=1):
+        d = {"mode": "EXPLORE", "hp": 100, "tics": 1, "x": 0, "y": 0, "foe_dist": foe, "weapon": weapon,
+             "monstervis": True}
+        if on is not None:
+            d["aim_on"] = on
+        return d, []
+    # Each step is judged by the state the one before returned (the first by
+    # the initial state, no monster).
+    e = _fake_explore(only, [at(300, True), at(300, False), at(300, True), at(-1, True), at(300),
+                             at(300, True, weapon=4), at(300, False, weapon=8), at(300, True)])
+    acts = ["PRESS CTRL", "PRESS CTRL", "PRESS CTRL", "PRESS L", "PRESS CTRL", "PRESS CTRL",
+            "PRESS CTRL", "PRESS W CTRL"]
+    got = [e.step(ACTIONS.index(x))[1] for x in acts]
+    assert got == [0.0, 0.5, -0.5, 0.0, 0.0, 0.0, 0.0, -0.5], got
+    assert "aim" not in RewardConfig().immediate
+
+
+def test_proj():
+    """proj (2026-11-21): a player projectile's proj_end event pays proj_hit
+    per monster it damaged (a rocket into 3 pays 3x) and costs proj_miss when
+    it damaged none; a hit counts in the combat stats' hits. Chained. Engine
+    faked."""
+    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
+                        consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
+                        fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0, range=0, turn=0,
+                        damage=0, kill=0, view=0, blind_fire=0, aim=0, proj_hit=2.0, proj_miss=-1.0)
+
+    def at(events):
+        return {"mode": "EXPLORE", "hp": 100, "tics": 1, "x": 0, "y": 0, "monstervis": True}, events
+    end = lambda n: {"event": "proj_end", "hits": n, "type": 33}
+    e = _fake_explore(only, [at([end(3)]), at([end(0)]), at([]), at([end(1), end(0)])])
+    got = [e.step(ACTIONS.index("PRESS L"))[1] for _ in range(4)]
+    assert got == [6.0, -1.0, 0.0, 1.0], got
+    assert e._combat_stats[1] == 2
+    assert "proj" not in RewardConfig().immediate

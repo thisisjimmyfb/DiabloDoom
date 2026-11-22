@@ -55,18 +55,15 @@ def test_process_advantages(groups):
 
 
 def test_process_one_off_rewards():
-    """A one-off reward (rew_now) counts on its own step only, on the
-    one-off rewards' own scale (their std over the group, 2026-11-21; every
-    reward's before), capped at ONE_OFF_CLIP stds: it never reaches earlier
-    steps, and the value targets leave it out."""
+    """A one-off reward (rew_now) counts on its own step only, as it is: its
+    value is standard deviations of advantage (2026-11-21); it never reaches
+    earlier steps, and the value targets leave it out."""
     rew = [0.0, 0.0, 5.0, 0.0, -1.0]
     a = {"rew": rew, "rew_now": [0.0, 0.0, 5.0, 0.0, 0.0], "len": 5, "tics": [1] * 5}
     b = {"rew": [0.0, 0.0, 0.0, 0.0, -1.0], "rew_now": [0.0] * 5, "len": 5, "tics": [1] * 5}
     (adv_a, adv_b), collapsed = group_advantages([[a, b]], "process")
     assert collapsed == 0
-    nstd = np.concatenate([a["rew_now"], b["rew_now"]]).std()
-    from learn import ONE_OFF_CLIP
-    assert np.allclose(adv_a - adv_b, [0, 0, min(5 / nstd, ONE_OFF_CLIP), 0, 0], atol=1e-5), adv_a - adv_b
+    assert np.allclose(adv_a - adv_b, [0, 0, 5.0, 0, 0], atol=1e-5), adv_a - adv_b
     assert np.allclose(value_targets(np.array(rew) - a["rew_now"], a["tics"], 1.0), [-1] * 5)
 
 

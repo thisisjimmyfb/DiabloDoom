@@ -1670,7 +1670,10 @@ P_DamageMobj
     // and kill rewards).
     if (source && source->player && target->player == NULL
         && ((target->flags & MF_COUNTKILL) || target->type == MT_SKULL))
+    {
         RL_PlayerHit(target, hp0 - (target->health > 0 ? target->health : 0));
+        RL_ProjHit(inflictor, target);   // a player projectile's hit (2026-11-21)
+    }
 
     // Diablo equipment (mod): life steal heals the attacker for a
     // percentage of damage dealt to monsters.

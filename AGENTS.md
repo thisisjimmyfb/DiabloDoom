@@ -222,7 +222,9 @@ living monster in line of sight, any direction (within the 90-degree view at
 first), woken or not (-1 none), the env's range reward, and (2026-11-20) `attack_age`, tics since
 a monster last began an attack on the player (`A_FaceTarget`, the first action of every
 attack state; practice and hidden monsters don't count; -1 none since the level or save
-loaded), the env's combat test for its turn penalty -- reward shaping only, never
+loaded), the env's combat test for its turn penalty, and (2026-11-21) `aim_on`, a hitscan shot
+now would be aimed at a living monster (`P_BulletSlope`'s three autoaim probes, 1024 units;
+practice and hidden monsters don't count), the env's aim reward -- reward shaping only, never
 a policy input, so the 2026-10-21 no-oracle ruling for the farm agent
 stands.
 Automap (2026-11-14): it also carries `automap` (the map is on screen).
@@ -278,7 +280,9 @@ taken off, `max` HP, `kill`; 2026-11-20 `inview`, the living monsters inside the
 (2026-11-19: `amount` before god mode, block, dodge, resistance and
 armour, so sent even when no HP is lost; `monster`; 2026-11-20 `kind`: `proj`,
 `hitscan`, `melee` or `world`), each shot a `shot` event (`hit`: it hurt a
-monster at once; `proj`: rocket, plasma or BFG, whose hit comes later),
+monster at once; `proj`: rocket, plasma or BFG, whose hit comes later), a `proj_end` event when a projectile the player
+fired is removed (2026-11-21: `hits`, the monsters it damaged, direct or splash, each once; `type`;
+the env's proj reward),
 and `-rlenv` never autosaves (training games have map monsters now).
 `GIVEGUN <seed>` (`-rlenv`, and `-rldrive` for `eval.py --iwad`) equips a random normal-tier gun at full
 durability in place of the weapon slot's item (dropped, not stashed),
