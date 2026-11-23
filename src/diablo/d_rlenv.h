@@ -172,6 +172,9 @@ void RL_Monsters(boolean hide);
 // DRILL ON / OFF (-rlenv, 2026-11-20): the combat drill keeps one awake
 // monster ahead of the player, a new one as soon as it dies; a LOAD ends it.
 void RL_Drill(boolean on);
+void RL_DrillAim(int pct);
+boolean RL_NoAttack(struct mobj_s *actor);
+int RL_DrillDamage(struct mobj_s *target, int damage);
 // A monster begins an attack (A_FaceTarget, the first action of every
 // attack state; 2026-11-20): on the player, the tic is kept for the state
 // line's attack_age (practice and hidden monsters don't count).
@@ -184,7 +187,7 @@ void RL_Items(int period, int unique);
 // GIVEGUN <seed> [KIT] [RANGED] (2026-11-18): a random normal-tier gun
 // equipped (KIT, 2026-11-20: with gear for it; RANGED, 2026-11-20: never
 // fists); false when there is none the player can use.
-boolean RL_GiveGun(unsigned seed, boolean kit, boolean ranged);
+boolean RL_GiveGun(unsigned seed, boolean kit, boolean ranged, boolean hitscan);
 // Explore detection found mo acquiring the player: if it is a practice
 // monster, remove it and return true (no combat); else false.
 struct mobj_s;

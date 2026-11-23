@@ -47,16 +47,19 @@ USE = ACTIONS.index("USE")
 #   combat:   the combat drill: map monsters hidden, DRILL ON (one awake
 #             monster ahead), never fists, no waypoints or practice items,
 #             every sector visited from the start (no room can pay)
+#   aim:      the aim drill (2026-11-22): the combat drill, but a hitscan gun
+#             (GIVEGUN ... HITSCAN) and a monster that never attacks and
+#             takes EnvConfig.aim_drill_damage % damage (DRILL ON AIM)
 #   waypoint: the waypoint drill: map monsters hidden, endless waypoints
 #             (a new one as soon as one is reached), frequent practice items
 #             on the way to it, about half uniques (ITEMS)
 #   maze:     map monsters hidden, no waypoints
 #   mixed:    map monsters shown, waypoints
-# Drills (combat, waypoint) end only on the exit or time (death too before 2026-11-22: they
+# Drills (combat, aim, waypoint) end only on the exit or time (death too before 2026-11-22: they
 # respawn at once now, at the map start, with the same gun): no portal
 # or key goal. No type: the older random split (EnvConfig.combat, waypoint_off).
-TYPES = ("combat", "waypoint", "maze", "mixed")
-DRILLS = ("combat", "waypoint")
+TYPES = ("combat", "aim", "waypoint", "maze", "mixed")
+DRILLS = ("combat", "aim", "waypoint")
 
 
 def replay_dir_name(iwad: str | None, warp: str) -> str:
@@ -294,7 +297,7 @@ class RewardConfig:
     aim: float = 10.0                 # 7.0 earlier 2026-11-22; 10.0 before that (one-off: firing fell to 3%, on and off target); chained at 10, 5, 2, 0.5 before
     # Off target: breaking even at 1/3 on target (late 2026-11-22; -7, 7/17,
     # and -10, symmetric, 1/2, just before; -3, -2, -1 earlier that day: at -1, 1/8, firing spammed) (a fresh policy's ~9% made symmetric +-7 cost about -5.7 a press).
-    aim_off: float = -5.0             # -7.0, then -10.0, just before; -3.0, -2.0, then -1.0, earlier 2026-11-22 (at -1 firing spammed, on and off target alike); -aim (-7.0) before
+    aim_off: float = -10.0            # -5.0 before (late 2026-11-22: aim_on climbed, aim_off didn't fall); -7.0, then -10.0, just before that; -3.0, -2.0, then -1.0, earlier 2026-11-22 (at -1 firing spammed, on and off target alike); -aim (-7.0) before
     # Tracking (2026-11-22): an on-target press (as aim pays) also pays track
     # to each step before it that kept the crosshair on that same monster
     # (the engine's aim_streak: a wall or another monster in the way, or a
@@ -476,6 +479,8 @@ class EnvConfig:
     # The waypoint drill's practice items (ITEMS): mean tics between them
     # and the unique share, percent.
     drill_item_tics: int = 175
+    # The aim drill's (2026-11-22): the player's damage to its monster, percent.
+    aim_drill_damage: int = 10
     drill_item_unique: int = 50
 
 
@@ -640,7 +645,7 @@ class DiabloDoomEnv(gym.Env):
         self._type = opts.get("type") or ("combat" if opts.get("drill") else None)
         if self._type is not None and self._type not in TYPES:
             raise ValueError(f"unknown rollout type {self._type!r}")
-        self._drill = self._type == "combat"
+        self._drill = self._type in ("combat", "aim")   # the aim drill is the combat drill's kind
         if self._type is None:
             self._combat_on = (int(rng_seed) * 40503 + 7919) % 1000 / 1000.0 < self.cfg.combat
         else:
@@ -651,12 +656,12 @@ class DiabloDoomEnv(gym.Env):
             # same for the whole group (from its seed).
             # A drill never gets fists (RANGED, 2026-11-20): no melee there.
             self._gun_line = (f"GIVEGUN {int(rng_seed) * 7 + 3}" + (" KIT" if self.cfg.gun_kit else "")
-                              + (" RANGED" if self._drill else ""))
+                              + (" RANGED" if self._drill else "") + (" HITSCAN" if self._type == "aim" else ""))
             d, _ = self.engine.command(self._gun_line)
         else:
             self._gun_line = None
         if self._drill:
-            d, _ = self.engine.command("DRILL ON")
+            d, _ = self.engine.command(f"DRILL ON AIM {self.cfg.aim_drill_damage}" if self._type == "aim" else "DRILL ON")
             d, _ = self.engine.command("ITEMS 0")
             # Every sector visited from the start (2026-11-20): a new room
             # can't pay here, so fighting is the drill's only payoff.

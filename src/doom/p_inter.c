@@ -1663,6 +1663,10 @@ P_DamageMobj
         }
     }
 
+    // -rlenv aim drill (2026-11-22): after the Diablo damage, which replaces it.
+    if (source && source->player && target->player == NULL)
+        damage = RL_DrillDamage(target, damage);
+
     // do the damage	
     hp0 = target->health;
     target->health -= damage;	

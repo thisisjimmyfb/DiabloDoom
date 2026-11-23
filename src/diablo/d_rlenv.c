@@ -1352,14 +1352,19 @@ void RL_EmitState(const char *why, int tics)
         // be aimed at a living monster -- P_BulletSlope's three autoaim probes
         // (the facing, then 1<<26 either side, 1024 units), the first thing
         // they find being a monster (a barrel or wall in front: false).
+        // Pistol and chaingun (2026-11-23): the facing probe only. The side
+        // probes only set the slope for a spread shot (their 1<<26 is the
+        // spread's), and a single bullet flies along the facing, so a side
+        // probe's monster was a near miss; the shotguns' pellet cones keep all three.
         {
             mobj_t *saved = linetarget;
             boolean on = false;
             angle_t an = mo->angle;
+            boolean single = p->readyweapon == wp_pistol || p->readyweapon == wp_chaingun;
             P_AimLineAttack(mo, an, 16*64*FRACUNIT);
-            if (!linetarget)
+            if (!linetarget && !single)
                 P_AimLineAttack(mo, an + (1<<26), 16*64*FRACUNIT);
-            if (!linetarget)
+            if (!linetarget && !single)
                 P_AimLineAttack(mo, an - (1<<26), 16*64*FRACUNIT);
             if (linetarget && linetarget->player == NULL && linetarget->health > 0
                 && !(linetarget->flags & (MF_RLHIDDEN | MF_RLPRACTICE))
@@ -1500,11 +1505,14 @@ static boolean rl_drill;                // DRILL ON (2026-11-20): an awake monst
 static mobj_t *rl_drill_mo;             // the drill's live monster
 static int rl_drill_lost;               // tics it has had no line of sight to the player
 static int rl_drill_wait;               // tics left of the pause after a kill
+static int rl_drill_aim;                // DRILL ON AIM <pct> (2026-11-22): the aim drill, the player's damage % to its monster (0: the combat drill)
 #define RL_DRILL_NEAR    320            // 192 before 2026-11-20 (further: more time to line up)
 #define RL_DRILL_FAR     768            // 512 before (closer: more pressure), 768 at first
 #define RL_DRILL_PAUSE   0              // after a kill: no monster for 0..70 tics, 0-2 s (2026-11-20;
-#define RL_DRILL_PAUSE_X 71             // 35..105 at first), so the drill also shows an empty screen
+#define RL_DRILL_PAUSE_X 176            // 0..175 tics, 0-5 s (late 2026-11-22; 71, 0-2 s, before; 35..105 at first), so the drill also shows an empty screen
 #define RL_DRILL_VIEW    20
+#define RL_AIM_NEAR      128            // the aim drill's (2026-11-22): any map's start, small rooms too
+#define RL_AIM_VIEW      40             // anywhere on screen (the view is 90 degrees)
 #define RL_DRILL_TRIES   24
 #define RL_DRILL_LOST    (10 * TICRATE) // no line of sight this long (stuck): replaced (2026-11-21; off screen
                                         // for 1 s, then 3 s, before -- turning away made it vanish)
@@ -1545,6 +1553,7 @@ void RL_LevelSetup(void)
     rl_graph_dirty = true;
     rl_spawn_purge = true;   // a LOAD unarchives the save's mobjs after this
     rl_drill = false;        // a LOAD ends a drill: the env sends DRILL ON again
+    rl_drill_aim = 0;
     rl_items_cmd = -1;       // and ITEMS: back to the launch flag's
     rl_items_unique = -1;
     rl_drill_mo = NULL;
@@ -1972,15 +1981,16 @@ static boolean RL_TryDrillSpawn(mobj_t *pmo)
 {
     static const mobjtype_t types[] = { MT_POSSESSED, MT_SHOTGUY, MT_TROOP, MT_SERGEANT };
     int attempt;
+    int near = rl_drill_aim ? RL_AIM_NEAR : RL_DRILL_NEAR, view = rl_drill_aim ? RL_AIM_VIEW : RL_DRILL_VIEW;
 
     for (attempt = 0; attempt < RL_DRILL_TRIES; attempt++)
     {
-        int dist = RL_DRILL_NEAR + (int) (RL_SpawnRand() % (RL_DRILL_FAR - RL_DRILL_NEAR + 1));
-        int deg = (int) (RL_SpawnRand() % (2 * RL_DRILL_VIEW + 1)) - RL_DRILL_VIEW;
+        int dist = near + (int) (RL_SpawnRand() % (RL_DRILL_FAR - near + 1));
+        int deg = (int) (RL_SpawnRand() % (2 * view + 1)) - view;
         angle_t an = pmo->angle + (angle_t) ((int64_t) deg * (ANG90 / 90));
         mobjtype_t type = types[RL_SpawnRand() % (sizeof(types) / sizeof(types[0]))];
 
-        for (; dist >= RL_DRILL_NEAR; dist = dist * 3 / 4)
+        for (; dist >= near; dist = dist * 3 / 4)
         {
             fixed_t x = pmo->x + dist * finecosine[an >> ANGLETOFINESHIFT];
             fixed_t y = pmo->y + dist * finesine[an >> ANGLETOFINESHIFT];
@@ -2021,8 +2031,31 @@ void RL_Drill(boolean on)
 {
     rl_drill = on;
     rl_drill_wait = 0;       // the first monster at once
+    rl_drill_aim = 0;        // DRILL ON AIM sets it after
     if (!on)
         rl_drill_mo = NULL;
+}
+
+// Aim drill (DRILL ON AIM <pct>, -rlenv, 2026-11-22): the combat drill's
+// monster, but it never attacks (A_Chase skips its melee and missile checks:
+// it still wakes, chases and strafes) and takes <pct>% of the player's damage
+// (at least 1), so it lives long enough to track.
+void RL_DrillAim(int pct)
+{
+    rl_drill_aim = pct < 1 ? 1 : pct > 100 ? 100 : pct;
+}
+
+boolean RL_NoAttack(mobj_t *actor)
+{
+    return rl_drill && rl_drill_aim && actor != NULL && actor == rl_drill_mo;
+}
+
+int RL_DrillDamage(mobj_t *target, int damage)
+{
+    if (!rl_drill || !rl_drill_aim || target != rl_drill_mo || damage <= 0)
+        return damage;
+    damage = damage * rl_drill_aim / 100;
+    return damage < 1 ? 1 : damage;
 }
 
 boolean RL_PracticeAcquired(mobj_t *mo)
@@ -2223,7 +2256,7 @@ static void RL_GiveKit(player_t *pl, boolean *used, int mode)
     }
 }
 
-boolean RL_GiveGun(unsigned seed, boolean kit, boolean ranged)
+boolean RL_GiveGun(unsigned seed, boolean kit, boolean ranged, boolean hitscan)
 {
     player_t *pl = &players[consoleplayer];
     int ids[64], n = 0, i, t, id;
@@ -2244,14 +2277,18 @@ boolean RL_GiveGun(unsigned seed, boolean kit, boolean ranged)
         def = D_GetItemDef(TIER_NORMAL, i);
         if (def && def->slot == ESLOT_WEAPON && def->diff_tier <= D_DifficultyTier()
             && def->doomweapon != wp_fist && def->doomweapon != wp_chainsaw
-            && def->doomweapon >= 0 && def->doomweapon < NUMWEAPONS)
+            && def->doomweapon >= 0 && def->doomweapon < NUMWEAPONS
+            && (!hitscan || def->doomweapon == wp_pistol || def->doomweapon == wp_shotgun
+                || def->doomweapon == wp_chaingun || def->doomweapon == wp_supershotgun))
             ids[n++] = D_MAKEITEM(TIER_NORMAL, i);
     }
     // Fists count as one more choice (2026-11-18): the weapon slot left
     // empty. Not with ranged (2026-11-20, the combat drill).
-    if (ranged && n == 0)
+    // HITSCAN (2026-11-22, the aim drill): pistol, shotgun, chaingun or
+    // super shotgun only, never fists.
+    if ((ranged || hitscan) && n == 0)
         return false;
-    i = (int) ((seed * 2654435761u >> 8) % (unsigned) (ranged ? n : n + 1));
+    i = (int) ((seed * 2654435761u >> 8) % (unsigned) (ranged || hitscan ? n : n + 1));
     if (i == n)
     {
         pl->diablo_equipped[ESLOT_WEAPON] = D_NOITEM;

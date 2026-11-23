@@ -190,8 +190,8 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   with none (blind firing); metrics `fire_seen` / `fire_blind`, and each
   `rollouts.jsonl` row's `fire` [steps seen, fire; unseen, fire].
   `blind_fire` (a press with no monster on screen) was deleted 2026-11-22 (-1 earlier that day; 0 from 2026-11-21;
-  -0.35, -0.5 and -1 std, -10 and -20 points before): `aim_off` alone charges a press off target. `aim` (late 2026-11-22, +10 a fire press on target, -5 off
-  (`aim_off`; -7, then -10, just before); asymmetric earlier that day: +7 on target, -3, -2, then -1 off; +-7 before), one-off; +-10 one-off before; chained at +-10, +-5, +-2, then +-0.5, before; +-0.35 std one-off, and +-0.05 and +-0.02 a tic, fire or not, earlier that day) judges each fire press made while a monster
+  -0.35, -0.5 and -1 std, -10 and -20 points before): `aim_off` alone charges a press off target. `aim` (late 2026-11-22, +-10 a fire press on target / off
+  (`aim_off`; -5 before, then -7, then -10, just before that); asymmetric earlier that day: +7 on target, -3, -2, then -1 off; +-7 before), one-off; +-10 one-off before; chained at +-10, +-5, +-2, then +-0.5, before; +-0.35 std one-off, and +-0.05 and +-0.02 a tic, fire or not, earlier that day) judges each fire press made while a monster
   is in line of sight in the state it acted on: + with the crosshair on a monster (the engine's
   `aim_on`, Doom's autoaim probes), - without; hitscan guns only (a projectile has to lead);
   metrics `fire_on` / `fire_off`, the press rate in those states on and off target, and each
@@ -309,6 +309,10 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
 - **Rollout types** (2026-11-20, `--mix`: groups per type,
   adding up to `--groups`): `combat`, the combat drill (the drill maps, one awake monster
   ahead at a time, never fists, every sector visited from the start so only fighting pays);
+  `aim` (2026-11-22), the aim drill (the combat drill with a hitscan gun -- pistol, shotgun,
+  chaingun or super shotgun -- and a monster that never attacks and takes
+  `EnvConfig.aim_drill_damage` (10) % damage, so it lives long enough to track; it plays
+  every training map, `--maps`, not the drill maps);
   `waypoint`, the waypoint drill (the drill maps,
   endless waypoints, frequent practice items, half uniques); `maze` (rotating maps, monsters
   hidden, no waypoints); `mixed` (rotating maps, monsters and waypoints). Every type has the

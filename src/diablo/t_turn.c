@@ -2614,6 +2614,15 @@ static void cmd_dispatch_one(const char *cmd)
         // drill groups (RL_Drill).
         RL_Drill(cmd[7] == 'N');
     }
+    else if (rlenv && !strncmp(cmd, "DRILL ON AIM", 12))
+    {
+        // DRILL ON AIM [pct] (-rlenv, 2026-11-22): the aim drill (RL_DrillAim):
+        // the drill's monster never attacks and takes pct% damage (10).
+        int pct = 10;
+        sscanf(cmd + 12, "%d", &pct);
+        RL_Drill(true);
+        RL_DrillAim(pct);
+    }
     else if (rldrive && !strncmp(cmd, "GIVEGUN ", 8))
     {
         // GIVEGUN <seed> [KIT] (-rlenv, and -rldrive for eval.py --iwad;
@@ -2622,7 +2631,8 @@ static void cmd_dispatch_one(const char *cmd)
         // never fists, for the combat drill).
         unsigned seed;
         if (sscanf(cmd + 8, "%u", &seed) == 1)
-            RL_GiveGun(seed, strstr(cmd + 8, "KIT") != NULL, strstr(cmd + 8, "RANGED") != NULL);
+            RL_GiveGun(seed, strstr(cmd + 8, "KIT") != NULL, strstr(cmd + 8, "RANGED") != NULL,
+                       strstr(cmd + 8, "HITSCAN") != NULL);   // HITSCAN (2026-11-22): the aim drill's
     }
     else if (!strcmp(cmd, "VERSION"))
     {

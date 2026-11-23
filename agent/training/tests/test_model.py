@@ -440,8 +440,9 @@ def test_parse_mix():
     """--mix: groups per rollout type, every type present (0 when left
     out); an unknown type or a bad count stops."""
     from model import parse_mix
-    assert parse_mix("combat=2,waypoint=2,maze=2,mixed=2") == {"combat": 2, "waypoint": 2, "maze": 2, "mixed": 2}
-    assert parse_mix("combat=8") == {"combat": 8, "waypoint": 0, "maze": 0, "mixed": 0}
+    assert parse_mix("combat=2,waypoint=2,maze=2,mixed=2") == {"combat": 2, "aim": 0, "waypoint": 2, "maze": 2, "mixed": 2}
+    assert parse_mix("combat=8") == {"combat": 8, "aim": 0, "waypoint": 0, "maze": 0, "mixed": 0}
+    assert parse_mix("combat=4,aim=4")["aim"] == 4
     for bad in ("combat=x", "drill=2", "combat=0"):
         with pytest.raises(SystemExit):
             parse_mix(bad)

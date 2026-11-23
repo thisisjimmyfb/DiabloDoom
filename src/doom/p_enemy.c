@@ -714,6 +714,10 @@ void A_Chase (mobj_t*	actor)
 	return;
     }
     
+    // -rlenv aim drill (2026-11-22): its monster chases but never attacks.
+    if (RL_NoAttack(actor))
+	goto nomissile;
+
     // check for melee attack
     if (actor->info->meleestate
 	&& P_CheckMeleeRange (actor))

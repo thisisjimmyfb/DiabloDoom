@@ -44,7 +44,8 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from model import (Frontier, MapRotation, TicBudget, add_env_args, capture_dirs, check_slots, drill_pairs, parse_mix,
+from model import (Frontier, MapRotation, TicBudget, add_env_args, all_pairs, capture_dirs, check_slots, drill_pairs,
+                   parse_mix,
                    FREE_CORES, available_cores, default_groups, env_label, move_groups,
                    pick_eval_maps, resolve_maps,
                    iwad_label, run_env, resolve_iwads, rng_state,
@@ -126,10 +127,15 @@ def main():
     n_envs = G * groups
     check_slots(iwads, slots)
     rot_types = [t for t in ("maze", "mixed") for _ in range(mix[t])]
-    drill_types = [t for t in ("combat", "waypoint") for _ in range(mix[t])]
+    drill_types = [t for t in ("combat", "aim", "waypoint") for _ in range(mix[t])]
     group_types = rot_types + drill_types
     dpairs = drill_pairs(iwads)            # the drill maps (model.DRILL_MAPS)
-    if drill_types and not dpairs:
+    # The aim drill (2026-11-22): every training map (--maps; 'all' for every
+    # map), shuffled once, not only the drill maps (all drills did before).
+    apairs = all_pairs(iwads, maps)
+    apairs = [apairs[i] for i in np.random.default_rng(args.map_seed + 1).permutation(len(apairs))]
+    pairs_of = {"combat": dpairs, "waypoint": dpairs, "aim": apairs}
+    if any(t != "aim" for t in drill_types) and not dpairs:
         raise SystemExit(f"--mix {args.mix}: the drills need an IWAD with drill maps in --iwads (model.DRILL_MAPS: DOOM, FREEDOOM1)")
     D = len(drill_types)
     n_reg_groups, n_reg = groups - D, G * (groups - D)
@@ -187,7 +193,8 @@ def main():
         """Each drill group's (iwad, warp) at batch `it`: the drill maps in
         turn, moving on one every --rotate-every batches."""
         r = it // args.rotate_every if args.rotate_every else 0
-        return [dpairs[(d + r) % len(dpairs)] for d in range(D)] if D else []
+        # return [dpairs[(d + r) % len(dpairs)] for d in range(D)] if D else []   (before the aim drill's maps)
+        return [pairs_of[t][(d + r) % len(pairs_of[t])] for d, t in enumerate(drill_types)]
     drill_now = drill_at(start_it)
     env_pairs = [group_pairs[i // G] for i in range(n_reg)] + [drill_now[i // G] for i in range(n_envs - n_reg)]
     replays = run_dir / "replays"
@@ -204,7 +211,8 @@ def main():
     if D:
         vec.call(list(range(n_reg, n_envs)), "set_max_tics", (args.drill_tics,))
     print(f"[train] groups by type: {mix}" + (f"; the drills rotate over "
-          f"{[env_label(w, m, iwads) for w, m in dpairs]}, {args.drill_tics} tics a rollout" if D else ""))
+          f"{[env_label(w, m, iwads) for w, m in dpairs]} (aim: {len(apairs)} training maps), "
+          f"{args.drill_tics} tics a rollout" if D else ""))
 
     eval_busy = False   # an eval was interrupted: its games still have requests in flight
 

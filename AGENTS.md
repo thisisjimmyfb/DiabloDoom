@@ -224,7 +224,9 @@ a monster last began an attack on the player (`A_FaceTarget`, the first action o
 attack state; practice and hidden monsters don't count; -1 none since the level or save
 loaded), the env's combat test for its turn penalty, and (2026-11-21) `aim_on`, a hitscan shot
 now would be aimed at a living monster (`P_BulletSlope`'s three autoaim probes, 1024 units;
-practice and hidden monsters don't count), the env's aim reward, and (2026-11-22) `aim_streak`, the consecutive tics
+2026-11-23: the facing probe alone with the pistol or chaingun, whose single bullet flies along
+the facing -- the side probes, 1<<26 either side, only set a spread shot's slope; practice and
+hidden monsters don't count), the env's aim reward, and (2026-11-22) `aim_streak`, the consecutive tics
 those probes found the same living monster (anything else in the way, a skipped tic or a level load restarts it; 0 off
 target), the env's track reward -- reward shaping only, never
 a policy input, so the 2026-10-21 no-oracle ruling for the farm agent
@@ -303,14 +305,19 @@ the best piece of any tier, never one with vitality (max HP stays 100):
 fists the most armour in helm, armour and shield and the most strength
 elsewhere, an AD gun the most AD, an AP gun the most AP (a flat point
 counted as 5%); `GIVEGUN <seed> ... RANGED` (2026-11-20) never picks fists (the
-combat drill's: no melee there); the env sends it (with KIT, `EnvConfig.gun_kit`) at
+combat drill's: no melee there); `GIVEGUN <seed> ... HITSCAN` (2026-11-22) picks only the
+pistol, shotgun, chaingun or super shotgun (the aim drill's); the env sends it (with KIT, `EnvConfig.gun_kit`) at
 every rollout's start. `DRILL ON` / `DRILL OFF` (`-rlenv`, 2026-11-20,
 `RL_Drill`): the training env's combat drill keeps one awake monster (zombieman,
 shotgun guy, imp or demon) 320-768 units ahead (192-768 at first, then 192-512) within
-20 degrees of the facing, in sight, targeting the player; the next one 0-70 tics after
-a kill (at once at first), and one with no line of sight to the player for 10 s (stuck) is
+20 degrees of the facing, in sight, targeting the player; the next one 0-175 tics (0-5 s) after
+a kill (0-70 before, late 2026-11-22; at once at first), and one with no line of sight to the player for 10 s (stuck) is
 replaced at once (2026-11-21; off screen for 1 s, then 3 s, before: turning away made it vanish); a normal monster, not a practice one; a
-LOAD ends the drill. `ITEMS <period> [unique %]` (`-rlenv`, 2026-11-20, `RL_Items`):
+LOAD ends the drill. `DRILL ON AIM [pct]` (2026-11-22, `RL_DrillAim`): the aim drill, the same
+drill but its monster never attacks (`RL_NoAttack`: `A_Chase` skips its melee and missile
+checks) and takes pct % (default 10, at least 1) of the player's damage (`RL_DrillDamage`, after the
+Diablo damage in `P_DamageMobj`), spawned 128-768 units ahead within 40 degrees (any map's
+start room); `DRILL ON` / `OFF` and a LOAD turn it off. `ITEMS <period> [unique %]` (`-rlenv`, 2026-11-20, `RL_Items`):
 practice items for this rollout in place of `-rlitems` (mean tics between them, 0 none;
 uniques that share, the other tiers splitting the rest), placed on the way to the waypoint
 when it is on screen (else to a portal, as before); a LOAD ends it. Every CONSULT shows `CMD CONSULT` (`CONSULT` before 2026-11-18) as the status message
