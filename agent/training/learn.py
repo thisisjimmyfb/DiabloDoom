@@ -459,6 +459,12 @@ def train_metrics(recs: list[dict], n_groups: int, collapsed: int) -> dict:
         m["fire_on"] = float(ast[1] / ast[0])      # P(fire | crosshair on a monster)
     if ast[2]:
         m["fire_off"] = float(ast[3] / ast[2])     # P(fire | crosshair off)
+    # Projectiles (2026-11-22): split out of hit, which became hitscan only;
+    # proj is monsters hit per projectile fired (splash can hit several).
+    pst = np.sum([r.get("proj_stats", [0, 0, 0]) for r in recs], axis=0)
+    m["proj_fired"], m["proj_hits"] = int(pst[0]), int(pst[2])
+    m["hitscan_shots"] = m["shots"] - int(pst[0])
+    m["hitscan_hits"] = m["hits"] - int(pst[1])
     if any("frontier" in r for r in recs):
         m["frontier_share"] = float(np.mean([bool(r.get("frontier")) for r in recs]))
     if recs and recs[0].get("frontier_saved"):
@@ -480,7 +486,10 @@ def print_train(it: int, m: dict, upd: dict, extra: str = "") -> None:
           + (f" wp {m['waypoints_reached'] / m['waypoints_set']:.2f}" if m.get("waypoints_set") else "")
           + (f" consult {m.get('consult_trig', 0):.3f}/{m['consult_idle']:.3f}" if "consult_idle" in m else "")
           + (f" items {m['items_picked'] / m['items_spawned']:.2f}" if m.get("items_spawned") else "")
-          + (f" kills {m['kills']} hit {m['hits'] / m['shots']:.2f}" if m.get("shots") else "")
+          + (f" kills {m['kills']}" if m.get("shots") else "")
+          # + (f" hit {m['hits'] / m['shots']:.2f}" ...) before 2026-11-22: projectiles too
+          + (f" hit {m['hitscan_hits'] / m['hitscan_shots']:.2f}" if m.get("hitscan_shots") else "")
+          + (f" proj {m['proj_hits'] / m['proj_fired']:.2f}" if m.get("proj_fired") else "")
           + (f" aim {m.get('fire_on', 0):.2f}/{m.get('fire_off', 0):.2f}" if "fire_on" in m or "fire_off" in m else "")
           + (f" dead {upd['dead_units']:.2f}" if "dead_units" in upd else "")
           + (" cos min {} {:.3f}".format(*min(upd["term_cos"].items(), key=lambda kv: kv[1]))

@@ -190,14 +190,14 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   with none (blind firing); metrics `fire_seen` / `fire_blind`, and each
   `rollouts.jsonl` row's `fire` [steps seen, fire; unseen, fire].
   `blind_fire` (a press with no monster on screen) was deleted 2026-11-22 (-1 earlier that day; 0 from 2026-11-21;
-  -0.35, -0.5 and -1 std, -10 and -20 points before): `aim_off` alone charges a press off target. `aim` (late 2026-11-22, +-10 a fire press, symmetric again
-  (`aim_off` -10); asymmetric earlier that day: +7 on target, -3, -2, then -1 off; +-7 before), one-off; +-10 one-off before; chained at +-10, +-5, +-2, then +-0.5, before; +-0.35 std one-off, and +-0.05 and +-0.02 a tic, fire or not, earlier that day) judges each fire press made while a monster
+  -0.35, -0.5 and -1 std, -10 and -20 points before): `aim_off` alone charges a press off target. `aim` (late 2026-11-22, +10 a fire press on target, -5 off
+  (`aim_off`; -7, then -10, just before); asymmetric earlier that day: +7 on target, -3, -2, then -1 off; +-7 before), one-off; +-10 one-off before; chained at +-10, +-5, +-2, then +-0.5, before; +-0.35 std one-off, and +-0.05 and +-0.02 a tic, fire or not, earlier that day) judges each fire press made while a monster
   is in line of sight in the state it acted on: + with the crosshair on a monster (the engine's
   `aim_on`, Doom's autoaim probes), - without; hitscan guns only (a projectile has to lead);
   metrics `fire_on` / `fire_off`, the press rate in those states on and off target, and each
-  `rollouts.jsonl` row's `aim` [steps on, fire; off, fire] (2026-11-22). `track` (2026-11-22, +2 a step, +1 at first that day;
+  `rollouts.jsonl` row's `aim` [steps on, fire; off, fire] (2026-11-22). `track` (2026-11-22, +5 a step; +3, +2, then +1, earlier that day;
   one-off) pays each step before an on-target press that kept the crosshair on that same monster
-  (the engine's `aim_streak`; a wall or another monster in the way restarts it), at most 10 (20 a press; 6 at first), each
+  (the engine's `aim_streak`; a wall or another monster in the way restarts it), no limit (10, then 6, earlier that day), each
   step once, credited back to those steps. `proj` (2026-11-21,
   one-off since 2026-11-22, credited back to the step that pulled the trigger via
   `info["reward_back"]`; chained before): when a player projectile is gone (the engine's `proj_end`), +6.25 per monster it damaged

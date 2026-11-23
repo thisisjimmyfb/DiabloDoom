@@ -144,6 +144,7 @@ def run_rollouts(vec: GroupVecEnv, policy: Policy, device: torch.device,
         r["consult_stats"] = list(r["end_info"].get("consult_stats", [0, 0, 0, 0]))
         r["fire_stats"] = list(r["end_info"].get("fire_stats", [0, 0, 0, 0]))   # [steps seen, fire; unseen, fire]
         r["aim_stats"] = list(r["end_info"].get("aim_stats", [0, 0, 0, 0]))     # [steps on target, fire; off, fire]
+        r["proj_stats"] = list(r["end_info"].get("proj_stats", [0, 0, 0]))      # [fired, hitting any, monsters hit]
     return recs
 
 
@@ -177,6 +178,7 @@ def rollout_log_rows(recs: list[dict], options: list[dict], labels: list[str], *
             "mode": s1.get("mode"), "keys": s1.get("keys"), "items": r.get("items"),
             "waypoints": r.get("waypoints"),
             "combat": r.get("combat"), "type": r.get("type"), "fire": r.get("fire_stats"), "aim": r.get("aim_stats"),
+            "proj": r.get("proj_stats"),
             "actions": dict(zip(ACTIONS, acts.tolist())),
             "wall_start": _clock(r["wall_start"]) if "wall_start" in r else None,
             "wall_end": _clock(r["wall_end"]) if "wall_end" in r else None,

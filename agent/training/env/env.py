@@ -292,17 +292,17 @@ class RewardConfig:
     # press's credit; one-off at 0.35 std for part of 2026-11-21, chained
     # before that, then every tic, fire or not, at 0.05 and 0.02 points).
     aim: float = 10.0                 # 7.0 earlier 2026-11-22; 10.0 before that (one-off: firing fell to 3%, on and off target); chained at 10, 5, 2, 0.5 before
-    # Off target: symmetric again (late 2026-11-22), breaking even at 1/2 on
-    # target; asymmetric earlier that day (-3, -2, -1: at -1, 1/8, firing spammed) (a fresh policy's ~9% made symmetric +-7 cost about -5.7 a press).
-    aim_off: float = -10.0            # -3.0, -2.0, then -1.0, earlier 2026-11-22 (at -1 firing spammed, on and off target alike); -aim (-7.0) before
+    # Off target: breaking even at 1/3 on target (late 2026-11-22; -7, 7/17,
+    # and -10, symmetric, 1/2, just before; -3, -2, -1 earlier that day: at -1, 1/8, firing spammed) (a fresh policy's ~9% made symmetric +-7 cost about -5.7 a press).
+    aim_off: float = -5.0             # -7.0, then -10.0, just before; -3.0, -2.0, then -1.0, earlier 2026-11-22 (at -1 firing spammed, on and off target alike); -aim (-7.0) before
     # Tracking (2026-11-22): an on-target press (as aim pays) also pays track
     # to each step before it that kept the crosshair on that same monster
     # (the engine's aim_streak: a wall or another monster in the way, or a
     # skipped tic, restarts it), credited back to those steps; at most
-    # track_tics of them, and each step once (a press after a press credits
+    # track_tics of them (0: no limit), and each step once (a press after a press credits
     # only the steps since). One-off.
-    track: float = 2.0                # 1.0 earlier 2026-11-22
-    track_tics: int = 10              # at most 20 a press; 6 earlier 2026-11-22
+    track: float = 5.0                # 3.0, 2.0, then 1.0, earlier 2026-11-22
+    track_tics: int = 0               # 0: no limit (late 2026-11-22); 10, then 6, earlier that day
     # Projectiles (2026-11-21): when a rocket, plasma bolt or BFG ball the
     # player fired is gone (the engine's proj_end), proj_hit for each monster
     # it damaged (direct or splash, once each: a rocket into 5 monsters pays
@@ -508,6 +508,7 @@ class DiabloDoomEnv(gym.Env):
         self._view_share = 0.0
         self._fire_stats = [0, 0, 0, 0]
         self._aim_stats = [0, 0, 0, 0]       # hitscan, monster in sight: [on target, fire; off, fire]
+        self._proj_stats = [0, 0, 0]         # projectiles: [fired, ended hitting any, monsters hit]
         self._nstep, self._proj_step = 0, {}
         self._track_paid = -1             # the last step track credited (or passed over)
         self._deaths, self._gun_line = 0, None
@@ -713,6 +714,7 @@ class DiabloDoomEnv(gym.Env):
         # them; steps without, fire presses on them.
         self._fire_stats = [0, 0, 0, 0]
         self._aim_stats = [0, 0, 0, 0]       # hitscan, monster in sight: [on target, fire; off, fire]
+        self._proj_stats = [0, 0, 0]         # projectiles: [fired, ended hitting any, monsters hit]
         self._track_paid = -1
         self._deaths = 0
         self._nstep, self._proj_step = 0, {}  # steps so far; a projectile's fired gametic -> the step that fired it
@@ -942,6 +944,7 @@ class DiabloDoomEnv(gym.Env):
                 self._combat_stats[0] += 1
                 self._combat_stats[1] += bool(e.get("hit"))
                 if e.get("proj"):         # pulled by the step before (the press acts a tic late)
+                    self._proj_stats[0] += 1
                     self._proj_step[int(e.get("gametic", -1))] = max(step_i - 1, 0)
             if e.get("event") == "proj_end":
                 # RewardConfig.proj_hit / proj_miss: once the projectile is gone,
@@ -950,6 +953,8 @@ class DiabloDoomEnv(gym.Env):
                 # engine without fired) on this step.
                 n = int(e.get("hits", 0))
                 self._combat_stats[1] += n > 0
+                self._proj_stats[1] += n > 0
+                self._proj_stats[2] += n
                 v = rc.proj_hit * n if n else rc.proj_miss
                 j = self._proj_step.pop(e.get("fired"), None)
                 if j is None:
@@ -1026,7 +1031,9 @@ class DiabloDoomEnv(gym.Env):
                 add("aim", rc.aim if on else rc.aim_off)    # -rc.aim before
             # Track (RewardConfig.track): the steps that held this target.
             if a in FIRES and on and rc.track:
-                n = min(int(prev.get("aim_streak", 0)), step_i - 1 - self._track_paid, rc.track_tics)
+                n = min(int(prev.get("aim_streak", 0)), step_i - 1 - self._track_paid)
+                if rc.track_tics > 0:
+                    n = min(n, rc.track_tics)
                 back.extend([k, "track", rc.track] for k in range(1, n + 1))
         if a in FIRES:
             self._track_paid = step_i - 1     # steps up to the press's are spent
@@ -1047,6 +1054,7 @@ class DiabloDoomEnv(gym.Env):
         info["consult_stats"] = list(self._consult_stats)
         info["fire_stats"] = list(self._fire_stats)
         info["aim_stats"] = list(self._aim_stats)
+        info["proj_stats"] = list(self._proj_stats)
         # on (a drill counts: it fights), shots, hits, kills, damage
         info["combat"] = [int(self._combat_on or self._drill)] + list(self._combat_stats)
         info["type"] = self._type

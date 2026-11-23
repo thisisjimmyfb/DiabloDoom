@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import time
 
@@ -1382,6 +1383,11 @@ def test_track():
     assert backs[5] == [], backs                  # off target: nothing
     assert backs[6] == [1], backs                 # a new streak of 1
     assert backs[14] == [1, 2, 3, 4, 5, 6], backs   # 8 steps since, a streak of 8: capped at 6
+    # track_tics 0: no limit, the whole streak since the last press.
+    e = _fake_explore(dataclasses.replace(only, track_tics=0), states)
+    for x in acts:
+        _, _, _, _, info = e.step(ACTIONS.index(x))
+    assert [k for k, name, v in info["reward_back"] if name == "track"] == list(range(1, 9))
     assert "track" in RewardConfig().immediate
 
 
@@ -1413,6 +1419,7 @@ def test_proj():
     assert got == [0.0, 0.0, 0.0, 0.0, 2.0], got
     assert backs == [[], [], [], [[3, "proj", 6.0]], [[3, "proj", -1.0]]], backs
     assert e._combat_stats[1] == 2
+    assert info["proj_stats"] == [2, 2, 4], info["proj_stats"]   # fired, hitting any, monsters hit
     assert "proj" in RewardConfig().immediate and "aim" in RewardConfig().immediate
 
 
