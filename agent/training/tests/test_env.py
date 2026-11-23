@@ -1398,28 +1398,30 @@ def test_proj():
     2026-11-22, credited back to the step that pulled the trigger (the step
     before its shot event: the press acts a tic late) through
     info["reward_back"]; a proj_end with no known shot pays on its own step.
+    One that hurt its shooter costs proj_self instead (2026-11-23).
     Engine faked."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
                         fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0, range=0, turn=0,
-                        damage=0, kill=0, view=0, aim=0, proj_hit=2.0, proj_miss=-1.0)
+                        damage=0, kill=0, view=0, aim=0, proj_hit=2.0, proj_miss=-1.0, proj_self=-5.0)
 
     def at(events):
         return {"mode": "EXPLORE", "hp": 100, "tics": 1, "x": 0, "y": 0, "monstervis": True}, events
     shot = lambda g: {"event": "shot", "hit": False, "proj": True, "gametic": g}
-    end = lambda n, g=None: {"event": "proj_end", "hits": n, "type": 33, **({} if g is None else {"fired": g})}
+    end = lambda n, g=None, me=0: {"event": "proj_end", "hits": n, "self": me, "type": 33, **({} if g is None else {"fired": g})}
     # Step 1's shot was pulled by step 0, step 2's by step 1. They end on steps
-    # 3 (3 monsters) and 4 (none); an unknown one ends on step 4 too.
-    e = _fake_explore(only, [at([]), at([shot(10)]), at([shot(11)]), at([end(3, 10)]), at([end(0, 11), end(1)])])
+    # 3 (3 monsters) and 4 (2, but it hurt the player: proj_self alone, 2026-11-23);
+    # an unknown one ends on step 4 too.
+    e = _fake_explore(only, [at([]), at([shot(10)]), at([shot(11)]), at([end(3, 10)]), at([end(2, 11, me=1), end(1)])])
     got, backs = [], []
     for _ in range(5):
         _, r, _, _, info = e.step(ACTIONS.index("PRESS L"))
         got.append(r)
         backs.append(info["reward_back"])
     assert got == [0.0, 0.0, 0.0, 0.0, 2.0], got
-    assert backs == [[], [], [], [[3, "proj", 6.0]], [[3, "proj", -1.0]]], backs
-    assert e._combat_stats[1] == 2
-    assert info["proj_stats"] == [2, 2, 4], info["proj_stats"]   # fired, hitting any, monsters hit
+    assert backs == [[], [], [], [[3, "proj", 6.0]], [[3, "proj", -5.0]]], backs
+    assert e._combat_stats[1] == 3
+    assert info["proj_stats"] == [2, 3, 6], info["proj_stats"]   # fired, hitting any, monsters hit
     assert "proj" in RewardConfig().immediate and "aim" in RewardConfig().immediate
 
 

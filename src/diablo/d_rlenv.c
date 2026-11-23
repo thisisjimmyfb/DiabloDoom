@@ -1542,6 +1542,7 @@ static struct
     mobj_t *mo;
     int n;
     int fired;                       // gametic it was spawned on (proj_end's fired)
+    int self;                        // it hurt its own shooter (proj_end's self, 2026-11-23)
     mobj_t *vict[RL_PROJVICT];
 } rl_proj[RL_MAXPROJ];
 
@@ -2121,6 +2122,7 @@ void RL_ProjSpawn(mobj_t *mo)
             rl_proj[i].mo = mo;
             rl_proj[i].n = 0;
             rl_proj[i].fired = gametic;
+            rl_proj[i].self = 0;
             return;
         }
 }
@@ -2142,14 +2144,29 @@ void RL_ProjHit(mobj_t *inflictor, mobj_t *target)
         }
 }
 
+// The player's own projectile hurt the player (direct or splash; 2026-11-23,
+// the env's proj_self penalty).
+void RL_ProjSelf(mobj_t *inflictor)
+{
+    int i;
+    if (inflictor == NULL)
+        return;
+    for (i = 0; i < RL_MAXPROJ; i++)
+        if (rl_proj[i].mo == inflictor)
+        {
+            rl_proj[i].self = 1;
+            return;
+        }
+}
+
 void RL_ProjEnd(mobj_t *mo)
 {
     int i;
     for (i = 0; i < RL_MAXPROJ; i++)
         if (rl_proj[i].mo == mo)
         {
-            RL_Emit("{\"event\":\"proj_end\",\"hits\":%d,\"type\":%d,\"fired\":%d,\"gametic\":%d}",
-                    rl_proj[i].n, (int) mo->type, rl_proj[i].fired, gametic);
+            RL_Emit("{\"event\":\"proj_end\",\"hits\":%d,\"self\":%d,\"type\":%d,\"fired\":%d,\"gametic\":%d}",
+                    rl_proj[i].n, rl_proj[i].self, (int) mo->type, rl_proj[i].fired, gametic);
             rl_proj[i].mo = NULL;
             return;
         }

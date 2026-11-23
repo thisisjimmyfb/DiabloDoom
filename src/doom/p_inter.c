@@ -1450,6 +1450,9 @@ P_DamageMobj
     // god mode, block, dodge, resistance or armour change the amount.
     if (player != NULL && damage > 0)
         RL_PlayerHurt(inflictor, source, damage);
+    // -rlenv: the player's own projectile (2026-11-23, the env's proj_self).
+    if (player != NULL && damage > 0 && source == target)
+        RL_ProjSelf(inflictor);
     // Debug: log when the player takes damage (turn-based investigation).
     if (player != NULL && damage > 0)
     {

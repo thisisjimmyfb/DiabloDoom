@@ -314,6 +314,10 @@ class RewardConfig:
     # the step it ended, before).
     proj_hit: float = 6.25            # 2.5 before (2026-11-21)
     proj_miss: float = -2.5           # -1.0 before (2026-11-21)
+    # Self-hit (2026-11-23): proj_self in place of proj_hit / proj_miss when the
+    # projectile hurt the player who fired it (direct or splash; the engine's
+    # proj_end self), whatever it hit besides.
+    proj_self: float = -25.0
     # One-off terms (2026-11-17): they judge only the step's own action,
     # so the learner adds them to that step's advantage alone instead of
     # summing them into every earlier step's reward-to-go
@@ -960,7 +964,8 @@ class DiabloDoomEnv(gym.Env):
                 self._combat_stats[1] += n > 0
                 self._proj_stats[1] += n > 0
                 self._proj_stats[2] += n
-                v = rc.proj_hit * n if n else rc.proj_miss
+                v = rc.proj_self if e.get("self") else rc.proj_hit * n if n else rc.proj_miss
+                # v = rc.proj_hit * n if n else rc.proj_miss   (before 2026-11-23)
                 j = self._proj_step.pop(e.get("fired"), None)
                 if j is None:
                     add("proj", v)

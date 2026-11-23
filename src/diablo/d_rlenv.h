@@ -164,6 +164,7 @@ void RL_PlayerHurt(struct mobj_s *inflictor, struct mobj_s *source, int damage);
 // the gametic it was fired on (fired, 2026-11-22: the shot event's).
 void RL_ProjSpawn(struct mobj_s *mo);
 void RL_ProjHit(struct mobj_s *inflictor, struct mobj_s *target);
+void RL_ProjSelf(struct mobj_s *inflictor);   // it hurt its shooter: proj_end's self (2026-11-23)
 void RL_ProjEnd(struct mobj_s *mo);
 
 // MONSTERS HIDE / SHOW (2026-11-18): every living map monster out of
