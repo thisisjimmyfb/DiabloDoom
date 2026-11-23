@@ -91,7 +91,11 @@ def _rew_now(r: dict) -> np.ndarray:
 CONFLICT_MERGE = {"waypoint_time": "time"}
 # Pairs the conflict check never reports (2026-11-21): a hit is one kind or
 # the other, so these two always trade off within a fight -- not a conflict.
-CONFLICT_SKIP = {frozenset(("hit_avoidable", "hit_unavoidable"))}
+# health|hit_avoidable too (2026-11-23): a health pickup follows a hurt, so
+# within a rollout the two always pull apart (the aim drill stopped on it).
+CONFLICT_SKIP = {frozenset(("hit_avoidable", "hit_unavoidable")),
+                 frozenset(("health", "hit_avoidable"))}
+# CONFLICT_SKIP = {frozenset(("hit_avoidable", "hit_unavoidable"))}   (before 2026-11-23)
 
 
 def term_advantages(groups: list[list[dict]], mode: str, advs: list[np.ndarray | None],
