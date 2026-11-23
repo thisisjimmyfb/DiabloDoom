@@ -2623,6 +2623,25 @@ static void cmd_dispatch_one(const char *cmd)
         RL_Drill(true);
         RL_DrillAim(pct);
     }
+    else if (rlenv && !strncmp(cmd, "DRILL ON PROJ", 13))
+    {
+        // DRILL ON PROJ [pct] [self] (-rlenv, 2026-11-23): the proj drill (RL_DrillProj):
+        // 5 monsters (10 before) that never attack, far off; pct% damage (1000, 10x, for crowd control; 10, 100, 10000 before),
+        // self% of the player's to itself (1; pct before).
+        int pct = 1000, self = 1;
+        sscanf(cmd + 13, "%d %d", &pct, &self);
+        RL_Drill(true);
+        RL_DrillProj(pct, self);
+    }
+    else if (rlenv && !strcmp(cmd, "DRILLDIST"))
+        RL_DrillDist();   // DRILLDIST (-rlenv, 2026-11-23): the proj drill maps' crowd test
+    else if (rlenv && !strncmp(cmd, "OPENSPACE", 9))
+    {
+        // OPENSPACE [samples] (-rlenv, 2026-11-23): the proj drill's map scan (RL_OpenSpace).
+        int samples = 1000;
+        sscanf(cmd + 9, "%d", &samples);
+        RL_OpenSpace(samples < 1 ? 1 : samples > 100000 ? 100000 : samples);
+    }
     else if (rldrive && !strncmp(cmd, "GIVEGUN ", 8))
     {
         // GIVEGUN <seed> [KIT] (-rlenv, and -rldrive for eval.py --iwad;
@@ -2632,7 +2651,8 @@ static void cmd_dispatch_one(const char *cmd)
         unsigned seed;
         if (sscanf(cmd + 8, "%u", &seed) == 1)
             RL_GiveGun(seed, strstr(cmd + 8, "KIT") != NULL, strstr(cmd + 8, "RANGED") != NULL,
-                       strstr(cmd + 8, "HITSCAN") != NULL);   // HITSCAN (2026-11-22): the aim drill's
+                       strstr(cmd + 8, "HITSCAN") != NULL,    // HITSCAN (2026-11-22): the aim drill's
+                       strstr(cmd + 8, "PROJ") != NULL);      // PROJ (2026-11-23): the proj drill's
     }
     else if (!strcmp(cmd, "VERSION"))
     {

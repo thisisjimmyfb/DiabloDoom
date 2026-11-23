@@ -440,9 +440,20 @@ def test_parse_mix():
     """--mix: groups per rollout type, every type present (0 when left
     out); an unknown type or a bad count stops."""
     from model import parse_mix
-    assert parse_mix("combat=2,waypoint=2,maze=2,mixed=2") == {"combat": 2, "aim": 0, "waypoint": 2, "maze": 2, "mixed": 2}
-    assert parse_mix("combat=8") == {"combat": 8, "aim": 0, "waypoint": 0, "maze": 0, "mixed": 0}
+    assert parse_mix("combat=2,waypoint=2,maze=2,mixed=2") == {"combat": 2, "aim": 0, "proj": 0, "waypoint": 2, "maze": 2, "mixed": 2}
+    assert parse_mix("combat=8") == {"combat": 8, "aim": 0, "proj": 0, "waypoint": 0, "maze": 0, "mixed": 0}
     assert parse_mix("combat=4,aim=4")["aim"] == 4
+    assert parse_mix("proj=8")["proj"] == 8
     for bad in ("combat=x", "drill=2", "combat=0"):
         with pytest.raises(SystemExit):
             parse_mix(bad)
+
+
+def test_proj_pairs():
+    """The proj drill's maps (2026-11-23): PROJ_MAPS of the IWADs in use,
+    minus the session's held-out eval maps."""
+    from model import PROJ_MAPS, proj_pairs
+    pairs = proj_pairs(["/w/DOOM.WAD", "/w/FREEDOOM1.WAD"], skip=["1 2"])
+    assert ("/w/DOOM.WAD", "1 2") not in pairs and ("/w/DOOM.WAD", "4 2") in pairs
+    assert len(pairs) == len(PROJ_MAPS["DOOM"]) - 1 + len(PROJ_MAPS["FREEDOOM1"])
+    assert proj_pairs([None]) == []

@@ -304,7 +304,7 @@ and for the BFG Mara's Kaleidoscope +8 as well); `GIVEGUN <seed> KIT`
 the best piece of any tier, never one with vitality (max HP stays 100):
 fists the most armour in helm, armour and shield and the most strength
 elsewhere, an AD gun the most AD, an AP gun the most AP (a flat point
-counted as 5%); `GIVEGUN <seed> ... RANGED` (2026-11-20) never picks fists (the
+counted as 5%), the BFG (2026-11-23) the most haste, flat cooldown reduction and Energy (its reload), AP after; `GIVEGUN <seed> ... RANGED` (2026-11-20) never picks fists (the
 combat drill's: no melee there); `GIVEGUN <seed> ... HITSCAN` (2026-11-22) picks only the
 pistol, shotgun, chaingun or super shotgun (the aim drill's); the env sends it (with KIT, `EnvConfig.gun_kit`) at
 every rollout's start. `DRILL ON` / `DRILL OFF` (`-rlenv`, 2026-11-20,
@@ -317,7 +317,16 @@ LOAD ends the drill. `DRILL ON AIM [pct]` (2026-11-22, `RL_DrillAim`): the aim d
 drill but its monster never attacks (`RL_NoAttack`: `A_Chase` skips its melee and missile
 checks) and takes pct % (default 10, at least 1) of the player's damage (`RL_DrillDamage`, after the
 Diablo damage in `P_DamageMobj`), spawned 128-768 units ahead within 40 degrees (any map's
-start room); `DRILL ON` / `OFF` and a LOAD turn it off. `ITEMS <period> [unique %]` (`-rlenv`, 2026-11-20, `RL_Items`):
+start room); `DRILL ON` / `OFF` and a LOAD turn it off (2026-11-23: a drill monster is registered
+before its see state is set, so its first `A_Chase` can't attack either). `DRILL ON PROJ [pct] [self]` (2026-11-23,
+`RL_DrillProj`): the proj drill, the aim drill's monsters (pct default 1000, 10x; up to 10000) five at a time (`RL_PROJ_N`; ten, `RL_DRILL_MAX`, at first), 384-1280 units
+away in any direction, in sight, each slot replaced like the drill's one; the player's damage to itself is
+self % (default 1; pct % at first) (`RL_DrillSelfDamage`). `GIVEGUN <seed> ... PROJ` (2026-11-23) picks only the rocket launcher,
+plasma gun or BFG. `OPENSPACE [samples]` (`-rlenv`, 2026-11-23, `RL_OpenSpace`): an `openspace` event,
+`ok` of `n` random points 384-1280 units from the player, any direction, where a demon could stand in
+sight; `DRILLDIST` (`-rlenv`, 2026-11-23, `RL_DrillDist`): a `drilldist` event, each live drill monster's distance
+to the player -- the proj drill's maps (`model.PROJ_MAPS`) were picked with them, by a one-off scan
+(OPENSPACE at first; the crowd test since: monsters that can't walk up to the player). `ITEMS <period> [unique %]` (`-rlenv`, 2026-11-20, `RL_Items`):
 practice items for this rollout in place of `-rlitems` (mean tics between them, 0 none;
 uniques that share, the other tiers splitting the rest), placed on the way to the waypoint
 when it is on screen (else to a portal, as before); a LOAD ends it. Every CONSULT shows `CMD CONSULT` (`CONSULT` before 2026-11-18) as the status message

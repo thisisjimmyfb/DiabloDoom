@@ -1453,6 +1453,9 @@ P_DamageMobj
     // -rlenv: the player's own projectile (2026-11-23, the env's proj_self).
     if (player != NULL && damage > 0 && source == target)
         RL_ProjSelf(inflictor);
+    // -rlenv proj drill (2026-11-23): the player's damage to itself scaled too.
+    if (player != NULL && source == target)
+        damage = RL_DrillSelfDamage(damage);
     // Debug: log when the player takes damage (turn-based investigation).
     if (player != NULL && damage > 0)
     {

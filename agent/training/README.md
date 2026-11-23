@@ -312,7 +312,10 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   `aim` (2026-11-22), the aim drill (the combat drill with a hitscan gun -- pistol, shotgun,
   chaingun or super shotgun -- and a monster that never attacks and takes
   `EnvConfig.aim_drill_damage` (10) % damage, so it lives long enough to track; it plays
-  every training map, `--maps`, not the drill maps);
+  every training map, `--maps`, not the drill maps); `proj` (2026-11-23), the proj drill
+  (a rocket launcher, plasma gun or BFG, 5 monsters 384-1280 units off in any direction that
+  never attack but chase, `EnvConfig.proj_drill_damage` (1000, 10x; 10, 100, then 10000, at first) % damage, the player's own splash
+  `proj_drill_self` (1) %; it plays `model.PROJ_MAPS`, the maps where its monsters can't crowd the player (islands, ledges));
   `waypoint`, the waypoint drill (the drill maps,
   endless waypoints, frequent practice items, half uniques); `maze` (rotating maps, monsters
   hidden, no waypoints); `mixed` (rotating maps, monsters and waypoints). Every type has the
