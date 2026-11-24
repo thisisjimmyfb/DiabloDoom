@@ -349,6 +349,10 @@ boolean PIT_CheckThing (mobj_t* thing)
 	
 	// damage / explode
 	damage = ((P_Random()%8)+1)*tmthing->info->damage;
+	// BFG sphere (2026-11-23): the ball's direct victim, so its sphere
+	// (P_BFGSphere, from P_ExplodeMissile this same move) skips it.
+	if (tmthing->type == MT_BFG)
+	    tmthing->tracer = thing;
 	P_DamageMobj (thing, tmthing, tmthing->target, damage);
 
 	// don't traverse any more
@@ -1253,6 +1257,60 @@ boolean PIT_RadiusAttack (mobj_t* thing)
     return true;
 }
 
+
+//
+// P_BFGSphere (2026-11-23): the BFG ball splashes monsters bunched up where
+// it lands: every monster whose edge is within BFG_SPLASH_RADIUS of the
+// impact (box distance, as P_RadiusAttack measures) and in sight of it takes
+// the ball's hit too -- the same hit as a direct one (the Diablo weapon
+// damage, rolled per monster), with no falloff, unlike splash. Any impact,
+// a wall or the floor too, as vanilla's spray goes off on any explosion; the
+// direct victim, if any, is skipped (it took its hit). Not BF Storm
+// (MECH_BFSTORM's cone): only a cluster. (Earlier that day: 128, then 64,
+// units of the impact; then only on a direct hit, 32 units edge to edge
+// from the victim.)
+//
+// #define BFG_SPHERE_RADIUS 128   (too wide, 2026-11-23)
+// #define BFG_SPHERE_RADIUS 64    (2026-11-23)
+#define BFG_SPLASH_RADIUS 32
+
+static mobj_t *bfgball, *bfgsource, *bfgvictim;
+
+static boolean PIT_BFGSphere(mobj_t *thing)
+{
+    fixed_t dx, dy, dist;
+
+    if (!(thing->flags & MF_SHOOTABLE) || thing->health <= 0 || thing == bfgsource
+        || thing == bfgvictim || thing->player != NULL
+        || !((thing->flags & MF_COUNTKILL) || thing->type == MT_SKULL))
+        return true;
+    dx = abs(thing->x - bfgball->x);
+    dy = abs(thing->y - bfgball->y);
+    dist = dx > dy ? dx : dy;
+    dist = (dist - thing->radius) >> FRACBITS;
+    if (dist >= BFG_SPLASH_RADIUS)
+        return true;
+    if (P_CheckSight(thing, bfgball))
+        P_DamageMobj(thing, bfgball, bfgsource, ((P_Random() % 8) + 1) * bfgball->info->damage);
+    return true;
+}
+
+void P_BFGSphere(mobj_t *ball, mobj_t *source, mobj_t *victim)
+{
+    int x, y, xl, xh, yl, yh;
+    fixed_t dist = (BFG_SPLASH_RADIUS << FRACBITS) + MAXRADIUS;   // MAXRADIUS is fixed point already
+
+    yh = (ball->y + dist - bmaporgy) >> MAPBLOCKSHIFT;
+    yl = (ball->y - dist - bmaporgy) >> MAPBLOCKSHIFT;
+    xh = (ball->x + dist - bmaporgx) >> MAPBLOCKSHIFT;
+    xl = (ball->x - dist - bmaporgx) >> MAPBLOCKSHIFT;
+    bfgball = ball;
+    bfgsource = source;
+    bfgvictim = victim;
+    for (y = yl; y <= yh; y++)
+        for (x = xl; x <= xh; x++)
+            P_BlockThingsIterator(x, y, PIT_BFGSphere);
+}
 
 //
 // P_RadiusAttack

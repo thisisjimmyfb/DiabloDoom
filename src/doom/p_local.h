@@ -260,6 +260,8 @@ P_LineAttack
   fixed_t	slope,
   int		damage );
 
+void P_BFGSphere (mobj_t* ball, mobj_t* source, mobj_t* victim);   // 2026-11-23
+
 void
 P_RadiusAttack
 ( mobj_t*	spot,

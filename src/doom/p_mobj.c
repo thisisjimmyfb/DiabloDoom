@@ -121,6 +121,14 @@ void P_ExplodeMissile (mobj_t* mo)
 {
     mo->momx = mo->momy = mo->momz = 0;
 
+    // BFG splash (2026-11-23): the ball hits the monsters bunched up where it lands.
+    if (mo->type == MT_BFG && mo->target != NULL)
+    {
+        mobj_t *direct = mo->tracer;
+        mo->tracer = NULL;
+        P_BFGSphere(mo, mo->target, direct);
+    }
+
     P_SetMobjState (mo, mobjinfo[mo->type].deathstate);
 
     mo->tics -= P_Random()&3;
