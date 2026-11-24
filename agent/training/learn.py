@@ -528,7 +528,7 @@ def add_learn_args(p) -> None:
                         "8192 at 160x100 ran out of 16 GB)")
     p.add_argument("--clip", type=float, default=0.2)
     p.add_argument("--ent-coef", type=float, default=0.1)   # 0.01 before 2026-11-19, as a plain bonus
-    p.add_argument("--ent-target", type=_share, default=0.62,   # 2.5 nats (absolute) before 2026-11-20; 1.0 before 2026-11-19
+    p.add_argument("--ent-target", type=_share, default=0.55,   # 0.62 before 2026-11-23 (entropy sat on the floor, accuracy flat); 2.5 nats (absolute) before 2026-11-20; 1.0 before 2026-11-19
                    help="entropy floor per state, as a share of its highest possible entropy (ln of the actions "
                         "it could take: all 56): --ent-coef then weighs "
                         "max(0, target * ln(actions) - entropy), so only states below it are pushed back up "

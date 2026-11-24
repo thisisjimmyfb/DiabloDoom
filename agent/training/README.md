@@ -340,8 +340,8 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   reported as `collapsed_share`.
 - **Loss:** clipped ratio (`--clip` 0.2), `--epochs` 4, an entropy
   floor per state (2026-11-19; a plain bonus at 0.01 before): only states
-  with entropy under `--ent-target` (0.62) x their highest possible entropy
-  (ln of the 56 actions: 2.5 nats; a share since 2026-11-20, an absolute
+  with entropy under `--ent-target` (0.55; 0.62 before 2026-11-23) x their highest possible entropy
+  (ln of the 56 actions: 2.2 nats, 2.5 at 0.62; a share since 2026-11-20, an absolute
   2.5 nats before) pay `--ent-coef` 0.1 x the shortfall (`--ent-target 0
   --ent-coef 0.01` is the old bonus), and an optional KL to a reference policy
   (`--ref`, `--beta`).
