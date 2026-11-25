@@ -44,7 +44,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from model import (Frontier, MapRotation, TicBudget, add_env_args, all_pairs, capture_dirs, check_slots, door_pairs, drill_pairs, proj_pairs,
+from model import (Frontier, MapRotation, TicBudget, add_env_args, all_pairs, capture_dirs, check_slots, door_pairs, proj_pairs,
                    parse_mix,
                    FREE_CORES, available_cores, default_groups, env_label, move_groups,
                    pick_eval_maps, resolve_maps,
@@ -129,9 +129,10 @@ def main():
     rot_types = [t for t in ("maze", "mixed") for _ in range(mix[t])]
     # drill_types = [t for t in ("combat", "aim", "proj", "waypoint") for _ in range(mix[t])]
     # drill_types = [t for t in ("combat", "aim", "proj", "waypoint", "door") for _ in range(mix[t])]   (before melee)
-    drill_types = [t for t in ("combat", "aim", "proj", "melee", "waypoint", "door") for _ in range(mix[t])]
+    # drill_types = [t for t in ("combat", "aim", "proj", "melee", "waypoint", "door") for _ in range(mix[t])]   (the combat drill removed 2026-11-24)
+    drill_types = [t for t in ("aim", "proj", "melee", "waypoint", "door") for _ in range(mix[t])]
     group_types = rot_types + drill_types
-    dpairs = drill_pairs(iwads)            # the drill maps (model.DRILL_MAPS)
+    # dpairs = drill_pairs(iwads)            # the drill maps (model.DRILL_MAPS; the combat drill's, removed 2026-11-24)
     # The aim drill (2026-11-22): every training map (--maps; 'all' for every
     # map), shuffled once, not only the drill maps (all drills did before).
     apairs = all_pairs(iwads, maps)
@@ -154,13 +155,12 @@ def main():
     # The melee drill (2026-11-24): the aim drill's maps (--maps), its own shuffle.
     mpairs = all_pairs(iwads, maps)
     mpairs = [mpairs[i] for i in np.random.default_rng(args.map_seed + 5).permutation(len(mpairs))]
-    pairs_of = {"combat": dpairs, "waypoint": wpairs, "aim": apairs, "proj": ppairs, "door": opairs, "melee": mpairs}
+    # pairs_of = {"combat": dpairs, "waypoint": wpairs, "aim": apairs, "proj": ppairs, "door": opairs, "melee": mpairs}
+    pairs_of = {"waypoint": wpairs, "aim": apairs, "proj": ppairs, "door": opairs, "melee": mpairs}
     if "proj" in drill_types and not ppairs:
         raise SystemExit(f"--mix {args.mix}: the proj drill needs an IWAD with PROJ_MAPS in --iwads (DOOM, FREEDOOM1)")
     # if any(t != "aim" for t in drill_types) and not dpairs:   (before the proj drill)
     # if any(t in ("combat", "waypoint") for t in drill_types) and not dpairs:   (before the waypoint drill's every map)
-    if "combat" in drill_types and not dpairs:
-        raise SystemExit(f"--mix {args.mix}: the drills need an IWAD with drill maps in --iwads (model.DRILL_MAPS: DOOM, FREEDOOM1)")
     D = len(drill_types)
     n_reg_groups, n_reg = groups - D, G * (groups - D)
     # Drills only (no maze or mixed group): a placeholder rotation no env plays.

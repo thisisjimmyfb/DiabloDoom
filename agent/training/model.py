@@ -220,7 +220,7 @@ class Policy(nn.Module):
 
 
 def parse_mix(text: str) -> dict[str, int]:
-    """--mix "combat=2,waypoint=2,maze=2,mixed=2" -> {type: groups}, every
+    """--mix "aim=2,waypoint=2,maze=2,mixed=2" -> {type: groups}, every
     type of env.TYPES present (0 when left out)."""
     from env.env import TYPES
     out = dict.fromkeys(TYPES, 0)
@@ -228,7 +228,7 @@ def parse_mix(text: str) -> dict[str, int]:
         name, _, n = part.partition("=")
         name = name.strip()
         if name not in out or not n.strip().isdigit():
-            raise SystemExit(f"--mix: bad entry {part!r} (types: {', '.join(TYPES)}; e.g. combat=2)")
+            raise SystemExit(f"--mix: bad entry {part!r} (types: {', '.join(TYPES)}; e.g. waypoint=2)")
         out[name] = int(n)
     if sum(out.values()) == 0:
         raise SystemExit("--mix: no groups")
@@ -307,13 +307,10 @@ def allocate_groups(iwads: list[str | None], maps: list[str], groups: int,
 # end the level when the boss dies; Doom II's MAP07 and MAP30): with
 # stage 1's --eval (no monsters) they can't be finished, so --maps all skips them.
 BOSS_MAPS = {"1 8", "2 8", "3 8", "4 6", "4 8", "7", "30"}
-# The drill maps (2026-11-20; E1M1 of Ultimate Doom alone before): the combat
-# and waypoint drills rotate over these, per IWAD label. Picked from a survey
-# of every E1-E4 map: the most open area connected to the player start (wide
-# openings, floors within a step), no damaging floor there, and at least
-# ~400 units of sightline ahead and 20 degrees to each side (the combat
-# drill spawns 192-768 units ahead within 20 degrees).
-DRILL_MAPS = {"DOOM": ["3 2", "1 2"], "FREEDOOM1": ["1 8", "4 3"]}
+# The drill maps (2026-11-20 until 2026-11-24, removed with the combat drill, their last
+# user; the waypoint drill plays every map since): {"DOOM": ["3 2", "1 2"], "FREEDOOM1":
+# ["1 8", "4 3"]}, from a survey of every E1-E4 map for the most open area connected to
+# the player start with ~400 units of sightline ahead.
 
 
 # The proj drill's maps (2026-11-23): open space at the start -- OPENSPACE 0.05
@@ -346,11 +343,6 @@ def door_pairs(iwads: list, skip=()) -> list[tuple]:
     """The (iwad, warp) pairs the door drill rotates over (DOOR_MAPS), minus
     `skip` (the session's held-out eval maps)."""
     return [(w, m) for w in iwads if w for m in DOOR_MAPS.get(iwad_label(w).upper(), []) if m not in skip]
-
-
-def drill_pairs(iwads: list) -> list[tuple]:
-    """The (iwad, warp) pairs the drills rotate over, for the IWADs in use."""
-    return [(w, m) for w in iwads if w for m in DRILL_MAPS.get(iwad_label(w).upper(), [])]
 
 
 # --groups default: one group per IWAD/map pair, at most this many (the
@@ -543,8 +535,10 @@ def add_env_args(p) -> None:
                         "at most the logical cores minus 2; with more pairs than groups they take "
                         "turns, --rotate-every)")
     p.add_argument("--group-size", type=int, default=8)
-    p.add_argument("--mix", default="combat=3,waypoint=2,maze=1,mixed=2",   # combat=2,waypoint=2,maze=2,mixed=2 before 2026-11-20
-                   help="groups per rollout type (2026-11-20; env.TYPES), adding up to --groups (whose default becomes their sum): combat (the combat drill: the drill maps (DRILL_MAPS), one awake monster ahead at a time, every sector visited from the start), aim (2026-11-22: the aim drill: the combat drill with a hitscan gun (pistol, shotgun, chaingun or super shotgun) and a monster that never attacks and takes EnvConfig.aim_drill_damage (10) %% damage; it rotates over the training maps, --maps ('all' for every map), not the drill maps), proj (2026-11-23: the proj drill: a rocket launcher, plasma gun or BFG, 10 monsters 384-1280 units off in any direction that never attack but chase, EnvConfig.proj_drill_damage (10) %% damage, the player's own splash too; it rotates over PROJ_MAPS, the maps with open space at the start, minus the eval maps), waypoint (the waypoint drill: every map, endless waypoints in view, frequent practice items), melee (2026-11-24: the melee drill: the aim drill's world and maps with fists or the chainsaw), door (2026-11-24: the door drill: DOOR_MAPS minus the eval maps, the player teleported in front of a closed door it can open, the waypoint behind it, the next door when it is reached or after 5 s), maze (the rotating maps, monsters hidden, no waypoints), mixed (the rotating maps, monsters and waypoints). The drills rotate over the drill maps of the --iwads every --rotate-every batches, always start at the map start and end only on the exit or --drill-tics (a death respawns at once at the map start with the same gun, 2026-11-22; it ended them before); maze and mixed rotate over the maps with the frontier and tic budget. Every type has the same reward function. E.g. combat=8: the combat drill alone")
+    # p.add_argument("--mix", default="combat=3,waypoint=2,maze=1,mixed=2",   # combat=2,waypoint=2,maze=2,mixed=2 before 2026-11-20
+    # p.add_argument("--mix", default="aim=1,proj=1,melee=1,waypoint=2,maze=1,mixed=2",   # the combat drill's 3 groups to aim, proj, melee (2026-11-24)
+    p.add_argument("--mix", default="aim=1,proj=1,melee=1,waypoint=1,maze=2,mixed=2",   # late 2026-11-24
+                   help="groups per rollout type (2026-11-20; env.TYPES), adding up to --groups (whose default becomes their sum): aim (2026-11-22: the aim drill: one monster ahead at a time, every sector visited from the start, a hitscan gun (pistol, shotgun, chaingun or super shotgun) and a monster that never attacks and takes EnvConfig.aim_drill_damage (10) %% damage; it rotates over the training maps, --maps ('all' for every map), not the drill maps), proj (2026-11-23: the proj drill: a rocket launcher, plasma gun or BFG, 10 monsters 384-1280 units off in any direction that never attack but chase, EnvConfig.proj_drill_damage (10) %% damage, the player's own splash too; it rotates over PROJ_MAPS, the maps with open space at the start, minus the eval maps), waypoint (the waypoint drill: every map, endless waypoints in view, frequent practice items), melee (2026-11-24: the melee drill: the aim drill's world and maps with fists or the chainsaw), door (2026-11-24: the door drill: DOOR_MAPS minus the eval maps, the player teleported in front of a closed door it can open, the waypoint behind it, the next door when it is reached or after 5 s), maze (the rotating maps, monsters hidden, no waypoints), mixed (the rotating maps, monsters and waypoints). The drills (the combat drill removed 2026-11-24) rotate over their maps every --rotate-every batches, always start at the map start and end only on the exit or --drill-tics (a death respawns at once at the map start with the same gun, 2026-11-22; it ended them before); maze and mixed rotate over the maps with the frontier and tic budget. Every type has the same reward function. E.g. waypoint=8: the waypoint drill alone")
     p.add_argument("--drill-tics", type=int, default=1050,
                    help="a drill rollout's limit in game tics (combat, aim, proj, melee, waypoint and door; default 30 s)")
     p.add_argument("--max-tics", type=int, default=525,

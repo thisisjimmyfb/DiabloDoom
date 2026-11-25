@@ -314,7 +314,7 @@ counted as 5%), the BFG (2026-11-23) the most haste, flat cooldown reduction and
 combat drill's: no melee there); `GIVEGUN <seed> ... HITSCAN` (2026-11-22) picks only the
 pistol, shotgun, chaingun or super shotgun (the aim drill's); the env sends it (with KIT, `EnvConfig.gun_kit`) at
 every rollout's start. `DRILL ON` / `DRILL OFF` (`-rlenv`, 2026-11-20,
-`RL_Drill`): the training env's combat drill keeps one awake monster (zombieman,
+`RL_Drill`): the training env's combat drill (plain `DRILL ON`; the env dropped that drill 2026-11-24, the engine keeps it -- the aim, proj and melee drills build on it) keeps one awake monster (zombieman,
 shotgun guy, imp or demon) 320-768 units ahead (192-768 at first, then 192-512) within
 20 degrees of the facing, in sight, targeting the player; the next one 0-175 tics (0-5 s) after
 a kill (0-70 before, late 2026-11-22; at once at first), and one with no line of sight to the player for 10 s (stuck) is

@@ -74,8 +74,10 @@ USE = ACTIONS.index("USE")
 # DRILLS = ("combat", "aim", "proj", "waypoint")
 # TYPES = ("combat", "aim", "proj", "waypoint", "door", "maze", "mixed")   (before melee)
 # DRILLS = ("combat", "aim", "proj", "waypoint", "door")
-TYPES = ("combat", "aim", "proj", "melee", "waypoint", "door", "maze", "mixed")
-DRILLS = ("combat", "aim", "proj", "melee", "waypoint", "door")
+# TYPES = ("combat", "aim", "proj", "melee", "waypoint", "door", "maze", "mixed")   (before the combat drill's removal, 2026-11-24)
+# DRILLS = ("combat", "aim", "proj", "melee", "waypoint", "door")
+TYPES = ("aim", "proj", "melee", "waypoint", "door", "maze", "mixed")
+DRILLS = ("aim", "proj", "melee", "waypoint", "door")
 
 
 def replay_dir_name(iwad: str | None, warp: str) -> str:
@@ -739,11 +741,13 @@ class DiabloDoomEnv(gym.Env):
         d, _ = self.engine.command(f"SEED {int(rng_seed) % 256}")
         # The rollout type (TYPES, 2026-11-20); "drill" is the combat drill's
         # older name. self._drill: the combat drill.
-        self._type = opts.get("type") or ("combat" if opts.get("drill") else None)
+        # self._type = opts.get("type") or ("combat" if opts.get("drill") else None)   (the combat drill removed 2026-11-24)
+        self._type = opts.get("type")
         if self._type is not None and self._type not in TYPES:
             raise ValueError(f"unknown rollout type {self._type!r}")
         # self._drill = self._type in ("combat", "aim", "proj")   (before the melee drill)
-        self._drill = self._type in ("combat", "aim", "proj", "melee")   # the aim, proj and melee drills are the combat drill's kind
+        # self._drill = self._type in ("combat", "aim", "proj", "melee")   (the combat drill removed 2026-11-24)
+        self._drill = self._type in ("aim", "proj", "melee")   # the monster drills (DRILL ON ...)
         if self._type is None:
             self._combat_on = (int(rng_seed) * 40503 + 7919) % 1000 / 1000.0 < self.cfg.combat
         else:

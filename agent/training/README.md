@@ -316,24 +316,26 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   be fought back, and 14% of rollouts started dying on their first tic; the
   policy's own sampling is the variety.
 - **Rollout types** (2026-11-20, `--mix`: groups per type,
-  adding up to `--groups`): `combat`, the combat drill (the drill maps, one awake monster
+  adding up to `--groups`): `combat`, the combat drill, until 2026-11-24 (removed: the drill maps, one awake monster
   ahead at a time, never fists, every sector visited from the start so only fighting pays);
-  `aim` (2026-11-22), the aim drill (the combat drill with a hitscan gun -- pistol, shotgun,
+  `aim` (2026-11-22), the aim drill (one monster ahead, every sector visited, a hitscan gun -- pistol, shotgun,
   chaingun or super shotgun -- and a monster that never attacks and takes
   `EnvConfig.aim_drill_damage` (10) % damage, so it lives long enough to track; it plays
   every training map, `--maps`, not the drill maps); `proj` (2026-11-23), the proj drill
   (a rocket launcher, plasma gun or BFG, 5 monsters 384-1280 units off in any direction that
   never attack but chase, `EnvConfig.proj_drill_damage` (1000, 10x; 10, 100, then 10000, at first) % damage, the player's own splash
   `proj_drill_self` (1) %; it plays `model.PROJ_MAPS`, the maps where its monsters can't crowd the player (islands, ledges));
-  `waypoint`, the waypoint drill (the drill maps,
-  endless waypoints, frequent practice items, half uniques); `maze` (rotating maps, monsters
+  `melee` (2026-11-24), the melee drill (the aim drill's world and maps with fists or the
+  chainsaw, `melee_drill_damage` (10) %); `waypoint`, the waypoint drill (every map since 2026-11-24,
+  endless waypoints in view, frequent practice items, half uniques); `door` (2026-11-24), the door drill
+  (`model.DOOR_MAPS`, teleported in front of a closed door, the waypoint behind it); `maze` (rotating maps, monsters
   hidden, no waypoints); `mixed` (rotating maps, monsters and waypoints). Every type has the
-  same reward function; the drills rotate over the drill maps (`model.DRILL_MAPS`: Ultimate
-  Doom E3M2 and E1M2, Freedoom E1M8 and E4M3, those of the `--iwads` in use) every
+  same reward function; the drills rotate over their maps (the drill maps, `model.DRILL_MAPS`,
+  went with the combat drill) every
   `--rotate-every` batches, start at the map start and end only
   on death, the exit or `--drill-tics` (1050), outside the rotation and frontier. Each
-  `rollouts.jsonl` row carries its `type`. Default `--mix combat=3,waypoint=2,maze=1,mixed=2`;
-  `--mix combat=8` trains the combat drill alone. See SPEC.md §5.3.
+  `rollouts.jsonl` row carries its `type`. Default `--mix aim=1,proj=1,melee=1,waypoint=1,maze=2,mixed=2`
+  (`combat=3,waypoint=2,maze=1,mixed=2` before 2026-11-24); `--mix waypoint=8` trains the waypoint drill alone. See SPEC.md §5.3.
 - **Advantage:** group-normalized return (`--advantage outcome`) or the
   process variant (`process`): per-step rewards in points, less the group's
   mean step reward, summed from each step on, except the one-off terms, also in
