@@ -161,7 +161,10 @@ void D_WaypointDraw(void)
             int y = stop + col->topdelta * h / ph, end = stop + (col->topdelta + col->length) * h / ph;
             for (; y < end; y++)
                 if (y >= viewwindowy && y < viewwindowy + viewheight)
+                {
                     I_VideoBuffer[y * SCREENWIDTH + x] = wp_trans[src[(y - stop) * ph / h - col->topdelta]];
+                    RL_DepthPixel(x, y, depth);     // 2026-11-24: in the depth input too, at its own distance
+                }
             col = (column_t *) ((byte *) col + col->length + 4);
         }
     }

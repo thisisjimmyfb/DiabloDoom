@@ -2468,7 +2468,21 @@ static void cmd_dispatch_one(const char *cmd)
         int x, y;
         unsigned seed;
         T_EchoUnderRlenv(cmd);
-        if (cmd[8] != '\0' && !strncmp(cmd + 9, "RANDOM ", 7) && sscanf(cmd + 16, "%u", &seed) == 1)
+        // WAYPOINT VIEW <seed> [min] [max] (2026-11-24, the waypoint drill):
+        // a random point the player can walk to and see, near the view's centre.
+        if (cmd[8] != '\0' && !strncmp(cmd + 9, "VIEW ", 5) && sscanf(cmd + 14, "%u", &seed) == 1)
+        {
+            int min = 0, max = 512;
+            sscanf(cmd + 14, "%*u %d %d", &min, &max);
+            if (RL_ViewPoint(seed, min, max, &x, &y))
+            {
+                D_WaypointSet(x, y);
+                printf("[WAYPOINT] view %d %d\n", x, y);
+            }
+            else
+                printf("[WAYPOINT] view: no point %d-%d away in view\n", min, max);
+        }
+        else if (cmd[8] != '\0' && !strncmp(cmd + 9, "RANDOM ", 7) && sscanf(cmd + 16, "%u", &seed) == 1)
         {
             int min = 0;
             sscanf(cmd + 16, "%*u %d", &min);

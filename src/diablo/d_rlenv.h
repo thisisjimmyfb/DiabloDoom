@@ -63,6 +63,10 @@ void RL_EmitState(const char *why, int tics);
 // sector (the part it can walk to within it), min_dist or more away.
 boolean RL_SectorPoint(unsigned seed, int min_dist, int *x, int *y);
 
+// WAYPOINT VIEW (2026-11-24): a random point the player can walk to and
+// see, min_dist..max_dist away, as near the centre of the view as there is one.
+boolean RL_ViewPoint(unsigned seed, int min_dist, int max_dist, int *x, int *y);
+
 // Copy the current screen (I_VideoBuffer, 320x200 8-bit), the
 // palette and the depth buffer into the -shm segment. No-op without -shm.
 void RL_PublishFrame(void);
@@ -81,6 +85,7 @@ extern boolean rl_depth_psprite;    // R_DrawPlayerSprites: the weapon, depth 0
 void RL_DepthBegin(void);
 void RL_DepthCol(int x, int yl, int yh, int scale);
 void RL_DepthSpan(int y, int x1, int x2, int dist);
+void RL_DepthPixel(int x, int y, double units);   // 2026-11-24: the waypoint skull
 
 // A pickup failed because the backpack is full (D_BackpackFullMsg,
 // called every tic the player stands on the item, before its message

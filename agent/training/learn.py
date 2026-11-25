@@ -24,6 +24,7 @@ from torch.distributions import Categorical
 from model import (ACTIONS, DEFAULT_OBS_DEPTH, DEFAULT_OBS_SIZE, Policy, checkpoint_obs_depth, checkpoint_obs_size,
                    load_latest_checkpoint,
                    load_weights, restore_rng)
+from env.env import GUN_NAMES  # noqa: E402  (model.py put env on sys.path)
 
 
 # ---------------------------------------------------------------------------
@@ -31,12 +32,22 @@ from model import (ACTIONS, DEFAULT_OBS_DEPTH, DEFAULT_OBS_SIZE, Policy, checkpo
 # ---------------------------------------------------------------------------
 
 
+# The chained stream's scale, points per group std (2026-11-24): each group's
+# summed chained rewards are divided by their std and times this, so they sit
+# in points beside the one-off terms, which stay unscaled; the balance the
+# reward values were tuned at (the group std ran about 27-47 points before
+# the -1000 death). Before, one scale for both: a group with a death in it
+# reached std 100-300, which shrank every one-off (a blind press) to ~nothing.
+CHAIN_POINTS = 30.0
+
+
 def group_advantages(groups: list[list[dict]], mode: str,
-                     eps: float = 1e-8, scales: list | None = None) -> tuple[list[np.ndarray | None], int]:
+                     eps: float = 1e-8, scales: list | None = None,
+                     chain_points: float = CHAIN_POINTS) -> tuple[list[np.ndarray | None], int]:
     """Per-rollout advantage arrays (one value per decision), in the order
     of the flattened groups; None for rollouts in collapsed (zero-variance)
     groups. Groups may differ in size. Returns (advs, collapsed); process
-    mode appends each kept group's scale (points) to `scales` if given."""
+    mode appends each kept group's chained scale (points) to `scales` if given."""
     advs: list[np.ndarray | None] = []
     collapsed = 0
     if mode == "outcome":
@@ -55,9 +66,11 @@ def group_advantages(groups: list[list[dict]], mode: str,
         # reward (the baseline); one-off rewards (rew_now, the env's
         # RewardConfig.immediate terms) count on their own step only, no
         # mean shift (most steps have none). Both stay in points, so every
-        # term weighs by its points (2026-11-21); the group's advantages are
-        # then divided by one number, their std over the group, which only
-        # balances groups of different lengths and swings against each other.
+        # term weighs by its points (2026-11-21). The chained stream is then
+        # divided by its std over the group and times chain_points (2026-11-24),
+        # which balances groups of different lengths and swings against each
+        # other; the one-off stream stays in points, the same in every group
+        # (both were divided by the std of their sum, 2026-11-21 to 2026-11-24).
         # (Before: per-step rewards divided by their std over the group, the
         # summed chained stream scaled to unit std on its own (2026-11-18),
         # and the one-off stream added in std units.)
@@ -70,12 +83,15 @@ def group_advantages(groups: list[list[dict]], mode: str,
             now = [_rew_now(m) for m in members]
             chain = [np.array(m["rew"], dtype=np.float64) - n for m, n in zip(members, now)]
             mean = np.concatenate(chain).mean()
-            raw = [np.cumsum((c - mean)[::-1])[::-1] + n for c, n in zip(chain, now)]
-            scale = np.concatenate(raw).std()
+            # raw = [np.cumsum((c - mean)[::-1])[::-1] + n for c, n in zip(chain, now)]
+            # scale = np.concatenate(raw).std()   ... advs: x / (scale + eps)   (until 2026-11-24)
+            togo = [np.cumsum((c - mean)[::-1])[::-1] for c in chain]
+            scale = np.concatenate(togo).std()
             if scales is not None:
                 scales.append(float(scale))
-            for x in raw:
-                advs.append((x / (scale + eps)).astype(np.float32))
+            k = chain_points / scale if scale > 1e-6 else 0.0     # no chained spread: one-offs alone
+            for t, n in zip(togo, now):
+                advs.append((t * k + n).astype(np.float32))
     return advs, collapsed
 
 
@@ -455,14 +471,18 @@ def train_metrics(recs: list[dict], n_groups: int, collapsed: int) -> dict:
         m["fire_seen"] = float(fs[1] / fs[0])      # P(fire | a monster on screen)
     if fs[2]:
         m["fire_blind"] = float(fs[3] / fs[2])     # P(fire | none on screen): blind firing
-    # Hitscan gun, a monster in line of sight (2026-11-22): the press rate with
-    # the crosshair on a monster and off one -- aim learned widens the gap;
-    # both falling is fire suppressed.
-    ast = np.sum([r.get("aim_stats", [0, 0, 0, 0]) for r in recs], axis=0)
-    if ast[0]:
-        m["fire_on"] = float(ast[1] / ast[0])      # P(fire | crosshair on a monster)
-    if ast[2]:
-        m["fire_off"] = float(ast[3] / ast[2])     # P(fire | crosshair off)
+    # Accuracy by gun (2026-11-24; fire_on / fire_off before, the press rate on
+    # and off target with a monster in sight): hits / shots of the rollouts that
+    # had each gun -- a hitscan shot that hurt a monster at once, a projectile
+    # that hurt any.
+    shots_by, hits_by = {}, {}
+    for r in recs:
+        g, c = GUN_NAMES.get(r.get("gun")), r.get("combat", [0, 0, 0])
+        if g is not None and c[1]:
+            shots_by[g] = shots_by.get(g, 0) + c[1]
+            hits_by[g] = hits_by.get(g, 0) + c[2]
+    m["acc"] = {g: round(hits_by[g] / shots_by[g], 3) for g in sorted(shots_by)}
+    m["acc_shots"] = shots_by
     # Projectiles (2026-11-22): split out of hit, which became hitscan only;
     # proj is monsters hit per projectile fired (splash can hit several).
     pst = np.sum([r.get("proj_stats", [0, 0, 0]) for r in recs], axis=0)
@@ -494,7 +514,8 @@ def print_train(it: int, m: dict, upd: dict, extra: str = "") -> None:
           # + (f" hit {m['hits'] / m['shots']:.2f}" ...) before 2026-11-22: projectiles too
           + (f" hit {m['hitscan_hits'] / m['hitscan_shots']:.2f}" if m.get("hitscan_shots") else "")
           + (f" proj {m['proj_hits'] / m['proj_fired']:.2f}" if m.get("proj_fired") else "")
-          + (f" aim {m.get('fire_on', 0):.2f}/{m.get('fire_off', 0):.2f}" if "fire_on" in m or "fire_off" in m else "")
+          # + (f" aim {m.get('fire_on', 0):.2f}/{m.get('fire_off', 0):.2f}" ...) until 2026-11-24
+          # + ("".join(f" {g} {v:.2f}" for g, v in m["acc"].items()) ...) 2026-11-24: too much; acc stays in metrics.jsonl
           + (f" dead {upd['dead_units']:.2f}" if "dead_units" in upd else "")
           + (" cos min {} {:.3f}".format(*min(upd["term_cos"].items(), key=lambda kv: kv[1]))
              if upd.get("term_cos") else "")

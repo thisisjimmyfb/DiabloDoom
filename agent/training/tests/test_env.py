@@ -173,7 +173,7 @@ def test_hits_and_death():
     ends the rollout with the death penalty. Engine faked."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hit_unavoidable=-0.05, hit_avoidable=-0.2, death=-100.0,
-                        loot=0, health=0, fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0)
+                        loot=0, health=0, fast=0, look=0, turn_waste=0, momentum_flip=0, fall=0, wall_look=0)
     e = make_env(rewards=only, max_tics=100000)
     hurt = lambda tic, kind: {"event": "hurt", "amount": 10, "monster": True, "kind": kind, "gametic": tic}
     states = iter([({"mode": "EXPLORE", "hp": 90, "tics": 10}, [hurt(1, "hitscan")] * 3),   # one blast
@@ -205,7 +205,7 @@ def test_fast_tics():
     paying `fast`; running into a wall has none."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0,
-                        loot=0, health=0, fast=0.005, fast_speed=4, fast_path=False, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0)
+                        loot=0, health=0, fast=0.005, fast_speed=4, fast_path=False, look=0, turn_waste=0, momentum_flip=0, fall=0, wall_look=0)
     e = make_env(engine=EngineConfig(warp="1 1", extra_args=["--eval"]), rewards=only, max_tics=100000)
     try:
         assert e.cfg.engine.extra_args[-2:] == ["-rlfast", "4"]
@@ -266,7 +266,7 @@ def test_turn_waste():
     passed and a teleport cost nothing. Engine faked: one tic per step."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
-                        fast=0, look=0, turn_waste=-45.0, turn_waste_window=8, move_flip=0,
+                        fast=0, look=0, turn_waste=-45.0, turn_waste_window=8, momentum_flip=0,
                         fall=0, wall_look=0)     # -45 per 45 degrees: reward = -wasted degrees
     e = make_env(rewards=only, max_tics=100000)
     angles = [10, 20, 13, 20, 350, 0, 350] + [350] * 8 + [0]
@@ -289,28 +289,35 @@ def test_turn_waste():
     assert got == want, got
 
 
-def test_move_flip():
-    """W at most move_flip_window (4) tics after S, or S after W, costs
-    move_flip; strafing back and forth (A/D) never does, and turn keys
-    don't count. Engine faked: one tic per step, no game needed."""
+def test_momentum_flip():
+    """A step moving momentum_flip_speed (4) or more units a tic, turned more than
+    90 degrees from the last such velocity within momentum_flip_window tics,
+    costs momentum_flip in any direction; slow wobble, gradual turns, a reversal
+    after the window and a teleport don't. Engine faked: one tic per step."""
     only = RewardConfig(turn=0, sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
-                        fast=0, look=0, turn_waste=0, move_flip=-1.0, move_flip_window=4, fall=0, wall_look=0)
+                        fast=0, look=0, turn_waste=0, momentum_flip=-1.0, momentum_flip_window=5, momentum_flip_speed=4.0,
+                        fall=0, wall_look=0, wall_look_dist=0)
     e = make_env(rewards=only, max_tics=100000)
-    e.engine.command = lambda line: ({"mode": "EXPLORE", "hp": 100, "tics": 1}, [])
+    pos = [(10, 0), (20, 0), (22, 0), (20, 0), (10, 0),   # east fast, slows, west fast: a flip
+           (10, 8), (10, 16), (18, 22),                    # north (exactly 90 from west: none), then a 37-degree turn
+           (16, 21), (17, 22), (16, 21),                   # slow wobble: none
+           (16, 13),                                       # south, 1 tic after a slow stretch: a flip against NE
+           (16, 13), (16, 13), (16, 13), (16, 13), (16, 13), (16, 13),  # 6 still tics: past the window
+           (16, 21),                                       # north again: none
+           (516, 21), (516, 13)]                           # a teleport, then south: none
+    states = iter([{"mode": "EXPLORE", "hp": 100, "tics": 1, "x": x, "y": y, "angle": 0} for x, y in pos])
+    e.engine.command = lambda line: (next(states), [])
     e._frame = lambda: np.zeros((200, 320), dtype=np.uint8)
-    e.state = {"mode": "EXPLORE", "hp": 100}
+    e.state = {"mode": "EXPLORE", "hp": 100, "x": 0, "y": 0, "angle": 0}
     e._prev_hp, e._tics, e._combat_steps = 100, 0, 0
     e._best_sectors = e._start_sectors = 0
     e._keys, e._goal, e._group, e._slot, e._seed = 0, None, 0, None, 0
     e._trig = {k: e._new_trigger() for k in ("monster", "unique", "combat")}
     e._stack.reset(e._frame())
-    plan = ["PRESS W", "PRESS WA", "PRESS S",             # W, W, then S: a flip
-            "PRESS A", "PRESS D", "PRESS A", "PRESS WL",  # strafes free; W 4 tics after S: a flip
-            "PRESS L", "PRESS R", "PRESS", "PRESS", "PRESS SD",  # 5 tics later: none
-            "PRESS S"]                                    # same way: none
-    got = [e.step(ACTIONS.index(a))[1] for a in plan]
-    assert got == [0, 0, -1.0, 0, 0, 0, -1.0, 0, 0, 0, 0, 0, 0], got
+    got = [e.step(ACTIONS.index("PRESS"))[1] for _ in pos]
+    want = [0, 0, 0, 0, -1.0, 0, 0, 0, 0, 0, 0, -1.0] + [0] * 6 + [0, 0, 0]
+    assert got == want, got
 
 
 def test_unique_trigger():
@@ -320,7 +327,7 @@ def test_unique_trigger():
     is a false consult). Engine faked, one tic per step."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=5.0, trigger_miss=-8.0,
                         consult_false=-1.5, unique_grace_tics=3, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0,
-                        loot=0, health=0, fast=0, look=0, turn_waste=0, move_flip=0,
+                        loot=0, health=0, fast=0, look=0, turn_waste=0, momentum_flip=0,
                         fall=0, wall_look=0)
 
     def run(events_per_step, actions):
@@ -371,7 +378,7 @@ def test_item_approach():
     up or its 10 s are up. Engine faked, one tic per step."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
-                        fast=0, look=0, turn_waste=0, move_flip=0,
+                        fast=0, look=0, turn_waste=0, momentum_flip=0,
                         fall=0, wall_look=0, item_approach=0.01)
 
     def at(x, events=(), gametic=1):
@@ -394,7 +401,7 @@ def test_range():
     nothing. Engine faked, one tic per step."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
-                        fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0, range=0.01)
+                        fast=0, look=0, turn_waste=0, momentum_flip=0, fall=0, wall_look=0, range=0.01)
 
     def at(foe, weapon=4):                       # the rocket launcher: 192..768
         return {"mode": "EXPLORE", "hp": 100, "tics": 1, "x": 0, "y": 0, "weapon": weapon, "foe_dist": foe}, []
@@ -414,7 +421,7 @@ def test_turn():
     faked, one tic per step."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
-                        fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0, range=0, turn=-1.0)
+                        fast=0, look=0, turn_waste=0, momentum_flip=0, fall=0, wall_look=0, range=0, turn=-1.0)
 
     def at(age=-1):
         return {"mode": "EXPLORE", "hp": 100, "tics": 1, "x": 0, "y": 0, "attack_age": age}, []
@@ -433,7 +440,7 @@ def test_view():
     like damage, kept after a death. Engine faked, one tic per step."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
-                        fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0, range=0, turn=0,
+                        fast=0, look=0, turn_waste=0, momentum_flip=0, fall=0, wall_look=0, range=0, turn=0,
                         damage=0, kill=0, view=2.0)
 
     def at(events=(), dead=False):
@@ -455,7 +462,7 @@ def test_door_pays_once():
     faked: no game needed."""
     only = RewardConfig(sector=15.0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
-                        fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0)
+                        fast=0, look=0, turn_waste=0, momentum_flip=0, fall=0, wall_look=0)
     e = make_env(rewards=only, max_tics=100000, portal_goal=1)
     states = iter([(5, 0), (6, 1), (7, 1)])      # (sectors, door_sectors): room, door, next room
 
@@ -483,7 +490,7 @@ def test_fast_forward():
     def run(dx, dy, angle, forward=True):
         only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                             consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
-                            fast=1.0, fast_forward=forward, look=0, turn_waste=0, move_flip=0,
+                            fast=1.0, fast_forward=forward, look=0, turn_waste=0, momentum_flip=0,
                             fall=0, wall_look=0)
         e = make_env(rewards=only, max_tics=100000)
         e.engine.command = lambda line: ({"mode": "EXPLORE", "hp": 100, "tics": 1, "fast_tics": 1,
@@ -512,7 +519,7 @@ def test_fall():
     going up and a teleport never do. Engine faked: one tic per step."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
-                        fast=0, look=0, turn_waste=0, move_flip=0, fall=-1.0, wall_look=0)
+                        fast=0, look=0, turn_waste=0, momentum_flip=0, fall=-1.0, wall_look=0)
 
     def run(zs, xs=None):
         e = make_env(rewards=only, max_tics=100000)
@@ -551,7 +558,7 @@ def test_wall_look_rule():
     no wall ahead. Engine faked: one tic per step, no game needed."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
-                        fast=0, look=0, turn_waste=0, move_flip=0, fall=0,
+                        fast=0, look=0, turn_waste=0, momentum_flip=0, fall=0,
                         wall_look=-1.0, wall_look_dist=48.0)
     e = make_env(rewards=only, max_tics=100000)
     states = iter([{"wall_dist": 20, "wall_use": False}, {"wall_dist": 47, "wall_use": False},
@@ -576,7 +583,7 @@ def test_wall_dist():
     the room puts it beyond (or -1, nothing within 128)."""
     only = RewardConfig(turn=0, sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
-                        fast=0, look=0, turn_waste=0, move_flip=0, fall=0,
+                        fast=0, look=0, turn_waste=0, momentum_flip=0, fall=0,
                         wall_look=-1.0, wall_look_dist=48.0)
     e = make_env(engine=EngineConfig(warp="1 1", extra_args=["--eval"]), rewards=only, max_tics=100000)
     try:
@@ -603,7 +610,7 @@ def test_look_reward():
     credit facing it and nothing facing away."""
     only = RewardConfig(turn=0, sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0,
-                        loot=0, health=0, fast=0, look=1.0, turn_waste=0, move_flip=0, fall=0, wall_look=0)
+                        loot=0, health=0, fast=0, look=1.0, turn_waste=0, momentum_flip=0, fall=0, wall_look=0)
     e = make_env(engine=EngineConfig(warp="1 1", extra_args=["--eval"]), rewards=only, max_tics=100000)
     try:
         e.reset(options={"seed": 1})
@@ -655,7 +662,7 @@ def test_key_goal():
     without key_goal a key only pays. Engine faked: no game needed."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=25.0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0,
-                        loot=0, health=0, fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0)
+                        loot=0, health=0, fast=0, look=0, turn_waste=0, momentum_flip=0, fall=0, wall_look=0)
     for goal in (True, False):
         e = make_env(rewards=only, max_tics=100000, key_goal=goal)
         states = iter([{"mode": "EXPLORE", "hp": 100, "tics": 5, "keys": 1},    # blue held from the start
@@ -934,7 +941,7 @@ def test_time_distance_penalty():
     its tics * (1 + d / far_scale), d the mean of its start and end
     distances to the nearest portal of the current sector."""
     only = RewardConfig(turn=0, sector=0, exit=0, mechanism=0, consult_hit=0,
-                        trigger_miss=0, consult_false=0, key=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0, fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0,
+                        trigger_miss=0, consult_false=0, key=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0, fast=0, look=0, turn_waste=0, momentum_flip=0, fall=0, wall_look=0,
                         time=1.0, far_scale=256.0)
     e = make_env(engine=EngineConfig(warp="1 1", extra_args=["--eval"]), rewards=only,
                  max_tics=100000, consult_handler=standin_consult)
@@ -969,7 +976,7 @@ def test_portal_goal():
     list (VISITED) and reinstalled restores that visited count after the
     load (VISIT), so the next rollout's goal is a sector beyond it."""
     only = RewardConfig(sector=15.0, exit=0, mechanism=0, consult_hit=0,
-                        trigger_miss=0, consult_false=0, key=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0, fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0,
+                        trigger_miss=0, consult_false=0, key=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0, fast=0, look=0, turn_waste=0, momentum_flip=0, fall=0, wall_look=0,
                         time=0.01, far_scale=1e12, range=0, turn=0)   # time and sector only
     e = DiabloDoomEnv(EnvConfig(engine=EngineConfig(warp="1 1", extra_args=["--eval"]), rewards=only,
                                 max_tics=100000, portal_goal=1, consult_handler=standin_consult))
@@ -1029,7 +1036,7 @@ def test_fast_path():
     about 70%; no way known, the facing as before. Engine faked."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
-                        fast=1.0, look=0, turn_waste=0, move_flip=0,
+                        fast=1.0, look=0, turn_waste=0, momentum_flip=0,
                         fall=0, wall_look=0)
 
     def pay(path_rel, dx, dy, angle=0):
@@ -1053,6 +1060,40 @@ def test_fast_path():
     assert pay(None, 10, 0) == 1.0            # no way known: the facing
 
 
+def test_waypoint_signed_approach():
+    """waypoint_look_approach (2026-11-24): closing pays closed * cos a, so
+    backing in costs and strafing in pays nothing; losing ground costs in
+    full whichever way the player faces. Engine faked."""
+    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
+                        consult_false=0, key=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
+                        time=0, fast=0, look=0, turn=0, turn_waste=0, momentum_flip=0,
+                        fall=0, wall_look=0, waypoint=0)
+    e = make_env(rewards=only, max_tics=100000, waypoints=True, waypoint_reach=0, waypoint_noise=0.0,
+                 waypoint_min=0.0, waypoint_place="path")
+    script = iter([
+        {"x": 10, "y": 0, "angle": 180},     # backing in: 100 -> 90, facing away
+        {"x": 0, "y": 0, "angle": 90},       # walking away, facing away: 90 -> 100 (the facing is the step's start)
+        {"x": 10, "y": 0, "angle": 90},      # strafing in: 100 -> 90, facing across
+    ])
+
+    def command(line):
+        return dict({"mode": "EXPLORE", "hp": 100, "tics": 1, "path_ahead": [100, 0], "waypoint": [100, 0]},
+                    **next(script)), []
+    e.engine.command = command
+    e._frame = lambda: np.zeros((200, 320), dtype=np.uint8)
+    e.state = {"mode": "EXPLORE", "hp": 100, "x": 0, "y": 0, "angle": 180, "path_ahead": [100, 0]}
+    e._prev_hp, e._tics, e._combat_steps = 100, 0, 0
+    e._best_sectors = e._start_sectors = 0
+    e._keys, e._goal, e._group, e._slot, e._seed, e._used = 0, None, 0, None, 0, set()
+    e._trig = {k: e._new_trigger() for k in ("monster", "unique", "combat")}
+    e._wp_on = True
+    e._stack.reset(e._frame())
+    k = RewardConfig().waypoint_look_approach
+    s = ACTIONS.index("PRESS S")
+    got = [e.step(s)[4]["terms"].get("waypoint_look_approach", 0.0) for _ in range(3)]
+    assert got == pytest.approx([-10 * k, -10 * k, 0.0], abs=1e-9)
+
+
 def test_waypoints():
     """EnvConfig.waypoints: the first step sends WAYPOINT at path_ahead with
     the action; no clock runs (no "time"; "waypoint_time" before
@@ -1061,8 +1102,8 @@ def test_waypoints():
     waypoint_gap tics later. Engine faked."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
-                        time=1.0, far_scale=100.0, fast=1.0, look=1.0, turn_waste=0, move_flip=0,
-                        fall=0, wall_look=0)
+                        time=1.0, far_scale=100.0, fast=1.0, look=1.0, turn_waste=0, momentum_flip=0,
+                        fall=0, wall_look=0, waypoint_facing_min=1.0)
     e = make_env(rewards=only, max_tics=100000, waypoints=True, waypoint_reach=0, waypoint_noise=0.0, waypoint_gap=2, waypoint_min=0.0,
                  waypoint_place="path")
     sent = []
@@ -1095,14 +1136,14 @@ def test_waypoints():
     assert sent[0] == "WAYPOINT 100 0;PRESS W"
     t = i1["terms"]
     assert "time" not in t and "waypoint_time" not in t
-    assert t["waypoint_look_approach"] == pytest.approx(0.01 * 10)   # distance 100 -> 90, facing it
+    assert t["waypoint_look_approach"] == pytest.approx(RewardConfig().waypoint_look_approach * 10)   # distance 100 -> 90, facing it
     assert t["fast"] == pytest.approx(1.0) and "look" not in t
     _, _, _, _, i2 = e.step(w)
     assert sent[1] == "PRESS W"                       # not due again
     assert "fast" not in i2["terms"]                   # moved north: across the way to it
-    assert i2["terms"]["waypoint_look_approach"] == pytest.approx(0.01 * (90 - np.hypot(90, 10)))   # a step away, facing it
+    assert i2["terms"]["waypoint_look_approach"] == pytest.approx(RewardConfig().waypoint_look_approach * (90 - np.hypot(90, 10)))   # a step away, facing it
     _, _, _, _, i3 = e.step(w)                         # reached
-    assert e._wp is None and i3["waypoints"] == [1, 1] and i3["terms"]["waypoint"] == 15.0
+    assert e._wp is None and i3["waypoints"] == [1, 1] and i3["terms"]["waypoint"] == RewardConfig().waypoint
     e.step(w)                                          # 0 and 1 tics since: the gap is 2
     e.step(w)
     assert ";" not in sent[3] and ";" not in sent[4]
@@ -1117,7 +1158,7 @@ def test_waypoints_sector():
     line; none picked (no point far enough), none set. Engine faked."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
-                        time=1.0, fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0)
+                        time=1.0, fast=0, look=0, turn_waste=0, momentum_flip=0, fall=0, wall_look=0)
     e = make_env(rewards=only, max_tics=100000, waypoints=True, waypoint_reach=0, waypoint_gap=1)
     sent, picks = [], iter([None, [50, 60]])
 
@@ -1159,7 +1200,7 @@ def test_waypoint_reach():
     (no limit, no gap) the next one goes out in the same line. Engine faked."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
-                        time=0, fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0,
+                        time=0, fast=0, look=0, turn_waste=0, momentum_flip=0, fall=0, wall_look=0,
                         waypoint=2.0, waypoint_look_approach=0, range=0, turn=0)
     e = make_env(rewards=only, max_tics=100000, waypoints=True)
     sent, xs = [], iter([0, 50, 110, 100, 100, 100])
@@ -1187,6 +1228,19 @@ def test_waypoint_reach():
     assert e._wp == (500, 0) and e._wp_stats == [2, 1]
 
 
+def test_waypoint_facing():
+    """RewardConfig.waypoint_facing_min (2026-11-24): the waypoint reward's
+    share is max(min, cos a), a from the facing at the step's start to it."""
+    e = make_env(rewards=RewardConfig(waypoint_facing_min=0.25))
+    at = {"x": 0, "y": 0, "angle": 0}
+    assert e._wp_facing(at, (100, 0)) == pytest.approx(1.0)             # walked in facing it
+    assert e._wp_facing(at, (0, 100)) == pytest.approx(0.25)            # side on
+    assert e._wp_facing(at, (-100, 0)) == pytest.approx(0.25)           # backed in
+    assert e._wp_facing({"x": 0, "y": 0, "angle": 0}, (100, 100)) == pytest.approx(np.cos(np.radians(45)))
+    assert e._wp_facing({}, (100, 0)) == 1.0                             # unknown facing
+    e.close()
+
+
 def test_waypoint_count_and_goal():
     """waypoint_count (2026-11-19): no more are set once that many have
     been; a goal ending the rollout early (here the portal) pays
@@ -1194,8 +1248,8 @@ def test_waypoint_count_and_goal():
     on the step after it is set."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
-                        time=0, fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0,
-                        waypoint=2.0, waypoint_look_approach=0)
+                        time=0, fast=0, look=0, turn_waste=0, momentum_flip=0, fall=0, wall_look=0,
+                        waypoint=2.0, waypoint_look_approach=0, waypoint_facing_min=1.0)
 
     def run(count, portal_at, steps):
         e = make_env(rewards=only, max_tics=100000, waypoints=True, waypoint_reach=0, waypoint_gap=1,
@@ -1246,7 +1300,7 @@ def test_combat_rewards():
     them. Engine faked."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
-                        time=0, fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0,
+                        time=0, fast=0, look=0, turn_waste=0, momentum_flip=0, fall=0, wall_look=0,
                         damage=10.0, kill=4.0)
 
     def run(end):
@@ -1324,12 +1378,15 @@ def test_monsters_hide_show():
 def test_aim():
     """aim (2026-11-21): a fire press while a monster is in line of sight
     (foe_dist) in the state it acted on: +aim with the crosshair on a monster
-    (aim_on), aim_off without; no fire, no monster in sight, an engine without
-    aim_on, or no hitscan gun ready (a rocket launcher: 4), nothing. One-off
-    (2026-11-22). Engine faked."""
+    (aim_on), aim_off without -- with no monster in sight too since
+    2026-11-24 (nothing before); no fire, an engine without aim_on, or no
+    hitscan gun ready (a rocket launcher: 4), nothing -- but since 2026-11-24
+    a projectile gun pays aim_off for a press with no monster in sight, and
+    fists (0) are judged by aim_on like a hitscan gun.
+    One-off (2026-11-22). Engine faked."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
-                        fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0, range=0, turn=0,
+                        fast=0, look=0, turn_waste=0, momentum_flip=0, fall=0, wall_look=0, range=0, turn=0,
                         damage=0, kill=0, view=0, aim=0.5, aim_off=-0.25, proj_hit=0, proj_miss=0)
 
     def at(foe, on=None, weapon=1):
@@ -1340,18 +1397,18 @@ def test_aim():
         return d, []
     # Each step is judged by the state the one before returned (the first by
     # the initial state, no monster).
-    e = _fake_explore(only, [at(300, True), at(300, False), at(300, True), at(-1, True), at(300),
-                             at(300, True, weapon=4), at(300, False, weapon=8), at(300, True)])
+    e = _fake_explore(only, [at(300, True), at(300, False), at(300, True), at(-1, False), at(300),
+                             at(300, True, weapon=4), at(300, False, weapon=8), at(300, True),
+                             at(-1, weapon=4), at(-1, False, weapon=0), at(40, True, weapon=0), at(300, False, weapon=0)])
     acts = ["PRESS CTRL", "PRESS CTRL", "PRESS CTRL", "PRESS L", "PRESS CTRL", "PRESS CTRL",
-            "PRESS CTRL", "PRESS W CTRL"]
+            "PRESS CTRL", "PRESS W CTRL",
+            "PRESS L", "PRESS CTRL", "PRESS CTRL", "PRESS CTRL"]   # rocket blind: aim_off; fists off target: aim_off; fists on: aim
     got, info = [], None
     for x in acts:
         _, r, _, _, info = e.step(ACTIONS.index(x))
         got.append(r)
-    assert got == [0.0, 0.5, -0.25, 0.0, 0.0, 0.0, 0.0, -0.25], got
-    # aim_stats (2026-11-22): hitscan states with a monster in sight, [on
-    # target, fire; off, fire] -- steps 2, 4 (no fire) on; 3, 8 off.
-    assert info["aim_stats"] == [2, 1, 2, 2], info["aim_stats"]
+    # assert got == [0.0, 0.5, -0.25, 0.0, 0.0, 0.0, 0.0, -0.25], got   (no monster in sight paid nothing, before 2026-11-24)
+    assert got == [0.0, 0.5, -0.25, 0.0, -0.25, 0.0, 0.0, -0.25, 0.0, -0.25, -0.25, 0.5], got
     assert "aim" in RewardConfig().immediate
 
 
@@ -1361,7 +1418,7 @@ def test_track():
     step once; an off-target press pays none but spends its steps."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
-                        fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0, range=0, turn=0,
+                        fast=0, look=0, turn_waste=0, momentum_flip=0, fall=0, wall_look=0, range=0, turn=0,
                         damage=0, kill=0, view=0, aim=0, proj_hit=0, proj_miss=0,
                         track=0.5, track_tics=6)
 
@@ -1402,7 +1459,7 @@ def test_proj():
     Engine faked."""
     only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
                         consult_false=0, key=0, time=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
-                        fast=0, look=0, turn_waste=0, move_flip=0, fall=0, wall_look=0, range=0, turn=0,
+                        fast=0, look=0, turn_waste=0, momentum_flip=0, fall=0, wall_look=0, range=0, turn=0,
                         damage=0, kill=0, view=0, aim=0, proj_hit=2.0, proj_miss=-1.0, proj_self=-5.0)
 
     def at(events):

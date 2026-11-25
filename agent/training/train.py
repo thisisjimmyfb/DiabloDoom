@@ -138,11 +138,18 @@ def main():
     # (model.PROJ_MAPS), any episode, minus the eval maps, shuffled once.
     ppairs = proj_pairs(iwads, eval_maps)
     ppairs = [ppairs[i] for i in np.random.default_rng(args.map_seed + 2).permutation(len(ppairs))]
-    pairs_of = {"combat": dpairs, "waypoint": dpairs, "aim": apairs, "proj": ppairs}
+    # The waypoint drill (2026-11-24): every map the IWADs share (--maps all,
+    # whatever --maps is), minus the eval and (stage 1) boss-exit maps, shuffled once;
+    # the drill maps before.
+    wpairs = all_pairs(iwads, resolve_maps("all", iwads, args.stage, eval_maps)) if "waypoint" in drill_types else []
+    wpairs = [wpairs[i] for i in np.random.default_rng(args.map_seed + 3).permutation(len(wpairs))]
+    # pairs_of = {"combat": dpairs, "waypoint": dpairs, "aim": apairs, "proj": ppairs}
+    pairs_of = {"combat": dpairs, "waypoint": wpairs, "aim": apairs, "proj": ppairs}
     if "proj" in drill_types and not ppairs:
         raise SystemExit(f"--mix {args.mix}: the proj drill needs an IWAD with PROJ_MAPS in --iwads (DOOM, FREEDOOM1)")
     # if any(t != "aim" for t in drill_types) and not dpairs:   (before the proj drill)
-    if any(t in ("combat", "waypoint") for t in drill_types) and not dpairs:
+    # if any(t in ("combat", "waypoint") for t in drill_types) and not dpairs:   (before the waypoint drill's every map)
+    if "combat" in drill_types and not dpairs:
         raise SystemExit(f"--mix {args.mix}: the drills need an IWAD with drill maps in --iwads (model.DRILL_MAPS: DOOM, FREEDOOM1)")
     D = len(drill_types)
     n_reg_groups, n_reg = groups - D, G * (groups - D)

@@ -280,6 +280,24 @@ void RL_DepthSpan(int y, int x1, int x2, int dist)
         p[x] = d;
 }
 
+// One screen pixel's depth, in map units (2026-11-24), depth-tested: an
+// overlay drawn after the 3D view (the waypoint skull) writes its distance
+// only where it is nearer than what the renderer put there, so its colour
+// shows through walls but its depth doesn't (it wrote over everything, at
+// first that day). The player's weapon (0) always stays in front.
+void RL_DepthPixel(int x, int y, double units)
+{
+    uint16_t d, *p;
+
+    if (!rl_depth_on || x < 0 || x >= SCREENWIDTH || y < 0 || y >= SCREENHEIGHT)
+        return;
+    d = units < 1 ? 1 : units > 0xfffe ? 0xfffe : (uint16_t) units;
+    p = &rl_depth[y * SCREENWIDTH + x];
+    // *p = d;   (no depth test, at first 2026-11-24)
+    if (d < *p)
+        *p = d;
+}
+
 static const char *RL_ModeName(void)
 {
     static const char *names[] = {
@@ -1073,6 +1091,107 @@ boolean RL_SectorPoint(unsigned seed, int min_dist, int *x, int *y)
     return count > 0;
 }
 
+// WAYPOINT VIEW (2026-11-24, the waypoint drill): a random path-grid cell
+// the player can walk to (8-way flood fill from its cell, through doors it
+// can open) and see, min_dist..max_dist map units away and inside the
+// view: its floor within the vertical view, and within the narrowest of
+// 10, 20 or 40 degrees of the facing that has one, so near the centre
+// when it can be. The walk there is at most 1.5x the straight line (in
+// grid steps), so it is not a point in sight across a gap. False when
+// there is none.
+boolean RL_ViewPoint(unsigned seed, int min_dist, int max_dist, int *x, int *y)
+{
+    static const int cones[3] = { 10, 20, 40 };
+    mobj_t *mo = players[consoleplayer].mo;
+    int n, start, head = 0, tail = 0, count = 0, c, d, tier, sx, sy;
+    int *queue, *steps, *cand;
+    double face;
+
+    if (mo == NULL || mo->subsector == NULL || gamestate != GS_LEVEL)
+        return false;
+    if (rl_graph_dirty || rl_graph_for != sectors)
+        RL_BuildGraph(mo);
+    if (rl_gsec == NULL)
+        return false;
+    n = rl_gw * rl_gh;
+    sx = ((mo->x >> FRACBITS) - rl_gx0) / RL_CELL;
+    sy = ((mo->y >> FRACBITS) - rl_gy0) / RL_CELL;
+    if (sx < 0 || sy < 0 || sx >= rl_gw || sy >= rl_gh || rl_gsec[sy * rl_gw + sx] < 0)
+        return false;
+    start = sy * rl_gw + sx;
+    queue = malloc(n * sizeof(int));
+    steps = malloc(n * sizeof(int));
+    cand = malloc(n * sizeof(int));
+    for (c = 0; c < n; c++)
+        steps[c] = -1;
+    queue[tail++] = start;
+    steps[start] = 0;
+    while (head < tail)
+    {
+        int cur = queue[head++];
+        for (d = 0; d < 8; d++)
+        {
+            int nc, door;
+            if (!(rl_gedge[cur] & (1 << d)))
+                continue;
+            nc = (cur / rl_gw + rl_dy[d]) * rl_gw + cur % rl_gw + rl_dx[d];
+            door = rl_gdoor[cur * 8 + d];
+            if (steps[nc] >= 0 || (door >= 0 && !rl_doorok[door]))
+                continue;
+            steps[nc] = steps[cur] + 1;
+            queue[tail++] = nc;
+        }
+    }
+    face = mo->angle * (2.0 * M_PI / 4294967296.0);
+    for (tier = 0; tier < 3 && count == 0; tier++)
+    {
+        double cone = cones[tier] * M_PI / 180.0;
+        for (c = 0; c < tail; c++)
+        {
+            int cell = queue[c], cheb;
+            double dx = (RL_CellX(cell) - mo->x) / (double) FRACUNIT;
+            double dy = (RL_CellY(cell) - mo->y) / (double) FRACUNIT;
+            double dist = sqrt(dx * dx + dy * dy), off, dz;
+            sector_t *sec = &sectors[rl_gsec[cell]];
+            mobj_t probe;
+            if (dist < min_dist || dist > max_dist)
+                continue;
+            off = atan2(dy, dx) - face;
+            off = atan2(sin(off), cos(off));
+            if (fabs(off) > cone)
+                continue;
+            // The skull stands on the floor: inside the vertical view
+            // (about +-27 degrees; 0.45 a unit, with a margin).
+            dz = (sec->floorheight - players[consoleplayer].viewz) / (double) FRACUNIT;
+            if (fabs(dz) > 0.45 * dist)
+                continue;
+            cheb = abs(cell % rl_gw - sx) > abs(cell / rl_gw - sy) ? abs(cell % rl_gw - sx) : abs(cell / rl_gw - sy);
+            if (steps[cell] * 2 > cheb * 3 + 2)
+                continue;
+            // In sight: a stand-in thing on the floor (no spawn, so no RNG).
+            memset(&probe, 0, sizeof(probe));
+            probe.x = RL_CellX(cell);
+            probe.y = RL_CellY(cell);
+            probe.z = sec->floorheight;
+            probe.height = 16 * FRACUNIT;
+            probe.subsector = R_PointInSubsector(probe.x, probe.y);
+            if (!P_CheckSight(mo, &probe))
+                continue;
+            cand[count++] = cell;
+        }
+    }
+    if (count > 0)
+    {
+        int pick = cand[(seed * 2654435761u >> 8) % (unsigned) count];
+        *x = RL_CellX(pick) >> FRACBITS;
+        *y = RL_CellY(pick) >> FRACBITS;
+    }
+    free(cand);
+    free(steps);
+    free(queue);
+    return count > 0;
+}
+
 void RL_EmitState(const char *why, int tics)
 {
     char buf[3600];
@@ -1356,12 +1475,18 @@ void RL_EmitState(const char *why, int tics)
         // probes only set the slope for a spread shot (their 1<<26 is the
         // spread's), and a single bullet flies along the facing, so a side
         // probe's monster was a near miss; the shotguns' pellet cones keep all three.
+        // Fists and chainsaw (2026-11-24): the facing probe at their reach
+        // (A_Punch MELEERANGE, A_Saw MELEERANGE+1), so a monster out of reach is off.
         {
             mobj_t *saved = linetarget;
             boolean on = false;
             angle_t an = mo->angle;
-            boolean single = p->readyweapon == wp_pistol || p->readyweapon == wp_chaingun;
-            P_AimLineAttack(mo, an, 16*64*FRACUNIT);
+            boolean melee = p->readyweapon == wp_fist || p->readyweapon == wp_chainsaw;
+            boolean single = melee || p->readyweapon == wp_pistol || p->readyweapon == wp_chaingun;
+            fixed_t reach = p->readyweapon == wp_fist ? MELEERANGE
+                          : p->readyweapon == wp_chainsaw ? MELEERANGE + 1 : 16*64*FRACUNIT;
+            // P_AimLineAttack(mo, an, 16*64*FRACUNIT);   (every weapon, before 2026-11-24)
+            P_AimLineAttack(mo, an, reach);
             if (!linetarget && !single)
                 P_AimLineAttack(mo, an + (1<<26), 16*64*FRACUNIT);
             if (!linetarget && !single)

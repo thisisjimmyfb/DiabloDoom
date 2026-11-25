@@ -123,7 +123,7 @@ and nothing while out of view (no edge arrow since
 units before) it is cleared with a `waypoint_reached` event; the state line carries
 `waypoint` [x, y] while one is set; a level load clears it; the VLM sets
 it in production, the training env in training, with `WAYPOINT RANDOM <seed>
-[min]`: a random standable point of a sector next to the player's (its
+[min]` (and, 2026-11-24, `WAYPOINT VIEW <seed> [min] [max]`, the waypoint drill's: a random path-grid cell the player can walk to (doors it can open) and see, min..max units away (default 0..512), its floor within the vertical view, within the narrowest of 10, 20 or 40 degrees of the facing that has one, the walk at most 1.5x the straight line, `RL_ViewPoint`): a random standable point of a sector next to the player's (its
 own sector before), one it can walk into from its part of its sector,
 through doors it can open, door and small sectors (stair steps) leading
 on to the sector behind them, min or more units away (else any 96 or
@@ -225,7 +225,8 @@ attack state; practice and hidden monsters don't count; -1 none since the level 
 loaded), the env's combat test for its turn penalty, and (2026-11-21) `aim_on`, a hitscan shot
 now would be aimed at a living monster (`P_BulletSlope`'s three autoaim probes, 1024 units;
 2026-11-23: the facing probe alone with the pistol or chaingun, whose single bullet flies along
-the facing -- the side probes, 1<<26 either side, only set a spread shot's slope; practice and
+the facing -- the side probes, 1<<26 either side, only set a spread shot's slope; 2026-11-24: with fists or the chainsaw
+the facing probe at their reach, `MELEERANGE` / +1, as `A_Punch` / `A_Saw` trace; practice and
 hidden monsters don't count), the env's aim reward, and (2026-11-22) `aim_streak`, the consecutive tics
 those probes found the same living monster (anything else in the way, a skipped tic or a level load restarts it; 0 off
 target), the env's track reward -- reward shaping only, never
@@ -233,7 +234,7 @@ a policy input, so the 2026-10-21 no-oracle ruling for the farm agent
 stands. One exception (2026-11-22, the user's call): the depth buffer (`-shm` segment
 version 2: 320x200 uint16 map units along the view direction after the palette, 65535
 sky, 0 status bar and the player's weapon; `RL_DepthBegin` / `RL_DepthCol` /
-`RL_DepthSpan`, filled by the renderer's wall, plane and sprite drawing while `-shm` is on)
+`RL_DepthSpan`, filled by the renderer's wall, plane and sprite drawing while `-shm` is on; 2026-11-24 `RL_DepthPixel`: the waypoint skull writes its own distance into its pixels, depth-tested -- only where nearer than what the renderer drew, so its colour shows through walls but its depth doesn't)
 is a policy input beside the grayscale frame, for vision: rendered with the frame, it
 shows what is on screen, not hidden state.
 Automap (2026-11-14): it also carries `automap` (the map is on screen).

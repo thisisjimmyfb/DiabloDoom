@@ -91,6 +91,12 @@ ITEM_LIFE_TICS = 350    # a practice item lies 10 s (the engine's RL_ITEM_LIFE)
 # The hitscan guns (weapontype_t: pistol, shotgun, chaingun, super shotgun),
 # the aim reward's: a projectile has to lead its target, a fist reaches 64 units.
 HITSCAN = (1, 2, 3, 8)
+# The aim reward's weapons (2026-11-24): the hitscan guns, and fists and
+# chainsaw (a 64-unit hitscan; the engine's aim_on probes their reach).
+AIMED = HITSCAN + (0, 7)
+# weapontype_t names, for the accuracy by gun metric (2026-11-24).
+GUN_NAMES = {0: "fist", 1: "pistol", 2: "shotgun", 3: "chaingun", 4: "rocket",
+             5: "plasma", 6: "bfg", 7: "saw", 8: "ssg"}
 RANGE_BANDS = {0: (0, 80), 1: (256, 768), 2: (128, 512), 3: (256, 768), 4: (192, 768),
                5: (128, 640), 6: (192, 768), 7: (0, 80), 8: (64, 256)}
 
@@ -105,7 +111,8 @@ class RewardConfig:
     # crossing pays once, for the room behind it.
     sector: float = 15.0
     exit: float = 100.0               # level complete triggered (ends the rollout): the top reward
-    death: float = -200.0             # the player died (ends the rollout): 2x the exit (-150 before 2026-11-20, when a death also forfeited the combat pay; -100 before 2026-11-18)
+    # death: float = -200.0
+    death: float = -1000.0            # the player died (ends the rollout; a drill respawns): 10x the exit, 100x a blind press (2026-11-24: dying should be very expensive; -200 before, 2x the exit; -150 before 2026-11-20, when a death also forfeited the combat pay; -100 before 2026-11-18)
     mechanism: float = 10.0           # USE that sets a new mechanism going (once per mechanism)
     key: float = 25.0                 # per key colour newly held (blue, yellow, red; once each)
     # Pickups, from the engine's pickup events: each Diablo item picked
@@ -120,14 +127,22 @@ class RewardConfig:
     item_approach: float = 0.01
     # Waypoints (2026-11-19): each one reached pays waypoint, and each map
     # unit closed toward the one set pays waypoint_look_approach times
-    # max(0, cos) of the angle from the facing (at the step's start) to it,
+    # max(0, cos) of the angle from the facing (at the step's start) to it
+    # (cos, signed, since 2026-11-24: backing in costs, each unit lost costs in full),
     # away costing the same way (waypoint_approach, unscaled, and look toward
     # it, before 2026-11-20: look paid per tic facing it, so lingering paid). A rollout ending early on
     # a goal (exit, key, portal) pays waypoint for each of its
     # EnvConfig.waypoint_count not reached, so the new sector a waypoint
     # leads into never costs the waypoints after it.
-    waypoint: float = 15.0
-    waypoint_look_approach: float = 0.01
+    # waypoint: float = 15.0
+    waypoint: float = 30.0            # 15 before 2026-11-24 (the room reward, 15 a room, outpaid it in the waypoint drill)
+    # Arriving facing it (2026-11-24): waypoint times max(waypoint_facing_min,
+    # cos a), a the angle from the facing to the waypoint at the arriving
+    # step's start -- walked into facing it pays it all, backed into a
+    # quarter (the drill-bred policy learned to back into them: 34% of its
+    # actions ran backward, 2-8% forward). 1 turns it off.
+    waypoint_facing_min: float = 0.25
+    waypoint_look_approach: float = 0.03   # 0.01 before 2026-11-24 (a full approach paid ~1.9, less than turning to it cost)
     # Every term is in points, the one-off terms (immediate, below) too (late
     # 2026-11-21: the learner keeps rewards in points, one scale per group;
     # earlier that day the one-off values were standard deviations of
@@ -224,11 +239,18 @@ class RewardConfig:
     turn: float = -0.1                # -0.01 before 2026-11-20
     turn_combat_tics: int = 105       # 3 s
     turn_waste_window: int = 8
-    # The same for forward and back: W at most move_flip_window tics after
-    # S, or S after W, costs move_flip. Strafing back and forth (A/D) is
-    # free.
-    move_flip: float = -2.0           # (-3.0 late 2026-11-21; -0.1 std earlier that day; -0.015 points before)
-    move_flip_window: int = 4
+    # Momentum flips (2026-11-24): a step whose velocity (its x/y change a
+    # tic) is momentum_flip_speed or more and turned more than 90 degrees
+    # (cos < momentum_flip_cos) from the last such velocity, at most
+    # momentum_flip_window tics old, costs momentum_flip; any direction, strafing
+    # too. Chained: the steps that reversed the momentum share it. Before:
+    # the W/S keys, one-off -- W within 4 tics of S, or S of W -- which at a
+    # fresh policy's entropy charged most W and S presses (about -500 a
+    # rollout), so it pressed both less.
+    momentum_flip: float = -2.0       # move_flip before 2026-11-24 (renamed); (-3.0 late 2026-11-21; -0.1 std earlier that day; -0.015 points before)
+    momentum_flip_window: int = 20        # 4 before (keys); running full speed to a stop takes ~7 tics
+    momentum_flip_speed: float = 4.0      # units a tic (running tops out at ~16.7; random keys wander ~3)
+    momentum_flip_cos: float = 0.0
     # Falls (2026-11-16): a quick large drop usually means the player left
     # the path the map intends. A fall is an unbroken run of tics going
     # down that at some point drops faster than fall_speed units a tic
@@ -291,11 +313,14 @@ class RewardConfig:
     # Only the nearest, so many don't pay more; a change of distance, never a per-tic pay,
     # so holding the band or stalling a fight earns nothing.
     range: float = 0.015              # 0.01 before 2026-11-20
-    # Aim (2026-11-21): each step whose action presses fire while a living
-    # monster is in line of sight (the engine's foe_dist, any direction) in
+    # Aim (2026-11-21): each step whose action presses fire (while a living
+    # monster is in line of sight -- the engine's foe_dist, any direction --
+    # until 2026-11-24; with or without one since; a projectile gun, a press
+    # with none in sight costs aim_off, 2026-11-24) in
     # the state it acted on: +aim when a hitscan shot would be aimed at a
     # monster (the engine's aim_on: P_BulletSlope's autoaim probes), -aim when
-    # not; only with a hitscan gun ready (HITSCAN: a projectile has to lead).
+    # not; only with a hitscan gun ready (HITSCAN: a projectile has to lead;
+    # AIMED since 2026-11-24, fists and chainsaw too, judged at their reach).
     # One-off, points (2026-11-22: chained, its own later presses drowned each
     # press's credit; one-off at 0.35 std for part of 2026-11-21, chained
     # before that, then every tic, fire or not, at 0.05 and 0.02 points).
@@ -332,7 +357,8 @@ class RewardConfig:
     # aim one-off since 2026-11-22 (one-off for part of 2026-11-21, chained in
     # between); proj one-off since 2026-11-22, credited back to the step that
     # pulled the trigger.
-    immediate: tuple = ("consult", "move_flip", "turn_waste", "aim", "proj", "track")    # no track before 2026-11-22; blind_fire until 2026-11-22 (deleted)
+    # immediate: tuple = ("consult", "move_flip", "turn_waste", "aim", "proj", "track")
+    immediate: tuple = ("consult", "turn_waste", "aim", "proj", "track")    # move_flip (momentum_flip since) until 2026-11-24 (chained since: momentum); no track before 2026-11-22; blind_fire until 2026-11-22 (deleted)
 
 
 # A CONSULT handler answers a CONSULT: it may drive the engine with any
@@ -482,6 +508,20 @@ class EnvConfig:
     # the last stretch.
     waypoint_min: float = 256.0      # 128 before 2026-11-18
     waypoint_count: int = 5            # per rollout (2026-11-19); 0: no limit (the waypoint drill's)
+    # The waypoint drill's placement (2026-11-24): along the walking path
+    # (path_ahead, ~192 units on), each one close and reachable -- "sector"
+    # put Ultimate Doom E1M2 / E3M2's first one 700-1400 units off, kept all
+    # 30 s, 0.04 reached; the random sector point still when the engine has
+    # no path (no unvisited room reachable). Its own minimum: path_ahead is
+    # nearer than waypoint_min.
+    # drill_waypoint_place: str = "path"
+    # "view" (2026-11-24): WAYPOINT VIEW, a point the player can walk to and see,
+    # drill_waypoint_min..drill_waypoint_max away, near the view's centre (path_ahead
+    # was often off to the side or behind, after a bend); path_ahead for a step when
+    # there is none in view.
+    drill_waypoint_place: str = "view"
+    drill_waypoint_min: float = 128.0
+    drill_waypoint_max: float = 384.0
     # Reached within this many map units of the player (2026-11-20, every
     # type; before, only the engine's touch, as a pickup): the env clears it.
     waypoint_reach: float = 96.0
@@ -526,7 +566,7 @@ class DiabloDoomEnv(gym.Env):
         self._dmg_share = 0.0
         self._view_share = 0.0
         self._fire_stats = [0, 0, 0, 0]
-        self._aim_stats = [0, 0, 0, 0]       # hitscan, monster in sight: [on target, fire; off, fire]
+        # self._aim_stats = [0, 0, 0, 0]     # hitscan, monster in sight: [on target, fire; off, fire] (until 2026-11-24: accuracy by gun since)
         self._proj_stats = [0, 0, 0]         # projectiles: [fired, ended hitting any, monsters hit]
         self._nstep, self._proj_step = 0, {}
         self._track_paid = -1             # the last step track credited (or passed over)
@@ -536,12 +576,14 @@ class DiabloDoomEnv(gym.Env):
         self._wp_on, self._wp, self._wp_tic, self._wp_stats = False, None, -10 ** 9, [0, 0]   # waypoints (reset sets them)
         self._wp_count, self._wp_gap = self.cfg.waypoint_count, self.cfg.waypoint_gap
         self._wp_pending = False
+        self._wp_view_miss = False        # WAYPOINT VIEW found none last time: path_ahead next
+        self._wp_view_sent = False
         self._combat_on, self._combat_stats = False, [0, 0, 0, 0.0]   # combat (reset sets them)
         self._installed: dict[int, bytes | None] = {}   # install_state slots
         self._installed_visited: dict[int, str | None] = {}  # their visited lists (VISITED hex)
         # the last turn_waste_window turns (degrees), for RewardConfig.turn_waste
         self._turn_hist = collections.deque(maxlen=self.cfg.rewards.turn_waste_window)
-        self._move_dir, self._move_tic = 0, -10 ** 9          # the last W/S key and its rollout tic
+        self._flip_v = None   # the last fast velocity (vx, vy, rollout tic), for RewardConfig.momentum_flip
         self._item, self._consult_stats = None, [0, 0, 0, 0]  # set per rollout in reset
         self._fall_top, self._fall_peak = None, 0.0           # a fall in progress: its start z, fastest tic
         self.state: dict = {}
@@ -735,7 +777,7 @@ class DiabloDoomEnv(gym.Env):
         # screen at the step's start (the engine's monstervis), fire presses on
         # them; steps without, fire presses on them.
         self._fire_stats = [0, 0, 0, 0]
-        self._aim_stats = [0, 0, 0, 0]       # hitscan, monster in sight: [on target, fire; off, fire]
+        # self._aim_stats = [0, 0, 0, 0]     # hitscan, monster in sight: [on target, fire; off, fire] (until 2026-11-24: accuracy by gun since)
         self._proj_stats = [0, 0, 0]         # projectiles: [fired, ended hitting any, monsters hit]
         self._track_paid = -1
         self._deaths = 0
@@ -743,7 +785,7 @@ class DiabloDoomEnv(gym.Env):
         self._prev_hp = d.get("hp", 0)
         self._combat_steps = 0
         self._turn_hist = collections.deque(maxlen=self.cfg.rewards.turn_waste_window)
-        self._move_dir, self._move_tic = 0, -10 ** 9
+        self._flip_v = None
         self._fall_top, self._fall_peak = None, 0.0
         self._trig = {k: self._new_trigger() for k in ("unique", "combat")}
         self._update_triggers(d)
@@ -758,6 +800,7 @@ class DiabloDoomEnv(gym.Env):
         self._wp_count = 0 if endless else self.cfg.waypoint_count
         self._wp_gap = 0 if endless else self.cfg.waypoint_gap
         self._wp, self._wp_tic, self._wp_stats, self._wp_pending = None, -10 ** 9, [0, 0], False
+        self._wp_view_miss = False
         self._wp_clear = False
         obs = self._stack.reset(self._frame())
         return obs, self._info(0, d)
@@ -827,6 +870,7 @@ class DiabloDoomEnv(gym.Env):
                 self._wp_stats[0] += 1
             else:
                 self._wp = None
+                self._wp_view_miss = self._wp_view_sent
         wp = self._wp                     # the waypoint this step ran toward
 
         self.state = d
@@ -834,14 +878,16 @@ class DiabloDoomEnv(gym.Env):
         if any(e.get("event") == "waypoint_reached" for e in events) or (wp is not None and "waypoint" not in d):
             if any(e.get("event") == "waypoint_reached" for e in events):
                 self._wp_stats[1] += 1
-                add("waypoint", rc.waypoint)
+                # add("waypoint", rc.waypoint)   (before 2026-11-24's facing scale)
+                add("waypoint", rc.waypoint * self._wp_facing(prev, wp))
             self._wp, self._wp_tic = None, self._tics
         elif (wp is not None and "x" in d and self.cfg.waypoint_reach > 0
               and np.hypot(d["x"] - wp[0], d["y"] - wp[1]) <= self.cfg.waypoint_reach):
             # Within waypoint_reach (2026-11-20): reached, the engine's marker
             # cleared with the next action.
             self._wp_stats[1] += 1
-            add("waypoint", rc.waypoint)
+            # add("waypoint", rc.waypoint)   (before 2026-11-24's facing scale)
+            add("waypoint", rc.waypoint * self._wp_facing(prev, wp))
             self._wp, self._wp_tic, self._wp_clear = None, self._tics, True
 
         # Steps in combat (capped: the world is frozen until CONSULT).
@@ -864,8 +910,11 @@ class DiabloDoomEnv(gym.Env):
                 facing = 1.0
                 if prev.get("angle") is not None:
                     ang = np.degrees(np.arctan2(wp[1] - prev["y"], wp[0] - prev["x"])) - prev["angle"]
-                    facing = max(0.0, float(np.cos(np.radians(ang))))
-                add("waypoint_look_approach", rc.waypoint_look_approach * float(closed) * facing)
+                    # facing = max(0.0, float(np.cos(np.radians(ang))))   (before 2026-11-24's signed approach)
+                    facing = float(np.cos(np.radians(ang)))
+                # add("waypoint_look_approach", rc.waypoint_look_approach * float(closed) * facing)
+                # Signed (2026-11-24): closing pays cos a (backing in costs), losing ground costs in full.
+                add("waypoint_look_approach", rc.waypoint_look_approach * float(closed) * (facing if closed > 0 else 1.0))
         elif tics > 0 and rc.time and not self._wp_on:
             known = [g for g in (self._goal, goal) if g is not None]
             dist = sum(known) / len(known) if known else 0.0
@@ -898,14 +947,19 @@ class DiabloDoomEnv(gym.Env):
         if sent and tics > 0 and rc.turn_waste:
             add("turn_waste", self._turn_waste_step(prev, d))
 
-        # Forward/back reversals: this step's W/S key against the last one.
-        # The key acts on the tic this step played (self._tics is its end).
-        move = MOVE_DIR[a] if sent and a != CONSULT else 0
-        if move:
-            if (rc.move_flip and self._move_dir == -move
-                    and self._tics - self._move_tic <= rc.move_flip_window):
-                add("move_flip", rc.move_flip)
-            self._move_dir, self._move_tic = move, self._tics
+        # Momentum flips: this step's velocity against the last fast one
+        # (RewardConfig.momentum_flip; the W/S keys before 2026-11-24).
+        if sent and tics > 0 and rc.momentum_flip and "x" in prev and "x" in d:
+            vx, vy = (d["x"] - prev["x"]) / tics, (d["y"] - prev["y"]) / tics
+            sp = float(np.hypot(vx, vy))
+            if sp * tics > 64:                     # a teleport, LOAD or respawn
+                self._flip_v = None
+            elif sp >= rc.momentum_flip_speed:
+                u = self._flip_v
+                if (u is not None and self._tics - u[2] <= rc.momentum_flip_window
+                        and (vx * u[0] + vy * u[1]) / (sp * np.hypot(u[0], u[1])) < rc.momentum_flip_cos):
+                    add("momentum_flip", rc.momentum_flip)
+                self._flip_v = (vx, vy, self._tics)
 
         # Exploration: newly visited sectors.
         if sec > self._best_sectors:
@@ -1044,12 +1098,15 @@ class DiabloDoomEnv(gym.Env):
         self._fire_stats[0 if seen else 2] += 1
         self._fire_stats[1 if seen else 3] += a in FIRES
         # Aim (RewardConfig.aim): a fire press, by the crosshair in the state
-        # it acted on, while a monster is in line of sight. aim_stats (the
-        # metric, 2026-11-22): those states' steps and presses, on and off target.
-        if prev.get("foe_dist", -1) >= 0 and "aim_on" in prev and prev.get("weapon") in HITSCAN:
+        # it acted on -- with or without a monster in line of sight since
+        # 2026-11-24 (only with one before: firing at nothing was free, and
+        # the waypoint drill's fire presses climbed 8% to 21%). The aim_stats
+        # metric (2026-11-22, the steps with a monster in sight and their presses,
+        # on and off target) was replaced by accuracy by gun on 2026-11-24.
+        # if prev.get("foe_dist", -1) >= 0 and "aim_on" in prev and prev.get("weapon") in HITSCAN:
+        # if "aim_on" in prev and prev.get("weapon") in HITSCAN:   (fists free, before 2026-11-24)
+        if "aim_on" in prev and prev.get("weapon") in AIMED:
             on = bool(prev["aim_on"])
-            self._aim_stats[0 if on else 2] += 1
-            self._aim_stats[1 if on else 3] += a in FIRES
             if a in FIRES and rc.aim:
                 add("aim", rc.aim if on else rc.aim_off)    # -rc.aim before
             # Track (RewardConfig.track): the steps that held this target.
@@ -1058,6 +1115,12 @@ class DiabloDoomEnv(gym.Env):
                 if rc.track_tics > 0:
                     n = min(n, rc.track_tics)
                 back.extend([k, "track", rc.track] for k in range(1, n + 1))
+        # A projectile gun (2026-11-24): a press with no monster in line of
+        # sight costs aim_off -- the BFG and plasma fired at nothing for free
+        # between projectiles, and the habit carried over to the guns that
+        # paid. A projectile it spawns pays proj_miss as well.
+        elif a in FIRES and rc.aim and prev.get("foe_dist", 0) < 0:
+            add("aim", rc.aim_off)
         if a in FIRES:
             self._track_paid = step_i - 1     # steps up to the press's are spent
         # Turning (RewardConfig.turn), on its step; in combat, turning is free.
@@ -1076,7 +1139,8 @@ class DiabloDoomEnv(gym.Env):
         info["items"] = [getattr(self, "_items_spawned", 0), getattr(self, "_items_picked", 0)]
         info["consult_stats"] = list(self._consult_stats)
         info["fire_stats"] = list(self._fire_stats)
-        info["aim_stats"] = list(self._aim_stats)
+        # info["aim_stats"] = list(self._aim_stats)   (until 2026-11-24)
+        info["gun"] = d.get("weapon")      # the ready weapon (weapontype_t): a rollout's one gun, GIVEGUN's
         info["proj_stats"] = list(self._proj_stats)
         # on (a drill counts: it fights), shots, hits, kills, damage
         info["combat"] = [int(self._combat_on or self._drill)] + list(self._combat_stats)
@@ -1191,18 +1255,39 @@ class DiabloDoomEnv(gym.Env):
             return None
         if age < (self._wp_gap if self._wp is None else cfg.waypoint_every):
             return None
-        if cfg.waypoint_place == "sector":
+        drill = self._type == "waypoint"
+        place = cfg.drill_waypoint_place if drill else cfg.waypoint_place
+        near = cfg.drill_waypoint_min if drill else cfg.waypoint_min
+        self._wp_view_sent = False
+        if place == "view" and not self._wp_view_miss:
+            self._wp_tic, self._wp_pending, self._wp_view_sent = self._tics, True, True
+            return (f"WAYPOINT VIEW {int(self.np_random.integers(0, 2 ** 31))} "
+                    f"{int(near)} {int(cfg.drill_waypoint_max)}")
+        self._wp_view_miss = False
+        # if cfg.waypoint_place == "sector":   (before the drill's own placement, 2026-11-24)
+        if place == "sector" or (drill and ahead is None):
             # The engine picks the point; the step reads it back.
             self._wp_tic, self._wp_pending = self._tics, True
             return f"WAYPOINT RANDOM {int(self.np_random.integers(0, 2 ** 31))} {int(cfg.waypoint_min)}"
         if ahead is None:
             return None
-        if "x" in d and np.hypot(ahead[0] - d["x"], ahead[1] - d["y"]) < cfg.waypoint_min:
+        # if "x" in d and np.hypot(ahead[0] - d["x"], ahead[1] - d["y"]) < cfg.waypoint_min:
+        if "x" in d and np.hypot(ahead[0] - d["x"], ahead[1] - d["y"]) < near:
             return None
         x, y = (int(round(v + self.np_random.normal(0.0, cfg.waypoint_noise))) for v in ahead[:2])
         self._wp, self._wp_tic = (x, y), self._tics
         self._wp_stats[0] += 1
         return f"WAYPOINT {x} {y}"
+
+    def _wp_facing(self, prev: dict, wp) -> float:
+        """RewardConfig.waypoint_facing_min: the waypoint reward's share,
+        max(min, cos a), a from the facing at the step's start to the
+        waypoint; 1 when either is unknown."""
+        lo = self.cfg.rewards.waypoint_facing_min
+        if lo >= 1.0 or wp is None or prev.get("angle") is None or "x" not in prev:
+            return 1.0
+        ang = np.degrees(np.arctan2(wp[1] - prev["y"], wp[0] - prev["x"])) - prev["angle"]
+        return max(lo, float(np.cos(np.radians(ang))))
 
     def _fall_step(self, prev: dict, d: dict, tics: int) -> float:
         """Track a fall across steps (RewardConfig.fall); the penalty on the

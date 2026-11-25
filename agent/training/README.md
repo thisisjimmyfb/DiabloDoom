@@ -119,7 +119,9 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   leading on to the one behind; `WAYPOINT RANDOM`, the engine picks
   it), never within 256 units of the player (`EnvConfig.waypoint_place`
   "path": at the state line's `path_ahead` instead, about 192 units along
-  the walking path, 16-unit noise), keeps it
+  the walking path, 16-unit noise; the waypoint drill, late 2026-11-24:
+  `WAYPOINT VIEW`, a point it can walk to and see, 128-384 units away,
+  near the centre of the view, `path_ahead` when none is in view), keeps it
   until it is reached, and sets the next 1 s after one is reached; 30% of groups get
   none. A group with waypoints has no clock (2026-11-20; before, while one
   was set, the clock ran as `waypoint_time`): its 5 fixed `waypoint`
@@ -141,8 +143,10 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   Turning that gets undone cost `turn_waste` (0 since 2026-11-20, `turn` covers it; -0.005 per 45 degrees,
   2026-11-16): over the last 8 tics, the facing's total turning minus its
   net turning; a steady turn either way, or holding still, costs nothing.
-  Reversing forward and back costs `move_flip` (-2 since 2026-11-22, -3 from late 2026-11-21, -0.1 std earlier that day, -0.015 before): W within 4 tics
-  of S, or S of W; strafing back and forth is free.
+  Reversing momentum costs `momentum_flip` (`move_flip` before 2026-11-24; -2 since 2026-11-22, -3 from late 2026-11-21, -0.1 std earlier that day, -0.015 before), chained:
+  since 2026-11-24 a step moving 4+ units a tic more than 90 degrees from the last such velocity
+  (within 20 tics), any direction, strafing too (before: W within 4 tics of S, or S of W, one-off,
+  which at a fresh policy's entropy charged most W/S presses and bred moving less).
   USE earns only `mechanism` (`use_miss` and `use_wall` removed
   2026-11-18).
   Fast movement (`fast`, 0 since 2026-11-20: with combat, moving for its
@@ -184,18 +188,22 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   other (projectile, melee, nukage, crusher, barrel; both `hp_loss` -7.5
   before 2026-11-20; healing pays nothing; `hit_decay`, x0.8 a hit on the
   end-of-rollout combat pay, until 2026-11-20), and a death ends the rollout with
-  `death` (-200 since 2026-11-20, -150 before, -100 before 2026-11-18) on top. The train line shows `kills` and
+  `death` (-1000 since 2026-11-24, -200 since 2026-11-20, -150 before, -100 before 2026-11-18) on top. The train line shows `kills` and
   the hit rate, and (2026-11-21) `fire <seen>/<blind>`: the share of steps
   pressing fire with a monster on screen (the engine's `monstervis`) and
   with none (blind firing); metrics `fire_seen` / `fire_blind`, and each
   `rollouts.jsonl` row's `fire` [steps seen, fire; unseen, fire].
   `blind_fire` (a press with no monster on screen) was deleted 2026-11-22 (-1 earlier that day; 0 from 2026-11-21;
   -0.35, -0.5 and -1 std, -10 and -20 points before): `aim_off` alone charges a press off target. `aim` (late 2026-11-22, +-10 a fire press on target / off
-  (`aim_off`; -5 before, then -7, then -10, just before that); asymmetric earlier that day: +7 on target, -3, -2, then -1 off; +-7 before), one-off; +-10 one-off before; chained at +-10, +-5, +-2, then +-0.5, before; +-0.35 std one-off, and +-0.05 and +-0.02 a tic, fire or not, earlier that day) judges each fire press made while a monster
-  is in line of sight in the state it acted on: + with the crosshair on a monster (the engine's
-  `aim_on`, Doom's autoaim probes), - without; hitscan guns only (a projectile has to lead);
-  metrics `fire_on` / `fire_off`, the press rate in those states on and off target, and each
-  `rollouts.jsonl` row's `aim` [steps on, fire; off, fire] (2026-11-22). `track` (2026-11-22, +5 a step; +3, +2, then +1, earlier that day;
+  (`aim_off`; -5 before, then -7, then -10, just before that); asymmetric earlier that day: +7 on target, -3, -2, then -1 off; +-7 before), one-off; +-10 one-off before; chained at +-10, +-5, +-2, then +-0.5, before; +-0.35 std one-off, and +-0.05 and +-0.02 a tic, fire or not, earlier that day) judges each fire press, a monster
+  in line of sight or not (2026-11-24; only with one before), in the state it acted on: + with the crosshair on a monster (the engine's
+  `aim_on`, Doom's autoaim probes), - without; hitscan guns only (a projectile has to lead; fists and
+  chainsaw too since 2026-11-24, `aim_on` probing their 64-unit reach; a projectile gun's press with no
+  monster in sight costs `aim_off` since then too);
+  metrics `fire_on` / `fire_off` (2026-11-22 to 2026-11-24, the press rate on and off target; each
+  `rollouts.jsonl` row's `aim` [steps on, fire; off, fire]) were replaced 2026-11-24 by accuracy by gun:
+  metric `acc` {gun: hits / shots} (`acc_shots` the shots; in metrics.jsonl, not on the train line),
+  and each row's `gun`, the rollout's one gun. `track` (2026-11-22, +5 a step; +3, +2, then +1, earlier that day;
   one-off) pays each step before an on-target press that kept the crosshair on that same monster
   (the engine's `aim_streak`; a wall or another monster in the way restarts it), no limit (10, then 6, earlier that day), each
   step once, credited back to those steps. `proj` (2026-11-21,
@@ -329,12 +337,14 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   process variant (`process`): per-step rewards in points, less the group's
   mean step reward, summed from each step on, except the one-off terms, also in
   points (consult +30 / -15, move_flip -3, -2 since 2026-11-22; converted from std units at about 30
-  points a std, late 2026-11-21) (`RewardConfig.immediate`: consult, move_flip,
+  points a std, late 2026-11-21) (`RewardConfig.immediate`: consult, move_flip until 2026-11-24,
   turn_waste, aim and proj (2026-11-22), track (2026-11-22); blind_fire until 2026-11-22; wall_look until 2026-11-21;
   2026-11-17), which count on their own step only, since they judge just that
-  action and later steps don't follow from it; then each group's advantages are
-  divided by one number, their std over the group (metrics `adv_scale`), which
-  only balances groups of different lengths (before late 2026-11-21: per-step
+  action and later steps don't follow from it; then (2026-11-24) each group's chained
+  stream is divided by its std over the group (metrics `adv_scale`) and times `learn.CHAIN_POINTS`
+  (30), which balances groups of different lengths and swings, while the one-off stream stays in
+  points, unscaled (late 2026-11-21 to 2026-11-24 both were divided by the std of their sum, so a
+  group with a death in it, std 100-300, shrank a blind press to almost nothing; before late 2026-11-21: per-step
   rewards divided by their std over the group, the sums scaled to unit std,
   2026-11-18, and the one-off terms added in std units). Zero-variance groups are dropped and
   reported as `collapsed_share`.
