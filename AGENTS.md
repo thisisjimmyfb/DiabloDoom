@@ -192,7 +192,10 @@ of them fully shut when it began: the env's per-opening door reward). `DOORSPOT 
 (`-rlenv`, 2026-11-24, `RL_DoorSpot`, the door drill): teleports the player in front of a random closed door
 it can open, facing it, the waypoint past it, with a `doorspot` event (`line` -1: none found); `WAYPOINT DOOR
 <seed> [min] [max] [vmin] [vmax]` (2026-11-24, `RL_DoorPoint`): the waypoint past a closed door in view the
-player can walk to and open, no teleport, else as `WAYPOINT VIEW`, with a `doorpoint` event. Pickups (2026-11-14): each thing the player
+player can walk to and open, no teleport, else as `WAYPOINT VIEW`, with a `doorpoint` event; `WAYPOINT
+FRONTIER` (2026-11-25, `RL_FrontierPoint`, the mixed rollouts'): down the walking path to the nearest unvisited
+room, just past the first door on it, else 2 cells into the room, else the path's 12th cell, with a
+`frontierpoint` event (`door` its sector or -1, `far` 1 for the 12th cell). Pickups (2026-11-14): each thing the player
 picks up sends a `pickup` event (`kind` loot, armor, health, key or
 other; `hp` the health it gave) for the env's loot and health rewards. Approach (2026-11-14): the state
 line carries `exit_dist` and `frontier_dist` (and, since 2026-11-14, `sector`, the

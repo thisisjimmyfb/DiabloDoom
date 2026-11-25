@@ -1060,6 +1060,48 @@ def test_fast_path():
     assert pay(None, 10, 0) == 1.0            # no way known: the facing
 
 
+def test_frontier_waypoints():
+    """mixed (2026-11-25): WAYPOINT FRONTIER with no count limit; one past a
+    door or in the room is reached by touch only (not within waypoint_reach);
+    one on the way (far) keeps waypoint_reach; the point just reached again is
+    dropped, and a touch with no waypoint set neither counts nor pays."""
+    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
+                        consult_false=0, key=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
+                        time=0, fast=0, look=0, turn=0, turn_waste=0, momentum_flip=0,
+                        fall=0, wall_look=0, waypoint=30.0, waypoint_facing_min=1.0, waypoint_look_approach=0)
+    e = make_env(rewards=only, max_tics=100000, waypoints=True, waypoint_reach=96.0)
+    sent = []
+    front = lambda door=-1, far=0: {"event": "frontierpoint", "door": door, "far": far}
+    script = iter([
+        ({"waypoint": [50, 0]}, [front()]),                              # in the room, 50 away: not reached by distance
+        ({"waypoint": [50, 0]}, []),
+        ({"x": 50}, [{"event": "waypoint_reached"}]),                   # touched
+        ({"x": 50, "waypoint": [50, 0]}, [front(), {"event": "waypoint_reached"}]),   # the same point again: dropped
+        ({"x": 50}, []),
+        ({"x": 50}, []),
+    ])
+
+    def command(line):
+        sent.append(line)
+        st, ev = next(script)
+        return dict({"mode": "EXPLORE", "hp": 100, "tics": 1, "x": 0, "y": 0, "angle": 0}, **st), ev
+    e.engine.command = command
+    e._frame = lambda: np.zeros((200, 320), dtype=np.uint8)
+    e.state = {"mode": "EXPLORE", "hp": 100, "x": 0, "y": 0, "angle": 0}
+    e._prev_hp, e._tics, e._combat_steps = 100, 0, 0
+    e._best_sectors = e._start_sectors = 0
+    e._keys, e._goal, e._group, e._slot, e._seed, e._used = 0, None, 0, None, 0, set()
+    e._trig = {k: e._new_trigger() for k in ("monster", "unique", "combat")}
+    e._type, e._wp_on, e._wp_count, e._wp_gap = "mixed", True, 0, 0
+    e._stack.reset(e._frame())
+    p = ACTIONS.index("PRESS")
+    infos = [e.step(p)[4] for _ in range(4)]
+    assert sent[0].startswith("WAYPOINT FRONTIER;")
+    assert [i["terms"].get("waypoint", 0.0) for i in infos] == [0.0, 0.0, 30.0, 0.0]
+    assert infos[3]["waypoints"] == [1, 1]           # the repeat neither set nor reached
+    assert e._wp is None and e._wp_retry == 35
+
+
 def test_use_miss():
     """use_miss (2026-11-24): a USE with no use event and no switch or closed
     door in reach (wall_use) at the step's start costs use_miss; one in reach,

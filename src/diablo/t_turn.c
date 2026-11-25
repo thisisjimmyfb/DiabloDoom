@@ -2473,7 +2473,24 @@ static void cmd_dispatch_one(const char *cmd)
         // WAYPOINT DOOR <seed> [min] [max] [vmin] [vmax] (2026-11-24): past a closed
         // door in view (RL_DoorPoint), else as WAYPOINT VIEW <seed> <vmin> <vmax>; a
         // doorpoint event says which (line -1: the view point).
-        if (cmd[8] != '\0' && !strncmp(cmd + 9, "DOOR ", 5) && sscanf(cmd + 14, "%u", &seed) == 1)
+        // WAYPOINT FRONTIER (2026-11-25, the mixed rollouts'): on the walking path to
+        // the nearest unvisited room, just past the first door on it, else in the room,
+        // else 12 cells on the way (RL_FrontierPoint); a frontierpoint event (door: its
+        // sector, -1 none; far: 1 for a waypoint on the way).
+        if (!strcmp(cmd, "WAYPOINT FRONTIER"))
+        {
+            int door = -1;
+            boolean far = false;
+            if (RL_FrontierPoint(&x, &y, &door, &far))
+            {
+                D_WaypointSet(x, y);
+                printf("[WAYPOINT] frontier %d %d (door %d%s)\n", x, y, door, far ? ", on the way" : "");
+                RL_Emit("{\"event\":\"frontierpoint\",\"door\":%d,\"far\":%d}", door, far ? 1 : 0);
+            }
+            else
+                printf("[WAYPOINT] frontier: no path to an unvisited room\n");
+        }
+        else if (cmd[8] != '\0' && !strncmp(cmd + 9, "DOOR ", 5) && sscanf(cmd + 14, "%u", &seed) == 1)
         {
             int min = 64, max = 384, vmin = 128, vmax = 384, line = -1;
             sscanf(cmd + 14, "%*u %d %d %d %d", &min, &max, &vmin, &vmax);

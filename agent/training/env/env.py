@@ -560,6 +560,13 @@ class EnvConfig:
     # drill_door_share: float = 0.3
     drill_door_share: float = 0.0     # off (2026-11-24): doors in view were rare (2 of 27 waypoints trying every time); the door drill's own groups instead
     drill_door_min: int = 64
+    # The mixed rollouts' waypoints (2026-11-25): "frontier", WAYPOINT FRONTIER --
+    # on the walking path to the nearest unvisited room, just past the first door
+    # on it (reached by touch only), else the room's first cell; no count limit,
+    # the next at once (so no pay for unreached ones on a goal end). Before:
+    # waypoint_place's random sector points, waypoint_count (5) of them, which a
+    # portal end paid in full unreached (mixed: 0.24 reached, +81 a rollout).
+    mixed_waypoint_place: str = "frontier"
     drill_door_max: int = 384
     # Reached within this many map units of the player (2026-11-20, every
     # type; before, only the engine's touch, as a pickup): the env clears it.
@@ -622,6 +629,8 @@ class DiabloDoomEnv(gym.Env):
         self._wp_view_sent = False
         self._door_retry, self._door_jump = 0, False   # the door drill: tics before the next DOORSPOT try; teleported this step
         self._wp_door, self._wp_door_sent, self._door_wp = False, False, [0, 0]   # the waypoint is past a door; WAYPOINT DOOR sent; [set, reached]
+        self._wp_front_sent, self._wp_retry = False, 0   # WAYPOINT FRONTIER sent; tics before trying again after none
+        self._wp_touch, self._wp_last = False, None       # reached by touch only (a frontier waypoint); the last one reached
         self._combat_on, self._combat_stats = False, [0, 0, 0, 0.0]   # combat (reset sets them)
         self._installed: dict[int, bytes | None] = {}   # install_state slots
         self._installed_visited: dict[int, str | None] = {}  # their visited lists (VISITED hex)
@@ -855,13 +864,17 @@ class DiabloDoomEnv(gym.Env):
             # self._wp_on = self.cfg.waypoints and self._type in ("waypoint", "mixed")
             self._wp_on = self.cfg.waypoints and self._type in ("waypoint", "door", "mixed")
         # The waypoint drill: no limit, the next one at once.
-        endless = self._type in ("waypoint", "door")
+        # endless = self._type in ("waypoint", "door")
+        endless = self._type in ("waypoint", "door") or (
+            self._type == "mixed" and self.cfg.mixed_waypoint_place == "frontier")
         self._wp_count = 0 if endless else self.cfg.waypoint_count
         self._wp_gap = 0 if endless else self.cfg.waypoint_gap
         self._wp, self._wp_tic, self._wp_stats, self._wp_pending = None, -10 ** 9, [0, 0], False
         self._wp_view_miss = False
         self._door_retry, self._door_jump = 0, False
         self._wp_door, self._wp_door_sent, self._door_wp = False, False, [0, 0]
+        self._wp_front_sent, self._wp_retry = False, 0
+        self._wp_touch, self._wp_last = False, None
         self._wp_clear = False
         obs = self._stack.reset(self._frame())
         return obs, self._info(0, d)
@@ -942,28 +955,49 @@ class DiabloDoomEnv(gym.Env):
                 self._wp = tuple(d["waypoint"])
                 self._wp_stats[0] += 1
                 # WAYPOINT DOOR: its doorpoint event says whether it is past a door.
-                self._wp_door = self._wp_door_sent and any(
-                    e.get("event") == "doorpoint" and e.get("line", -1) >= 0 for e in events)
+                self._wp_door = (self._wp_door_sent and any(
+                    e.get("event") == "doorpoint" and e.get("line", -1) >= 0 for e in events)) or (
+                    self._wp_front_sent and any(      # WAYPOINT FRONTIER past a door (2026-11-25)
+                        e.get("event") == "frontierpoint" and e.get("door", -1) >= 0 for e in events))
                 self._door_wp[0] += self._wp_door
+                self._wp_retry = 0
+                # WAYPOINT FRONTIER (2026-11-25): reached by touch only -- within
+                # waypoint_reach of a small unvisited sector's edge it counted without
+                # entering, and the same point came back every step (852 a rollout).
+                # self._wp_touch = self._wp_front_sent
+                # A waypoint on the way (far) keeps waypoint_reach: the next is ~384 units on.
+                self._wp_touch = self._wp_front_sent and not any(
+                    e.get("event") == "frontierpoint" and e.get("far") for e in events)
+                if self._wp_front_sent and self._wp == self._wp_last:
+                    # The one just reached again: none, try again in a second.
+                    self._wp_stats[0] -= 1
+                    self._door_wp[0] -= self._wp_door
+                    self._wp, self._wp_door, self._wp_touch, self._wp_retry, self._wp_clear = None, False, False, 35, True
             else:
                 self._wp = None
                 self._wp_view_miss = self._wp_view_sent
+                self._wp_retry = 35 if self._wp_front_sent else 0   # no path: try again in a second
         jump, self._door_jump = self._door_jump, False   # DOORSPOT teleported the player this step
         wp = self._wp                     # the waypoint this step ran toward
 
         self.state = d
         self._tics += tics
         if any(e.get("event") == "waypoint_reached" for e in events) or (wp is not None and "waypoint" not in d):
-            if any(e.get("event") == "waypoint_reached" for e in events):
+            # if any(e.get("event") == "waypoint_reached" for e in events):
+            # Only one this step ran toward (2026-11-25: a dropped repeat frontier
+            # waypoint's touch the same tic counted and paid with none set).
+            if wp is not None and any(e.get("event") == "waypoint_reached" for e in events):
                 self._wp_stats[1] += 1
                 self._door_wp[1] += self._wp_door
                 # add("waypoint", rc.waypoint)   (before 2026-11-24's facing scale)
                 add("waypoint", rc.waypoint * self._wp_facing(prev, wp))
-            self._wp, self._wp_tic, self._wp_door = None, self._tics, False
+                self._wp_last = wp
+            self._wp, self._wp_tic, self._wp_door, self._wp_touch = None, self._tics, False, False
         # The door drill: only the engine's touch (a waypoint just past the door is
         # within waypoint_reach of the closed door).
         # A waypoint past a door (WAYPOINT DOOR) too.
         elif (wp is not None and "x" in d and self.cfg.waypoint_reach > 0 and self._type != "door" and not self._wp_door
+              and not self._wp_touch
               and np.hypot(d["x"] - wp[0], d["y"] - wp[1]) <= self.cfg.waypoint_reach):
             # Within waypoint_reach (2026-11-20): reached, the engine's marker
             # cleared with the next action.
@@ -1358,10 +1392,18 @@ class DiabloDoomEnv(gym.Env):
         if age < (self._wp_gap if self._wp is None else cfg.waypoint_every):
             return None
         drill = self._type == "waypoint"
-        place = cfg.drill_waypoint_place if drill else cfg.waypoint_place
+        # place = cfg.drill_waypoint_place if drill else cfg.waypoint_place   (before mixed's own, 2026-11-25)
+        place = (cfg.drill_waypoint_place if drill else cfg.mixed_waypoint_place if self._type == "mixed"
+                 else cfg.waypoint_place)
         near = cfg.drill_waypoint_min if drill else cfg.waypoint_min
         self._wp_view_sent = False
         self._wp_door_sent = False
+        self._wp_front_sent = False
+        if place == "frontier":
+            if self._wp is None and age < self._wp_retry:
+                return None
+            self._wp_tic, self._wp_pending, self._wp_front_sent = self._tics, True, True
+            return "WAYPOINT FRONTIER"
         if place == "view" and not self._wp_view_miss:
             self._wp_tic, self._wp_pending, self._wp_view_sent = self._tics, True, True
             seed = int(self.np_random.integers(0, 2 ** 31))

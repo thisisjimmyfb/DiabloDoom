@@ -75,6 +75,10 @@ boolean RL_DoorSpot(unsigned seed, int min_dist, int max_dist, int jitter);
 // player can walk to and open, no teleport; *line the door line.
 boolean RL_DoorPoint(unsigned seed, int min_dist, int max_dist, int *x, int *y, int *line);
 
+// WAYPOINT FRONTIER (2026-11-25): on the walking path to the nearest
+// unvisited room, past its first door (*door the door sector), else the room.
+boolean RL_FrontierPoint(int *x, int *y, int *door, boolean *far);
+
 // Copy the current screen (I_VideoBuffer, 320x200 8-bit), the
 // palette and the depth buffer into the -shm segment. No-op without -shm.
 void RL_PublishFrame(void);

@@ -329,7 +329,9 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   chainsaw, `melee_drill_damage` (100 %; 10 % at first)); `waypoint`, the waypoint drill (every map since 2026-11-24,
   endless waypoints in view, frequent practice items, half uniques); `door` (2026-11-24), the door drill
   (`model.DOOR_MAPS`, teleported in front of a closed door, the waypoint behind it); `maze` (rotating maps, monsters
-  hidden, no waypoints); `mixed` (rotating maps, monsters and waypoints). Every type has the
+  hidden, no waypoints); `mixed` (rotating maps, monsters and waypoints; since 2026-11-25 the waypoints lead to the nearest
+  unvisited room, just past the first door on the path, else into the room, else 12 cells on the way --
+  `WAYPOINT FRONTIER`, no count limit). Every type has the
   same reward function; the drills rotate over their maps (the drill maps, `model.DRILL_MAPS`,
   went with the combat drill) every
   `--rotate-every` batches, start at the map start and end only

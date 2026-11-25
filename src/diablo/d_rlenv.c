@@ -880,15 +880,18 @@ static boolean RL_Reach(mobj_t *mo, fixed_t x, fixed_t y)
 static int rl_ahead_x, rl_ahead_y;     // path_ahead, map units
 static boolean rl_ahead_ok;
 
-static int RL_PathQuery(mobj_t *mo, int *rel, boolean *rel_ok)
+// The path field current (rebuilt when the visited set, keys or doors
+// changed), and the player's start cell on it: of the cells around the
+// player with a path, the one with the least distance plus the way to its
+// centre -- a way the player can walk straight (RL_Reach): a cell across a
+// wall is near but no start. -1 when there is none; *best its distance.
+static int RL_PathStart(mobj_t *mo, double *best_out)
 {
     int px = (mo->x >> FRACBITS) - rl_gx0, py = (mo->y >> FRACBITS) - rl_gy0;
     int gx = px >= 0 ? px / RL_CELL : -1, gy = py >= 0 ? py / RL_CELL : -1;
-    int start = -1, k, d, cur;
+    int start = -1, k;
     double best = -1;
 
-    *rel_ok = false;
-    rl_ahead_ok = false;
     if (rl_graph_dirty || rl_graph_for != sectors)
         RL_BuildGraph(mo);
     if (rl_gdist == NULL)
@@ -899,10 +902,6 @@ static int RL_PathQuery(mobj_t *mo, int *rel, boolean *rel_ok)
         rl_path_have = true;
         RL_PathField();
     }
-    // Start: of the cells around the player with a path, the one with
-    // the least distance plus the way to its centre -- a way the player
-    // can walk straight (RL_Reach): a cell across a wall is near but no
-    // start.
     for (k = 0; k < 9; k++)
     {
         int cx = gx + k % 3 - 1, cy = gy + k / 3 - 1, c;
@@ -925,6 +924,137 @@ static int RL_PathQuery(mobj_t *mo, int *rel, boolean *rel_ok)
             start = c;
         }
     }
+    *best_out = best;
+    return start;
+}
+
+// The next cell down the path field from cur, -1 at a target or a dead end;
+// *door_out (when given) the door sector the step crosses (rl_gdoor), else -1.
+static int RL_PathNext2(int cur, int *door_out)
+{
+    int next = -1, nv = rl_gdist[cur], d, nd = -1;
+    if (door_out)
+        *door_out = -1;
+    if (nv <= 0)
+        return -1;
+    for (d = 0; d < 8; d++)
+    {
+        int nx = cur % rl_gw + rl_dx[d], ny = cur / rl_gw + rl_dy[d], nc, door;
+        if (!(rl_gedge[cur] & (1 << d)))
+            continue;
+        nc = ny * rl_gw + nx;
+        door = rl_gdoor[cur * 8 + d];
+        if (rl_gdist[nc] < 0 || (door >= 0 && !rl_doorok[door]))
+            continue;
+        if (rl_gdist[nc] + rl_cost[d] <= nv && (next < 0 || rl_gdist[nc] < rl_gdist[next]))
+        {
+            next = nc;
+            nd = door;
+        }
+    }
+    if (door_out)
+        *door_out = nd;
+    return next;
+}
+
+static int RL_PathNext(int cur)
+{
+    return RL_PathNext2(cur, NULL);
+}
+
+// WAYPOINT FRONTIER (2026-11-25, the mixed rollouts' waypoints): down the
+// walking path to the nearest unvisited room (the path field), the cell one
+// past the far side of the first door on it (a door sector, RL_Passage) --
+// *door that sector -- or, with no door on the way, the room's first cell
+// (*door -1), moved up to RL_FRONTIER_IN cells further into the room the
+// way the path came in (standable cells of the same sector), so standing on
+// it is being in the room. False when there is no path.
+// With neither within RL_FRONTIER_MAX cells (12, about 384 units) down the
+// path: that cell, *far set -- a waypoint on the way, not the room.
+#define RL_FRONTIER_IN 2
+#define RL_FRONTIER_MAX 12
+boolean RL_FrontierPoint(int *x, int *y, int *door, boolean *far)
+{
+    mobj_t *mo = players[consoleplayer].mo;
+    double best;
+    int cur, steps, in_door = -1, prev = -1;
+
+    *door = -1;
+    *far = false;
+    if (mo == NULL || gamestate != GS_LEVEL)
+        return false;
+    cur = RL_PathStart(mo, &best);
+    if (cur < 0)
+        return false;
+    for (steps = 0; steps < 4096; steps++)
+    {
+        int sec = rl_gsec[cur], next, crossed;
+        // A door: a cell in its sector, or (door sectors are often thinner than a
+        // cell) a step across one (rl_gdoor).
+        if (in_door < 0 && sec >= 0 && RL_Passage(&sectors[sec]) == RL_DOOR)
+            in_door = sec;
+        else if (in_door >= 0 && sec != in_door)
+        {
+            // Past the door: one more cell on, when the path goes on.
+            next = RL_PathNext(cur);
+            if (next >= 0 && rl_gsec[next] != in_door)
+                cur = next;
+            *door = in_door;
+            break;
+        }
+        if (in_door < 0 && steps >= RL_FRONTIER_MAX)
+        {
+            *far = true;     // no door or room this near: a waypoint on the way
+            break;
+        }
+        next = RL_PathNext2(cur, &crossed);
+        if (next >= 0 && crossed >= 0 && in_door < 0 && rl_gsec[next] != crossed)
+        {
+            // Stepped clean across a thin door: past it already; one more cell on.
+            int after = RL_PathNext(next);
+            cur = (after >= 0 && rl_gsec[after] != crossed) ? after : next;
+            *door = crossed;
+            break;
+        }
+        if (next < 0)
+        {
+            // The target room's first cell (or a dead end): on into the room.
+            if (rl_gdist[cur] == 0 && prev >= 0)
+            {
+                int dx = cur % rl_gw - prev % rl_gw, dy = cur / rl_gw - prev / rl_gw, k;
+                for (k = 0; k < RL_FRONTIER_IN; k++)
+                {
+                    int nx = cur % rl_gw + dx, ny = cur / rl_gw + dy, nc, e;
+                    if (nx < 0 || ny < 0 || nx >= rl_gw || ny >= rl_gh)
+                        break;
+                    nc = ny * rl_gw + nx;
+                    // A step the player can take (2026-11-25: a cell past the room's
+                    // wall reads as its sector -- off the map -- by the sector alone).
+                    for (e = 0; e < 8 && (rl_dx[e] != dx || rl_dy[e] != dy); e++)
+                        ;
+                    if (e == 8 || !(rl_gedge[cur] & (1 << e)) || rl_gsec[nc] != rl_gsec[cur])
+                        break;
+                    cur = nc;
+                }
+            }
+            break;
+        }
+        prev = cur;
+        cur = next;
+    }
+    *x = RL_CellX(cur) >> FRACBITS;
+    *y = RL_CellY(cur) >> FRACBITS;
+    return true;
+}
+
+static int RL_PathQuery(mobj_t *mo, int *rel, boolean *rel_ok)
+{
+    int start, k, d, cur;
+    double best = -1;
+
+    *rel_ok = false;
+    rl_ahead_ok = false;
+    start = RL_PathStart(mo, &best);
     if (start < 0)
         return -1;
     // Aim: the farthest of the next RL_PATH_AIM cells down the field the
