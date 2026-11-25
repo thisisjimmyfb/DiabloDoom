@@ -1254,6 +1254,64 @@ static boolean RL_DoorBeyond(mobj_t *mo, const line_t *li, double *mx, double *m
     return false;
 }
 
+// On a damaging floor with no way off it (2026-11-25, the frontier save check):
+// the player's sector damages, and no cell of a non-damaging sector is within
+// RL_ESCAPE_STEPS path-grid steps (24, about 768 units, two seconds at a run) by
+// the GOTO pathfinder's rules (steps up of 24 at most, doors it can open; lifts as
+// they were at the build). A pool it can walk out of is not a trap.
+#define RL_ESCAPE_STEPS 24
+static boolean RL_HurtTrapped(mobj_t *mo)
+{
+    int n, start, head = 0, tail = 0, c, d, sx, sy;
+    int *queue, *steps;
+    boolean out = false;
+
+    if (mo == NULL || mo->subsector == NULL || !RL_HurtFloor(mo->subsector->sector))
+        return false;
+    if (rl_graph_dirty || rl_graph_for != sectors)
+        RL_BuildGraph(mo);
+    if (rl_gsec == NULL)
+        return false;
+    n = rl_gw * rl_gh;
+    sx = ((mo->x >> FRACBITS) - rl_gx0) / RL_CELL;
+    sy = ((mo->y >> FRACBITS) - rl_gy0) / RL_CELL;
+    if (sx < 0 || sy < 0 || sx >= rl_gw || sy >= rl_gh || rl_gsec[sy * rl_gw + sx] < 0)
+        return false;               // off the grid: unknown, not called a trap
+    start = sy * rl_gw + sx;
+    queue = malloc(n * sizeof(int));
+    steps = malloc(n * sizeof(int));
+    for (c = 0; c < n; c++)
+        steps[c] = -1;
+    queue[tail++] = start;
+    steps[start] = 0;
+    while (head < tail && !out)
+    {
+        int cur = queue[head++];
+        if (!RL_HurtFloor(&sectors[rl_gsec[cur]]))
+        {
+            out = true;
+            break;
+        }
+        if (steps[cur] >= RL_ESCAPE_STEPS)
+            continue;
+        for (d = 0; d < 8; d++)
+        {
+            int nc, door;
+            if (!(rl_gedge[cur] & (1 << d)))
+                continue;
+            nc = (cur / rl_gw + rl_dy[d]) * rl_gw + cur % rl_gw + rl_dx[d];
+            door = rl_gdoor[cur * 8 + d];
+            if (steps[nc] >= 0 || (door >= 0 && !rl_doorok[door]))
+                continue;
+            steps[nc] = steps[cur] + 1;
+            queue[tail++] = nc;
+        }
+    }
+    free(steps);
+    free(queue);
+    return !out;
+}
+
 boolean RL_DoorSpot(unsigned seed, int min_dist, int max_dist, int jitter)
 {
     player_t *p = &players[consoleplayer];
@@ -1684,6 +1742,12 @@ void RL_EmitState(const char *why, int tics)
             }
             RL_PUT(",\"hp_max\":%d,\"hunted\":%s", D_MaxHealth(p),
                    hunted ? "true" : "false");
+            // hurt_floor (2026-11-25): the player's sector has a damaging floor
+            // (nukage, lava, slime; RL_HurtFloor). hurt_trapped (the frontier save
+            // check, the same day): on one with no way off it (RL_HurtTrapped) --
+            // a portal goal can end a rollout the tic it steps into a pit.
+            RL_PUT(",\"hurt_floor\":%s,\"hurt_trapped\":%s", RL_HurtFloor(mo->subsector->sector) ? "true" : "false",
+                   RL_HurtTrapped(mo) ? "true" : "false");
         }
         // foe_dist (2026-11-20, the env's range reward): map units to the
         // nearest living monster in line of sight, in any direction (behind

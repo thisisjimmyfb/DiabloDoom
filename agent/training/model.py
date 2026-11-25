@@ -704,9 +704,14 @@ class Frontier:
 
     @staticmethod
     def _safe(s: dict) -> bool:
-        """Healthy and not hunted (the state line's hunted: a monster in
-        the player's sector targets the player)."""
-        return not s.get("hunted") and s.get("hp", 0) >= FRONTIER_HP * (s.get("hp_max") or 100)
+        """Healthy, not hunted (the state line's hunted: a monster in
+        the player's sector targets the player) and not trapped on a damaging
+        floor (hurt_trapped, 2026-11-25: a portal goal ended rollouts the tic they
+        stepped into a nukage pit, still healthy, and the next batch started there;
+        a pool it can walk out of is fine -- hurt_floor, any damaging floor, at first that day)."""
+        # return not s.get("hunted") and s.get("hp", 0) >= FRONTIER_HP * (s.get("hp_max") or 100)
+        return (not s.get("hunted") and not s.get("hurt_trapped")
+                and s.get("hp", 0) >= FRONTIER_HP * (s.get("hp_max") or 100))
 
     def _clear(self, vec, label: str, idx: list[int]) -> None:
         """Back to the map start: forget the map's frontier everywhere."""

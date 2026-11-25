@@ -234,8 +234,11 @@ def main():
     env_labels = labels_of(env_pairs, iwads, n_reg)
     if D:
         vec.call(list(range(n_reg, n_envs)), "set_max_tics", (args.drill_tics,))
-    print(f"[train] groups by type: {mix}" + (f"; the drills rotate over "
-          f"{[env_label(w, m, iwads) for w, m in dpairs]} (aim: {len(apairs)} training maps; proj: {len(ppairs)} open maps), "
+    # print(f"[train] groups by type: {mix}" + (f"; the drills rotate over "
+    #       f"{[env_label(w, m, iwads) for w, m in dpairs]} (aim: {len(apairs)} training maps; proj: {len(ppairs)} open maps), "
+    #       f"{args.drill_tics} tics a rollout" if D else ""))   (dpairs went with the combat drill, 2026-11-24)
+    print(f"[train] groups by type: {mix}" + (f"; the drills rotate over their maps ("
+          + ", ".join(f"{t}: {len(pairs_of[t])}" for t in dict.fromkeys(drill_types)) + " IWAD/map pairs), "
           f"{args.drill_tics} tics a rollout" if D else ""))
 
     eval_busy = False   # an eval was interrupted: its games still have requests in flight

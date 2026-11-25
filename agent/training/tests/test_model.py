@@ -117,9 +117,10 @@ class _FakeVec:
         return out
 
 
-def _end(ret, mode="EXPLORE", death=False, exit=False, gained=1, key=False, hp=100, hunted=False):
+def _end(ret, mode="EXPLORE", death=False, exit=False, gained=1, key=False, hp=100, hunted=False, trapped=False):
     return {"ret": ret, "death": death, "exit": exit, "sectors_gained": gained, "key": key,
-            "end_info": {"mode": mode, "state": {"hp": hp, "hp_max": 100, "hunted": hunted}}}
+            "end_info": {"mode": mode, "state": {"hp": hp, "hp_max": 100, "hunted": hunted, "hurt_floor": trapped,
+                                                 "hurt_trapped": trapped}}}
 
 
 def test_frontier(tmp_path):
@@ -194,13 +195,14 @@ def test_frontier_key(tmp_path):
 
 
 def test_frontier_safe(tmp_path):
-    """No progress save below 80% of max HP or with a monster in the
-    sector after the player."""
+    """No progress save below 80% of max HP, with a monster in the
+    sector after the player, or trapped on a damaging floor (2026-11-25)."""
     pairs = [(None, "1 1")] * 3
     vec = _FakeVec(3)
     f = Frontier(True, pairs)
     assert f.update(vec, [_end(9, hp=79), _end(8, hunted=True), _end(1, hp=80)]) == {"default_1_1": 1}
     assert f.update(vec, [_end(9, hp=79), _end(8, hunted=True), _end(1, gained=0)]) == {}
+    assert f.update(vec, [_end(9, trapped=True), _end(8, hunted=True), _end(2)]) == {"default_1_1": 2}
 
 
 def test_tic_budget():
