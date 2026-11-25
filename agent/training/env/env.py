@@ -58,19 +58,24 @@ USE = ACTIONS.index("USE")
 #   waypoint: the waypoint drill: map monsters hidden, endless waypoints
 #             (a new one as soon as one is reached), frequent practice items
 #             on the way to it, about half uniques (ITEMS)
+#   melee:    the melee drill (2026-11-24): the aim drill's world (one monster that never
+#             attacks, chases, takes melee_drill_damage %) with fists or the chainsaw
+#             (GIVEGUN ... MELEE), the training maps
 #   door:     the door drill (2026-11-24): map monsters hidden, the player teleported in
 #             front of a closed door (DOORSPOT) with the waypoint behind it, the next
 #             door when it is reached or door_every tics pass; every sector visited
 #             from the start, no items; model.DOOR_MAPS
 #   maze:     map monsters hidden, no waypoints
 #   mixed:    map monsters shown, waypoints
-# Drills (combat, aim, proj, waypoint, door) end only on the exit or time (death too before 2026-11-22: they
+# Drills (combat, aim, proj, melee, waypoint, door) end only on the exit or time (death too before 2026-11-22: they
 # respawn at once now, at the map start, with the same gun): no portal
 # or key goal. No type: the older random split (EnvConfig.combat, waypoint_off).
 # TYPES = ("combat", "aim", "proj", "waypoint", "maze", "mixed")
 # DRILLS = ("combat", "aim", "proj", "waypoint")
-TYPES = ("combat", "aim", "proj", "waypoint", "door", "maze", "mixed")
-DRILLS = ("combat", "aim", "proj", "waypoint", "door")
+# TYPES = ("combat", "aim", "proj", "waypoint", "door", "maze", "mixed")   (before melee)
+# DRILLS = ("combat", "aim", "proj", "waypoint", "door")
+TYPES = ("combat", "aim", "proj", "melee", "waypoint", "door", "maze", "mixed")
+DRILLS = ("combat", "aim", "proj", "melee", "waypoint", "door")
 
 
 def replay_dir_name(iwad: str | None, warp: str) -> str:
@@ -562,6 +567,8 @@ class EnvConfig:
     drill_item_tics: int = 175
     # The aim drill's (2026-11-22): the player's damage to its monster, percent.
     aim_drill_damage: int = 10
+    # The melee drill's (2026-11-24): the same, for fists and the chainsaw.
+    melee_drill_damage: int = 10
     # proj_drill_damage: int = 10       # the proj drill's (2026-11-23), the player's own splash too
     # proj_drill_damage: int = 100      # the proj drill's (2026-11-23): full, the monsters crowded the player at 10
     # proj_drill_damage: int = 10000    # the proj drill's: 100x, splash kills a crowd (crowd control)
@@ -735,7 +742,8 @@ class DiabloDoomEnv(gym.Env):
         self._type = opts.get("type") or ("combat" if opts.get("drill") else None)
         if self._type is not None and self._type not in TYPES:
             raise ValueError(f"unknown rollout type {self._type!r}")
-        self._drill = self._type in ("combat", "aim", "proj")   # the aim and proj drills are the combat drill's kind
+        # self._drill = self._type in ("combat", "aim", "proj")   (before the melee drill)
+        self._drill = self._type in ("combat", "aim", "proj", "melee")   # the aim, proj and melee drills are the combat drill's kind
         if self._type is None:
             self._combat_on = (int(rng_seed) * 40503 + 7919) % 1000 / 1000.0 < self.cfg.combat
         else:
@@ -746,13 +754,16 @@ class DiabloDoomEnv(gym.Env):
             # same for the whole group (from its seed).
             # A drill never gets fists (RANGED, 2026-11-20): no melee there.
             self._gun_line = (f"GIVEGUN {int(rng_seed) * 7 + 3}" + (" KIT" if self.cfg.gun_kit else "")
-                              + (" RANGED" if self._drill else "") + (" HITSCAN" if self._type == "aim" else "")
+                              # + (" RANGED" if self._drill else "") + (" HITSCAN" if self._type == "aim" else "")
+                              + (" RANGED" if self._drill and self._type != "melee" else "")
+                              + (" MELEE" if self._type == "melee" else "") + (" HITSCAN" if self._type == "aim" else "")
                               + (" PROJ" if self._type == "proj" else ""))
             d, _ = self.engine.command(self._gun_line)
         else:
             self._gun_line = None
         if self._drill:
             d, _ = self.engine.command(f"DRILL ON AIM {self.cfg.aim_drill_damage}" if self._type == "aim"
+                                       else f"DRILL ON AIM {self.cfg.melee_drill_damage}" if self._type == "melee"
                                        else f"DRILL ON PROJ {self.cfg.proj_drill_damage} {self.cfg.proj_drill_self}" if self._type == "proj"
                                        else "DRILL ON")
             d, _ = self.engine.command("ITEMS 0")

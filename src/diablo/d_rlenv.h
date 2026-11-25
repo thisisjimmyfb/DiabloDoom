@@ -205,7 +205,7 @@ void RL_Items(int period, int unique);
 // GIVEGUN <seed> [KIT] [RANGED] (2026-11-18): a random normal-tier gun
 // equipped (KIT, 2026-11-20: with gear for it; RANGED, 2026-11-20: never
 // fists); false when there is none the player can use.
-boolean RL_GiveGun(unsigned seed, boolean kit, boolean ranged, boolean hitscan, boolean proj);
+boolean RL_GiveGun(unsigned seed, boolean kit, boolean ranged, boolean hitscan, boolean proj, boolean melee);
 // Explore detection found mo acquiring the player: if it is a practice
 // monster, remove it and return true (no combat); else false.
 struct mobj_s;

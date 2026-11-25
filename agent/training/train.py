@@ -128,7 +128,8 @@ def main():
     check_slots(iwads, slots)
     rot_types = [t for t in ("maze", "mixed") for _ in range(mix[t])]
     # drill_types = [t for t in ("combat", "aim", "proj", "waypoint") for _ in range(mix[t])]
-    drill_types = [t for t in ("combat", "aim", "proj", "waypoint", "door") for _ in range(mix[t])]
+    # drill_types = [t for t in ("combat", "aim", "proj", "waypoint", "door") for _ in range(mix[t])]   (before melee)
+    drill_types = [t for t in ("combat", "aim", "proj", "melee", "waypoint", "door") for _ in range(mix[t])]
     group_types = rot_types + drill_types
     dpairs = drill_pairs(iwads)            # the drill maps (model.DRILL_MAPS)
     # The aim drill (2026-11-22): every training map (--maps; 'all' for every
@@ -150,7 +151,10 @@ def main():
     opairs = [opairs[i] for i in np.random.default_rng(args.map_seed + 4).permutation(len(opairs))]
     if "door" in drill_types and not opairs:
         raise SystemExit(f"--mix {args.mix}: the door drill needs an IWAD with DOOR_MAPS in --iwads (DOOM, FREEDOOM1)")
-    pairs_of = {"combat": dpairs, "waypoint": wpairs, "aim": apairs, "proj": ppairs, "door": opairs}
+    # The melee drill (2026-11-24): the aim drill's maps (--maps), its own shuffle.
+    mpairs = all_pairs(iwads, maps)
+    mpairs = [mpairs[i] for i in np.random.default_rng(args.map_seed + 5).permutation(len(mpairs))]
+    pairs_of = {"combat": dpairs, "waypoint": wpairs, "aim": apairs, "proj": ppairs, "door": opairs, "melee": mpairs}
     if "proj" in drill_types and not ppairs:
         raise SystemExit(f"--mix {args.mix}: the proj drill needs an IWAD with PROJ_MAPS in --iwads (DOOM, FREEDOOM1)")
     # if any(t != "aim" for t in drill_types) and not dpairs:   (before the proj drill)

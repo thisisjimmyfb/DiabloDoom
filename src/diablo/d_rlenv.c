@@ -2768,7 +2768,8 @@ static void RL_GiveKit(player_t *pl, boolean *used, int mode)
     }
 }
 
-boolean RL_GiveGun(unsigned seed, boolean kit, boolean ranged, boolean hitscan, boolean proj)
+// MELEE (2026-11-24, the melee drill): fists or the chainsaw, evenly.
+boolean RL_GiveGun(unsigned seed, boolean kit, boolean ranged, boolean hitscan, boolean proj, boolean melee)
 {
     player_t *pl = &players[consoleplayer];
     int ids[64], n = 0, i, t, id;
@@ -2788,7 +2789,8 @@ boolean RL_GiveGun(unsigned seed, boolean kit, boolean ranged, boolean hitscan, 
     {
         def = D_GetItemDef(TIER_NORMAL, i);
         if (def && def->slot == ESLOT_WEAPON && def->diff_tier <= D_DifficultyTier()
-            && def->doomweapon != wp_fist && def->doomweapon != wp_chainsaw
+            // && def->doomweapon != wp_fist && def->doomweapon != wp_chainsaw   (before MELEE)
+            && def->doomweapon != wp_fist && (melee ? def->doomweapon == wp_chainsaw : def->doomweapon != wp_chainsaw)
             && def->doomweapon >= 0 && def->doomweapon < NUMWEAPONS
             && (!hitscan || def->doomweapon == wp_pistol || def->doomweapon == wp_shotgun
                 || def->doomweapon == wp_chaingun || def->doomweapon == wp_supershotgun)
@@ -2801,9 +2803,13 @@ boolean RL_GiveGun(unsigned seed, boolean kit, boolean ranged, boolean hitscan, 
     // HITSCAN (2026-11-22, the aim drill): pistol, shotgun, chaingun or
     // super shotgun only, never fists.
     // PROJ (2026-11-23, the proj drill): rocket launcher, plasma gun or BFG only, never fists.
-    if ((ranged || hitscan || proj) && n == 0)
+    if ((ranged || hitscan || proj || melee) && n == 0)
         return false;
-    i = (int) ((seed * 2654435761u >> 8) % (unsigned) (ranged || hitscan || proj ? n : n + 1));
+    // i = (int) ((seed * 2654435761u >> 8) % (unsigned) (ranged || hitscan || proj ? n : n + 1));   (before MELEE)
+    if (melee)      // half fists (i == n), half a chainsaw
+        i = (seed * 2654435761u >> 8) % 2u ? n : (int) ((seed * 2654435761u >> 9) % (unsigned) n);
+    else
+        i = (int) ((seed * 2654435761u >> 8) % (unsigned) (ranged || hitscan || proj ? n : n + 1));
     if (i == n)
     {
         pl->diablo_equipped[ESLOT_WEAPON] = D_NOITEM;

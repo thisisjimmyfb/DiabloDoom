@@ -328,7 +328,8 @@ before its see state is set, so its first `A_Chase` can't attack either). `DRILL
 `RL_DrillProj`): the proj drill, the aim drill's monsters (pct default 1000, 10x; up to 10000) five at a time (`RL_PROJ_N`; ten, `RL_DRILL_MAX`, at first), 384-1280 units
 away in any direction, in sight, each slot replaced like the drill's one; the player's damage to itself is
 self % (default 1; pct % at first) (`RL_DrillSelfDamage`). `GIVEGUN <seed> ... PROJ` (2026-11-23) picks only the rocket launcher,
-plasma gun or BFG. `OPENSPACE [samples]` (`-rlenv`, 2026-11-23, `RL_OpenSpace`): an `openspace` event,
+plasma gun or BFG; `GIVEGUN <seed> ... MELEE` (2026-11-24) fists or the chainsaw, half each (the melee drill's;
+the only way GIVEGUN hands out the chainsaw). `OPENSPACE [samples]` (`-rlenv`, 2026-11-23, `RL_OpenSpace`): an `openspace` event,
 `ok` of `n` random points 384-1280 units from the player, any direction, where a demon could stand in
 sight; `DRILLDIST` (`-rlenv`, 2026-11-23, `RL_DrillDist`): a `drilldist` event, each live drill monster's distance
 to the player -- the proj drill's maps (`model.PROJ_MAPS`) were picked with them, by a one-off scan

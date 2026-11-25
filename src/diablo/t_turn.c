@@ -2698,7 +2698,8 @@ static void cmd_dispatch_one(const char *cmd)
         if (sscanf(cmd + 8, "%u", &seed) == 1)
             RL_GiveGun(seed, strstr(cmd + 8, "KIT") != NULL, strstr(cmd + 8, "RANGED") != NULL,
                        strstr(cmd + 8, "HITSCAN") != NULL,    // HITSCAN (2026-11-22): the aim drill's
-                       strstr(cmd + 8, "PROJ") != NULL);      // PROJ (2026-11-23): the proj drill's
+                       strstr(cmd + 8, "PROJ") != NULL,       // PROJ (2026-11-23): the proj drill's
+                       strstr(cmd + 8, "MELEE") != NULL);     // MELEE (2026-11-24): the melee drill's, fists or chainsaw
     }
     else if (!strcmp(cmd, "VERSION"))
     {
