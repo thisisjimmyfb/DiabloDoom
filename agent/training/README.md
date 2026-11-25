@@ -326,7 +326,7 @@ uv pip install --python .venv/bin/python torch --index-url https://download.pyto
   never attack but chase, `EnvConfig.proj_drill_damage` (1000, 10x; 10, 100, then 10000, at first) % damage, the player's own splash
   `proj_drill_self` (1) %; it plays `model.PROJ_MAPS`, the maps where its monsters can't crowd the player (islands, ledges));
   `melee` (2026-11-24), the melee drill (the aim drill's world and maps with fists or the
-  chainsaw, `melee_drill_damage` (10) %); `waypoint`, the waypoint drill (every map since 2026-11-24,
+  chainsaw, `melee_drill_damage` (100 %; 10 % at first)); `waypoint`, the waypoint drill (every map since 2026-11-24,
   endless waypoints in view, frequent practice items, half uniques); `door` (2026-11-24), the door drill
   (`model.DOOR_MAPS`, teleported in front of a closed door, the waypoint behind it); `maze` (rotating maps, monsters
   hidden, no waypoints); `mixed` (rotating maps, monsters and waypoints). Every type has the

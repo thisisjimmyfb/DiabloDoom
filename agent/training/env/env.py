@@ -570,7 +570,8 @@ class EnvConfig:
     # The aim drill's (2026-11-22): the player's damage to its monster, percent.
     aim_drill_damage: int = 10
     # The melee drill's (2026-11-24): the same, for fists and the chainsaw.
-    melee_drill_damage: int = 10
+    # melee_drill_damage: int = 10
+    melee_drill_damage: int = 100     # full damage (2026-11-25): at 10 % nothing died in 30 s, one approach a rollout
     # proj_drill_damage: int = 10       # the proj drill's (2026-11-23), the player's own splash too
     # proj_drill_damage: int = 100      # the proj drill's (2026-11-23): full, the monsters crowded the player at 10
     # proj_drill_damage: int = 10000    # the proj drill's: 100x, splash kills a crowd (crowd control)
