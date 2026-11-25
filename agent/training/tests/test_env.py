@@ -1060,6 +1060,71 @@ def test_fast_path():
     assert pay(None, 10, 0) == 1.0            # no way known: the facing
 
 
+def test_use_miss():
+    """use_miss (2026-11-24): a USE with no use event and no switch or closed
+    door in reach (wall_use) at the step's start costs use_miss; one in reach,
+    or one that sets something going, costs nothing. Engine faked."""
+    only = RewardConfig(sector=0, exit=0, mechanism=0, consult_hit=0, trigger_miss=0,
+                        consult_false=0, key=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
+                        time=0, fast=0, look=0, turn=0, turn_waste=0, momentum_flip=0,
+                        fall=0, wall_look=0, waypoint=0, use_miss=-1.0)
+    e = make_env(rewards=only, max_tics=100000)
+    script = iter([
+        ({"wall_use": True}, []),                                       # next step starts with a door in reach
+        ({}, []),
+        ({}, [{"event": "use", "sectors": [5], "lines": []}]),          # set something going
+    ])
+
+    def command(line):
+        st, ev = next(script)
+        return dict({"mode": "EXPLORE", "hp": 100, "tics": 1, "x": 0, "y": 0, "angle": 0}, **st), ev
+    e.engine.command = command
+    e._frame = lambda: np.zeros((200, 320), dtype=np.uint8)
+    e.state = {"mode": "EXPLORE", "hp": 100, "x": 0, "y": 0, "angle": 0}
+    e._prev_hp, e._tics, e._combat_steps = 100, 0, 0
+    e._best_sectors = e._start_sectors = 0
+    e._keys, e._goal, e._group, e._slot, e._seed, e._used = 0, None, 0, None, 0, set()
+    e._trig = {k: e._new_trigger() for k in ("monster", "unique", "combat")}
+    e._stack.reset(e._frame())
+    u = ACTIONS.index("USE")
+    got = [e.step(u)[4]["terms"].get("use_miss", 0.0) for _ in range(3)]
+    assert got == [-1.0, 0.0, 0.0]
+
+
+def test_door_reward():
+    """door (2026-11-24): a USE setting a fully shut door moving pays door on
+    its step, each opening; mechanism leaves the door sectors out (a switch's
+    line still pays once). Engine faked."""
+    only = RewardConfig(sector=0, exit=0, mechanism=5.0, consult_hit=0, trigger_miss=0,
+                        consult_false=0, key=0, hit_unavoidable=0, hit_avoidable=0, death=0, loot=0, health=0,
+                        time=0, fast=0, look=0, turn=0, turn_waste=0, momentum_flip=0,
+                        fall=0, wall_look=0, waypoint=0, use_miss=0, door=10.0)
+    e = make_env(rewards=only, max_tics=100000)
+    door = {"event": "use", "sectors": [7], "lines": [], "doors": [7], "closed": [7]}
+    script = iter([
+        ({}, [door]),                                                          # opens shut door 7
+        ({}, [dict(door, closed=[])]),                                        # 7 again, not shut: nothing
+        ({}, [door]),                                                          # 7 shut again: pays again
+        ({}, [{"event": "use", "sectors": [9], "lines": [3], "doors": [9], "closed": []}]),   # a switch moving door 9
+    ])
+
+    def command(line):
+        st, ev = next(script)
+        return dict({"mode": "EXPLORE", "hp": 100, "tics": 1, "x": 0, "y": 0, "angle": 0, "wall_use": True}, **st), ev
+    e.engine.command = command
+    e._frame = lambda: np.zeros((200, 320), dtype=np.uint8)
+    e.state = {"mode": "EXPLORE", "hp": 100, "x": 0, "y": 0, "angle": 0, "wall_use": True}
+    e._prev_hp, e._tics, e._combat_steps = 100, 0, 0
+    e._best_sectors = e._start_sectors = 0
+    e._keys, e._goal, e._group, e._slot, e._seed, e._used = 0, None, 0, None, 0, set()
+    e._trig = {k: e._new_trigger() for k in ("monster", "unique", "combat")}
+    e._stack.reset(e._frame())
+    u = ACTIONS.index("USE")
+    got = [e.step(u)[4]["terms"] for _ in range(4)]
+    assert [t.get("door", 0.0) for t in got] == [10.0, 0.0, 10.0, 0.0]
+    assert [t.get("mechanism", 0.0) for t in got] == [0.0, 0.0, 0.0, 5.0]
+
+
 def test_waypoint_signed_approach():
     """waypoint_look_approach (2026-11-24): closing pays closed * cos a, so
     backing in costs and strafing in pays nothing; losing ground costs in

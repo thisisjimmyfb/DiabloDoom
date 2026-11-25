@@ -44,7 +44,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from model import (Frontier, MapRotation, TicBudget, add_env_args, all_pairs, capture_dirs, check_slots, drill_pairs, proj_pairs,
+from model import (Frontier, MapRotation, TicBudget, add_env_args, all_pairs, capture_dirs, check_slots, door_pairs, drill_pairs, proj_pairs,
                    parse_mix,
                    FREE_CORES, available_cores, default_groups, env_label, move_groups,
                    pick_eval_maps, resolve_maps,
@@ -127,7 +127,8 @@ def main():
     n_envs = G * groups
     check_slots(iwads, slots)
     rot_types = [t for t in ("maze", "mixed") for _ in range(mix[t])]
-    drill_types = [t for t in ("combat", "aim", "proj", "waypoint") for _ in range(mix[t])]
+    # drill_types = [t for t in ("combat", "aim", "proj", "waypoint") for _ in range(mix[t])]
+    drill_types = [t for t in ("combat", "aim", "proj", "waypoint", "door") for _ in range(mix[t])]
     group_types = rot_types + drill_types
     dpairs = drill_pairs(iwads)            # the drill maps (model.DRILL_MAPS)
     # The aim drill (2026-11-22): every training map (--maps; 'all' for every
@@ -144,7 +145,12 @@ def main():
     wpairs = all_pairs(iwads, resolve_maps("all", iwads, args.stage, eval_maps)) if "waypoint" in drill_types else []
     wpairs = [wpairs[i] for i in np.random.default_rng(args.map_seed + 3).permutation(len(wpairs))]
     # pairs_of = {"combat": dpairs, "waypoint": dpairs, "aim": apairs, "proj": ppairs}
-    pairs_of = {"combat": dpairs, "waypoint": wpairs, "aim": apairs, "proj": ppairs}
+    # The door drill (2026-11-24): model.DOOR_MAPS minus the eval maps, shuffled once.
+    opairs = door_pairs(iwads, eval_maps)
+    opairs = [opairs[i] for i in np.random.default_rng(args.map_seed + 4).permutation(len(opairs))]
+    if "door" in drill_types and not opairs:
+        raise SystemExit(f"--mix {args.mix}: the door drill needs an IWAD with DOOR_MAPS in --iwads (DOOM, FREEDOOM1)")
+    pairs_of = {"combat": dpairs, "waypoint": wpairs, "aim": apairs, "proj": ppairs, "door": opairs}
     if "proj" in drill_types and not ppairs:
         raise SystemExit(f"--mix {args.mix}: the proj drill needs an IWAD with PROJ_MAPS in --iwads (DOOM, FREEDOOM1)")
     # if any(t != "aim" for t in drill_types) and not dpairs:   (before the proj drill)

@@ -1192,6 +1192,257 @@ boolean RL_ViewPoint(unsigned seed, int min_dist, int max_dist, int *x, int *y)
     return count > 0;
 }
 
+// DOORSPOT (2026-11-24, the door drill): teleport the player in front of a
+// random closed manual door it can open (a locked one only with its key;
+// not moving, its approach floor not damaging), min_dist..max_dist map
+// units out along the door line's front normal (up to a quarter of the
+// line's length to the side), on a standable spot with a straight walk to
+// the door (steps up of 24 at most), facing the door give or take jitter
+// degrees, momentum zeroed; the waypoint 24 units past the door sector's
+// far side, so only the opened door leads to it. A doorspot event says
+// where. False when no door has such a spot.
+static boolean RL_HurtFloor(const sector_t *s)
+{
+    return s->special == 4 || s->special == 5 || s->special == 7 || s->special == 11 || s->special == 16;
+}
+
+// A door the drills can use: a closed manual door the player can open (a
+// locked one only with its key), not moving, its front floor not damaging.
+static boolean RL_DoorLineOk(const line_t *li)
+{
+    const sector_t *b = li->backsector;
+    return RL_PassageSpecial(li->special) == 1 && b != NULL && li->frontsector != NULL
+           && b != li->frontsector && RL_HasKeyFor(li->special) && b->specialdata == NULL
+           && b->ceilingheight - b->floorheight < 56 * FRACUNIT && !RL_HurtFloor(li->frontsector);
+}
+
+// The door line's midpoint, unit front normal and direction, and the
+// waypoint 24 units past the door sector's far side (standable, in neither
+// the door's nor the front sector). False when the line is short, its
+// front isn't where the normal says, or there is no such point.
+static boolean RL_DoorBeyond(mobj_t *mo, const line_t *li, double *mx, double *my, double *nx, double *ny,
+                             double *tx, double *ty, double *len, double *wx, double *wy)
+{
+    double x1 = li->v1->x / (double) FRACUNIT, y1 = li->v1->y / (double) FRACUNIT;
+    double x2 = li->v2->x / (double) FRACUNIT, y2 = li->v2->y / (double) FRACUNIT, s;
+    *len = sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1));
+    if (*len < 32)
+        return false;
+    *mx = (x1 + x2) / 2;
+    *my = (y1 + y2) / 2;
+    *tx = (x2 - x1) / *len;
+    *ty = (y2 - y1) / *len;
+    *nx = *ty;            // the front side is the line's right
+    *ny = -*tx;
+    if (R_PointInSubsector((fixed_t) ((*mx + *nx * 8) * FRACUNIT), (fixed_t) ((*my + *ny * 8) * FRACUNIT))->sector
+        != li->frontsector)
+        return false;
+    for (s = 4; s <= 512; s += 4)
+    {
+        sector_t *at = R_PointInSubsector((fixed_t) ((*mx - *nx * s) * FRACUNIT),
+                                          (fixed_t) ((*my - *ny * s) * FRACUNIT))->sector;
+        if (at != li->backsector)
+        {
+            fixed_t f;
+            *wx = *mx - *nx * (s + 24);
+            *wy = *my - *ny * (s + 24);
+            at = R_PointInSubsector((fixed_t) (*wx * FRACUNIT), (fixed_t) (*wy * FRACUNIT))->sector;
+            return at != li->backsector && at != li->frontsector
+                   && RL_Stand(mo, (fixed_t) (*wx * FRACUNIT), (fixed_t) (*wy * FRACUNIT), &f);
+        }
+    }
+    return false;
+}
+
+boolean RL_DoorSpot(unsigned seed, int min_dist, int max_dist, int jitter)
+{
+    player_t *p = &players[consoleplayer];
+    mobj_t *mo = p->mo;
+    int *cand, count = 0, i, k;
+    unsigned r = seed * 2654435761u + 1;
+    boolean done = false;
+#define RL_RAND() (r = r * 1103515245u + 12345u, (r >> 8) & 0xffffff)
+
+    if (mo == NULL || gamestate != GS_LEVEL || max_dist < min_dist)
+        return false;
+    cand = malloc((numlines > 0 ? numlines : 1) * sizeof(int));
+    for (i = 0; i < numlines; i++)
+        if (RL_DoorLineOk(&lines[i]))
+            cand[count++] = i;
+    // A random order: shuffle, then the first door with a spot.
+    for (i = count - 1; i > 0; i--)
+    {
+        int j = RL_RAND() % (unsigned) (i + 1), t = cand[i];
+        cand[i] = cand[j];
+        cand[j] = t;
+    }
+    for (i = 0; i < count && !done; i++)
+    {
+        line_t *li = &lines[cand[i]];
+        double len, mx, my, nx, ny, tx, ty, wx, wy;
+        sector_t *door = li->backsector;
+        // The waypoint: through the door sector, 24 units past its far side.
+        if (!RL_DoorBeyond(mo, li, &mx, &my, &nx, &ny, &tx, &ty, &len, &wx, &wy))
+            continue;
+        for (k = 0; k < 8 && !done; k++)
+        {
+            double d = min_dist + (double) (RL_RAND() % (unsigned) (max_dist - min_dist + 1));
+            double side = ((double) (RL_RAND() % 1001) / 500.0 - 1.0) * len / 4;
+            double sx = mx + nx * d + tx * side, sy = my + ny * d + ty * side;
+            double ex = mx + nx * 20, ey = my + ny * 20, steps, t;
+            fixed_t f, prev;
+            boolean ok;
+            if (!RL_Stand(mo, (fixed_t) (sx * FRACUNIT), (fixed_t) (sy * FRACUNIT), &prev)
+                || RL_HurtFloor(R_PointInSubsector((fixed_t) (sx * FRACUNIT), (fixed_t) (sy * FRACUNIT))->sector))
+                continue;
+            // A straight walk to the door, every 16 units.
+            steps = ceil(sqrt((ex - sx) * (ex - sx) + (ey - sy) * (ey - sy)) / 16);
+            ok = true;
+            for (t = 1; t <= steps && ok; t++)
+            {
+                double px = sx + (ex - sx) * t / steps, py = sy + (ey - sy) * t / steps;
+                ok = RL_Stand(mo, (fixed_t) (px * FRACUNIT), (fixed_t) (py * FRACUNIT), &f)
+                     && f - prev <= 24 * FRACUNIT;
+                prev = f;
+            }
+            if (!ok || door->floorheight - prev > 24 * FRACUNIT)
+                continue;
+            if (!P_TeleportMove(mo, (fixed_t) (sx * FRACUNIT), (fixed_t) (sy * FRACUNIT)))
+                continue;
+            mo->z = mo->floorz;
+            mo->momx = mo->momy = mo->momz = 0;
+            p->viewz = mo->z + p->viewheight;
+            mo->angle = R_PointToAngle2(mo->x, mo->y, (fixed_t) (mx * FRACUNIT), (fixed_t) (my * FRACUNIT))
+                        + (angle_t) ((int64_t) ((int) (RL_RAND() % (unsigned) (2 * jitter + 1)) - jitter)
+                                     * (ANG90 / 90));
+            D_WaypointSet((int) wx, (int) wy);
+            RL_Emit("{\"event\":\"doorspot\",\"line\":%d,\"sector\":%d,\"x\":%d,\"y\":%d,\"dist\":%d,"
+                    "\"wx\":%d,\"wy\":%d,\"doors\":%d}",
+                    cand[i], (int) (door - sectors), (int) sx, (int) sy, (int) d, (int) wx, (int) wy, count);
+            done = true;
+        }
+    }
+#undef RL_RAND
+    free(cand);
+    return done;
+}
+
+// WAYPOINT DOOR (2026-11-24, the waypoint drill's doors): the waypoint past a
+// closed door the player can open (RL_DoorLineOk) and is in front of, its
+// approach point (20 units out from the door's middle) min_dist..max_dist
+// away, in sight, within 40 degrees of the facing and inside the vertical
+// view, walkable from the player (the path grid, at most 1.5x the straight
+// line, as WAYPOINT VIEW); the nearest the facing among them (10, 20, then
+// 40 degrees), seed picking within. No teleport. False when there is none.
+boolean RL_DoorPoint(unsigned seed, int min_dist, int max_dist, int *x, int *y, int *line)
+{
+    static const int cones[3] = { 10, 20, 40 };
+    mobj_t *mo = players[consoleplayer].mo;
+    int n, start, head = 0, tail = 0, count = 0, c, d, tier, sx, sy, i;
+    int *queue, *steps, *cand;
+    double face, *cwx, *cwy;
+
+    if (mo == NULL || mo->subsector == NULL || gamestate != GS_LEVEL)
+        return false;
+    if (rl_graph_dirty || rl_graph_for != sectors)
+        RL_BuildGraph(mo);
+    if (rl_gsec == NULL)
+        return false;
+    n = rl_gw * rl_gh;
+    sx = ((mo->x >> FRACBITS) - rl_gx0) / RL_CELL;
+    sy = ((mo->y >> FRACBITS) - rl_gy0) / RL_CELL;
+    if (sx < 0 || sy < 0 || sx >= rl_gw || sy >= rl_gh || rl_gsec[sy * rl_gw + sx] < 0)
+        return false;
+    start = sy * rl_gw + sx;
+    queue = malloc(n * sizeof(int));
+    steps = malloc(n * sizeof(int));
+    for (c = 0; c < n; c++)
+        steps[c] = -1;
+    queue[tail++] = start;
+    steps[start] = 0;
+    while (head < tail)
+    {
+        int cur = queue[head++];
+        for (d = 0; d < 8; d++)
+        {
+            int nc, door;
+            if (!(rl_gedge[cur] & (1 << d)))
+                continue;
+            nc = (cur / rl_gw + rl_dy[d]) * rl_gw + cur % rl_gw + rl_dx[d];
+            door = rl_gdoor[cur * 8 + d];
+            if (steps[nc] >= 0 || (door >= 0 && !rl_doorok[door]))
+                continue;
+            steps[nc] = steps[cur] + 1;
+            queue[tail++] = nc;
+        }
+    }
+    cand = malloc((numlines > 0 ? numlines : 1) * sizeof(int));
+    cwx = malloc((numlines > 0 ? numlines : 1) * sizeof(double));
+    cwy = malloc((numlines > 0 ? numlines : 1) * sizeof(double));
+    face = mo->angle * (2.0 * M_PI / 4294967296.0);
+    for (tier = 0; tier < 3 && count == 0; tier++)
+    {
+        double cone = cones[tier] * M_PI / 180.0;
+        for (i = 0; i < numlines; i++)
+        {
+            line_t *li = &lines[i];
+            double len, mx, my, nx, ny, tx, ty, wx, wy, ex, ey, dx, dy, dist, off, dz;
+            int cell, ecx, ecy, cheb;
+            mobj_t probe;
+            if (!RL_DoorLineOk(li) || P_PointOnLineSide(mo->x, mo->y, li) != 0)
+                continue;
+            if (!RL_DoorBeyond(mo, li, &mx, &my, &nx, &ny, &tx, &ty, &len, &wx, &wy))
+                continue;
+            ex = mx + nx * 20;
+            ey = my + ny * 20;
+            dx = ex - mo->x / (double) FRACUNIT;
+            dy = ey - mo->y / (double) FRACUNIT;
+            dist = sqrt(dx * dx + dy * dy);
+            if (dist < min_dist || dist > max_dist)
+                continue;
+            off = atan2(dy, dx) - face;
+            off = atan2(sin(off), cos(off));
+            if (fabs(off) > cone)
+                continue;
+            dz = (li->frontsector->floorheight - players[consoleplayer].viewz) / (double) FRACUNIT;
+            if (fabs(dz) > 0.45 * dist)
+                continue;
+            ecx = ((int) floor(ex) - rl_gx0) / RL_CELL;
+            ecy = ((int) floor(ey) - rl_gy0) / RL_CELL;
+            if (ecx < 0 || ecy < 0 || ecx >= rl_gw || ecy >= rl_gh)
+                continue;
+            cell = ecy * rl_gw + ecx;
+            cheb = abs(ecx - sx) > abs(ecy - sy) ? abs(ecx - sx) : abs(ecy - sy);
+            if (steps[cell] < 0 || steps[cell] * 2 > cheb * 3 + 2)
+                continue;
+            memset(&probe, 0, sizeof(probe));
+            probe.x = (fixed_t) (ex * FRACUNIT);
+            probe.y = (fixed_t) (ey * FRACUNIT);
+            probe.z = li->frontsector->floorheight;
+            probe.height = 56 * FRACUNIT;
+            probe.subsector = R_PointInSubsector(probe.x, probe.y);
+            if (!P_CheckSight(mo, &probe))
+                continue;
+            cwx[count] = wx;
+            cwy[count] = wy;
+            cand[count++] = i;
+        }
+    }
+    if (count > 0)
+    {
+        int pick = (seed * 2654435761u >> 8) % (unsigned) count;
+        *x = (int) cwx[pick];
+        *y = (int) cwy[pick];
+        *line = cand[pick];
+    }
+    free(cwy);
+    free(cwx);
+    free(cand);
+    free(steps);
+    free(queue);
+    return count > 0;
+}
+
 void RL_EmitState(const char *why, int tics)
 {
     char buf[3600];
@@ -1587,6 +1838,20 @@ void RL_UseEnd(void)
     len += snprintf(buf + len, sizeof(buf) - len, "],\"lines\":[");
     for (i = 0; i < rl_use_nlines; i++)
         len += snprintf(buf + len, sizeof(buf) - len, "%s%d", i ? "," : "", rl_use_lines[i]);
+    // doors (2026-11-24): the sectors set moving that are doors (RL_Passage);
+    // closed: those of them fully shut when it began (the door has not moved yet
+    // this tic), the env's per-opening door reward.
+    {
+        int pass, n;
+        for (pass = 0; pass < 2; pass++)
+        {
+            len += snprintf(buf + len, sizeof(buf) - len, pass ? "],\"closed\":[" : "],\"doors\":[");
+            for (i = 0, n = 0; i < numsectors && len < (int) sizeof(buf) - 64; i++)
+                if (!rl_use_busy[i] && sectors[i].specialdata != NULL && RL_Passage(&sectors[i]) == RL_DOOR
+                    && (!pass || sectors[i].ceilingheight <= sectors[i].floorheight))
+                    len += snprintf(buf + len, sizeof(buf) - len, "%s%d", n++ ? "," : "", i);
+        }
+    }
     snprintf(buf + len, sizeof(buf) - len, "],\"gametic\":%d}", gametic);
     RL_Emit("%s", buf);
 }

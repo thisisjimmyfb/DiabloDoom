@@ -2470,7 +2470,26 @@ static void cmd_dispatch_one(const char *cmd)
         T_EchoUnderRlenv(cmd);
         // WAYPOINT VIEW <seed> [min] [max] (2026-11-24, the waypoint drill):
         // a random point the player can walk to and see, near the view's centre.
-        if (cmd[8] != '\0' && !strncmp(cmd + 9, "VIEW ", 5) && sscanf(cmd + 14, "%u", &seed) == 1)
+        // WAYPOINT DOOR <seed> [min] [max] [vmin] [vmax] (2026-11-24): past a closed
+        // door in view (RL_DoorPoint), else as WAYPOINT VIEW <seed> <vmin> <vmax>; a
+        // doorpoint event says which (line -1: the view point).
+        if (cmd[8] != '\0' && !strncmp(cmd + 9, "DOOR ", 5) && sscanf(cmd + 14, "%u", &seed) == 1)
+        {
+            int min = 64, max = 384, vmin = 128, vmax = 384, line = -1;
+            sscanf(cmd + 14, "%*u %d %d %d %d", &min, &max, &vmin, &vmax);
+            if (RL_DoorPoint(seed, min, max, &x, &y, &line))
+            {
+                D_WaypointSet(x, y);
+                printf("[WAYPOINT] door line %d: %d %d\n", line, x, y);
+            }
+            else if (RL_ViewPoint(seed, vmin, vmax, &x, &y))
+            {
+                D_WaypointSet(x, y);
+                printf("[WAYPOINT] view %d %d\n", x, y);
+            }
+            RL_Emit("{\"event\":\"doorpoint\",\"line\":%d}", line);
+        }
+        else if (cmd[8] != '\0' && !strncmp(cmd + 9, "VIEW ", 5) && sscanf(cmd + 14, "%u", &seed) == 1)
         {
             int min = 0, max = 512;
             sscanf(cmd + 14, "%*u %d %d", &min, &max);
@@ -2655,6 +2674,19 @@ static void cmd_dispatch_one(const char *cmd)
         int samples = 1000;
         sscanf(cmd + 9, "%d", &samples);
         RL_OpenSpace(samples < 1 ? 1 : samples > 100000 ? 100000 : samples);
+    }
+    else if (rlenv && !strncmp(cmd, "DOORSPOT ", 9))
+    {
+        // DOORSPOT <seed> [min] [max] [jitter] (-rlenv, 2026-11-24): the door
+        // drill's teleport in front of a closed door (RL_DoorSpot).
+        unsigned seed = 0;
+        int min = 96, max = 256, jitter = 20;
+        if (sscanf(cmd + 9, "%u %d %d %d", &seed, &min, &max, &jitter) >= 1
+            && !RL_DoorSpot(seed, min, max, jitter < 0 ? 0 : jitter > 90 ? 90 : jitter))
+        {
+            printf("[DOORSPOT] no closed door with a spot %d-%d in front\n", min, max);
+            RL_Emit("{\"event\":\"doorspot\",\"line\":-1}");
+        }
     }
     else if (rldrive && !strncmp(cmd, "GIVEGUN ", 8))
     {

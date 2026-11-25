@@ -148,7 +148,8 @@ obs, reward, terminated, truncated, info = game.step(9)   # PRESS W: run forward
   (within 20 tics), any direction, strafing too (before: W within 4 tics of S, or S of W, one-off,
   which at a fresh policy's entropy charged most W/S presses and bred moving less).
   USE earns only `mechanism` (`use_miss` and `use_wall` removed
-  2026-11-18).
+  2026-11-18); since 2026-11-24 a door opened from shut pays `door` (10, one-off, each
+  opening; `mechanism` no longer pays doors) and a USE at nothing costs `use_miss` (-1, one-off).
   Fast movement (`fast`, 0 since 2026-11-20: with combat, moving for its
   own sake shouldn't pay) paid back the clock only going forward (`fast_forward`,
   2026-11-16): scaled by the cosine between the movement and the way on

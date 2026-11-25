@@ -138,6 +138,7 @@ def run_rollouts(vec: GroupVecEnv, policy: Policy, device: torch.device,
         r["key"] = bool(r["end_info"].get("key"))
         r["items"] = list(r["end_info"].get("items", [0, 0]))   # practice items [spawned, picked up]
         r["waypoints"] = list(r["end_info"].get("waypoints", [0, 0]))   # [set, reached]
+        r["door_wp"] = list(r["end_info"].get("door_waypoints", [0, 0]))   # of them past a door (2026-11-24)
         r["combat"] = list(r["end_info"].get("combat", [0, 0, 0, 0, 0]))   # [on, shots, hits, kills, damage]
         r["drill"] = bool(r["end_info"].get("drill"))     # the combat drill: the action mask
         r["type"] = r["end_info"].get("type")              # env.TYPES, None untyped
@@ -177,7 +178,7 @@ def rollout_log_rows(recs: list[dict], options: list[dict], labels: list[str], *
             "pos": [[s0.get("x"), s0.get("y"), s0.get("sector")], [s1.get("x"), s1.get("y"), s1.get("sector")]],
             "goal_dist": [goal_dist(s0), goal_dist(s1)],
             "mode": s1.get("mode"), "keys": s1.get("keys"), "items": r.get("items"),
-            "waypoints": r.get("waypoints"),
+            "waypoints": r.get("waypoints"), "door_wp": r.get("door_wp"),
             "combat": r.get("combat"), "type": r.get("type"), "fire": r.get("fire_stats"), "gun": GUN_NAMES.get(r.get("gun"), r.get("gun")),
             "proj": r.get("proj_stats"),
             "actions": dict(zip(ACTIONS, acts.tolist())),

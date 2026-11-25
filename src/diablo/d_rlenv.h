@@ -67,6 +67,14 @@ boolean RL_SectorPoint(unsigned seed, int min_dist, int *x, int *y);
 // see, min_dist..max_dist away, as near the centre of the view as there is one.
 boolean RL_ViewPoint(unsigned seed, int min_dist, int max_dist, int *x, int *y);
 
+// DOORSPOT (2026-11-24, the door drill): the player teleported in front of
+// a random closed door it can open, facing it, the waypoint behind it.
+boolean RL_DoorSpot(unsigned seed, int min_dist, int max_dist, int jitter);
+
+// WAYPOINT DOOR (2026-11-24): the waypoint past a closed door in view the
+// player can walk to and open, no teleport; *line the door line.
+boolean RL_DoorPoint(unsigned seed, int min_dist, int max_dist, int *x, int *y, int *line);
+
 // Copy the current screen (I_VideoBuffer, 320x200 8-bit), the
 // palette and the depth buffer into the -shm segment. No-op without -shm.
 void RL_PublishFrame(void);

@@ -58,13 +58,19 @@ USE = ACTIONS.index("USE")
 #   waypoint: the waypoint drill: map monsters hidden, endless waypoints
 #             (a new one as soon as one is reached), frequent practice items
 #             on the way to it, about half uniques (ITEMS)
+#   door:     the door drill (2026-11-24): map monsters hidden, the player teleported in
+#             front of a closed door (DOORSPOT) with the waypoint behind it, the next
+#             door when it is reached or door_every tics pass; every sector visited
+#             from the start, no items; model.DOOR_MAPS
 #   maze:     map monsters hidden, no waypoints
 #   mixed:    map monsters shown, waypoints
-# Drills (combat, aim, proj, waypoint) end only on the exit or time (death too before 2026-11-22: they
+# Drills (combat, aim, proj, waypoint, door) end only on the exit or time (death too before 2026-11-22: they
 # respawn at once now, at the map start, with the same gun): no portal
 # or key goal. No type: the older random split (EnvConfig.combat, waypoint_off).
-TYPES = ("combat", "aim", "proj", "waypoint", "maze", "mixed")
-DRILLS = ("combat", "aim", "proj", "waypoint")
+# TYPES = ("combat", "aim", "proj", "waypoint", "maze", "mixed")
+# DRILLS = ("combat", "aim", "proj", "waypoint")
+TYPES = ("combat", "aim", "proj", "waypoint", "door", "maze", "mixed")
+DRILLS = ("combat", "aim", "proj", "waypoint", "door")
 
 
 def replay_dir_name(iwad: str | None, warp: str) -> str:
@@ -114,6 +120,16 @@ class RewardConfig:
     # death: float = -200.0
     death: float = -1000.0            # the player died (ends the rollout; a drill respawns): 10x the exit, 100x a blind press (2026-11-24: dying should be very expensive; -200 before, 2x the exit; -150 before 2026-11-20, when a death also forfeited the combat pay; -100 before 2026-11-18)
     mechanism: float = 10.0           # USE that sets a new mechanism going (once per mechanism)
+    # A USE that hits nothing (2026-11-24, with the door drill): no use event and
+    # no switch or closed door in reach (the engine's wall_use) at the step's
+    # start; else USE every tic costs nothing. One-off.
+    use_miss: float = -1.0
+    # Opening a door (2026-11-24): a USE that sets a fully shut door moving (the
+    # engine's use event, its closed list) pays door, one-off, on the USE's own step,
+    # each opening (a door that shut again pays again); mechanism no longer pays doors
+    # (its once-per-rollout rule stays for switches and lifts). In the chained stream
+    # the door's credit was buried in reward-to-go noise.
+    door: float = 10.0
     key: float = 25.0                 # per key colour newly held (blue, yellow, red; once each)
     # Pickups, from the engine's pickup events: each Diablo item picked
     # up (or armor, which also grants one) pays `loot`; a health pickup
@@ -358,7 +374,9 @@ class RewardConfig:
     # between); proj one-off since 2026-11-22, credited back to the step that
     # pulled the trigger.
     # immediate: tuple = ("consult", "move_flip", "turn_waste", "aim", "proj", "track")
-    immediate: tuple = ("consult", "turn_waste", "aim", "proj", "track")    # move_flip (momentum_flip since) until 2026-11-24 (chained since: momentum); no track before 2026-11-22; blind_fire until 2026-11-22 (deleted)
+    # immediate: tuple = ("consult", "turn_waste", "aim", "proj", "track")   (before use_miss, 2026-11-24)
+    # immediate: tuple = ("consult", "turn_waste", "aim", "proj", "track", "use_miss")   (before door, 2026-11-24)
+    immediate: tuple = ("consult", "turn_waste", "aim", "proj", "track", "use_miss", "door")    # move_flip (momentum_flip since) until 2026-11-24 (chained since: momentum); no track before 2026-11-22; blind_fire until 2026-11-22 (deleted)
 
 
 # A CONSULT handler answers a CONSULT: it may drive the engine with any
@@ -522,6 +540,20 @@ class EnvConfig:
     drill_waypoint_place: str = "view"
     drill_waypoint_min: float = 128.0
     drill_waypoint_max: float = 384.0
+    # The door drill (2026-11-24): DOORSPOT min..max units in front of the door,
+    # facing it give or take door_jitter degrees; the next door after door_every
+    # tics unreached (35 after a DOORSPOT that found none).
+    door_min: int = 96
+    door_max: int = 256
+    door_jitter: int = 20
+    door_every: int = 175
+    # The waypoint drill's doors (2026-11-24): this share of its waypoints try WAYPOINT
+    # DOOR first -- past a closed door in view, its approach drill_door_min..drill_door_max
+    # away, no teleport -- the view point when there is none.
+    # drill_door_share: float = 0.3
+    drill_door_share: float = 0.0     # off (2026-11-24): doors in view were rare (2 of 27 waypoints trying every time); the door drill's own groups instead
+    drill_door_min: int = 64
+    drill_door_max: int = 384
     # Reached within this many map units of the player (2026-11-20, every
     # type; before, only the engine's touch, as a pickup): the env clears it.
     waypoint_reach: float = 96.0
@@ -578,6 +610,8 @@ class DiabloDoomEnv(gym.Env):
         self._wp_pending = False
         self._wp_view_miss = False        # WAYPOINT VIEW found none last time: path_ahead next
         self._wp_view_sent = False
+        self._door_retry, self._door_jump = 0, False   # the door drill: tics before the next DOORSPOT try; teleported this step
+        self._wp_door, self._wp_door_sent, self._door_wp = False, False, [0, 0]   # the waypoint is past a door; WAYPOINT DOOR sent; [set, reached]
         self._combat_on, self._combat_stats = False, [0, 0, 0, 0.0]   # combat (reset sets them)
         self._installed: dict[int, bytes | None] = {}   # install_state slots
         self._installed_visited: dict[int, str | None] = {}  # their visited lists (VISITED hex)
@@ -730,6 +764,14 @@ class DiabloDoomEnv(gym.Env):
                     d, _ = self.engine.command(f"VISIT {off} {'f' * len(vis[off:off + 200])}")
         elif self._type == "waypoint":
             d, _ = self.engine.command(f"ITEMS {self.cfg.drill_item_tics} {self.cfg.drill_item_unique}")
+        elif self._type == "door":
+            # No items; every sector visited, so a teleport or a door crossing never
+            # pays a room: the door pays mechanism and the waypoint behind it.
+            d, _ = self.engine.command("ITEMS 0")
+            vis = self.visited()
+            if vis:
+                for off in range(0, len(vis), 200):
+                    d, _ = self.engine.command(f"VISIT {off} {'f' * len(vis[off:off + 200])}")
         self._combat_stats = [0, 0, 0, 0.0]   # shots, hits, kills, damage dealt (HP)
         self._dmg_share = 0.0                  # monster HP shares removed (paid at the end)
         self._view_share = 0.0                 # the same, times the monsters in view at each hit
@@ -794,13 +836,16 @@ class DiabloDoomEnv(gym.Env):
         if self._type is None:
             self._wp_on = self.cfg.waypoints and (int(rng_seed) * 2654435761 % 1000) / 1000.0 >= self.cfg.waypoint_off
         else:
-            self._wp_on = self.cfg.waypoints and self._type in ("waypoint", "mixed")
+            # self._wp_on = self.cfg.waypoints and self._type in ("waypoint", "mixed")
+            self._wp_on = self.cfg.waypoints and self._type in ("waypoint", "door", "mixed")
         # The waypoint drill: no limit, the next one at once.
-        endless = self._type == "waypoint"
+        endless = self._type in ("waypoint", "door")
         self._wp_count = 0 if endless else self.cfg.waypoint_count
         self._wp_gap = 0 if endless else self.cfg.waypoint_gap
         self._wp, self._wp_tic, self._wp_stats, self._wp_pending = None, -10 ** 9, [0, 0], False
         self._wp_view_miss = False
+        self._door_retry, self._door_jump = 0, False
+        self._wp_door, self._wp_door_sent, self._door_wp = False, False, [0, 0]
         self._wp_clear = False
         obs = self._stack.reset(self._frame())
         return obs, self._info(0, d)
@@ -863,14 +908,31 @@ class DiabloDoomEnv(gym.Env):
             d, events = self.engine.command(line)
             tics = max(d.get("tics", 0), 0)
             sent = True
-        if self._wp_pending:              # WAYPOINT RANDOM: the point the engine picked, if any
+        if self._wp_pending and self._type == "door":
+            # DOORSPOT: its doorspot event says whether it teleported (a miss keeps
+            # the old waypoint, if any, and tries again in a second).
+            self._wp_pending = False
+            ok = any(e.get("event") == "doorspot" and e.get("line", -1) >= 0 for e in events)
+            if ok and d.get("waypoint") is not None:
+                self._wp = tuple(d["waypoint"])
+                self._wp_stats[0] += 1
+            else:
+                ok = False
+                self._wp = tuple(d["waypoint"]) if d.get("waypoint") is not None else None
+            self._door_retry, self._door_jump = (0 if ok else 35), ok
+        elif self._wp_pending:            # WAYPOINT RANDOM: the point the engine picked, if any
             self._wp_pending = False
             if d.get("waypoint") is not None:
                 self._wp = tuple(d["waypoint"])
                 self._wp_stats[0] += 1
+                # WAYPOINT DOOR: its doorpoint event says whether it is past a door.
+                self._wp_door = self._wp_door_sent and any(
+                    e.get("event") == "doorpoint" and e.get("line", -1) >= 0 for e in events)
+                self._door_wp[0] += self._wp_door
             else:
                 self._wp = None
                 self._wp_view_miss = self._wp_view_sent
+        jump, self._door_jump = self._door_jump, False   # DOORSPOT teleported the player this step
         wp = self._wp                     # the waypoint this step ran toward
 
         self.state = d
@@ -878,10 +940,14 @@ class DiabloDoomEnv(gym.Env):
         if any(e.get("event") == "waypoint_reached" for e in events) or (wp is not None and "waypoint" not in d):
             if any(e.get("event") == "waypoint_reached" for e in events):
                 self._wp_stats[1] += 1
+                self._door_wp[1] += self._wp_door
                 # add("waypoint", rc.waypoint)   (before 2026-11-24's facing scale)
                 add("waypoint", rc.waypoint * self._wp_facing(prev, wp))
-            self._wp, self._wp_tic = None, self._tics
-        elif (wp is not None and "x" in d and self.cfg.waypoint_reach > 0
+            self._wp, self._wp_tic, self._wp_door = None, self._tics, False
+        # The door drill: only the engine's touch (a waypoint just past the door is
+        # within waypoint_reach of the closed door).
+        # A waypoint past a door (WAYPOINT DOOR) too.
+        elif (wp is not None and "x" in d and self.cfg.waypoint_reach > 0 and self._type != "door" and not self._wp_door
               and np.hypot(d["x"] - wp[0], d["y"] - wp[1]) <= self.cfg.waypoint_reach):
             # Within waypoint_reach (2026-11-20): reached, the engine's marker
             # cleared with the next action.
@@ -904,7 +970,7 @@ class DiabloDoomEnv(gym.Env):
         # 5 fixed waypoint rewards and the rollout limit are its urgency.
         sec = rooms(d, self._best_sectors)
         goal = goal_dist(d)
-        if wp is not None and "x" in prev and "x" in d:
+        if wp is not None and "x" in prev and "x" in d and not jump:
             closed = np.hypot(prev["x"] - wp[0], prev["y"] - wp[1]) - np.hypot(d["x"] - wp[0], d["y"] - wp[1])
             if abs(closed) <= 64:         # a jump (teleport) is not walking
                 facing = 1.0
@@ -940,7 +1006,9 @@ class DiabloDoomEnv(gym.Env):
             add("wall_look", rc.wall_look * tics)
 
         # Falls: charged on landing (RewardConfig.fall).
-        if sent and rc.fall:
+        if jump:
+            self._fall_top, self._fall_peak = None, 0.0
+        elif sent and rc.fall:
             add("fall", self._fall_step(prev, d, tics))
 
         # Wasted rotation, from the facing (RewardConfig.turn_waste).
@@ -949,7 +1017,9 @@ class DiabloDoomEnv(gym.Env):
 
         # Momentum flips: this step's velocity against the last fast one
         # (RewardConfig.momentum_flip; the W/S keys before 2026-11-24).
-        if sent and tics > 0 and rc.momentum_flip and "x" in prev and "x" in d:
+        if jump:
+            self._flip_v = None
+        elif sent and tics > 0 and rc.momentum_flip and "x" in prev and "x" in d:
             vx, vy = (d["x"] - prev["x"]) / tics, (d["y"] - prev["y"]) / tics
             sp = float(np.hypot(vx, vy))
             if sp * tics > 64:                     # a teleport, LOAD or respawn
@@ -974,6 +1044,13 @@ class DiabloDoomEnv(gym.Env):
         # reusing the same door or switch never pays again.
         if self._new_mechanisms(events):
             add("mechanism", rc.mechanism)
+        # Opening a shut door (RewardConfig.door): once a step, however many sectors.
+        if rc.door and any(e.get("event") == "use" and e.get("closed") for e in events):
+            add("door", rc.door)
+        # A USE that hits nothing (RewardConfig.use_miss).
+        if (a == USE and sent and rc.use_miss and not prev.get("wall_use")
+                and not any(e.get("event") == "use" for e in events)):
+            add("use_miss", rc.use_miss)
 
         # Keys: each colour pays once per rollout, when first held.
         new_keys = self._new_keys(d)
@@ -1147,6 +1224,7 @@ class DiabloDoomEnv(gym.Env):
         info["type"] = self._type
         info["drill"] = self._drill
         info["waypoints"] = list(self._wp_stats)   # [set, reached]
+        info["door_waypoints"] = list(self._door_wp)   # of them past a door (WAYPOINT DOOR): [set, reached]
         info["terms"] = terms             # the reward by term
         info["reward_now"] = sum(v for t, v in terms.items() if t in rc.immediate)
         info["reward_back"] = back        # [steps back, term, value]: one-off, for an earlier step (rollout.py)
@@ -1251,6 +1329,14 @@ class DiabloDoomEnv(gym.Env):
                 self._wp_count > 0 and self._wp is None and self._wp_stats[0] >= self._wp_count):
             return None
         age = self._tics - self._wp_tic
+        # The door drill (2026-11-24): the next door when the waypoint behind the last
+        # was reached, or it has had door_every tics; the engine teleports and sets it.
+        if self._type == "door":
+            if age < (self._door_retry if self._wp is None else cfg.door_every):
+                return None
+            self._wp_tic, self._wp_pending, self._door_jump = self._tics, True, True
+            return (f"DOORSPOT {int(self.np_random.integers(0, 2 ** 31))} {cfg.door_min} "
+                    f"{cfg.door_max} {cfg.door_jitter}")
         if self._wp is not None and cfg.waypoint_every <= 0:
             return None
         if age < (self._wp_gap if self._wp is None else cfg.waypoint_every):
@@ -1259,10 +1345,15 @@ class DiabloDoomEnv(gym.Env):
         place = cfg.drill_waypoint_place if drill else cfg.waypoint_place
         near = cfg.drill_waypoint_min if drill else cfg.waypoint_min
         self._wp_view_sent = False
+        self._wp_door_sent = False
         if place == "view" and not self._wp_view_miss:
             self._wp_tic, self._wp_pending, self._wp_view_sent = self._tics, True, True
-            return (f"WAYPOINT VIEW {int(self.np_random.integers(0, 2 ** 31))} "
-                    f"{int(near)} {int(cfg.drill_waypoint_max)}")
+            seed = int(self.np_random.integers(0, 2 ** 31))
+            if self.np_random.random() < cfg.drill_door_share:
+                self._wp_door_sent = True
+                return (f"WAYPOINT DOOR {seed} {cfg.drill_door_min} {cfg.drill_door_max} "
+                        f"{int(near)} {int(cfg.drill_waypoint_max)}")
+            return f"WAYPOINT VIEW {seed} {int(near)} {int(cfg.drill_waypoint_max)}"
         self._wp_view_miss = False
         # if cfg.waypoint_place == "sector":   (before the drill's own placement, 2026-11-24)
         if place == "sector" or (drill and ahead is None):
@@ -1320,7 +1411,11 @@ class DiabloDoomEnv(gym.Env):
         for e in events:
             if e.get("event") != "use":
                 continue
-            keys = {("sector", s) for s in e.get("sectors", [])} | {("line", n) for n in e.get("lines", [])}
+            # keys = {("sector", s) for s in e.get("sectors", [])} | {("line", n) for n in e.get("lines", [])}
+            # Not doors (2026-11-24: RewardConfig.door pays them, each opening).
+            doors = set(e.get("doors", []))
+            keys = ({("sector", s) for s in e.get("sectors", []) if s not in doors}
+                    | {("line", n) for n in e.get("lines", [])})
             if keys - self._used:
                 new = True
             self._used |= keys

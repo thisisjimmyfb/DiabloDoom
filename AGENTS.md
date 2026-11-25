@@ -187,7 +187,12 @@ on demand; `SEED n` sets `prndindex` (send it after `LOAD`; saves don't
 store it); level completion sends an `exit` event, and a player USE that
 sets a mechanism going (a sector starts moving, or a switch flips) sends a
 `use` event listing those sectors and switch lines (the env pays its
-mechanism reward once per mechanism). Pickups (2026-11-14): each thing the player
+mechanism reward once per mechanism; 2026-11-24 `doors`, those sectors that are doors, and `closed`, those
+of them fully shut when it began: the env's per-opening door reward). `DOORSPOT <seed> [min] [max] [jitter]`
+(`-rlenv`, 2026-11-24, `RL_DoorSpot`, the door drill): teleports the player in front of a random closed door
+it can open, facing it, the waypoint past it, with a `doorspot` event (`line` -1: none found); `WAYPOINT DOOR
+<seed> [min] [max] [vmin] [vmax]` (2026-11-24, `RL_DoorPoint`): the waypoint past a closed door in view the
+player can walk to and open, no teleport, else as `WAYPOINT VIEW`, with a `doorpoint` event. Pickups (2026-11-14): each thing the player
 picks up sends a `pickup` event (`kind` loot, armor, health, key or
 other; `hp` the health it gave) for the env's loot and health rewards. Approach (2026-11-14): the state
 line carries `exit_dist` and `frontier_dist` (and, since 2026-11-14, `sector`, the
